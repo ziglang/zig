@@ -130,13 +130,16 @@ pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
             unreachable; // support > 128 bit int arguments
         },
         .ErrorUnion => {
-            const payload = ty.errorUnionPayload(mod);
-            const payload_bits = payload.bitSize(mod);
-            if (payload_bits <= 64) {
-                result[0] = .integer;
-                result[1] = .integer;
-            }
-            unreachable; // support > 64 bit error payloads
+            const payload_ty = ty.errorUnionPayload(mod);
+            const payload_bits = payload_ty.bitSize(mod);
+
+            // the error union itself
+            result[0] = .integer;
+
+            // anyerror!void can fit into one register
+            if (payload_bits == 0) return result;
+
+            std.debug.panic("support ErrorUnion payload {}", .{payload_ty.fmt(mod)});
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }

@@ -1601,7 +1601,6 @@ fn allocReg(self: *Self) !struct { Register, RegisterLock } {
 }
 
 fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
-    log.debug("elemOffset: {}", .{index});
     const reg: Register = blk: {
         switch (index) {
             .immediate => |imm| {
@@ -1616,14 +1615,14 @@ fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Regi
                 const lock = self.register_manager.lockRegAssumeUnused(reg);
                 defer self.register_manager.unlockReg(lock);
 
-                try self.binOpMir(
+                const result = try self.binOp(
                     .mul,
-                    null,
-                    index_ty,
                     .{ .register = reg },
+                    index_ty,
                     .{ .immediate = elem_size },
+                    index_ty,
                 );
-                break :blk reg;
+                break :blk result.register;
             },
         }
     };
@@ -1817,24 +1816,10 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const lhs_ty = self.typeOf(bin_op.lhs);
     const rhs_ty = self.typeOf(bin_op.rhs);
 
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn supportImmediate(tag: Air.Inst.Tag) bool {
-    return switch (tag) {
-        .add,
-        .sub,
-        .cmp_eq,
-        .cmp_neq,
-        .cmp_gt,
-        .cmp_gte,
-        .cmp_lt,
-        .cmp_lte,
-        => true,
-
-        else => false,
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        break :result try self.binOp(tag, lhs, lhs_ty, rhs, rhs_ty);
     };
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 /// For all your binary operation needs, this function will generate
@@ -1854,10 +1839,9 @@ fn supportImmediate(tag: Air.Inst.Tag) bool {
 fn binOp(
     self: *Self,
     tag: Air.Inst.Tag,
-    maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
-    rhs: MCValue,
     lhs_ty: Type,
+    rhs: MCValue,
     rhs_ty: Type,
 ) InnerError!MCValue {
     const zcu = self.bin_file.comp.module.?;
@@ -1881,15 +1865,12 @@ fn binOp(
                     assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
-                        if (rhs == .immediate and supportImmediate(tag)) {
-                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
-                        }
-                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return self.binOpRegister(tag, lhs, lhs_ty, rhs, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
                 },
-                else => |x| return self.fail("TOOD: binOp {s}", .{@tagName(x)}),
+                else => |x| return std.debug.panic("TOOD: binOp {s}", .{@tagName(x)}),
             }
         },
 
@@ -1912,23 +1893,21 @@ fn binOp(
                             else => unreachable,
                         };
 
-                        return try self.binOpRegister(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return try self.binOpRegister(base_tag, lhs, lhs_ty, rhs, rhs_ty);
                     } else {
                         const offset = try self.binOp(
                             .mul,
-                            null,
                             rhs,
-                            .{ .immediate = elem_size },
                             Type.usize,
+                            .{ .immediate = elem_size },
                             Type.usize,
                         );
 
                         const addr = try self.binOp(
                             tag,
-                            null,
                             lhs,
-                            offset,
                             Type.manyptr_u8,
+                            offset,
                             Type.usize,
                         );
                         return addr;
@@ -1948,10 +1927,7 @@ fn binOp(
                 .Int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
-                        if (rhs == .immediate) {
-                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
-                        }
-                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        return self.binOpRegister(tag, lhs, lhs_ty, rhs, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
@@ -1973,14 +1949,11 @@ fn binOp(
 fn binOpRegister(
     self: *Self,
     tag: Air.Inst.Tag,
-    maybe_inst: ?Air.Inst.Index,
     lhs: MCValue,
-    rhs: MCValue,
     lhs_ty: Type,
+    rhs: MCValue,
     rhs_ty: Type,
 ) !MCValue {
-    _ = maybe_inst;
-
     const lhs_reg, const lhs_lock = blk: {
         if (lhs == .register) break :blk .{ lhs.register, null };
 
@@ -2006,164 +1979,79 @@ fn binOpRegister(
         .add => .add,
         .sub => .sub,
         .mul => .mul,
-        .cmp_eq => .cmp_eq,
-        .cmp_neq => .cmp_neq,
-        .cmp_gt => .cmp_gt,
-        .cmp_gte => .cmp_gte,
-        .cmp_lt => .cmp_lt,
+
         .shl => .sllw,
         .shr => .srlw,
+
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        => .pseudo,
+
         else => return self.fail("TODO: binOpRegister {s}", .{@tagName(tag)}),
     };
 
-    _ = try self.addInst(.{
-        .tag = mir_tag,
-        .ops = .rrr,
-        .data = .{
-            .r_type = .{
-                .rd = dest_reg,
-                .rs1 = lhs_reg,
-                .rs2 = rhs_reg,
-            },
-        },
-    });
-
-    // generate the struct for OF checks
-
-    return MCValue{ .register = dest_reg };
-}
-
-/// Don't call this function directly. Use binOp instead.
-///
-/// Call this function if rhs is an immediate. Generates I version of binops.
-///
-/// Asserts that rhs is an immediate MCValue
-fn binOpImm(
-    self: *Self,
-    tag: Air.Inst.Tag,
-    maybe_inst: ?Air.Inst.Index,
-    lhs: MCValue,
-    rhs: MCValue,
-    lhs_ty: Type,
-    rhs_ty: Type,
-) !MCValue {
-    assert(rhs == .immediate);
-    _ = maybe_inst;
-
-    // TODO: use `maybe_inst` to track instead of forcing a lock.
-
-    const lhs_reg, const lhs_lock = blk: {
-        if (lhs == .register) break :blk .{ lhs.register, null };
-
-        const lhs_reg, const lhs_lock = try self.allocReg();
-        try self.genSetReg(lhs_ty, lhs_reg, lhs);
-        break :blk .{ lhs_reg, lhs_lock };
-    };
-    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dest_reg, const dest_lock = try self.allocReg();
-    defer self.register_manager.unlockReg(dest_lock);
-
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .shl => .slli,
-        .shr => .srli,
-        .cmp_gte => .cmp_imm_gte,
-        .cmp_eq => .cmp_imm_eq,
-        .cmp_neq => .cmp_imm_neq,
-        .cmp_lte => .cmp_imm_lte,
-        .cmp_lt => .cmp_imm_lt,
-        .add => .addi,
-        .sub => .addiw,
-        else => return self.fail("TODO: binOpImm {s}", .{@tagName(tag)}),
-    };
-
-    // apply some special operations needed
     switch (mir_tag) {
-        .slli,
-        .srli,
-        .addi,
-        .cmp_imm_eq,
-        .cmp_imm_neq,
-        .cmp_imm_lte,
-        .cmp_imm_lt,
+        .add,
+        .sub,
+        .mul,
+        .sllw,
+        .srlw,
         => {
-            _ = try self.addInst(.{
-                .tag = mir_tag,
-                .ops = .rri,
-                .data = .{ .i_type = .{
-                    .rd = dest_reg,
-                    .rs1 = lhs_reg,
-                    .imm12 = Immediate.s(math.cast(i12, rhs.immediate) orelse {
-                        return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
-                    }),
-                } },
-            });
-        },
-        .addiw => {
-            _ = try self.addInst(.{
-                .tag = mir_tag,
-                .ops = .rri,
-                .data = .{ .i_type = .{
-                    .rd = dest_reg,
-                    .rs1 = lhs_reg,
-                    .imm12 = Immediate.s(-(math.cast(i12, rhs.immediate) orelse {
-                        return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
-                    })),
-                } },
-            });
-        },
-        .cmp_imm_gte => {
-            const imm_reg = try self.copyToTmpRegister(rhs_ty, .{ .immediate = rhs.immediate - 1 });
-
-            _ = try self.addInst(.{
-                .tag = mir_tag,
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = dest_reg,
-                    .rs1 = imm_reg,
-                    .rs2 = lhs_reg,
-                } },
-            });
-        },
-        else => unreachable,
-    }
-
-    return MCValue{ .register = dest_reg };
-}
-
-fn binOpMir(
-    self: *Self,
-    mir_tag: Mir.Inst.Tag,
-    maybe_inst: ?Air.Inst.Index,
-    ty: Type,
-    dst_mcv: MCValue,
-    src_mcv: MCValue,
-) !void {
-    const zcu = self.bin_file.comp.module.?;
-    const abi_size: u32 = @intCast(ty.abiSize(zcu));
-
-    _ = abi_size;
-    _ = maybe_inst;
-
-    switch (dst_mcv) {
-        .register => |dst_reg| {
-            const src_reg = try self.copyToTmpRegister(ty, src_mcv);
-
             _ = try self.addInst(.{
                 .tag = mir_tag,
                 .ops = .rrr,
                 .data = .{
                     .r_type = .{
-                        .rd = dst_reg,
-                        .rs1 = dst_reg,
-                        .rs2 = src_reg,
+                        .rd = dest_reg,
+                        .rs1 = lhs_reg,
+                        .rs2 = rhs_reg,
                     },
                 },
             });
         },
 
-        else => return self.fail("TODO: binOpMir {s}", .{@tagName(dst_mcv)}),
+        .pseudo => {
+            const pseudo_op = switch (tag) {
+                .cmp_eq,
+                .cmp_neq,
+                .cmp_gt,
+                .cmp_gte,
+                .cmp_lt,
+                => .pseudo_compare,
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = .pseudo,
+                .ops = pseudo_op,
+                .data = .{
+                    .compare = .{
+                        .rd = dest_reg,
+                        .rs1 = lhs_reg,
+                        .rs2 = rhs_reg,
+                        .op = switch (tag) {
+                            .cmp_eq => .eq,
+                            .cmp_neq => .neq,
+                            .cmp_gt => .gt,
+                            .cmp_gte => .gte,
+                            .cmp_lt => .lt,
+                            .cmp_lte => .lte,
+                            else => unreachable,
+                        },
+                    },
+                },
+            });
+        },
+
+        else => unreachable,
     }
+
+    // generate the struct for OF checks
+
+    return MCValue{ .register = dest_reg };
 }
 
 fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
@@ -2174,7 +2062,9 @@ fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void 
     const lhs_ty = self.typeOf(bin_op.lhs);
     const rhs_ty = self.typeOf(bin_op.rhs);
 
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        break :result try self.binOp(tag, lhs, lhs_ty, rhs, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2200,7 +2090,7 @@ fn airSubWrap(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        break :result try self.binOp(.sub, inst, lhs, rhs, lhs_ty, rhs_ty);
+        break :result try self.binOp(.sub, lhs, lhs_ty, rhs, rhs_ty);
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -2240,7 +2130,7 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        const add_result_mcv = try self.binOp(.add, null, lhs, rhs, lhs_ty, rhs_ty);
+        const add_result_mcv = try self.binOp(.add, lhs, lhs_ty, rhs, rhs_ty);
         const add_result_lock = self.register_manager.lockRegAssumeUnused(add_result_mcv.register);
         defer self.register_manager.unlockReg(add_result_lock);
 
@@ -2291,10 +2181,9 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                         const overflow_mcv = try self.binOp(
                             .cmp_neq,
-                            null,
                             .{ .register = overflow_reg },
-                            .{ .register = add_reg },
                             lhs_ty,
+                            .{ .register = add_reg },
                             lhs_ty,
                         );
 
@@ -2347,7 +2236,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 switch (int_info.bits) {
                     1...32 => {
                         if (self.hasFeature(.m)) {
-                            const dest = try self.binOp(.mul, null, lhs, rhs, lhs_ty, rhs_ty);
+                            const dest = try self.binOp(.mul, lhs, lhs_ty, rhs, rhs_ty);
 
                             const add_result_lock = self.register_manager.lockRegAssumeUnused(dest.register);
                             defer self.register_manager.unlockReg(add_result_lock);
@@ -2393,10 +2282,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                                             const overflow_mcv = try self.binOp(
                                                 .cmp_neq,
-                                                null,
                                                 .{ .register = overflow_reg },
-                                                .{ .register = add_reg },
                                                 lhs_ty,
+                                                .{ .register = add_reg },
                                                 lhs_ty,
                                             );
 
@@ -2479,7 +2367,7 @@ fn airShl(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        break :result try self.binOp(.shl, inst, lhs, rhs, lhs_ty, rhs_ty);
+        break :result try self.binOp(.shl, lhs, lhs_ty, rhs, rhs_ty);
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -2543,10 +2431,9 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
                 if (err_off > 0) {
                     result = try self.binOp(
                         .shr,
-                        null,
                         result,
-                        .{ .immediate = @as(u6, @intCast(err_off * 8)) },
                         err_union_ty,
+                        .{ .immediate = @as(u6, @intCast(err_off * 8)) },
                         Type.u8,
                     );
                 }
@@ -2593,10 +2480,9 @@ fn genUnwrapErrUnionPayloadMir(
                 if (payload_off > 0) {
                     result = try self.binOp(
                         .shr,
-                        null,
                         result,
-                        .{ .immediate = @as(u6, @intCast(payload_off * 8)) },
                         err_union_ty,
+                        .{ .immediate = @as(u6, @intCast(payload_off * 8)) },
                         Type.u8,
                     );
                 }
@@ -2837,7 +2723,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         };
 
         const dest = try self.allocRegOrMem(inst, true);
-        const addr = try self.binOp(.ptr_add, null, base_mcv, index_mcv, slice_ptr_field_type, Type.usize);
+        const addr = try self.binOp(.ptr_add, base_mcv, slice_ptr_field_type, index_mcv, Type.usize);
         try self.load(dest, addr, slice_ptr_field_type);
 
         break :result dest;
@@ -2885,13 +2771,14 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         defer self.register_manager.unlockReg(offset_lock);
 
         const dst_mcv = try self.allocRegOrMem(inst, false);
-        try self.binOpMir(
-            .add,
-            null,
-            Type.usize,
-            .{ .register = addr_reg },
-            .{ .register = offset_reg },
-        );
+        _ = try self.addInst(.{
+            .tag = .add,
+            .ops = .rr,
+            .data = .{ .rr = .{
+                .rd = addr_reg,
+                .rs = offset_reg,
+            } },
+        });
         try self.genCopy(elem_ty, dst_mcv, .{ .indirect = .{ .reg = addr_reg } });
         break :result dst_mcv;
     };
@@ -3046,7 +2933,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
 
         switch (int_bits) {
             16 => {
-                const temp = try self.binOp(.shr, null, dest_mcv, .{ .immediate = 8 }, ty, Type.u8);
+                const temp = try self.binOp(.shr, dest_mcv, ty, .{ .immediate = 8 }, Type.u8);
                 assert(temp == .register);
                 _ = try self.addInst(.{
                     .tag = .slli,
@@ -3752,7 +3639,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index) !void {
 
         const int_info = int_ty.intInfo(zcu);
         if (int_info.bits <= 64) {
-            break :result try self.binOp(tag, null, lhs, rhs, int_ty, int_ty);
+            break :result try self.binOp(tag, lhs, int_ty, rhs, int_ty);
         } else {
             return self.fail("TODO riscv cmp for ints > 64 bits", .{});
         }
@@ -4033,20 +3920,19 @@ fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, eu_ty: Type, eu_mcv: MCValue)
             if (err_off > 0) {
                 return_mcv = try self.binOp(
                     .shr,
-                    null,
                     return_mcv,
-                    .{ .immediate = @as(u6, @intCast(err_off * 8)) },
                     eu_ty,
+                    .{ .immediate = @as(u6, @intCast(err_off * 8)) },
                     Type.u8,
                 );
             }
 
-            try self.binOpMir(
+            return_mcv = try self.binOp(
                 .cmp_neq,
-                null,
-                Type.anyerror,
                 return_mcv,
+                Type.u16,
                 .{ .immediate = 0 },
+                Type.u16,
             );
 
             return return_mcv;
@@ -4070,8 +3956,8 @@ fn isNonErr(self: *Self, inst: Air.Inst.Index, eu_ty: Type, eu_mcv: MCValue) !MC
     switch (is_err_res) {
         .register => |reg| {
             _ = try self.addInst(.{
-                .tag = .not,
-                .ops = .rr,
+                .tag = .pseudo,
+                .ops = .pseudo_not,
                 .data = .{
                     .rr = .{
                         .rd = reg,
@@ -4440,9 +4326,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                     dst_mcv,
                     try self.resolveInst(src_ref),
                 ),
-                else => return self.fail("TODO implement genCopy for {s} of {}", .{
-                    @tagName(src_mcv), ty.fmt(zcu),
-                }),
+                else => unreachable,
             };
             defer if (src_info) |info| self.register_manager.unlockReg(info.addr_lock);
 

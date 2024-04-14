@@ -2,9 +2,6 @@ mnemonic: Mnemonic,
 data: Data,
 
 pub const Mnemonic = enum {
-    // R Type
-    add,
-
     // I Type
     ld,
     lw,
@@ -13,6 +10,10 @@ pub const Mnemonic = enum {
     lhu,
     lb,
     lbu,
+    sltiu,
+    sltu,
+    xori,
+    andi,
 
     addi,
     jalr,
@@ -32,6 +33,12 @@ pub const Mnemonic = enum {
     // B Type
     beq,
 
+    // R Type
+    add,
+    slt,
+    mul,
+    xor,
+
     // System
     ecall,
     ebreak,
@@ -50,8 +57,11 @@ pub const Mnemonic = enum {
             .lb     => .{ .opcode = 0b0000011, .funct3 = 0b000, .funct7 = null      },
             .lbu    => .{ .opcode = 0b0000011, .funct3 = 0b100, .funct7 = null      },
 
+            .sltiu  => .{ .opcode = 0b0010011, .funct3 = 0b011, .funct7 = null      },
 
             .addi   => .{ .opcode = 0b0010011, .funct3 = 0b000, .funct7 = null      },
+            .andi   => .{ .opcode = 0b0010011, .funct3 = 0b111, .funct7 = null      },
+            .xori   => .{ .opcode = 0b0010011, .funct3 = 0b100, .funct7 = null      },
             .jalr   => .{ .opcode = 0b1100111, .funct3 = 0b000, .funct7 = null      },
 
             .lui    => .{ .opcode = 0b0110111, .funct3 = null,  .funct7 = null      },
@@ -64,6 +74,13 @@ pub const Mnemonic = enum {
             .jal    => .{ .opcode = 0b1101111, .funct3 = null,  .funct7 = null      },
 
             .beq    => .{ .opcode = 0b1100011, .funct3 = 0b000, .funct7 = null      },
+
+            .slt    => .{ .opcode = 0b0110011, .funct3 = 0b010, .funct7 = 0b0000000 },
+            .sltu   => .{ .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000000 },
+
+            .xor    => .{ .opcode = 0b0110011, .funct3 = 0b100, .funct7 = 0b0000000 },
+
+            .mul    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0000001 },
 
             .ecall  => .{ .opcode = 0b1110011, .funct3 = 0b000, .funct7 = null      },
             .ebreak => .{ .opcode = 0b1110011, .funct3 = 0b000, .funct7 = null      },
@@ -98,6 +115,9 @@ pub const InstEnc = enum {
             .lb,
             .lbu,
             .jalr,
+            .sltiu,
+            .xori,
+            .andi,
             => .I,
 
             .lui,
@@ -114,6 +134,12 @@ pub const InstEnc = enum {
 
             .beq,
             => .B,
+
+            .slt,
+            .sltu,
+            .mul,
+            .xor,
+            => .R,
 
             .ecall,
             .ebreak,

@@ -159,7 +159,83 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
 
-            else => return lower.fail("TODO Lower: psuedo {s}", .{@tagName(inst.ops)}),
+            .pseudo_compare => {
+                const compare = inst.data.compare;
+                const op = compare.op;
+
+                const rd = compare.rd;
+                const rs1 = compare.rs1;
+                const rs2 = compare.rs2;
+
+                switch (op) {
+                    .eq => {
+                        try lower.emit(.xor, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+
+                        try lower.emit(.sltiu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                    .neq => {
+                        try lower.emit(.xor, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+
+                        try lower.emit(.sltu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = .zero },
+                            .{ .reg = rd },
+                        });
+                    },
+                    .gt => {
+                        try lower.emit(.sltu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    .gte => {
+                        try lower.emit(.sltu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+
+                        try lower.emit(.xori, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                    .lt => {
+                        try lower.emit(.slt, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    else => return lower.fail("TODO lower: pseudo_compare {s}", .{@tagName(op)}),
+                }
+            },
+
+            .pseudo_not => {
+                const rr = inst.data.rr;
+
+                try lower.emit(.xori, &.{
+                    .{ .reg = rr.rd },
+                    .{ .reg = rr.rs },
+                    .{ .imm = Immediate.s(1) },
+                });
+            },
+
+            else => return lower.fail("TODO lower: psuedo {s}", .{@tagName(inst.ops)}),
         },
     }
 
@@ -191,6 +267,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.b_type.rs1 },
             .{ .reg = inst.data.b_type.rs2 },
             .{ .imm = lower.reloc(.{ .inst = inst.data.b_type.inst }) },
+        },
+        .rrr => &.{
+            .{ .reg = inst.data.r_type.rd },
+            .{ .reg = inst.data.r_type.rs1 },
+            .{ .reg = inst.data.r_type.rs2 },
         },
         else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
     });

@@ -67,36 +67,6 @@ pub const Inst = struct {
         /// Immediate AND, uses i_type payload
         andi,
 
-        // NOTE: Maybe create a special data for compares that includes the ops
-        /// Register `==`, uses r_type
-        cmp_eq,
-        /// Register `!=`, uses r_type
-        cmp_neq,
-        /// Register `>`, uses r_type
-        cmp_gt,
-        /// Register `<`, uses r_type
-        cmp_lt,
-        /// Register `>=`, uses r_type
-        cmp_gte,
-
-        /// Immediate `>=`, uses r_type
-        ///
-        /// Note: this uses r_type because RISC-V does not provide a good way
-        /// to do `>=` comparisons on immediates. Usually we would just subtract
-        /// 1 from the immediate and do a `>` comparison, however there is no `>`
-        /// register to immedate comparison in RISC-V. This leads us to need to
-        /// allocate a register for temporary use.
-        cmp_imm_gte,
-
-        /// Immediate `==`, uses i_type
-        cmp_imm_eq,
-        /// Immediate `!=`, uses i_type.
-        cmp_imm_neq,
-        /// Immediate `<=`, uses i_type
-        cmp_imm_lte,
-        /// Immediate `<`, uses i_type
-        cmp_imm_lt,
-
         /// Branch if equal, Uses b_type
         beq,
         /// Branch if not equal, Uses b_type
@@ -213,6 +183,20 @@ pub const Inst = struct {
             rd: Register,
             rs: Register,
         },
+
+        compare: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
+            op: enum {
+                eq,
+                neq,
+                gt,
+                gte,
+                lt,
+                lte,
+            },
+        },
     };
 
     pub const Ops = enum {
@@ -291,6 +275,9 @@ pub const Inst = struct {
 
         pseudo_restore_regs,
         pseudo_spill_regs,
+
+        pseudo_compare,
+        pseudo_not,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.

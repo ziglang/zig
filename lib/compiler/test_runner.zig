@@ -266,4 +266,6 @@ pub fn mainExtraSimple() !void {
         };
         pass_count += 1;
     }
+
+    std.posix.exit(pass_count);
 }
