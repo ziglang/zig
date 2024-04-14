@@ -67,7 +67,6 @@ var g2: i32 = 0;
 
 test "global variables" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(g2 == 0);
     g2 = g1;

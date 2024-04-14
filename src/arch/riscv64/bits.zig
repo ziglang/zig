@@ -20,7 +20,7 @@ pub const Memory = struct {
             size: Size,
             disp: i32 = 0,
         },
-        off: u64,
+        off: i32,
     };
 
     pub const Size = enum(u4) {
@@ -33,7 +33,7 @@ pub const Memory = struct {
         /// Double word, 8 Bytes
         dword,
 
-        pub fn fromSize(size: u32) Size {
+        pub fn fromByteSize(size: u64) Size {
             return switch (size) {
                 1 => .byte,
                 2 => .hword,
@@ -66,7 +66,7 @@ pub const Memory = struct {
     /// Asserts `mem` can be represented as a `FrameLoc`.
     pub fn toFrameLoc(mem: Memory, mir: Mir) Mir.FrameLoc {
         const offset: i32 = switch (mem.mod) {
-            .off => |off| @intCast(off),
+            .off => |off| off,
             .rm => |rm| rm.disp,
         };
 

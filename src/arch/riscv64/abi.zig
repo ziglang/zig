@@ -4,6 +4,7 @@ const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Module = @import("../../Module.zig");
+const assert = std.debug.assert;
 
 pub const Class = enum { memory, byval, integer, double_integer, fields, none };
 
@@ -93,14 +94,16 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
+pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
+    const ip = zcu.intern_pool;
     var result = [1]Class{.none} ** 8;
-    switch (ty.zigTypeTag(mod)) {
+
+    switch (ty.zigTypeTag(zcu)) {
         .Bool, .Void, .NoReturn => {
             result[0] = .integer;
             return result;
         },
-        .Pointer => switch (ty.ptrSize(mod)) {
+        .Pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -112,7 +115,7 @@ pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
             },
         },
         .Optional => {
-            if (ty.isPtrLikeOptional(mod)) {
+            if (ty.isPtrLikeOptional(zcu)) {
                 result[0] = .integer;
                 return result;
             }
@@ -121,7 +124,7 @@ pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
             return result;
         },
         .Int, .Enum, .ErrorSet => {
-            const int_bits = ty.intInfo(mod).bits;
+            const int_bits = ty.intInfo(zcu).bits;
             if (int_bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -134,8 +137,8 @@ pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
             unreachable; // support > 128 bit int arguments
         },
         .ErrorUnion => {
-            const payload_ty = ty.errorUnionPayload(mod);
-            const payload_bits = payload_ty.bitSize(mod);
+            const payload_ty = ty.errorUnionPayload(zcu);
+            const payload_bits = payload_ty.bitSize(zcu);
 
             // the error union itself
             result[0] = .integer;
@@ -143,7 +146,20 @@ pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
             // anyerror!void can fit into one register
             if (payload_bits == 0) return result;
 
-            std.debug.panic("support ErrorUnion payload {}", .{payload_ty.fmt(mod)});
+            std.debug.panic("support ErrorUnion payload {}", .{payload_ty.fmt(zcu)});
+        },
+        .Struct => {
+            const loaded_struct = ip.loadStructType(ty.toIntern());
+            const ty_size = ty.abiSize(zcu);
+
+            if (loaded_struct.layout == .@"packed") {
+                assert(ty_size <= 16);
+                result[0] = .integer;
+                if (ty_size > 8) result[1] = .integer;
+                return result;
+            }
+
+            std.debug.panic("support Struct in classifySystem", .{});
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }

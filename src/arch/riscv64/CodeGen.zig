@@ -1452,7 +1452,7 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     const spill_frame_size = frame_size[@intFromEnum(FrameIndex.spill_frame)];
     const call_frame_size = frame_size[@intFromEnum(FrameIndex.call_frame)];
 
-    // TODO: this 24 should be a 16, but we were clobbering the top and bottom of the frame.
+    // TODO: this 64 should be a 16, but we were clobbering the top and bottom of the frame.
     // maybe everything can go from the bottom?
     const acc_frame_size: i32 = std.mem.alignForward(
         i32,
@@ -1497,7 +1497,7 @@ fn memSize(self: *Self, ty: Type) Memory.Size {
     const mod = self.bin_file.comp.module.?;
     return switch (ty.zigTypeTag(mod)) {
         .Float => Memory.Size.fromBitSize(ty.floatBits(self.target.*)),
-        else => Memory.Size.fromSize(@intCast(ty.abiSize(mod))),
+        else => Memory.Size.fromByteSize(ty.abiSize(mod)),
     };
 }
 
@@ -4318,6 +4318,21 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 .off = -dst_reg_off.off,
             } },
         }),
+        .indirect => |ro| {
+            const src_reg = try self.copyToTmpRegister(ty, src_mcv);
+
+            _ = try self.addInst(.{
+                .tag = .pseudo,
+                .ops = .pseudo_store_rm,
+                .data = .{ .rm = .{
+                    .r = src_reg,
+                    .m = .{
+                        .base = .{ .reg = ro.reg },
+                        .mod = .{ .rm = .{ .disp = ro.off, .size = self.memSize(ty) } },
+                    },
+                } },
+            });
+        },
         .load_frame => |frame| return self.genSetStack(ty, frame, src_mcv),
         .memory => return self.fail("TODO: genCopy memory", .{}),
         .register_pair => |dst_regs| {
