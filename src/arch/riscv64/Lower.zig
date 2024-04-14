@@ -221,7 +221,19 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                             .{ .reg = rs2 },
                         });
                     },
-                    else => return lower.fail("TODO lower: pseudo_compare {s}", .{@tagName(op)}),
+                    .lte => {
+                        try lower.emit(.slt, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs2 },
+                            .{ .reg = rs1 },
+                        });
+
+                        try lower.emit(.xori, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
                 }
             },
 
@@ -258,6 +270,10 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.u_type.rd },
             .{ .imm = inst.data.u_type.imm20 },
         },
+        .rr => &.{
+            .{ .reg = inst.data.rr.rd },
+            .{ .reg = inst.data.rr.rs },
+        },
         .rri => &.{
             .{ .reg = inst.data.i_type.rd },
             .{ .reg = inst.data.i_type.rs1 },
@@ -293,7 +309,7 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
 }
 
 fn pushPopRegList(lower: *Lower, comptime spilling: bool, reg_list: Mir.RegisterList) !void {
-    var it = reg_list.iterator(.{ .direction = if (spilling) .forward else .reverse });
+    var it = reg_list.iterator(.{ .direction = .forward });
 
     var reg_i: u31 = 0;
     while (it.next()) |i| {

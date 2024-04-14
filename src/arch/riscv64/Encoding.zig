@@ -14,6 +14,8 @@ pub const Mnemonic = enum {
     sltu,
     xori,
     andi,
+    slli,
+    srli,
 
     addi,
     jalr,
@@ -35,6 +37,7 @@ pub const Mnemonic = enum {
 
     // R Type
     add,
+    sub,
     slt,
     mul,
     xor,
@@ -48,6 +51,7 @@ pub const Mnemonic = enum {
         return switch (mnem) {
             // zig fmt: off
             .add    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0000000 },
+            .sub    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0100000 }, 
 
             .ld     => .{ .opcode = 0b0000011, .funct3 = 0b011, .funct7 = null      },
             .lw     => .{ .opcode = 0b0000011, .funct3 = 0b010, .funct7 = null      },
@@ -63,6 +67,8 @@ pub const Mnemonic = enum {
             .andi   => .{ .opcode = 0b0010011, .funct3 = 0b111, .funct7 = null      },
             .xori   => .{ .opcode = 0b0010011, .funct3 = 0b100, .funct7 = null      },
             .jalr   => .{ .opcode = 0b1100111, .funct3 = 0b000, .funct7 = null      },
+            .slli   => .{ .opcode = 0b0010011, .funct3 = 0b001, .funct7 = null      },
+            .srli   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null      },
 
             .lui    => .{ .opcode = 0b0110111, .funct3 = null,  .funct7 = null      },
 
@@ -103,9 +109,6 @@ pub const InstEnc = enum {
 
     pub fn fromMnemonic(mnem: Mnemonic) InstEnc {
         return switch (mnem) {
-            .add,
-            => .R,
-
             .addi,
             .ld,
             .lw,
@@ -118,6 +121,8 @@ pub const InstEnc = enum {
             .sltiu,
             .xori,
             .andi,
+            .slli,
+            .srli,
             => .I,
 
             .lui,
@@ -139,6 +144,8 @@ pub const InstEnc = enum {
             .sltu,
             .mul,
             .xor,
+            .add,
+            .sub,
             => .R,
 
             .ecall,

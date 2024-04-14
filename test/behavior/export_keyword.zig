@@ -9,6 +9,8 @@ const builtin = @import("builtin");
 // and generates code
 const vram = @as([*]volatile u8, @ptrFromInt(0x20000000))[0..0x8000];
 export fn writeToVRam() void {
+    if (builtin.zig_backend == .stage2_riscv64) return;
+
     vram[0] = 'X';
 }
 
@@ -24,6 +26,7 @@ const PackedUnion = packed union {
 test "packed struct, enum, union parameters in extern function" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     testPackedStuff(&(PackedStruct{
         .a = 1,

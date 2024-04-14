@@ -251,8 +251,6 @@ pub fn mainSimple() anyerror!void {
 }
 
 pub fn mainExtraSimple() !void {
-    var pass_count: u8 = 0;
-    var skip_count: u8 = 0;
     var fail_count: u8 = 0;
 
     for (builtin.test_functions) |test_fn| {
@@ -261,11 +259,9 @@ pub fn mainExtraSimple() !void {
                 fail_count += 1;
                 continue;
             }
-            skip_count += 1;
             continue;
         };
-        pass_count += 1;
     }
 
-    std.posix.exit(pass_count);
+    if (fail_count != 0) std.process.exit(1);
 }

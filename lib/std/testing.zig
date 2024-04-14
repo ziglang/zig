@@ -22,7 +22,7 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = builtin.zig_backend != .stage2_spirv64;
+pub const backend_can_print = builtin.zig_backend != .stage2_spirv64 and builtin.zig_backend != .stage2_riscv64;
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {

@@ -1448,9 +1448,15 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     // The total frame size is calculated by the amount of s registers you need to save * 8, as each
     // register is 8 bytes, the total allocation sizes, and 16 more register for the spilled ra and s0
     // register. Finally we align the frame size to the align of the base pointer.
+    const args_frame_size = frame_size[@intFromEnum(FrameIndex.args_frame)];
+    const spill_frame_size = frame_size[@intFromEnum(FrameIndex.spill_frame)];
+    const call_frame_size = frame_size[@intFromEnum(FrameIndex.call_frame)];
+
+    // TODO: this 24 should be a 16, but we were clobbering the top and bottom of the frame.
+    // maybe everything can go from the bottom?
     const acc_frame_size: i32 = std.mem.alignForward(
         i32,
-        total_alloc_size + 16 + frame_size[@intFromEnum(FrameIndex.args_frame)] + frame_size[@intFromEnum(FrameIndex.spill_frame)],
+        total_alloc_size + 64 + args_frame_size + spill_frame_size + call_frame_size,
         @intCast(frame_align[@intFromEnum(FrameIndex.base_ptr)].toByteUnits().?),
     );
     log.debug("frame size: {}", .{acc_frame_size});
@@ -1771,8 +1777,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                     try self.register_manager.allocReg(inst, gp);
 
                 _ = try self.addInst(.{
-                    .tag = .not,
-                    .ops = .rr,
+                    .tag = .pseudo,
+                    .ops = .pseudo_not,
                     .data = .{
                         .rr = .{
                             .rs = operand_reg,
@@ -1870,7 +1876,7 @@ fn binOp(
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
                 },
-                else => |x| return std.debug.panic("TOOD: binOp {s}", .{@tagName(x)}),
+                else => |x| return self.fail("TOOD: binOp {s}", .{@tagName(x)}),
             }
         },
 
@@ -1988,6 +1994,7 @@ fn binOpRegister(
         .cmp_gt,
         .cmp_gte,
         .cmp_lt,
+        .cmp_lte,
         => .pseudo,
 
         else => return self.fail("TODO: binOpRegister {s}", .{@tagName(tag)}),
@@ -2020,6 +2027,7 @@ fn binOpRegister(
                 .cmp_gt,
                 .cmp_gte,
                 .cmp_lt,
+                .cmp_lte,
                 => .pseudo_compare,
                 else => unreachable,
             };
@@ -2773,10 +2781,11 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv = try self.allocRegOrMem(inst, false);
         _ = try self.addInst(.{
             .tag = .add,
-            .ops = .rr,
-            .data = .{ .rr = .{
+            .ops = .rrr,
+            .data = .{ .r_type = .{
                 .rd = addr_reg,
-                .rs = offset_reg,
+                .rs1 = offset_reg,
+                .rs2 = addr_reg,
             } },
         });
         try self.genCopy(elem_ty, dst_mcv, .{ .indirect = .{ .reg = addr_reg } });
@@ -3723,7 +3732,7 @@ fn genVarDbgInfo(
                 .undef => .undef,
                 .none => .none,
                 else => blk: {
-                    log.warn("TODO generate debug info for {}", .{mcv});
+                    // log.warn("TODO generate debug info for {}", .{mcv});
                     break :blk .nop;
                 },
             };
@@ -4289,7 +4298,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
 
     if (!dst_mcv.isMutable()) {
         // panic so we can see the trace
-        return std.debug.panic("tried to genCopy immutable: {s}", .{@tagName(dst_mcv)});
+        return self.fail("tried to genCopy immutable: {s}", .{@tagName(dst_mcv)});
     }
 
     switch (dst_mcv) {
@@ -4344,7 +4353,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 part_disp += @intCast(dst_ty.abiSize(zcu));
             }
         },
-        else => return std.debug.panic("TODO: genCopy {s} with {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
+        else => return self.fail("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
     }
 }
 

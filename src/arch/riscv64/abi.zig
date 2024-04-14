@@ -96,6 +96,10 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(mod)) {
+        .Bool, .Void, .NoReturn => {
+            result[0] = .integer;
+            return result;
+        },
         .Pointer => switch (ty.ptrSize(mod)) {
             .Slice => {
                 result[0] = .integer;

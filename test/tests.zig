@@ -435,6 +435,16 @@ const test_targets = blk: {
         //    .use_llvm = true,
         //},
 
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+
         // https://github.com/ziglang/zig/issues/3340
         //.{
         //    .target = .{
@@ -1017,6 +1027,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         // TODO get std lib tests passing for other self-hosted backends.
         if ((target.cpu.arch != .x86_64 or target.os.tag != .linux) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
+            continue;
+
+        if (target.cpu.arch != .x86_64 and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
             continue;
 
         if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
