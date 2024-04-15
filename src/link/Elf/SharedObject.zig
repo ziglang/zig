@@ -269,7 +269,7 @@ pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) !void {
         if (file_ptr.index() != self.index) continue;
         if (global.isLocal(elf_file)) continue;
         global.flags.output_symtab = true;
-        try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+        try global.addExtra(.{ .symtab = self.output_symtab_ctx.nglobals }, elf_file);
         self.output_symtab_ctx.nglobals += 1;
         self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
     }
