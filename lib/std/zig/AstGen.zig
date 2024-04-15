@@ -2821,6 +2821,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
                 .set_float_mode,
                 .set_align_stack,
                 .set_cold,
+                .expect,
                 => break :b true,
                 else => break :b false,
             },
@@ -9291,7 +9292,14 @@ fn builtinCall(
             });
             return rvalue(gz, ri, .void_value, node);
         },
-
+        .expect => {
+            const val = try gz.addExtendedPayload(.expect, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = try expr(gz, scope, .{ .rl = .{ .ty = .bool_type } }, params[0]),
+                .rhs = try expr(gz, scope, .{ .rl = .{ .ty = .bool_type } }, params[1]),
+            });
+            return rvalue(gz, ri, val, node);
+        },
         .src => {
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];

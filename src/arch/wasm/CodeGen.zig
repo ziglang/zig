@@ -2027,6 +2027,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_start,
         => |tag| return func.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
+        .expect => unreachable,
+
         .atomic_load => func.airAtomicLoad(inst),
         .atomic_store_unordered,
         .atomic_store_monotonic,
