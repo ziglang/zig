@@ -22,12 +22,6 @@ output_section_index: u32 = 0,
 /// Index of the input section containing this atom's relocs.
 relocs_section_index: u32 = 0,
 
-/// Start index of the relocations belonging to this atom.
-rel_index: u32 = 0,
-
-/// Number of relocations belonging to this atom.
-rel_num: u32 = 0,
-
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
@@ -304,11 +298,14 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 
 pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
-    return switch (self.file(elf_file).?) {
-        .zig_object => |x| x.relocs.items[shndx].items,
-        .object => |x| x.relocs.items[self.rel_index..][0..self.rel_num],
+    switch (self.file(elf_file).?) {
+        .zig_object => |x| return x.relocs.items[shndx].items,
+        .object => |x| {
+            const extras = self.extra(elf_file).?;
+            return x.relocs.items[extras.rel_index..][0..extras.rel_count];
+        },
         else => unreachable,
-    };
+    }
 }
 
 pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
@@ -981,6 +978,8 @@ const AddExtraOpts = struct {
     thunk: ?u32 = null,
     fde_start: ?u32 = null,
     fde_count: ?u32 = null,
+    rel_index: ?u32 = null,
+    rel_count: ?u32 = null,
 };
 
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) !void {
@@ -2206,6 +2205,12 @@ pub const Extra = struct {
 
     /// Count of FDEs referencing this atom.
     fde_count: u32 = 0,
+
+    /// Start index of relocations belonging to this atom.
+    rel_index: u32 = 0,
+
+    /// Count of relocations belonging to this atom.
+    rel_count: u32 = 0,
 };
 
 const std = @import("std");
