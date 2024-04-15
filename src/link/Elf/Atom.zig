@@ -31,12 +31,6 @@ rel_num: u32 = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
-/// Index of the thunk for this atom.
-thunk_index: Thunk.Index = 0,
-
-/// Flags we use for state tracking.
-flags: Flags = .{},
-
 /// Start index of FDEs referencing this atom.
 fde_start: u32 = 0,
 
@@ -47,6 +41,11 @@ fde_end: u32 = 0,
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: Index = 0,
 next_index: Index = 0,
+
+/// Flags we use for state tracking.
+flags: Flags = .{},
+
+extra_index: u32 = 0,
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
@@ -68,7 +67,9 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 }
 
 pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
-    return elf_file.thunk(self.thunk_index);
+    assert(self.flags.thunk);
+    const extras = self.extra(elf_file).?;
+    return elf_file.thunk(extras.thunk);
 }
 
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
@@ -981,6 +982,31 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
     if (has_reloc_errors) return error.RelocFailure;
 }
 
+const AddExtraOpts = struct {
+    thunk: ?u32 = null,
+};
+
+pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) !void {
+    if (atom.extra(elf_file) == null) {
+        atom.extra_index = try elf_file.addAtomExtra(.{});
+    }
+    var extras = atom.extra(elf_file).?;
+    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+        if (@field(opts, field.name)) |x| {
+            @field(extras, field.name) = x;
+        }
+    }
+    atom.setExtra(extras, elf_file);
+}
+
+pub inline fn extra(atom: Atom, elf_file: *Elf) ?Extra {
+    return elf_file.atomExtra(atom.extra_index);
+}
+
+pub inline fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
+    elf_file.setAtomExtra(atom.extra_index, extras);
+}
+
 pub fn format(
     atom: Atom,
     comptime unused_fmt_string: []const u8,
@@ -1042,6 +1068,9 @@ pub const Flags = packed struct {
 
     /// Specifies if the atom has been visited during garbage collection.
     visited: bool = false,
+
+    /// Whether this symbol has a range extension thunk.
+    thunk: bool = false,
 };
 
 const x86_64 = struct {
@@ -2165,6 +2194,10 @@ const RelocsIterator = struct {
         assert(num > 0);
         it.pos += @intCast(num);
     }
+};
+
+pub const Extra = struct {
+    thunk: u32 = 0,
 };
 
 const std = @import("std");

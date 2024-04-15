@@ -205,6 +205,7 @@ num_ifunc_dynrelocs: usize = 0,
 
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 
 /// List of range extension thunks.
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
@@ -369,6 +370,7 @@ pub fn createEmpty(
     try self.symbols_extra.append(gpa, 0);
     // Allocate atom index 0 to null atom
     try self.atoms.append(gpa, .{});
+    try self.atoms_extra.append(gpa, 0);
     // Append null file at index 0
     try self.files.append(gpa, .null);
     // Append null byte to string tables
@@ -491,6 +493,10 @@ pub fn deinit(self: *Elf) void {
     self.start_stop_indexes.deinit(gpa);
 
     self.atoms.deinit(gpa);
+    self.atoms_extra.deinit(gpa);
+    for (self.thunks.items) |*th| {
+        th.deinit(gpa);
+    }
     self.thunks.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
@@ -5456,6 +5462,50 @@ pub fn addAtom(self: *Elf) !Atom.Index {
     const atom_ptr = try self.atoms.addOne(gpa);
     atom_ptr.* = .{ .atom_index = index };
     return index;
+}
+
+pub fn addAtomExtra(self: *Elf, extra: Atom.Extra) !u32 {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    try self.atoms_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
+    return self.addAtomExtraAssumeCapacity(extra);
+}
+
+pub fn addAtomExtraAssumeCapacity(self: *Elf, extra: Atom.Extra) u32 {
+    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn atomExtra(self: *Elf, index: u32) ?Atom.Extra {
+    if (index == 0) return null;
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Atom.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.atoms_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setAtomExtra(self: *Elf, index: u32, extra: Atom.Extra) void {
+    assert(index > 0);
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 pub fn addThunk(self: *Elf) !Thunk.Index {

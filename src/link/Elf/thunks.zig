@@ -50,7 +50,8 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
                 };
                 try thunk.symbols.put(gpa, target, {});
             }
-            atom.thunk_index = thunk_index;
+            try atom.addExtra(.{ .thunk = thunk_index }, elf_file);
+            atom.flags.thunk = true;
         }
 
         thunk.value = try advance(shdr, thunk.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
