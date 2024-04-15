@@ -9,28 +9,6 @@ pub fn build(b: *std.Build) !void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const lib_msvc = b.addStaticLibrary(.{
-        .name = "toargv-msvc",
-        .root_source_file = .{ .path = "lib.zig" },
-        .target = b.resolveTargetQuery(.{
-            .abi = .msvc,
-        }),
-        .optimize = optimize,
-    });
-    const verify_msvc = b.addExecutable(.{
-        .name = "verify-msvc",
-        .target = b.resolveTargetQuery(.{
-            .abi = .msvc,
-        }),
-        .optimize = optimize,
-    });
-    verify_msvc.addCSourceFile(.{
-        .file = .{ .path = "verify.c" },
-        .flags = &.{ "-DUNICODE", "-D_UNICODE" },
-    });
-    verify_msvc.linkLibrary(lib_msvc);
-    verify_msvc.linkLibC();
-
     const lib_gnu = b.addStaticLibrary(.{
         .name = "toargv-gnu",
         .root_source_file = .{ .path = "lib.zig" },
@@ -71,18 +49,52 @@ pub fn build(b: *std.Build) !void {
     };
     const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
 
-    const run_msvc = b.addRunArtifact(fuzz);
-    run_msvc.setName("fuzz-msvc");
-    run_msvc.addArtifactArg(verify_msvc);
-    run_msvc.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
-    run_msvc.expectExitCode(0);
-
     const run_gnu = b.addRunArtifact(fuzz);
     run_gnu.setName("fuzz-gnu");
     run_gnu.addArtifactArg(verify_gnu);
     run_gnu.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
     run_gnu.expectExitCode(0);
 
-    test_step.dependOn(&run_msvc.step);
     test_step.dependOn(&run_gnu.step);
+
+    // Only target the MSVC ABI if MSVC/Windows SDK is available
+    const has_msvc = has_msvc: {
+        const sdk = std.zig.WindowsSdk.find(b.allocator) catch |err| switch (err) {
+            error.OutOfMemory => @panic("oom"),
+            else => break :has_msvc false,
+        };
+        defer sdk.free(b.allocator);
+        break :has_msvc true;
+    };
+    if (has_msvc) {
+        const lib_msvc = b.addStaticLibrary(.{
+            .name = "toargv-msvc",
+            .root_source_file = .{ .path = "lib.zig" },
+            .target = b.resolveTargetQuery(.{
+                .abi = .msvc,
+            }),
+            .optimize = optimize,
+        });
+        const verify_msvc = b.addExecutable(.{
+            .name = "verify-msvc",
+            .target = b.resolveTargetQuery(.{
+                .abi = .msvc,
+            }),
+            .optimize = optimize,
+        });
+        verify_msvc.addCSourceFile(.{
+            .file = .{ .path = "verify.c" },
+            .flags = &.{ "-DUNICODE", "-D_UNICODE" },
+        });
+        verify_msvc.linkLibrary(lib_msvc);
+        verify_msvc.linkLibC();
+
+        const run_msvc = b.addRunArtifact(fuzz);
+        run_msvc.setName("fuzz-msvc");
+        run_msvc.addArtifactArg(verify_msvc);
+        run_msvc.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
+        run_msvc.expectExitCode(0);
+
+        test_step.dependOn(&run_msvc.step);
+    }
 }
