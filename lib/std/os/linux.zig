@@ -1989,6 +1989,40 @@ pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
     return syscall2(.fremovexattr, fd, @intFromPtr(name));
 }
 
+
+pub sched_param = struct { sched_priority: c_int };
+
+pub fn sched_setparam(pid: pid_t, param: * const sched_param) usize
+{
+    return syscall2(.sched_setparam, @as(usize, @bitCast(@as(isize, pid))),  @intFromPtr(param));
+}
+
+pub fn sched_getparam(pid: pid_t, param: *sched_param) usize
+{
+    return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))),  @intFromPtr(param));
+}
+
+pub fn sched_setscheduler(pid: pid_t, policy: usize, param: *sched_param) usize
+{
+    return syscall3(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))),  policy, @intFromPtr(param));
+}
+
+pub fn sched_getscheduler(pid: pid_t) usize
+{
+    return = syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+pub fn sched_get_priority_max(pid: pid_t) usize
+{
+    return syscall1(.sched_get_priority_max, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+pub fn sched_get_priority_min(pid: pid_t) usize
+{
+    return syscall1(.sched__get_priority_min, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+
 pub fn sched_yield() usize {
     return syscall0(.sched_yield);
 }
