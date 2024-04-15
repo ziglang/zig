@@ -268,6 +268,8 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
     nosuspend {
+        if (std.options.debug_stacktrace_kind == .none) return;
+
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
@@ -296,8 +298,6 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
             writeStackTraceWindows(stderr, debug_info, tty_config, context, start_addr) catch return;
             return;
         }
-
-        if (std.options.debug_stacktrace_kind == .none) return;
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
