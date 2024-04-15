@@ -622,6 +622,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          => @panic("TODO"),
             .try_ptr         => @panic("TODO"),
 
+            .expect => unreachable,
+
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,

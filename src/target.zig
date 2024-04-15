@@ -532,5 +532,6 @@ pub fn backendSupportsFeature(
         .error_set_has_value => use_llvm or cpu_arch.isWasm(),
         .field_reordering => ofmt == .c or use_llvm,
         .safety_checked_instructions => use_llvm,
+        .can_expect => use_llvm or ofmt == .c,
     };
 }

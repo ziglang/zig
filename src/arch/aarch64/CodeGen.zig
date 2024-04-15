@@ -803,6 +803,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          => try self.airTry(inst),
             .try_ptr         => try self.airTryPtr(inst),
 
+            .expect => unreachable,
+
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,

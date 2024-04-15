@@ -844,6 +844,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_payload => try self.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
+            .expect => unreachable,
+
             .add_optimized,
             .sub_optimized,
             .mul_optimized,

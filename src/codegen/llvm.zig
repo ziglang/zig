@@ -5000,6 +5000,8 @@ pub const FuncGen = struct {
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
 
+                .expect => try self.airExpect(inst),
+
                 .call              => try self.airCall(inst, .auto),
                 .call_always_tail  => try self.airCall(inst, .always_tail),
                 .call_never_tail   => try self.airCall(inst, .never_tail),
@@ -6325,6 +6327,25 @@ pub const FuncGen = struct {
         if (libc_ret_ty != ret_ty) result = try self.wip.cast(.bitcast, result, ret_ty, "");
         if (ret_ty != dest_llvm_ty) result = try self.wip.cast(.trunc, result, dest_llvm_ty, "");
         return result;
+    }
+
+    // Note that the LowerExpectPass only runs in Release modes
+    fn airExpect(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+
+        const operand = try self.resolveInst(un_op);
+
+        return try self.wip.callIntrinsic(
+            .normal,
+            .none,
+            .expect,
+            &.{operand.typeOfWip(&self.wip)},
+            &.{
+                operand,
+                .true,
+            },
+            "",
+        );
     }
 
     fn sliceOrArrayPtr(fg: *FuncGen, ptr: Builder.Value, ty: Type) Allocator.Error!Builder.Value {

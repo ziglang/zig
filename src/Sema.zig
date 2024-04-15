@@ -1259,6 +1259,7 @@ fn analyzeBodyInner(
                     .work_group_size    => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime        => try sema.zirInComptime(        block),
+                    .expect             => try sema.zirExpect(            block, extended),
                     .closure_get        => try sema.zirClosureGet(        block, extended),
                     // zig fmt: on
 
@@ -17479,6 +17480,20 @@ fn zirThis(
     const this_decl_index = mod.namespacePtr(block.namespace).decl_index;
     const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
     return sema.analyzeDeclVal(block, src, this_decl_index);
+}
+
+fn zirExpect(sema: *Sema, block: *Block, inst: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const un_op = sema.code.extraData(Zir.Inst.UnNode, inst.operand).data;
+    const operand = try sema.resolveInst(un_op.operand);
+
+    if (sema.mod.backendSupportsFeature(.can_expect) and sema.mod.optimizeMode() != .Debug) {
+        return try block.addInst(.{
+            .tag = .expect,
+            .data = .{ .un_op = operand },
+        });
+    } else {
+        return operand;
+    }
 }
 
 fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {

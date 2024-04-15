@@ -142,6 +142,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .cmp_lt_errors_len,
             .set_err_return_trace,
             .c_va_end,
+            .expect,
             => {
                 const un_op = data[@intFromEnum(inst)].un_op;
                 try self.verifyInstOperands(inst, .{ un_op, .none, .none });
