@@ -31,12 +31,6 @@ rel_num: u32 = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
-/// Start index of FDEs referencing this atom.
-fde_start: u32 = 0,
-
-/// End index of FDEs referencing this atom.
-fde_end: u32 = 0,
-
 /// Points to the previous and next neighbors, based on the `text_offset`.
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: Index = 0,
@@ -360,9 +354,10 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
 }
 
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
-    if (self.fde_start == self.fde_end) return &[0]Fde{};
+    if (!self.flags.fde) return &[0]Fde{};
+    const extras = self.extra(elf_file).?;
     const object = self.file(elf_file).?.object;
-    return object.fdes.items[self.fde_start..self.fde_end];
+    return object.fdes.items[extras.fde_start..][0..extras.fde_count];
 }
 
 pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
@@ -984,6 +979,8 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 
 const AddExtraOpts = struct {
     thunk: ?u32 = null,
+    fde_start: ?u32 = null,
+    fde_count: ?u32 = null,
 };
 
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) !void {
@@ -1046,12 +1043,13 @@ fn format2(
         atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
         atom.output_section_index, atom.alignment,      atom.size,
     });
-    if (atom.fde_start != atom.fde_end) {
+    if (atom.flags.fde) {
         try writer.writeAll(" : fdes{ ");
-        for (atom.fdes(elf_file), atom.fde_start..) |fde, i| {
+        const extras = atom.extra(elf_file).?;
+        for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
             try writer.print("{d}", .{i});
             if (!fde.alive) try writer.writeAll("([*])");
-            if (i < atom.fde_end - 1) try writer.writeAll(", ");
+            if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
         }
         try writer.writeAll(" }");
     }
@@ -1069,8 +1067,11 @@ pub const Flags = packed struct {
     /// Specifies if the atom has been visited during garbage collection.
     visited: bool = false,
 
-    /// Whether this symbol has a range extension thunk.
+    /// Whether this atom has a range extension thunk.
     thunk: bool = false,
+
+    /// Whether this atom has FDE records.
+    fde: bool = false,
 };
 
 const x86_64 = struct {
@@ -2197,7 +2198,14 @@ const RelocsIterator = struct {
 };
 
 pub const Extra = struct {
+    /// Index of the range extension thunk of this atom.
     thunk: u32 = 0,
+
+    /// Start index of FDEs referencing this atom.
+    fde_start: u32 = 0,
+
+    /// Count of FDEs referencing this atom.
+    fde_count: u32 = 0,
 };
 
 const std = @import("std");
