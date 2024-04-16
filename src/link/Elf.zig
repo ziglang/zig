@@ -3341,7 +3341,7 @@ pub fn addCommentString(self: *Elf) !void {
     res.sub.* = msub_index;
 }
 
-fn resolveMergeSections(self: *Elf) !void {
+pub fn resolveMergeSections(self: *Elf) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

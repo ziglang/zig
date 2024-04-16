@@ -179,10 +179,11 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     // input Object files.
     elf_file.resolveSymbols();
     elf_file.markEhFrameAtomsDead();
-    claimUnresolved(elf_file);
-
+    try elf_file.resolveMergeSections();
     try elf_file.addCommentString();
     try elf_file.sortMergeSections();
+    claimUnresolved(elf_file);
+
     try initSections(elf_file);
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {

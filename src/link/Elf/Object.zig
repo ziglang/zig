@@ -283,6 +283,7 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{O
     const name = blk: {
         const name = self.getString(shdr.sh_name);
         if (elf_file.base.isRelocatable()) break :blk name;
+        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
         const sh_name_prefixes: []const [:0]const u8 = &.{
             ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
             ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
@@ -740,6 +741,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
     for (self.merge_sections.items) |index| {
         const imsec = elf_file.inputMergeSection(index) orelse continue;
+        if (imsec.offsets.items.len == 0) continue;
         const msec = elf_file.mergeSection(imsec.merge_section_index);
         const atom_ptr = elf_file.atom(imsec.atom_index).?;
         const isec = atom_ptr.inputShdr(elf_file);
@@ -773,6 +775,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
         const imsec_index = self.merge_sections.items[esym.st_shndx];
         const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
+        if (imsec.offsets.items.len == 0) continue;
         const msub_index, const offset = imsec.findSubsection(@intCast(esym.st_value)) orelse {
             var err = try elf_file.addErrorWithNotes(2);
             try err.addMsg(elf_file, "invalid symbol value: {x}", .{esym.st_value});
@@ -797,6 +800,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
             const imsec_index = self.merge_sections.items[esym.st_shndx];
             const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
+            if (imsec.offsets.items.len == 0) continue;
             const msub_index, const offset = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try elf_file.addErrorWithNotes(1);
                 try err.addMsg(elf_file, "invalid relocation at offset 0x{x}", .{rel.r_offset});
