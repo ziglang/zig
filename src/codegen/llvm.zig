@@ -4533,6 +4533,10 @@ pub const Object = struct {
             if (!param_ty.isPtrLikeOptional(mod) and !ptr_info.flags.is_allowzero) {
                 try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
             }
+            if (fn_info.cc == .Interrupt) {
+                const child_type = try lowerType(o, Type.fromInterned(ptr_info.child));
+                try attributes.addParamAttr(llvm_arg_i, .{ .byval = child_type }, &o.builder);
+            }
             if (ptr_info.flags.is_const) {
                 try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
             }
@@ -11338,6 +11342,25 @@ const ParamTypeIterator = struct {
                     it.byval_attr = true;
                     return .byref;
                 }
+            },
+            .Interrupt => {
+                switch (target.cpu.arch) {
+                    .x86 => switch (it.zig_index) {
+                        0 => if (ty.zigTypeTag(mod) != .Pointer) @panic("first argument must be a pointer"),
+                        1 => if (ty.zigTypeTag(mod) != .Int or ty.bitSize(mod) != 32) @panic("second argument must be a u32"),
+                        else => @panic("too many arguments"),
+                    },
+                    .x86_64 => switch (it.zig_index) {
+                        0 => if (ty.zigTypeTag(mod) != .Pointer) @panic("first argument must be a pointer"),
+                        1 => if (ty.zigTypeTag(mod) != .Int or ty.bitSize(mod) != 64) @panic("second argument must be a u64"),
+                        else => @panic("too many arguments"),
+                    },
+                    else => @panic("TODO: handle Interrupt callconv parameters for other architectures."),
+                }
+
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                return .byval;
             },
             else => {
                 it.zig_index += 1;
