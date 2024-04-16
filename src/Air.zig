@@ -849,7 +849,7 @@ pub const Inst = struct {
         work_group_id,
 
         /// Implements @expect builtin.
-        /// Uses the `expect` field.
+        /// Uses the `bin_op` field.
         expect,
 
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
@@ -1339,7 +1339,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .trunc_float,
         .neg,
         .neg_optimized,
-        .expect,
         => return air.typeOf(datas[@intFromEnum(inst)].un_op, ip),
 
         .cmp_lt,
@@ -1526,6 +1525,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_group_size,
         .work_group_id,
         => return Type.u32,
+
+        .expect => return Type.bool,
 
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,

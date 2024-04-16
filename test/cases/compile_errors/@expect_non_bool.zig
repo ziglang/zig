@@ -1,7 +1,7 @@
 export fn a() void {
     var x: u32 = 10;
     _ = &x;
-    _ = @expect(x);
+    _ = @expect(x, true);
 }
 
 // error

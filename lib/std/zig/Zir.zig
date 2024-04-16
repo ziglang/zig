@@ -2061,7 +2061,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
         /// Implements the `@expect` builtin.
-        /// `operand` is UnOp
+        /// `operand` is BinOp
         expect,
 
         pub const InstData = struct {

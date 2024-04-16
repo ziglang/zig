@@ -4736,8 +4736,9 @@ fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airExpect(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try f.resolveInst(un_op);
+    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const operand = try f.resolveInst(bin_op.lhs);
+    const expected = try f.resolveInst(bin_op.rhs);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, Type.bool);
@@ -4747,6 +4748,8 @@ fn airExpect(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try writer.writeAll("zig_expect(");
     try f.writeCValue(writer, operand, .FunctionArgument);
+    try writer.writeAll(", ");
+    try f.writeCValue(writer, expected, .FunctionArgument);
     try writer.writeAll(")");
 
     try a.end(f, writer);

@@ -6331,9 +6331,10 @@ pub const FuncGen = struct {
 
     // Note that the LowerExpectPass only runs in Release modes
     fn airExpect(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-        const operand = try self.resolveInst(un_op);
+        const operand = try self.resolveInst(bin_op.lhs);
+        const epxected = try self.resolveInst(bin_op.rhs);
 
         return try self.wip.callIntrinsic(
             .normal,
@@ -6342,7 +6343,7 @@ pub const FuncGen = struct {
             &.{operand.typeOfWip(&self.wip)},
             &.{
                 operand,
-                .true,
+                epxected,
             },
             "",
         );

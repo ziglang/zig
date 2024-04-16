@@ -8727,13 +8727,13 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@expect#}
-      <pre>{#syntax#}@expect(operand: bool) bool{#endsyntax#}</pre>
+      <pre>{#syntax#}@expect(operand: bool, expected: bool) bool{#endsyntax#}</pre>
       <p>
-      Informs the optimizer that operand will likely be true, which influences branch compilation to prefer generating the true branch first.
+      Informs the optimizer that {#syntax#}operand{#endsyntax#} will likely be {#syntax#}expected{#endsyntax#}, which influences branch compilation to prefer generating the true branch first.
       </p>
       {#code_begin|obj|expect_if#}
 export fn a(x: u32) void {
-    if (@expect(x == 0)) {
+    if (@expect(x == 0, false)) {
         // condition check falls through at code generation
         return;
     } else {

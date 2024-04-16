@@ -748,7 +748,7 @@ pub const list = list: {
             "@expect",
             .{
                 .tag = .expect,
-                .param_count = 1,
+                .param_count = 2,
             },
         },
         .{
