@@ -5104,8 +5104,9 @@ pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
     if (self.eh_frame_section_index) |index| {
         if (index == shndx) return @intCast(self.output_sections.keys().len + 1);
     }
-    for (self.merge_sections.items, 1..) |msec, index| {
-        if (msec.output_section_index == shndx) return @intCast(self.output_sections.keys().len + 1 + index);
+    const base: usize = if (self.eh_frame_section_index == null) 0 else 1;
+    for (self.merge_sections.items, 0..) |msec, index| {
+        if (msec.output_section_index == shndx) return @intCast(self.output_sections.keys().len + 1 + index + base);
     }
     return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
