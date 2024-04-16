@@ -681,11 +681,23 @@ const PackValueBits = struct {
         const vals, const bit_offset = pack.prepareBits(want_ty.bitSize(zcu));
 
         for (vals) |val| {
-            if (Value.fromInterned(val).isUndef(zcu)) {
-                // The value contains undef bits, so is considered entirely undef.
-                return zcu.undefValue(want_ty);
-            }
+            if (!Value.fromInterned(val).isUndef(zcu)) break;
+        } else {
+            // All bits of the value are `undefined`.
+            return zcu.undefValue(want_ty);
         }
+
+        // TODO: we need to decide how to handle partially-undef values here.
+        // Currently, a value with some undefined bits becomes `0xAA` so that we
+        // preserve the well-defined bits, because we can't currently represent
+        // a partially-undefined primitive (e.g. an int with some undef bits).
+        // In future, we probably want to take one of these two routes:
+        // * Define that if any bits are `undefined`, the entire value is `undefined`.
+        //   This is a major breaking change, and probably a footgun.
+        // * Introduce tracking for partially-undef values at comptime.
+        //   This would complicate a lot of operations in Sema, such as basic
+        //   arithmetic.
+        // This design complexity is tracked by #19634.
 
         ptr_cast: {
             if (vals.len != 1) break :ptr_cast;
@@ -705,11 +717,15 @@ const PackValueBits = struct {
         }
 
         const buf = try pack.arena.alloc(u8, @intCast((buf_bits + 7) / 8));
+        // We will skip writing undefined values, so mark the buffer as `0xAA` so we get "undefined" bits.
+        @memset(buf, 0xAA);
         var cur_bit_off: usize = 0;
         for (vals) |ip_val| {
             const val = Value.fromInterned(ip_val);
             const ty = val.typeOf(zcu);
-            try val.writeToPackedMemory(ty, zcu, buf, cur_bit_off);
+            if (!val.isUndef(zcu)) {
+                try val.writeToPackedMemory(ty, zcu, buf, cur_bit_off);
+            }
             cur_bit_off += @intCast(ty.bitSize(zcu));
         }
 

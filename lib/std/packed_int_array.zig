@@ -214,10 +214,6 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         /// or, more likely, an array literal.
         pub fn init(ints: [int_count]Int) Self {
             var self: Self = undefined;
-            if (@inComptime()) {
-                // TODO: #19634
-                @memset(&self.bytes, 0xAA);
-            }
             for (ints, 0..) |int, i| self.set(i, int);
             return self;
         }
@@ -225,10 +221,6 @@ pub fn PackedIntArrayEndian(comptime Int: type, comptime endian: Endian, comptim
         /// Initialize all entries of a packed array to the same value.
         pub fn initAllTo(int: Int) Self {
             var self: Self = undefined;
-            if (@inComptime()) {
-                // TODO: #19634
-                @memset(&self.bytes, 0xAA);
-            }
             self.setAll(int);
             return self;
         }
