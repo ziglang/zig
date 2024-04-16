@@ -53,6 +53,8 @@ pub const Inst = struct {
         srli,
         /// Immediate Logical Left Shift, uses i_type payload
         slli,
+        /// Immediate Arithmetic Right Shift, uses i_type payload.
+        srai,
         /// Register Logical Left Shift, uses r_type payload
         sllw,
         /// Register Logical Right Shit, uses r_type payload

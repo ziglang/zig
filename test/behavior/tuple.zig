@@ -258,7 +258,6 @@ test "offsetOf anon struct" {
 test "initializing tuple with mixed comptime-runtime fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u32 = 15;
     _ = &x;
@@ -271,7 +270,6 @@ test "initializing tuple with mixed comptime-runtime fields" {
 test "initializing anon struct with mixed comptime-runtime fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u32 = 15;
     _ = &x;

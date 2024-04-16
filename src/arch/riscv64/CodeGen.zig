@@ -11,6 +11,7 @@ const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
@@ -54,6 +55,7 @@ const RegisterView = enum(u1) {
 
 gpa: Allocator,
 air: Air,
+mod: *Package.Module,
 liveness: Liveness,
 bin_file: *link.File,
 target: *const std.Target,
@@ -724,6 +726,7 @@ pub fn generate(
     var function = Self{
         .gpa = gpa,
         .air = air,
+        .mod = mod,
         .liveness = liveness,
         .target = target,
         .bin_file = bin_file,
@@ -2138,82 +2141,78 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        const add_result_mcv = try self.binOp(.add, lhs, lhs_ty, rhs, rhs_ty);
-        const add_result_lock = self.register_manager.lockRegAssumeUnused(add_result_mcv.register);
-        defer self.register_manager.unlockReg(add_result_lock);
-
-        const tuple_ty = self.typeOfIndex(inst);
         const int_info = lhs_ty.intInfo(zcu);
 
-        // TODO: optimization, set this to true. needs the other struct access stuff to support
-        // accessing registers.
+        const tuple_ty = self.typeOfIndex(inst);
         const result_mcv = try self.allocRegOrMem(inst, false);
         const offset = result_mcv.load_frame;
 
-        try self.genSetStack(
-            lhs_ty,
-            .{
+        if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
+            const add_result = try self.binOp(.add, lhs, lhs_ty, rhs, rhs_ty);
+            const add_result_reg = try self.copyToTmpRegister(lhs_ty, add_result);
+            const add_result_reg_lock = self.register_manager.lockRegAssumeUnused(add_result_reg);
+            defer self.register_manager.unlockReg(add_result_reg_lock);
+
+            const shift_amount: u6 = @intCast(Type.usize.bitSize(zcu) - int_info.bits);
+
+            const shift_reg, const shift_lock = try self.allocReg();
+            defer self.register_manager.unlockReg(shift_lock);
+
+            _ = try self.addInst(.{
+                .tag = .slli,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .rd = shift_reg,
+                        .rs1 = add_result_reg,
+                        .imm12 = Immediate.s(shift_amount),
+                    },
+                },
+            });
+
+            _ = try self.addInst(.{
+                .tag = if (int_info.signedness == .unsigned) .srli else .srai,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .rd = shift_reg,
+                        .rs1 = shift_reg,
+                        .imm12 = Immediate.s(shift_amount),
+                    },
+                },
+            });
+
+            const add_result_frame: FrameAddr = .{
                 .index = offset.index,
                 .off = offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, zcu))),
-            },
-            add_result_mcv,
-        );
+            };
+            try self.genSetStack(
+                lhs_ty,
+                add_result_frame,
+                add_result,
+            );
 
-        if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
-            if (int_info.signedness == .unsigned) {
-                switch (int_info.bits) {
-                    1...8 => {
-                        const max_val = std.math.pow(u16, 2, int_info.bits) - 1;
+            const overflow_mcv = try self.binOp(
+                .cmp_neq,
+                .{ .register = shift_reg },
+                lhs_ty,
+                .{ .register = add_result_reg },
+                lhs_ty,
+            );
 
-                        const overflow_reg, const overflow_lock = try self.allocReg();
-                        defer self.register_manager.unlockReg(overflow_lock);
+            const overflow_frame: FrameAddr = .{
+                .index = offset.index,
+                .off = offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, zcu))),
+            };
+            try self.genSetStack(
+                Type.u1,
+                overflow_frame,
+                overflow_mcv,
+            );
 
-                        const add_reg, const add_lock = blk: {
-                            if (add_result_mcv == .register) break :blk .{ add_result_mcv.register, null };
-
-                            const add_reg, const add_lock = try self.allocReg();
-                            try self.genSetReg(lhs_ty, add_reg, add_result_mcv);
-                            break :blk .{ add_reg, add_lock };
-                        };
-                        defer if (add_lock) |lock| self.register_manager.unlockReg(lock);
-
-                        _ = try self.addInst(.{
-                            .tag = .andi,
-                            .ops = .rri,
-                            .data = .{ .i_type = .{
-                                .rd = overflow_reg,
-                                .rs1 = add_reg,
-                                .imm12 = Immediate.s(max_val),
-                            } },
-                        });
-
-                        const overflow_mcv = try self.binOp(
-                            .cmp_neq,
-                            .{ .register = overflow_reg },
-                            lhs_ty,
-                            .{ .register = add_reg },
-                            lhs_ty,
-                        );
-
-                        try self.genSetStack(
-                            Type.u1,
-                            .{
-                                .index = offset.index,
-                                .off = offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, zcu))),
-                            },
-                            overflow_mcv,
-                        );
-
-                        break :result result_mcv;
-                    },
-
-                    else => return self.fail("TODO: addWithOverflow check for size {d}", .{int_info.bits}),
-                }
-            } else {
-                return self.fail("TODO: airAddWithOverFlow calculate carry for signed addition", .{});
-            }
+            break :result result_mcv;
         } else {
-            return self.fail("TODO: airAddWithOverflow with < 8 bits or non-pow of 2", .{});
+            return self.fail("TODO: less than 8 bit or non-pow 2 addition", .{});
         }
     };
 
@@ -3500,9 +3499,11 @@ fn genCall(
                         if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                             const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                             const sym = elf_file.symbol(sym_index);
+
                             _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                             const got_addr = sym.zigGotAddress(elf_file);
                             try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
+
                             _ = try self.addInst(.{
                                 .tag = .jalr,
                                 .ops = .rri,

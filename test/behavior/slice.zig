@@ -176,7 +176,6 @@ test "comptime pointer cast array and then slice" {
 test "slicing zero length array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const s1 = ""[0..];
     const s2 = ([_]u32{})[0..];
@@ -738,7 +737,6 @@ test "array mult of slice gives ptr to array" {
 
 test "slice bounds in comptime concatenation" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const bs = comptime blk: {
         const b = "........1........";

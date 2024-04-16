@@ -572,8 +572,6 @@ test "call function pointer in comptime field" {
 }
 
 test "generic function pointer can be called" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         var ok = false;
         fn foo(x: anytype) void {

@@ -21,8 +21,6 @@ fn add(x: i32, y: i32) i32 {
 }
 
 test "this refer to module call private fn" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try expect(module.add(1, 2) == 3);
 }
 

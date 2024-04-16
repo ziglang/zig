@@ -306,8 +306,6 @@ fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
 }
 
 test "comptime iterate over fn ptr list" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try expect(performFn('t', 1) == 6);
     try expect(performFn('o', 0) == 1);
     try expect(performFn('w', 99) == 99);
@@ -413,8 +411,6 @@ var st_init_str_foo = StInitStrFoo{
 };
 
 test "inline for with same type but different values" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var res: usize = 0;
     inline for ([_]type{ [2]u8, [1]u8, [2]u8 }) |T| {
         var a: T = undefined;
@@ -544,7 +540,6 @@ test "runtime 128 bit integer division" {
 test "@tagName of @typeInfo" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const str = @tagName(@typeInfo(u8));
     try expect(std.mem.eql(u8, str, "Int"));
@@ -1007,7 +1002,6 @@ test "closure capture type of runtime-known var" {
 
 test "comptime break passing through runtime condition converted to runtime break" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1042,7 +1036,6 @@ test "comptime break to outer loop passing through runtime condition converted t
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1266,7 +1259,6 @@ test "pass pointer to field of comptime-only type as a runtime parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Mixed = struct {
@@ -1508,7 +1500,6 @@ test "continue nested inline for loop in named block expr" {
 
 test "x and false is comptime-known false" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const T = struct {
         var x: u32 = 0;
@@ -1536,7 +1527,6 @@ test "x and false is comptime-known false" {
 
 test "x or true is comptime-known true" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const T = struct {
         var x: u32 = 0;
@@ -1598,8 +1588,6 @@ test "comptime function turns function value to function pointer" {
 }
 
 test "container level const and var have unique addresses" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         x: i32,
         y: i32,

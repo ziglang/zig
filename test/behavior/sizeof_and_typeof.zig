@@ -144,8 +144,6 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
 }
 
 test "@TypeOf() has no runtime side effects" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -438,8 +436,6 @@ test "Extern function calls, dereferences and field access in @TypeOf" {
 }
 
 test "@sizeOf struct is resolved when used as operand of slicing" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const dummy = struct {};
     const S = struct {
         var buf: [1]u8 = undefined;

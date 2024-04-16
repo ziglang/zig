@@ -44,7 +44,6 @@ test "default alignment allows unspecified in type syntax" {
 }
 
 test "implicitly decreasing pointer alignment" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     try expect(addUnaligned(&a, &b) == 7);
@@ -227,7 +226,6 @@ fn fnWithAlignedStack() i32 {
 }
 
 test "implicitly decreasing slice alignment" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

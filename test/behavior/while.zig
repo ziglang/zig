@@ -5,7 +5,6 @@ const assert = std.debug.assert;
 
 test "while loop" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var i: i32 = 0;
     while (i < 4) {
@@ -39,8 +38,6 @@ fn staticWhileLoop2() i32 {
 }
 
 test "while with continue expression" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var sum: i32 = 0;
     {
         var i: i32 = 0;
@@ -53,8 +50,6 @@ test "while with continue expression" {
 }
 
 test "while with else" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var sum: i32 = 0;
     var i: i32 = 0;
     var got_else: i32 = 0;
@@ -82,8 +77,6 @@ fn getNumberOrNull() ?i32 {
 }
 
 test "continue outer while loop" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     testContinueOuter();
     comptime testContinueOuter();
 }
@@ -131,7 +124,6 @@ test "while copies its payload" {
 
 test "continue and break" {
     if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try runContinueAndBreakTest();
     try expect(continue_and_break_counter == 8);
@@ -349,8 +341,6 @@ test "continue inline while loop" {
 }
 
 test "else continue outer while" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var i: usize = 0;
     while (true) {
         i += 1;

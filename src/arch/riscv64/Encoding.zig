@@ -16,6 +16,7 @@ pub const Mnemonic = enum {
     andi,
     slli,
     srli,
+    srai,
 
     addi,
     jalr,
@@ -69,6 +70,7 @@ pub const Mnemonic = enum {
             .jalr   => .{ .opcode = 0b1100111, .funct3 = 0b000, .funct7 = null      },
             .slli   => .{ .opcode = 0b0010011, .funct3 = 0b001, .funct7 = null      },
             .srli   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null      },
+            .srai   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null,   .offset = 1 << 10  },
 
             .lui    => .{ .opcode = 0b0110111, .funct3 = null,  .funct7 = null      },
 
@@ -123,6 +125,7 @@ pub const InstEnc = enum {
             .andi,
             .slli,
             .srli,
+            .srai,
             => .I,
 
             .lui,
@@ -299,7 +302,7 @@ pub const Data = union(InstEnc) {
                     .I = .{
                         .rd = ops[0].reg.id(),
                         .rs1 = ops[1].reg.id(),
-                        .imm0_11 = ops[2].imm.asBits(u12),
+                        .imm0_11 = ops[2].imm.asBits(u12) + enc.offset,
 
                         .opcode = enc.opcode,
                         .funct3 = enc.funct3.?,
@@ -374,6 +377,7 @@ const Enc = struct {
     opcode: u7,
     funct3: ?u3,
     funct7: ?u7,
+    offset: u12 = 0,
 };
 
 fn verifyOps(mnem: Mnemonic, ops: []const Operand) bool {

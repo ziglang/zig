@@ -7,7 +7,6 @@ const mem = std.mem;
 test "continue in for loop" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const array = [_]i32{ 1, 2, 3, 4, 5 };
     var sum: i32 = 0;
@@ -22,8 +21,6 @@ test "continue in for loop" {
 }
 
 test "break from outer for loop" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testBreakOuter();
     try comptime testBreakOuter();
 }
@@ -41,8 +38,6 @@ fn testBreakOuter() !void {
 }
 
 test "continue outer for loop" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testContinueOuter();
     try comptime testContinueOuter();
 }
@@ -263,7 +258,6 @@ test "for loop with else branch" {
 test "count over fixed range" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var sum: usize = 0;
     for (0..6) |i| {
@@ -276,7 +270,6 @@ test "count over fixed range" {
 test "two counters" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var sum: usize = 0;
     for (0..10, 10..20) |i, j| {

@@ -6,8 +6,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "params" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try expect(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) i32 {
@@ -15,8 +13,6 @@ fn testParamsAdd(a: i32, b: i32) i32 {
 }
 
 test "local variables" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     testLocVars(2);
 }
 fn testLocVars(b: i32) void {
@@ -25,8 +21,6 @@ fn testLocVars(b: i32) void {
 }
 
 test "mutable local variables" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var zero: i32 = 0;
     _ = &zero;
     try expect(zero == 0);
@@ -325,7 +319,6 @@ test "function pointers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const fns = [_]*const @TypeOf(fn1){
         &fn1,
@@ -403,8 +396,6 @@ test "function call with anon list literal - 2D" {
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 1;
