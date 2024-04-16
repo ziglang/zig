@@ -7,7 +7,7 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     assert(atoms.len > 0);
 
     for (atoms) |atom_index| {
-        elf_file.atom(atom_index).?.value = @bitCast(@as(i64, -1));
+        elf_file.atom(atom_index).?.value = -1;
     }
 
     var i: usize = 0;
@@ -22,7 +22,8 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
             const atom_index = atoms[i];
             const atom = elf_file.atom(atom_index).?;
             assert(atom.flags.alive);
-            if (atom.alignment.forward(shdr.sh_size) - start_atom.value >= max_distance) break;
+            if (@as(i64, @intCast(atom.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
+                break;
             atom.value = try advance(shdr, atom.size, atom.alignment);
         }
 
@@ -60,12 +61,12 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     }
 }
 
-fn advance(shdr: *elf.Elf64_Shdr, size: u64, alignment: Atom.Alignment) !u64 {
+fn advance(shdr: *elf.Elf64_Shdr, size: u64, alignment: Atom.Alignment) !i64 {
     const offset = alignment.forward(shdr.sh_size);
     const padding = offset - shdr.sh_size;
     shdr.sh_size += padding + size;
     shdr.sh_addralign = @max(shdr.sh_addralign, alignment.toByteUnits() orelse 1);
-    return offset;
+    return @intCast(offset);
 }
 
 /// A branch will need an extender if its target is larger than
@@ -79,7 +80,7 @@ fn maxAllowedDistance(cpu_arch: std.Target.Cpu.Arch) u32 {
 }
 
 pub const Thunk = struct {
-    value: u64 = 0,
+    value: i64 = 0,
     output_section_index: u32 = 0,
     symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
     output_symtab_ctx: Elf.SymtabCtx = .{},
@@ -93,14 +94,14 @@ pub const Thunk = struct {
         return thunk.symbols.keys().len * trampolineSize(cpu_arch);
     }
 
-    pub fn address(thunk: Thunk, elf_file: *Elf) u64 {
+    pub fn address(thunk: Thunk, elf_file: *Elf) i64 {
         const shdr = elf_file.shdrs.items[thunk.output_section_index];
-        return shdr.sh_addr + thunk.value;
+        return @as(i64, @intCast(shdr.sh_addr)) + thunk.value;
     }
 
-    pub fn targetAddress(thunk: Thunk, sym_index: Symbol.Index, elf_file: *Elf) u64 {
+    pub fn targetAddress(thunk: Thunk, sym_index: Symbol.Index, elf_file: *Elf) i64 {
         const cpu_arch = elf_file.getTarget().cpu.arch;
-        return thunk.address(elf_file) + thunk.symbols.getIndex(sym_index).? * trampolineSize(cpu_arch);
+        return thunk.address(elf_file) + @as(i64, @intCast(thunk.symbols.getIndex(sym_index).? * trampolineSize(cpu_arch)));
     }
 
     pub fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
@@ -132,7 +133,7 @@ pub const Thunk = struct {
                 .st_info = elf.STT_FUNC,
                 .st_other = 0,
                 .st_shndx = @intCast(thunk.output_section_index),
-                .st_value = thunk.targetAddress(sym_index, elf_file),
+                .st_value = @intCast(thunk.targetAddress(sym_index, elf_file)),
                 .st_size = trampolineSize(cpu_arch),
             };
         }
@@ -205,9 +206,9 @@ const aarch64 = struct {
         if (target.flags.has_plt) return false;
         if (atom.output_section_index != target.output_section_index) return false;
         const target_atom = target.atom(elf_file).?;
-        if (target_atom.value == @as(u64, @bitCast(@as(i64, -1)))) return false;
-        const saddr = @as(i64, @intCast(atom.address(elf_file) + rel.r_offset));
-        const taddr: i64 = @intCast(target.address(.{}, elf_file));
+        if (target_atom.value == -1) return false;
+        const saddr = atom.address(elf_file) + @as(i64, @intCast(rel.r_offset));
+        const taddr = target.address(.{}, elf_file);
         _ = math.cast(i28, taddr + rel.r_addend - saddr) orelse return false;
         return true;
     }
@@ -215,11 +216,11 @@ const aarch64 = struct {
     fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
         for (thunk.symbols.keys(), 0..) |sym_index, i| {
             const sym = elf_file.symbol(sym_index);
-            const saddr = thunk.address(elf_file) + i * trampoline_size;
+            const saddr = thunk.address(elf_file) + @as(i64, @intCast(i * trampoline_size));
             const taddr = sym.address(.{}, elf_file);
             const pages = try util.calcNumberOfPages(saddr, taddr);
             try writer.writeInt(u32, Instruction.adrp(.x16, pages).toU32(), .little);
-            const off: u12 = @truncate(taddr);
+            const off: u12 = @truncate(@as(u64, @bitCast(taddr)));
             try writer.writeInt(u32, Instruction.add(.x16, .x16, off, false).toU32(), .little);
             try writer.writeInt(u32, Instruction.br(.x16).toU32(), .little);
         }

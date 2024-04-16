@@ -210,6 +210,14 @@ atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 /// List of range extension thunks.
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
 
+/// List of output merge sections with deduped contents.
+merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
+/// List of output merge subsections.
+/// Each subsection is akin to Atom but belongs to a MergeSection.
+merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
+/// List of input merge sections as parsed from input relocatables.
+merge_input_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
+
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
@@ -380,6 +388,8 @@ pub fn createEmpty(
     _ = try self.addSection(.{ .name = "" });
     // Append null symbol in output symtab
     try self.symtab.append(gpa, null_sym);
+    // Append null input merge section.
+    try self.merge_input_sections.append(gpa, .{});
 
     if (!is_obj_or_ar) {
         try self.dynstrtab.append(gpa, 0);
@@ -498,6 +508,15 @@ pub fn deinit(self: *Elf) void {
         th.deinit(gpa);
     }
     self.thunks.deinit(gpa);
+    for (self.merge_sections.items) |*sect| {
+        sect.deinit(gpa);
+    }
+    self.merge_sections.deinit(gpa);
+    self.merge_subsections.deinit(gpa);
+    for (self.merge_input_sections.items) |*sect| {
+        sect.deinit(gpa);
+    }
+    self.merge_input_sections.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
@@ -1295,6 +1314,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
+    try self.resolveMergeSections();
 
     try self.convertCommonSymbols();
     self.markImportsExports();
@@ -1319,6 +1339,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         else => |e| return e,
     };
 
+    try self.addCommentString();
+    try self.sortMergeSections();
     try self.initOutputSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
@@ -1338,6 +1360,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     self.sortDynamicSymtab();
     try self.setHashSections();
     try self.setVersionSymtab();
+    try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
 
     try self.allocatePhdrTable();
@@ -1365,7 +1388,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zig_object.codeAlloc(self, atom_index);
             defer gpa.free(code);
-            const file_offset = shdr.sh_offset + atom_ptr.value;
+            const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
@@ -1383,6 +1406,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
+    try self.writeMergeSections();
     self.writeSyntheticSections() catch |err| switch (err) {
         error.RelocFailure => return error.FlushFailure,
         error.UnsupportedCpuArch => {
@@ -2952,7 +2976,10 @@ pub fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
     index += 4;
 
-    const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).address(.{}, self) else 0;
+    const e_entry = if (self.entry_index) |entry_index|
+        @as(u64, @intCast(self.symbol(entry_index).address(.{}, self)))
+    else
+        0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
         .p32 => {
@@ -3138,14 +3165,14 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.dynamic_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.dynamic_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
     // __ehdr_start
     {
         const symbol_ptr = self.symbol(self.ehdr_start_index.?);
-        symbol_ptr.value = self.image_base;
+        symbol_ptr.value = @intCast(self.image_base);
         symbol_ptr.output_section_index = 1;
     }
 
@@ -3155,9 +3182,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.init_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // __fini_array_start, __fini_array_end
@@ -3166,9 +3193,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.fini_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // __preinit_array_start, __preinit_array_end
@@ -3177,9 +3204,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.preinit_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // _GLOBAL_OFFSET_TABLE_
@@ -3187,14 +3214,14 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         if (self.got_plt_section_index) |shndx| {
             const shdr = self.shdrs.items[shndx];
             const sym = self.symbol(self.got_index.?);
-            sym.value = shdr.sh_addr;
+            sym.value = @intCast(shdr.sh_addr);
             sym.output_section_index = shndx;
         }
     } else {
         if (self.got_section_index) |shndx| {
             const shdr = self.shdrs.items[shndx];
             const sym = self.symbol(self.got_index.?);
-            sym.value = shdr.sh_addr;
+            sym.value = @intCast(shdr.sh_addr);
             sym.output_section_index = shndx;
         }
     }
@@ -3203,7 +3230,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.plt_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.plt_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
@@ -3211,7 +3238,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.dso_handle_index) |index| {
         const shdr = &self.shdrs.items[1];
         const symbol_ptr = self.symbol(index);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = 0;
     }
 
@@ -3219,7 +3246,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.eh_frame_hdr_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.gnu_eh_frame_hdr_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
@@ -3231,9 +3258,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
         const start_sym = self.symbol(self.rela_iplt_start_index.?);
         const end_sym = self.symbol(self.rela_iplt_end_index.?);
-        start_sym.value = start_addr;
+        start_sym.value = @intCast(start_addr);
         start_sym.output_section_index = shndx;
-        end_sym.value = end_addr;
+        end_sym.value = @intCast(end_addr);
         end_sym.output_section_index = shndx;
     }
 
@@ -3242,7 +3269,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_symbol = self.symbol(self.end_index.?);
         for (self.shdrs.items, 0..) |shdr, shndx| {
             if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
-                end_symbol.value = shdr.sh_addr + shdr.sh_size;
+                end_symbol.value = @intCast(shdr.sh_addr + shdr.sh_size);
                 end_symbol.output_section_index = @intCast(shndx);
             }
         }
@@ -3257,9 +3284,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             const stop = self.symbol(self.start_stop_indexes.items[index + 1]);
             const shndx = self.sectionByName(name["__start_".len..]).?;
             const shdr = &self.shdrs.items[shndx];
-            start.value = shdr.sh_addr;
+            start.value = @intCast(shdr.sh_addr);
             start.output_section_index = shndx;
-            stop.value = shdr.sh_addr + shdr.sh_size;
+            stop.value = @intCast(shdr.sh_addr + shdr.sh_size);
             stop.output_section_index = shndx;
         }
     }
@@ -3269,7 +3296,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const sym = self.symbol(index);
         if (self.sectionByName(".sdata")) |shndx| {
             const shdr = self.shdrs.items[shndx];
-            sym.value = shdr.sh_addr + 0x800;
+            sym.value = @intCast(shdr.sh_addr + 0x800);
             sym.output_section_index = shndx;
         } else {
             sym.value = 0;
@@ -3299,9 +3326,108 @@ fn checkDuplicates(self: *Elf) !void {
     try self.reportDuplicates(dupes);
 }
 
+pub fn addCommentString(self: *Elf) !void {
+    const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
+    const msec = self.mergeSection(msec_index);
+    const res = try msec.insertZ(self.base.comp.gpa, "zig version x.x.x"); // TODO get actual version
+    if (res.found_existing) return;
+    const msub_index = try self.addMergeSubsection();
+    const msub = self.mergeSubsection(msub_index);
+    msub.merge_section_index = msec_index;
+    msub.string_index = res.key.pos;
+    msub.alignment = .@"1";
+    msub.size = res.key.len;
+    msub.alive = true;
+    res.sub.* = msub_index;
+}
+
+fn resolveMergeSections(self: *Elf) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var has_errors = false;
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        file_ptr.object.initMergeSections(self) catch |err| switch (err) {
+            error.MalformedObject => has_errors = true,
+            else => |e| return e,
+        };
+    }
+
+    if (has_errors) return error.FlushFailure;
+
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        file_ptr.object.resolveMergeSubsections(self) catch |err| switch (err) {
+            error.MalformedObject => has_errors = true,
+            else => |e| return e,
+        };
+    }
+
+    if (has_errors) return error.FlushFailure;
+}
+
+pub fn sortMergeSections(self: *Elf) !void {
+    for (self.merge_sections.items) |*msec| {
+        try msec.sort(self);
+    }
+}
+
+pub fn updateMergeSectionSizes(self: *Elf) !void {
+    for (self.merge_sections.items) |*msec| {
+        const shdr = &self.shdrs.items[msec.output_section_index];
+        for (msec.subsections.items) |msub_index| {
+            const msub = self.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const offset = msub.alignment.forward(shdr.sh_size);
+            const padding = offset - shdr.sh_size;
+            msub.value = @intCast(offset);
+            shdr.sh_size += padding + msub.size;
+            shdr.sh_addralign = @max(shdr.sh_addralign, msub.alignment.toByteUnits() orelse 1);
+        }
+    }
+}
+
+pub fn writeMergeSections(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    for (self.merge_sections.items) |msec| {
+        const shdr = self.shdrs.items[msec.output_section_index];
+
+        try buffer.ensureTotalCapacity(shdr.sh_size);
+        buffer.appendNTimesAssumeCapacity(0, shdr.sh_size);
+
+        for (msec.subsections.items) |msub_index| {
+            const msub = self.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const string = msub.getString(self);
+            const off: u64 = @intCast(msub.value);
+            @memcpy(buffer.items[off..][0..string.len], string);
+        }
+
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        buffer.clearRetainingCapacity();
+    }
+}
+
 fn initOutputSections(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
+    }
+
+    for (self.merge_sections.items) |*msec| {
+        if (msec.subsections.items.len == 0) continue;
+        const name = msec.name(self);
+        const shndx = self.sectionByName(name) orelse try self.addSection(.{
+            .name = name,
+            .type = msec.type,
+            .flags = msec.flags,
+        });
+        msec.output_section_index = shndx;
     }
 }
 
@@ -3971,6 +4097,10 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
         }
     }
 
+    for (self.merge_sections.items) |*msec| {
+        msec.output_section_index = backlinks[msec.output_section_index];
+    }
+
     {
         var output_rela_sections = try self.output_rela_sections.clone(gpa);
         defer output_rela_sections.deinit(gpa);
@@ -4058,7 +4188,7 @@ fn updateSectionSizes(self: *Elf) !void {
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
-            atom_ptr.value = offset;
+            atom_ptr.value = @intCast(offset);
             shdr.sh_size += padding + atom_ptr.size;
             shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
         }
@@ -4541,7 +4671,7 @@ fn writeAtoms(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const offset = math.cast(usize, atom_ptr.value - base_offset) orelse
+            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
@@ -4582,7 +4712,7 @@ fn writeAtoms(self: *Elf) !void {
             const thunk_size = th.size(self);
             try buffer.ensureUnusedCapacity(thunk_size);
             const shdr = self.shdrs.items[th.output_section_index];
-            const offset = th.value + shdr.sh_offset;
+            const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
             try th.write(self, buffer.writer());
             assert(buffer.items.len == thunk_size);
             try self.base.file.?.pwriteAll(buffer.items, offset);
@@ -4617,6 +4747,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     if (self.eh_frame_section_index) |_| {
         nlocals += 1;
     }
+    nlocals += @intCast(self.merge_sections.items.len);
 
     if (self.requiresThunks()) for (self.thunks.items) |*th| {
         th.output_symtab_ctx.ilocal = nlocals + 1;
@@ -4953,11 +5084,28 @@ fn writeSectionSymbols(self: *Elf) void {
         };
         ilocal += 1;
     }
+
+    for (self.merge_sections.items) |msec| {
+        const shdr = self.shdrs.items[msec.output_section_index];
+        const out_sym = &self.symtab.items[ilocal];
+        out_sym.* = .{
+            .st_name = 0,
+            .st_value = shdr.sh_addr,
+            .st_info = elf.STT_SECTION,
+            .st_shndx = @intCast(msec.output_section_index),
+            .st_size = 0,
+            .st_other = 0,
+        };
+        ilocal += 1;
+    }
 }
 
 pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
     if (self.eh_frame_section_index) |index| {
         if (index == shndx) return @intCast(self.output_sections.keys().len + 1);
+    }
+    for (self.merge_sections.items, 1..) |msec, index| {
+        if (msec.output_section_index == shndx) return @intCast(self.output_sections.keys().len + 1 + index);
     }
     return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
@@ -5687,35 +5835,88 @@ pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupO
     return &self.comdat_groups_owners.items[index];
 }
 
-pub fn gotAddress(self: *Elf) u64 {
+pub fn addInputMergeSection(self: *Elf) !InputMergeSection.Index {
+    const index: InputMergeSection.Index = @intCast(self.merge_input_sections.items.len);
+    const msec = try self.merge_input_sections.addOne(self.base.comp.gpa);
+    msec.* = .{};
+    return index;
+}
+
+pub fn inputMergeSection(self: *Elf, index: InputMergeSection.Index) ?*InputMergeSection {
+    if (index == 0) return null;
+    return &self.merge_input_sections.items[index];
+}
+
+pub fn addMergeSubsection(self: *Elf) !MergeSubsection.Index {
+    const index: MergeSubsection.Index = @intCast(self.merge_subsections.items.len);
+    const msec = try self.merge_subsections.addOne(self.base.comp.gpa);
+    msec.* = .{};
+    return index;
+}
+
+pub fn mergeSubsection(self: *Elf, index: MergeSubsection.Index) *MergeSubsection {
+    assert(index < self.merge_subsections.items.len);
+    return &self.merge_subsections.items[index];
+}
+
+pub fn getOrCreateMergeSection(self: *Elf, name: []const u8, flags: u64, @"type": u32) !MergeSection.Index {
+    const gpa = self.base.comp.gpa;
+    const out_name = name: {
+        if (self.base.isRelocatable()) break :name name;
+        if (mem.eql(u8, name, ".rodata") or mem.startsWith(u8, name, ".rodata"))
+            break :name if (flags & elf.SHF_STRINGS != 0) ".rodata.str" else ".rodata.cst";
+        break :name name;
+    };
+    const out_off = try self.strings.insert(gpa, out_name);
+    const out_flags = flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP);
+    for (self.merge_sections.items, 0..) |msec, index| {
+        if (msec.name_offset == out_off) return @intCast(index);
+    }
+    const index = @as(MergeSection.Index, @intCast(self.merge_sections.items.len));
+    const msec = try self.merge_sections.addOne(gpa);
+    msec.* = .{
+        .name_offset = out_off,
+        .flags = out_flags,
+        .type = @"type",
+    };
+    return index;
+}
+
+pub fn mergeSection(self: *Elf, index: MergeSection.Index) *MergeSection {
+    assert(index < self.merge_sections.items.len);
+    return &self.merge_sections.items[index];
+}
+
+pub fn gotAddress(self: *Elf) i64 {
     const shndx = blk: {
         if (self.getTarget().cpu.arch == .x86_64 and self.got_plt_section_index != null)
             break :blk self.got_plt_section_index.?;
         break :blk if (self.got_section_index) |shndx| shndx else null;
     };
-    return if (shndx) |index| self.shdrs.items[index].sh_addr else 0;
+    return if (shndx) |index| @intCast(self.shdrs.items[index].sh_addr) else 0;
 }
 
-pub fn tpAddress(self: *Elf) u64 {
+pub fn tpAddress(self: *Elf) i64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return switch (self.getTarget().cpu.arch) {
+    const addr = switch (self.getTarget().cpu.arch) {
         .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
         .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
         else => @panic("TODO implement getTpAddress for this arch"),
     };
+    return @intCast(addr);
 }
 
-pub fn dtpAddress(self: *Elf) u64 {
+pub fn dtpAddress(self: *Elf) i64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return phdr.p_vaddr;
+    return @intCast(phdr.p_vaddr);
 }
 
-pub fn tlsAddress(self: *Elf) u64 {
+pub fn tlsAddress(self: *Elf) i64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return phdr.p_vaddr;
+    return @intCast(phdr.p_vaddr);
 }
 
 const ErrorWithNotes = struct {
@@ -6093,6 +6294,11 @@ fn fmtDumpState(
         try writer.print("  shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
     }
 
+    try writer.writeAll("\nOutput merge sections\n");
+    for (self.merge_sections.items) |msec| {
+        try writer.print("  shdr({d}) : {}\n", .{ msec.output_section_index, msec.fmt(self) });
+    }
+
     try writer.writeAll("\nOutput shdrs\n");
     for (self.shdrs.items, 0..) |shdr, shndx| {
         try writer.print("  shdr({d}) : phdr({?d}) : {}\n", .{
@@ -6285,6 +6491,7 @@ const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
+const merge_section = @import("Elf/merge_section.zig");
 const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
@@ -6310,10 +6517,13 @@ const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
+const InputMergeSection = merge_section.InputMergeSection;
 const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+const MergeSection = merge_section.MergeSection;
+const MergeSubsection = merge_section.MergeSubsection;
 const Module = @import("../Module.zig");
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");

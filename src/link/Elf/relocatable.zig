@@ -181,6 +181,8 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     elf_file.markEhFrameAtomsDead();
     claimUnresolved(elf_file);
 
+    try elf_file.addCommentString();
+    try elf_file.sortMergeSections();
     try initSections(elf_file);
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -191,6 +193,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
         try object.addAtomsToOutputSections(elf_file);
         try object.addAtomsToRelaSections(elf_file);
     }
+    try elf_file.updateMergeSectionSizes();
     try updateSectionSizes(elf_file);
 
     try allocateAllocSections(elf_file);
@@ -201,6 +204,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     }
 
     try writeAtoms(elf_file);
+    try elf_file.writeMergeSections();
     try writeSyntheticSections(elf_file);
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
@@ -275,6 +279,17 @@ fn initSections(elf_file: *Elf) !void {
         try object.initRelaSections(elf_file);
     }
 
+    for (elf_file.merge_sections.items) |*msec| {
+        if (msec.subsections.items.len == 0) continue;
+        const name = msec.name(elf_file);
+        const shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
+            .name = name,
+            .type = msec.type,
+            .flags = msec.flags,
+        });
+        msec.output_section_index = shndx;
+    }
+
     const needs_eh_frame = for (elf_file.objects.items) |index| {
         if (elf_file.file(index).?.object.cies.items.len > 0) break true;
     } else false;
@@ -328,7 +343,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
-            atom_ptr.value = offset;
+            atom_ptr.value = @intCast(offset);
             shdr.sh_size += padding + atom_ptr.size;
             shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
         }
@@ -434,7 +449,7 @@ fn writeAtoms(elf_file: *Elf) !void {
             const atom_ptr = elf_file.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
+            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(shdr.sh_addr - base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
