@@ -469,7 +469,9 @@ pub fn writeToPackedMemory(
     const endian = target.cpu.arch.endian();
     if (val.isUndef(mod)) {
         const bit_size: usize = @intCast(ty.bitSize(mod));
-        std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
+        if (bit_size != 0) {
+            std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
+        }
         return;
     }
     switch (ty.zigTypeTag(mod)) {
