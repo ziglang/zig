@@ -1993,23 +1993,47 @@ pub const sched_param = extern struct {
     sched_priority: i32,
 };
 
-pub const SCHED = struct {
-    /// normal multi-user scheduling
-    pub const OTHER = 0;
-    /// FIFO realtime scheduling
-    pub const FIFO = 1;
-    /// Round-robin realtime scheduling
-    pub const RR = 2;
-    /// For "batch" style execution of processes
-    pub const BATCH = 3;
-    /// Low latency scheduling
-    pub const ISO = 4;
-    /// For running very low priority background jobs
-    pub const IDLE = 5;
-    /// Sporadic task model deadline scheduling
-    pub const DEADLINE = 6;
-    /// OR with other values to stop children from inheriting policies
-    pub const RESET_ON_FORK = 0x40000000;
+// pub const SCHED = struct {
+//     /// normal multi-user scheduling
+//     pub const OTHER = 0;
+//     /// FIFO realtime scheduling
+//     pub const FIFO = 1;
+//     /// Round-robin realtime scheduling
+//     pub const RR = 2;
+//     /// For "batch" style execution of processes
+//     pub const BATCH = 3;
+//     /// Low latency scheduling
+//     pub const ISO = 4;
+//     /// For running very low priority background jobs
+//     pub const IDLE = 5;
+//     /// Sporadic task model deadline scheduling
+//     pub const DEADLINE = 6;
+//     /// OR with other values to stop children from inheriting policies
+//     pub const RESET_ON_FORK = 0x40000000;
+// };
+
+pub const SCHED = packed struct(i32) {
+    pub const Mode = enum(u3) {
+        /// normal multi-user scheduling
+        OTHER = 0,
+        /// FIFO realtime scheduling
+        FIFO = 1,
+        /// Round-robin realtime scheduling
+        RR = 2,
+        /// For "batch" style execution of processes
+        BATCH = 3,
+        /// Low latency scheduling
+        ISO = 4,
+        /// For running very low priority background jobs
+        IDLE = 5,
+        /// Sporadic task model deadline scheduling
+        DEADLINE = 6,
+    };
+    mode: Mode, //bits [0, 2]
+    _3: u27 = 0, //bits [3, 29]
+    /// set to true to stop children from inheriting policies
+    RESET_ON_FORK: bool = false, //bit 30
+    _31: u1 = 0, //bit 31
 };
 
 pub fn sched_setparam(pid: pid_t, param: *const sched_param) usize {
@@ -2020,20 +2044,20 @@ pub fn sched_getparam(pid: pid_t, param: *sched_param) usize {
     return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
 }
 
-pub fn sched_setscheduler(pid: pid_t, policy: u32, param: *const sched_param) usize {
-    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), policy, @intFromPtr(param));
+pub fn sched_setscheduler(pid: pid_t, policy: SCHED, param: *const sched_param) usize {
+    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), @intCast(@as(u32, @bitCast(policy))), @intFromPtr(param));
 }
 
-pub fn sched_getscheduler(pid: pid_t) usize {
-    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
+pub fn sched_getscheduler(pid: pid_t) SCHED {
+    return @bitCast( @as(u32, @intCast(syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid)))))));
 }
 
-pub fn sched_get_priority_max(policy: u32) isize {
-    return @bitCast(syscall1(.sched_get_priority_max, policy));
+pub fn sched_get_priority_max(policy: SCHED) isize {
+    return @bitCast(syscall1(.sched_get_priority_max,@intCast(@as(u32, @bitCast(policy)))));
 }
 
-pub fn sched_get_priority_min(policy: u32) isize {
-    return @bitCast(syscall1(.sched_get_priority_min, policy));
+pub fn sched_get_priority_min(policy: SCHED) isize {
+    return @bitCast(syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy)))));
 }
 
 pub fn sched_yield() usize {
