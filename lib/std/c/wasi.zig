@@ -40,12 +40,6 @@ pub const E = wasi.errno_t;
 
 pub const CLOCK = wasi.clockid_t;
 pub const IOV_MAX = 1024;
-pub const LOCK = struct {
-    pub const SH = 0x1;
-    pub const EX = 0x2;
-    pub const NB = 0x4;
-    pub const UN = 0x8;
-};
 pub const S = struct {
     pub const IEXEC = @compileError("TODO audit this");
     pub const IFBLK = 0x6000;
