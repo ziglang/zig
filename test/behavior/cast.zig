@@ -2073,7 +2073,6 @@ test "peer type resolution: empty tuple pointer and slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: [:0]const u8 = "Hello";
     var b = &.{};
@@ -2095,7 +2094,6 @@ test "peer type resolution: tuple pointer and slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: [:0]const u8 = "Hello";
     var b = &.{ @as(u8, 'x'), @as(u8, 'y'), @as(u8, 'z') };

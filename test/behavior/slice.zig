@@ -939,7 +939,6 @@ test "modify slice length at comptime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const arr: [2]u8 = .{ 10, 20 };
     comptime var s: []const u8 = arr[0..0];

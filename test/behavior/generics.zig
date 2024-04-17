@@ -395,7 +395,6 @@ test "extern function used as generic parameter" {
 
 test "generic struct as parameter type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(comptime Int: type, thing: struct { int: Int }) !void {

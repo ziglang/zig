@@ -11,7 +11,6 @@ pub const Mnemonic = enum {
     lb,
     lbu,
     sltiu,
-    sltu,
     xori,
     andi,
     slli,
@@ -38,9 +37,11 @@ pub const Mnemonic = enum {
 
     // R Type
     add,
+    @"and",
     sub,
     slt,
     mul,
+    sltu,
     xor,
 
     // System
@@ -52,6 +53,8 @@ pub const Mnemonic = enum {
         return switch (mnem) {
             // zig fmt: off
             .add    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0000000 },
+            .sltu   => .{ .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000000 },
+            .@"and" => .{ .opcode = 0b0110011, .funct3 = 0b111, .funct7 = 0b0000000 },
             .sub    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0100000 }, 
 
             .ld     => .{ .opcode = 0b0000011, .funct3 = 0b011, .funct7 = null      },
@@ -84,7 +87,6 @@ pub const Mnemonic = enum {
             .beq    => .{ .opcode = 0b1100011, .funct3 = 0b000, .funct7 = null      },
 
             .slt    => .{ .opcode = 0b0110011, .funct3 = 0b010, .funct7 = 0b0000000 },
-            .sltu   => .{ .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000000 },
 
             .xor    => .{ .opcode = 0b0110011, .funct3 = 0b100, .funct7 = 0b0000000 },
 
@@ -149,6 +151,7 @@ pub const InstEnc = enum {
             .xor,
             .add,
             .sub,
+            .@"and",
             => .R,
 
             .ecall,

@@ -3,6 +3,7 @@ const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
+const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Module.zig");
 const assert = std.debug.assert;
 
@@ -97,7 +98,10 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
     const ip = zcu.intern_pool;
     var result = [1]Class{.none} ** 8;
-
+    const memory_class = [_]Class{
+        .memory, .none, .none, .none,
+        .none,   .none, .none, .none,
+    };
     switch (ty.zigTypeTag(zcu)) {
         .Bool, .Void, .NoReturn => {
             result[0] = .integer;
@@ -146,7 +150,12 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
             // anyerror!void can fit into one register
             if (payload_bits == 0) return result;
 
-            std.debug.panic("support ErrorUnion payload {}", .{payload_ty.fmt(zcu)});
+            if (payload_bits <= 64) {
+                result[1] = .integer;
+                return result;
+            }
+
+            std.debug.panic("TODO: classifySystem ErrorUnion > 64 bit payload", .{});
         },
         .Struct => {
             const loaded_struct = ip.loadStructType(ty.toIntern());
@@ -158,10 +167,72 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
                 if (ty_size > 8) result[1] = .integer;
                 return result;
             }
+            if (ty_size > 64)
+                return memory_class;
 
-            std.debug.panic("support Struct in classifySystem", .{});
+            var byte_offset: u64 = 0;
+            classifyStruct(&result, &byte_offset, loaded_struct, zcu);
+
+            return result;
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
+    }
+}
+
+fn classifyStruct(
+    result: *[8]Class,
+    byte_offset: *u64,
+    loaded_struct: InternPool.LoadedStructType,
+    zcu: *Module,
+) void {
+    const ip = &zcu.intern_pool;
+    var field_it = loaded_struct.iterateRuntimeOrder(ip);
+
+    while (field_it.next()) |field_index| {
+        const field_ty = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+        const field_align = loaded_struct.fieldAlign(ip, field_index);
+        byte_offset.* = std.mem.alignForward(
+            u64,
+            byte_offset.*,
+            field_align.toByteUnits() orelse field_ty.abiAlignment(zcu).toByteUnits().?,
+        );
+        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+            if (field_loaded_struct.layout != .@"packed") {
+                classifyStruct(result, byte_offset, field_loaded_struct, zcu);
+                continue;
+            }
+        }
+        const field_class = std.mem.sliceTo(&classifySystem(field_ty, zcu), .none);
+        const field_size = field_ty.abiSize(zcu);
+
+        combine: {
+            const result_class = &result[@intCast(byte_offset.* / 8)];
+            if (result_class.* == field_class[0]) {
+                break :combine;
+            }
+
+            if (result_class.* == .none) {
+                result_class.* = field_class[0];
+                break :combine;
+            }
+            assert(field_class[0] != .none);
+
+            // "If one of the classes is MEMORY, the result is the MEMORY class."
+            if (result_class.* == .memory or field_class[0] == .memory) {
+                result_class.* = .memory;
+                break :combine;
+            }
+
+            // "If one of the classes is INTEGER, the result is the INTEGER."
+            if (result_class.* == .integer or field_class[0] == .integer) {
+                result_class.* = .integer;
+                break :combine;
+            }
+
+            result_class.* = .integer;
+        }
+        @memcpy(result[@intCast(byte_offset.* / 8 + 1)..][0 .. field_class.len - 1], field_class[1..]);
+        byte_offset.* += field_size;
     }
 }
 

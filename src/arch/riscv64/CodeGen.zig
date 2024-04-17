@@ -1800,8 +1800,95 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airMin(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.bin_file.comp.module.?;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement min for {}", .{self.target.cpu.arch});
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+
+        const int_info = lhs_ty.intInfo(zcu);
+
+        if (int_info.bits > 64) return self.fail("TODO: > 64 bit @min", .{});
+
+        const lhs_reg, const lhs_lock = blk: {
+            if (lhs == .register) break :blk .{ lhs.register, null };
+
+            const lhs_reg, const lhs_lock = try self.allocReg();
+            try self.genSetReg(lhs_ty, lhs_reg, lhs);
+            break :blk .{ lhs_reg, lhs_lock };
+        };
+        defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const rhs_reg, const rhs_lock = blk: {
+            if (rhs == .register) break :blk .{ rhs.register, null };
+
+            const rhs_reg, const rhs_lock = try self.allocReg();
+            try self.genSetReg(rhs_ty, rhs_reg, rhs);
+            break :blk .{ rhs_reg, rhs_lock };
+        };
+        defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const mask_reg, const mask_lock = try self.allocReg();
+        defer self.register_manager.unlockReg(mask_lock);
+
+        const result_reg, const result_lock = try self.allocReg();
+        defer self.register_manager.unlockReg(result_lock);
+
+        _ = try self.addInst(.{
+            .tag = if (int_info.signedness == .unsigned) .sltu else .slt,
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = mask_reg,
+                .rs1 = lhs_reg,
+                .rs2 = rhs_reg,
+            } },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .sub,
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = mask_reg,
+                .rs1 = .zero,
+                .rs2 = mask_reg,
+            } },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .xor,
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = result_reg,
+                .rs1 = lhs_reg,
+                .rs2 = rhs_reg,
+            } },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .@"and",
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = mask_reg,
+                .rs1 = result_reg,
+                .rs2 = mask_reg,
+            } },
+        });
+
+        _ = try self.addInst(.{
+            .tag = .xor,
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = result_reg,
+                .rs1 = rhs_reg,
+                .rs2 = mask_reg,
+            } },
+        });
+
+        break :result .{ .register = result_reg };
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3513,17 +3600,9 @@ fn genCall(
                                     .imm12 = Immediate.s(0),
                                 } },
                             });
-                        } else if (self.bin_file.cast(link.File.Coff)) |_| {
-                            return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});
-                        } else if (self.bin_file.cast(link.File.MachO)) |_| {
-                            unreachable; // unsupported architecture for MachO
-                        } else if (self.bin_file.cast(link.File.Plan9)) |_| {
-                            return self.fail("TODO implement call on plan9 for {}", .{self.target.cpu.arch});
                         } else unreachable;
                     },
-                    .extern_func => {
-                        return self.fail("TODO: extern func calls", .{});
-                    },
+                    .extern_func => return self.fail("TODO: extern func calls", .{}),
                     else => return self.fail("TODO implement calling bitcasted functions", .{}),
                 }
             } else {

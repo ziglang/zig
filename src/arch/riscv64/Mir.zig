@@ -32,6 +32,9 @@ pub const Inst = struct {
         lui,
         mv,
 
+        @"and",
+        xor,
+
         ebreak,
         ecall,
         unimp,
@@ -48,6 +51,9 @@ pub const Inst = struct {
 
         /// Absolute Value, uses i_type payload.
         abs,
+
+        sltu,
+        slt,
 
         /// Immediate Logical Right Shift, uses i_type payload
         srli,
