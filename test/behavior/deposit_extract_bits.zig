@@ -41,6 +41,7 @@ test "@depositBits" {
 
 test "@depositBits u128" {
     if (!supports_pext_pdep) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO #19498
 
     const S = struct {
         pub fn doTheTest() !void {
@@ -108,6 +109,7 @@ test "@extractBits" {
 
 test "@extractBits u128" {
     if (!supports_pext_pdep) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.os.tag == .windows) return error.SkipZigTest; // TODO #19498
 
     const S = struct {
         pub fn doTheTest() !void {
