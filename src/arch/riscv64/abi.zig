@@ -96,7 +96,6 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
-    const ip = zcu.intern_pool;
     var result = [1]Class{.none} ** 8;
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
@@ -158,22 +157,17 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
             std.debug.panic("TODO: classifySystem ErrorUnion > 64 bit payload", .{});
         },
         .Struct => {
-            const loaded_struct = ip.loadStructType(ty.toIntern());
+            const layout = ty.containerLayout(zcu);
             const ty_size = ty.abiSize(zcu);
 
-            if (loaded_struct.layout == .@"packed") {
+            if (layout == .@"packed") {
                 assert(ty_size <= 16);
                 result[0] = .integer;
                 if (ty_size > 8) result[1] = .integer;
                 return result;
             }
-            if (ty_size > 64)
-                return memory_class;
 
-            var byte_offset: u64 = 0;
-            classifyStruct(&result, &byte_offset, loaded_struct, zcu);
-
-            return result;
+            return memory_class;
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }
@@ -245,6 +239,10 @@ pub const function_arg_regs = [_]Register{
     .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7,
 };
 
+pub const function_ret_regs = [_]Register{
+    .a0, .a1,
+};
+
 pub const temporary_regs = [_]Register{
     .t0, .t1, .t2, .t3, .t4, .t5, .t6,
 };
@@ -269,6 +267,15 @@ pub const RegisterClass = struct {
         set.setRangeValue(.{
             .start = callee_preserved_regs.len,
             .end = callee_preserved_regs.len + function_arg_regs.len,
+        }, true);
+        break :blk set;
+    };
+
+    pub const fr: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        set.setRangeValue(.{
+            .start = callee_preserved_regs.len,
+            .end = callee_preserved_regs.len + function_ret_regs.len,
         }, true);
         break :blk set;
     };

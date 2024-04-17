@@ -43,6 +43,8 @@ const callee_preserved_regs = abi.callee_preserved_regs;
 const gp = abi.RegisterClass.gp;
 /// Function Args
 const fa = abi.RegisterClass.fa;
+/// Function Returns
+const fr = abi.RegisterClass.fr;
 /// Temporary Use
 const tp = abi.RegisterClass.tp;
 
@@ -1083,8 +1085,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mod             => try self.airMod(inst),
             .shl, .shl_exact => try self.airShl(inst),
             .shl_sat         => try self.airShlSat(inst),
-            .min             => try self.airMin(inst),
-            .max             => try self.airMax(inst),
+            .min             => try self.airMinMax(inst, .min),
+            .max             => try self.airMinMax(inst, .max),
             .slice           => try self.airSlice(inst),
 
             .sqrt,
@@ -1672,7 +1674,6 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = switch (self.ret_mcv.long) {
-        else => unreachable,
         .none => .{ .lea_frame = .{ .index = try self.allocMemPtr(inst) } },
         .load_frame => .{ .register_offset = .{
             .reg = (try self.copyToNewRegister(
@@ -1681,6 +1682,7 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
             )).register,
             .off = self.ret_mcv.short.indirect.off,
         } },
+        else => |t| return self.fail("TODO: airRetPtr {s}", .{@tagName(t)}),
     };
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
@@ -1799,7 +1801,14 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airMin(self: *Self, inst: Air.Inst.Index) !void {
+fn airMinMax(
+    self: *Self,
+    inst: Air.Inst.Index,
+    comptime tag: enum {
+        max,
+        min,
+    },
+) !void {
     const zcu = self.bin_file.comp.module.?;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -1882,19 +1891,13 @@ fn airMin(self: *Self, inst: Air.Inst.Index) !void {
             .ops = .rrr,
             .data = .{ .r_type = .{
                 .rd = result_reg,
-                .rs1 = rhs_reg,
+                .rs1 = if (tag == .min) rhs_reg else lhs_reg,
                 .rs2 = mask_reg,
             } },
         });
 
         break :result .{ .register = result_reg };
     };
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMax(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement max for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3577,10 +3580,10 @@ fn genCall(
                 const func_key = zcu.intern_pool.indexToKey(func_value.ip_index);
                 switch (switch (func_key) {
                     else => func_key,
-                    .ptr => |ptr| switch (ptr.addr) {
+                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                         .decl => |decl| zcu.intern_pool.indexToKey(zcu.declPtr(decl).val.toIntern()),
                         else => func_key,
-                    },
+                    } else func_key,
                 }) {
                     .func => |func| {
                         if (self.bin_file.cast(link.File.Elf)) |elf_file| {
@@ -4174,8 +4177,7 @@ fn performReloc(self: *Self, inst: Mir.Inst.Index) void {
         .bne,
         .beq,
         => self.mir_instructions.items(.data)[inst].b_type.inst = target,
-        .jal,
-        => self.mir_instructions.items(.data)[inst].j_type.inst = target,
+        .jal => self.mir_instructions.items(.data)[inst].j_type.inst = target,
         .pseudo => switch (ops) {
             .pseudo_j => self.mir_instructions.items(.data)[inst].inst = target,
             else => std.debug.panic("TODO: performReloc {s}", .{@tagName(ops)}),
@@ -5021,13 +5023,36 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const zcu = self.bin_file.comp.module.?;
-    const vector_ty = self.typeOfIndex(inst);
-    const len = vector_ty.vectorLen(zcu);
+    const result_ty = self.typeOfIndex(inst);
+    const len: usize = @intCast(result_ty.arrayLen(zcu));
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
-    const result: MCValue = res: {
-        if (self.liveness.isUnused(inst)) break :res .unreach;
-        return self.fail("TODO implement airAggregateInit for riscv64", .{});
+    const result: MCValue = result: {
+        switch (result_ty.zigTypeTag(zcu)) {
+            .Struct => {
+                const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, zcu));
+
+                if (result_ty.containerLayout(zcu) == .@"packed") {} else for (elements, 0..) |elem, elem_i| {
+                    if ((try result_ty.structFieldValueComptime(zcu, elem_i)) != null) continue;
+
+                    const elem_ty = result_ty.structFieldType(elem_i, zcu);
+                    const elem_off: i32 = @intCast(result_ty.structFieldOffset(elem_i, zcu));
+                    const elem_mcv = try self.resolveInst(elem);
+
+                    const elem_frame: FrameAddr = .{
+                        .index = frame_index,
+                        .off = elem_off,
+                    };
+                    try self.genSetStack(
+                        elem_ty,
+                        elem_frame,
+                        elem_mcv,
+                    );
+                }
+            },
+            else => return self.fail("TODO: airAggregateInit {}", .{result_ty.fmt(zcu)}),
+        }
+        break :result .{ .register = .zero };
     };
 
     if (elements.len <= Liveness.bpi - 1) {
@@ -5189,10 +5214,22 @@ fn resolveCallingConventionValues(
 
                 for (classes) |class| switch (class) {
                     .integer => {
-                        const ret_int_reg = abi.function_arg_regs[ret_int_reg_i];
+                        const ret_int_reg = abi.function_ret_regs[ret_int_reg_i];
                         ret_int_reg_i += 1;
 
                         ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_int_reg });
+                        ret_tracking_i += 1;
+                    },
+                    .memory => {
+                        const ret_int_reg = abi.function_ret_regs[ret_int_reg_i];
+                        ret_int_reg_i += 1;
+                        const ret_indirect_reg = abi.function_arg_regs[param_int_reg_i];
+                        param_int_reg_i += 1;
+
+                        ret_tracking[ret_tracking_i] = .{
+                            .short = .{ .indirect = .{ .reg = ret_int_reg } },
+                            .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
+                        };
                         ret_tracking_i += 1;
                     },
                     else => return self.fail("TODO: C calling convention return class {}", .{class}),
@@ -5224,6 +5261,13 @@ fn resolveCallingConventionValues(
                         param_int_reg_i += 1;
 
                         arg_mcv[arg_mcv_i] = .{ .register = param_int_reg };
+                        arg_mcv_i += 1;
+                    },
+                    .memory => {
+                        const param_int_regs = abi.function_arg_regs;
+                        const param_int_reg = param_int_regs[param_int_reg_i];
+
+                        arg_mcv[arg_mcv_i] = .{ .indirect = .{ .reg = param_int_reg } };
                         arg_mcv_i += 1;
                     },
                     else => return self.fail("TODO: C calling convention arg class {}", .{class}),

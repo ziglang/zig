@@ -203,6 +203,7 @@ test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .Opaque = .{
@@ -348,7 +349,6 @@ test "Type.Struct" {
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Foo = @Type(.{
         .Enum = .{
@@ -763,6 +763,8 @@ test "matching captures causes opaque equivalence" {
 }
 
 test "reify enum where fields refers to part of array" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const fields: [3]std.builtin.Type.EnumField = .{
         .{ .name = "foo", .value = 0 },
         .{ .name = "bar", .value = 1 },

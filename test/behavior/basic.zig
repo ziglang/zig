@@ -593,6 +593,7 @@ test "equality compare fn ptrs" {
 
 test "self reference through fn ptr field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const A = struct {

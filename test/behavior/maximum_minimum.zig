@@ -160,8 +160,6 @@ test "@min/@max on lazy values" {
 }
 
 test "@min/@max more than two arguments" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const x: u32 = 30;
     const y: u32 = 10;
     const z: u32 = 20;
@@ -187,7 +185,6 @@ test "@min/@max notices bounds" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u16 = 20;
     const y = 30;
@@ -239,7 +236,6 @@ test "@min/@max notices bounds from types" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u16 = 123;
     var y: u32 = 456;
@@ -325,8 +321,6 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
 }
 
 test "@min/@max of signed and unsigned runtime integers" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var x: i32 = -1;
     var y: u31 = 1;
     _ = .{ &x, &y };

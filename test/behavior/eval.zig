@@ -1705,8 +1705,6 @@ test "early exit in container level const" {
 }
 
 test "@inComptime" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn inComptime() bool {
             return @inComptime();

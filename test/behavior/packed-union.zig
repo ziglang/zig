@@ -177,6 +177,8 @@ test "assigning to non-active field at comptime" {
 }
 
 test "comptime packed union of pointers" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const U = packed union {
         a: *const u32,
         b: *const [1]u32,

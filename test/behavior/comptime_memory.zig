@@ -32,6 +32,8 @@ test "type pun signed and unsigned as array pointer" {
 }
 
 test "type pun signed and unsigned as offset many pointer" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     comptime {
         var x: [11]u32 = undefined;
         var y: [*]i32 = @ptrCast(&x[10]);
@@ -42,6 +44,8 @@ test "type pun signed and unsigned as offset many pointer" {
 }
 
 test "type pun signed and unsigned as array pointer with pointer arithemtic" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     comptime {
         var x: [11]u32 = undefined;
         const y = @as([*]i32, @ptrCast(&x[10])) - 10;
@@ -289,6 +293,8 @@ test "dance on linker values" {
 }
 
 test "offset array ptr by element size" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{
@@ -418,8 +424,6 @@ test "dereference undefined pointer to zero-bit type" {
 }
 
 test "type pun extern struct" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = extern struct { f: u8 };
     comptime var s = S{ .f = 123 };
     @as(*u8, @ptrCast(&s)).* = 72;

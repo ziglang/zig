@@ -22,7 +22,8 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_sparc64 or
     builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64;
+    builtin.cpu.arch == .spirv64 or
+    builtin.zig_backend == .stage2_riscv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -42,6 +43,10 @@ comptime {
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
+            } else if (native_arch.isRISCV()) {
+                if (!@hasDecl(root, "_start")) {
+                    @export(riscv_start, .{ .name = "_start" });
+                }
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -59,10 +64,6 @@ comptime {
                     @export(mainWithoutEnv, .{ .name = "main" });
                 } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main, .{ .name = "main" });
-                }
-            } else if (native_arch.isRISCV()) {
-                if (!@hasDecl(root, "_start")) {
-                    @export(riscv_start, .{ .name = "_start" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
@@ -208,7 +209,20 @@ fn wasi_start() callconv(.C) void {
 }
 
 fn riscv_start() callconv(.C) noreturn {
-    std.process.exit(@call(.always_inline, callMain, .{}));
+    std.process.exit(switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
+        .NoReturn => root.main(),
+        .Void => ret: {
+            root.main();
+            break :ret 0;
+        },
+        .Int => |info| ret: {
+            if (info.bits != 8 or info.signedness == .signed) {
+                @compileError(bad_main_ret);
+            }
+            break :ret root.main();
+        },
+        else => @compileError("expected return type of main to be 'void', 'noreturn', 'u8'"),
+    });
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {

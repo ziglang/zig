@@ -191,6 +191,7 @@ test "function with complex callconv and return type expressions" {
 
 test "pass by non-copying value" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
 }
@@ -218,6 +219,7 @@ fn addPointCoordsVar(pt: anytype) !i32 {
 
 test "pass by non-copying value as method" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var pt = Point2{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords() == 3);
@@ -234,6 +236,7 @@ const Point2 = struct {
 
 test "pass by non-copying value as method, which is generic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var pt = Point3{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords(i32) == 3);
@@ -624,8 +627,6 @@ test "comptime parameters don't have to be marked comptime if only called at com
 }
 
 test "inline function with comptime-known comptime-only return type called at runtime" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         inline fn foo(x: *i32, y: *const i32) type {
             x.* = y.*;

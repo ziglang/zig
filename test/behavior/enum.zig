@@ -1246,8 +1246,6 @@ test "auto-numbered enum with signed tag type" {
 }
 
 test "lazy initialized field" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try std.testing.expectEqual(@as(u8, @alignOf(struct {})), getLazyInitialized(.a));
 }
 

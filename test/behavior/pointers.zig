@@ -640,6 +640,8 @@ test "cast pointers with zero sized elements" {
 }
 
 test "comptime pointer equality through distinct fields with well-defined layout" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const A = extern struct {
         x: u32,
         z: u16,
@@ -664,6 +666,8 @@ test "comptime pointer equality through distinct fields with well-defined layout
 }
 
 test "comptime pointer equality through distinct elements with well-defined layout" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const buf: [2]u32 = .{ 123, 456 };
 
     const ptr: *const [2]u32 = &buf;

@@ -179,8 +179,6 @@ fn returnTrue() bool {
 }
 
 test "if value shouldn't be load-elided if used later (structs)" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const Foo = struct { x: i32 };
 
     var a = Foo{ .x = 1 };
