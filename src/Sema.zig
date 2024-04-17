@@ -4250,7 +4250,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 const const_ptr_ty = try sema.makePtrTyConst(final_ptr_ty);
                 const new_const_ptr = try mod.getCoerced(Value.fromInterned(ptr_val), const_ptr_ty);
 
-                // Remap the ZIR oeprand to the resolved pointer value
+                // Remap the ZIR operand to the resolved pointer value
                 sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(new_const_ptr.toIntern()));
 
                 // Unless the block is comptime, `alloc_inferred` always produces
@@ -4275,6 +4275,11 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 .tag = .alloc,
                 .data = .{ .ty = final_ptr_ty },
             });
+
+            if (ia1.is_const) {
+                // Remap the ZIR operand to the pointer const
+                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, try sema.makePtrConst(block, ptr));
+            }
 
             // Now we need to go back over all the store instructions, and do the logic as if
             // the new result ptr type was available.
