@@ -1993,25 +1993,6 @@ pub const sched_param = extern struct {
     sched_priority: i32,
 };
 
-// pub const SCHED = struct {
-//     /// normal multi-user scheduling
-//     pub const OTHER = 0;
-//     /// FIFO realtime scheduling
-//     pub const FIFO = 1;
-//     /// Round-robin realtime scheduling
-//     pub const RR = 2;
-//     /// For "batch" style execution of processes
-//     pub const BATCH = 3;
-//     /// Low latency scheduling
-//     pub const ISO = 4;
-//     /// For running very low priority background jobs
-//     pub const IDLE = 5;
-//     /// Sporadic task model deadline scheduling
-//     pub const DEADLINE = 6;
-//     /// OR with other values to stop children from inheriting policies
-//     pub const RESET_ON_FORK = 0x40000000;
-// };
-
 pub const SCHED = packed struct(i32) {
     pub const Mode = enum(u3) {
         /// normal multi-user scheduling
