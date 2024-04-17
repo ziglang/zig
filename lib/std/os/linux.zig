@@ -2012,37 +2012,27 @@ pub const SCHED = struct {
     pub const RESET_ON_FORK = 0x40000000;
 };
 
-pub fn sched_setparam(pid: pid_t, param: * const sched_param) usize
-{
+pub fn sched_setparam(pid: pid_t, param: *const sched_param) usize {
     return syscall2(.sched_setparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
 }
 
-pub fn sched_getparam(pid: pid_t, param: *sched_param) usize
-{
+pub fn sched_getparam(pid: pid_t, param: *sched_param) usize {
     return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
 }
 
-pub fn sched_setscheduler(pid: pid_t, policy: u32, param: * const sched_param) usize
-{
-    return syscall3(.sched_setscheduler,
-                    @as(usize, @bitCast(@as(isize, pid))),
-                    policy,
-                    @intFromPtr(param));
+pub fn sched_setscheduler(pid: pid_t, policy: u32, param: *const sched_param) usize {
+    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), policy, @intFromPtr(param));
 }
 
-pub fn sched_getscheduler(pid: pid_t) usize
-{
-    return syscall1(.sched_getscheduler,
-                    @as(usize, @bitCast(@as(isize, pid))));
+pub fn sched_getscheduler(pid: pid_t) usize {
+    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
 }
 
-pub fn sched_get_priority_max(policy: u32) isize
-{
+pub fn sched_get_priority_max(policy: u32) isize {
     return @bitCast(syscall1(.sched_get_priority_max, policy));
 }
 
-pub fn sched_get_priority_min(policy: u32) isize
-{
+pub fn sched_get_priority_min(policy: u32) isize {
     return @bitCast(syscall1(.sched_get_priority_min, policy));
 }
 
