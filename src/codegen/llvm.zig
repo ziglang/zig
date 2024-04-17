@@ -3262,6 +3262,7 @@ pub const Object = struct {
                     try o.lowerType(Type.fromInterned(vector_type.child)),
                 ),
                 .opt_type => |child_ty| {
+                    // Must stay in sync with `opt_payload` logic in `lowerPtr`.
                     if (!Type.fromInterned(child_ty).hasRuntimeBitsIgnoreComptime(mod)) return .i8;
 
                     const payload_ty = try o.lowerType(Type.fromInterned(child_ty));
@@ -3281,6 +3282,8 @@ pub const Object = struct {
                 },
                 .anyframe_type => @panic("TODO implement lowerType for AnyFrame types"),
                 .error_union_type => |error_union_type| {
+                    // Must stay in sync with `codegen.errUnionPayloadOffset`.
+                    // See logic in `lowerPtr`.
                     const error_type = try o.errorIntType();
                     if (!Type.fromInterned(error_union_type.payload_type).hasRuntimeBitsIgnoreComptime(mod))
                         return error_type;
@@ -3792,17 +3795,7 @@ pub const Object = struct {
                 128 => try o.builder.fp128Const(val.toFloat(f128, mod)),
                 else => unreachable,
             },
-            .ptr => |ptr| return switch (ptr.addr) {
-                .decl => |decl| try o.lowerDeclRefValue(ty, decl),
-                .anon_decl => |anon_decl| try o.lowerAnonDeclRef(ty, anon_decl),
-                .int => |int| try o.lowerIntAsPtr(int),
-                .eu_payload,
-                .opt_payload,
-                .elem,
-                .field,
-                => try o.lowerParentPtr(val),
-                .comptime_field, .comptime_alloc => unreachable,
-            },
+            .ptr => try o.lowerPtr(arg_val, 0),
             .slice => |slice| return o.builder.structConst(try o.lowerType(ty), &.{
                 try o.lowerValue(slice.ptr),
                 try o.lowerValue(slice.len),
@@ -4223,20 +4216,6 @@ pub const Object = struct {
         };
     }
 
-    fn lowerIntAsPtr(o: *Object, val: InternPool.Index) Allocator.Error!Builder.Constant {
-        const mod = o.module;
-        switch (mod.intern_pool.indexToKey(val)) {
-            .undef => return o.builder.undefConst(.ptr),
-            .int => {
-                var bigint_space: Value.BigIntSpace = undefined;
-                const bigint = Value.fromInterned(val).toBigInt(&bigint_space, mod);
-                const llvm_int = try lowerBigInt(o, Type.usize, bigint);
-                return o.builder.castConst(.inttoptr, llvm_int, .ptr);
-            },
-            else => unreachable,
-        }
-    }
-
     fn lowerBigInt(
         o: *Object,
         ty: Type,
@@ -4246,129 +4225,60 @@ pub const Object = struct {
         return o.builder.bigIntConst(try o.builder.intType(ty.intInfo(mod).bits), bigint);
     }
 
-    fn lowerParentPtrDecl(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
-        const mod = o.module;
-        const decl = mod.declPtr(decl_index);
-        const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
-        return o.lowerDeclRefValue(ptr_ty, decl_index);
-    }
-
-    fn lowerParentPtr(o: *Object, ptr_val: Value) Error!Builder.Constant {
-        const mod = o.module;
-        const ip = &mod.intern_pool;
-        const ptr = ip.indexToKey(ptr_val.toIntern()).ptr;
-        return switch (ptr.addr) {
-            .decl => |decl| try o.lowerParentPtrDecl(decl),
-            .anon_decl => |ad| try o.lowerAnonDeclRef(Type.fromInterned(ad.orig_ty), ad),
-            .int => |int| try o.lowerIntAsPtr(int),
-            .eu_payload => |eu_ptr| {
-                const parent_ptr = try o.lowerParentPtr(Value.fromInterned(eu_ptr));
-
-                const eu_ty = Type.fromInterned(ip.typeOf(eu_ptr)).childType(mod);
-                const payload_ty = eu_ty.errorUnionPayload(mod);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    // In this case, we represent pointer to error union the same as pointer
-                    // to the payload.
-                    return parent_ptr;
-                }
-
-                const err_int_ty = try mod.errorIntType();
-                const payload_align = payload_ty.abiAlignment(mod);
-                const err_align = err_int_ty.abiAlignment(mod);
-                const index: u32 = if (payload_align.compare(.gt, err_align)) 2 else 1;
-                return o.builder.gepConst(.inbounds, try o.lowerType(eu_ty), parent_ptr, null, &.{
-                    .@"0", try o.builder.intConst(.i32, index),
+    fn lowerPtr(
+        o: *Object,
+        ptr_val: InternPool.Index,
+        prev_offset: u64,
+    ) Error!Builder.Constant {
+        const zcu = o.module;
+        const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
+        const offset: u64 = prev_offset + ptr.byte_offset;
+        return switch (ptr.base_addr) {
+            .decl => |decl| {
+                const base_ptr = try o.lowerDeclRefValue(decl);
+                return o.builder.gepConst(.inbounds, .i8, base_ptr, null, &.{
+                    try o.builder.intConst(.i64, offset),
                 });
             },
-            .opt_payload => |opt_ptr| {
-                const parent_ptr = try o.lowerParentPtr(Value.fromInterned(opt_ptr));
-
-                const opt_ty = Type.fromInterned(ip.typeOf(opt_ptr)).childType(mod);
-                const payload_ty = opt_ty.optionalChild(mod);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod) or
-                    payload_ty.optionalReprIsPayload(mod))
-                {
-                    // In this case, we represent pointer to optional the same as pointer
-                    // to the payload.
-                    return parent_ptr;
-                }
-
-                return o.builder.gepConst(.inbounds, try o.lowerType(opt_ty), parent_ptr, null, &.{ .@"0", .@"0" });
-            },
-            .comptime_field, .comptime_alloc => unreachable,
-            .elem => |elem_ptr| {
-                const parent_ptr = try o.lowerParentPtr(Value.fromInterned(elem_ptr.base));
-                const elem_ty = Type.fromInterned(ip.typeOf(elem_ptr.base)).elemType2(mod);
-
-                return o.builder.gepConst(.inbounds, try o.lowerType(elem_ty), parent_ptr, null, &.{
-                    try o.builder.intConst(try o.lowerType(Type.usize), elem_ptr.index),
+            .anon_decl => |ad| {
+                const base_ptr = try o.lowerAnonDeclRef(ad);
+                return o.builder.gepConst(.inbounds, .i8, base_ptr, null, &.{
+                    try o.builder.intConst(.i64, offset),
                 });
             },
-            .field => |field_ptr| {
-                const parent_ptr = try o.lowerParentPtr(Value.fromInterned(field_ptr.base));
-                const parent_ptr_ty = Type.fromInterned(ip.typeOf(field_ptr.base));
-                const parent_ty = parent_ptr_ty.childType(mod);
-                const field_index: u32 = @intCast(field_ptr.index);
-                switch (parent_ty.zigTypeTag(mod)) {
-                    .Union => {
-                        if (parent_ty.containerLayout(mod) == .@"packed") {
-                            return parent_ptr;
-                        }
-
-                        const layout = parent_ty.unionGetLayout(mod);
-                        if (layout.payload_size == 0) {
-                            // In this case a pointer to the union and a pointer to any
-                            // (void) payload is the same.
-                            return parent_ptr;
-                        }
-
-                        const parent_llvm_ty = try o.lowerType(parent_ty);
-                        return o.builder.gepConst(.inbounds, parent_llvm_ty, parent_ptr, null, &.{
-                            .@"0",
-                            try o.builder.intConst(.i32, @intFromBool(
-                                layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align),
-                            )),
-                        });
+            .int => try o.builder.castConst(
+                .inttoptr,
+                try o.builder.intConst(try o.lowerType(Type.usize), offset),
+                .ptr,
+            ),
+            .eu_payload => |eu_ptr| try o.lowerPtr(
+                eu_ptr,
+                offset + @import("../codegen.zig").errUnionPayloadOffset(
+                    Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu),
+                    zcu,
+                ),
+            ),
+            .opt_payload => |opt_ptr| try o.lowerPtr(opt_ptr, offset),
+            .field => |field| {
+                const agg_ty = Value.fromInterned(field.base).typeOf(zcu).childType(zcu);
+                const field_off: u64 = switch (agg_ty.zigTypeTag(zcu)) {
+                    .Pointer => off: {
+                        assert(agg_ty.isSlice(zcu));
+                        break :off switch (field.index) {
+                            Value.slice_ptr_index => 0,
+                            Value.slice_len_index => @divExact(zcu.getTarget().ptrBitWidth(), 8),
+                            else => unreachable,
+                        };
                     },
-                    .Struct => {
-                        if (mod.typeToPackedStruct(parent_ty)) |struct_type| {
-                            const ptr_info = Type.fromInterned(ptr.ty).ptrInfo(mod);
-                            if (ptr_info.packed_offset.host_size != 0) return parent_ptr;
-
-                            const parent_ptr_info = parent_ptr_ty.ptrInfo(mod);
-                            const bit_offset = mod.structPackedFieldBitOffset(struct_type, field_index) + parent_ptr_info.packed_offset.bit_offset;
-                            const llvm_usize = try o.lowerType(Type.usize);
-                            const base_addr = try o.builder.castConst(.ptrtoint, parent_ptr, llvm_usize);
-                            const byte_offset = try o.builder.intConst(llvm_usize, @divExact(bit_offset, 8));
-                            const field_addr = try o.builder.binConst(.add, base_addr, byte_offset);
-                            return o.builder.castConst(.inttoptr, field_addr, .ptr);
-                        }
-
-                        return o.builder.gepConst(
-                            .inbounds,
-                            try o.lowerType(parent_ty),
-                            parent_ptr,
-                            null,
-                            if (o.llvmFieldIndex(parent_ty, field_index)) |llvm_field_index| &.{
-                                .@"0",
-                                try o.builder.intConst(.i32, llvm_field_index),
-                            } else &.{
-                                try o.builder.intConst(.i32, @intFromBool(
-                                    parent_ty.hasRuntimeBitsIgnoreComptime(mod),
-                                )),
-                            },
-                        );
-                    },
-                    .Pointer => {
-                        assert(parent_ty.isSlice(mod));
-                        const parent_llvm_ty = try o.lowerType(parent_ty);
-                        return o.builder.gepConst(.inbounds, parent_llvm_ty, parent_ptr, null, &.{
-                            .@"0", try o.builder.intConst(.i32, field_index),
-                        });
+                    .Struct, .Union => switch (agg_ty.containerLayout(zcu)) {
+                        .auto => agg_ty.structFieldOffset(@intCast(field.index), zcu),
+                        .@"extern", .@"packed" => unreachable,
                     },
                     else => unreachable,
-                }
+                };
+                return o.lowerPtr(field.base, offset + field_off);
             },
+            .arr_elem, .comptime_field, .comptime_alloc => unreachable,
         };
     }
 
@@ -4376,8 +4286,7 @@ pub const Object = struct {
     /// Maybe the logic could be unified.
     fn lowerAnonDeclRef(
         o: *Object,
-        ptr_ty: Type,
-        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     ) Error!Builder.Constant {
         const mod = o.module;
         const ip = &mod.intern_pool;
@@ -4393,6 +4302,8 @@ pub const Object = struct {
             @panic("TODO");
         }
 
+        const ptr_ty = Type.fromInterned(anon_decl.orig_ty);
+
         const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
         if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
             (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ptr_ty);
@@ -4400,9 +4311,8 @@ pub const Object = struct {
         if (is_fn_body)
             @panic("TODO");
 
-        const orig_ty = Type.fromInterned(anon_decl.orig_ty);
-        const llvm_addr_space = toLlvmAddressSpace(orig_ty.ptrAddressSpace(mod), target);
-        const alignment = orig_ty.ptrAlignment(mod);
+        const llvm_addr_space = toLlvmAddressSpace(ptr_ty.ptrAddressSpace(mod), target);
+        const alignment = ptr_ty.ptrAlignment(mod);
         const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
@@ -4411,13 +4321,10 @@ pub const Object = struct {
             try o.builder.ptrType(llvm_addr_space),
         );
 
-        return o.builder.convConst(if (ptr_ty.isAbiInt(mod)) switch (ptr_ty.intInfo(mod).signedness) {
-            .signed => .signed,
-            .unsigned => .unsigned,
-        } else .unneeded, llvm_val, try o.lowerType(ptr_ty));
+        return o.builder.convConst(.unneeded, llvm_val, try o.lowerType(ptr_ty));
     }
 
-    fn lowerDeclRefValue(o: *Object, ty: Type, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
+    fn lowerDeclRefValue(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
         const mod = o.module;
 
         // In the case of something like:
@@ -4428,18 +4335,23 @@ pub const Object = struct {
         const decl = mod.declPtr(decl_index);
         if (decl.val.getFunction(mod)) |func| {
             if (func.owner_decl != decl_index) {
-                return o.lowerDeclRefValue(ty, func.owner_decl);
+                return o.lowerDeclRefValue(func.owner_decl);
             }
         } else if (decl.val.getExternFunc(mod)) |func| {
             if (func.decl != decl_index) {
-                return o.lowerDeclRefValue(ty, func.decl);
+                return o.lowerDeclRefValue(func.decl);
             }
         }
 
         const decl_ty = decl.typeOf(mod);
+        const ptr_ty = try decl.declPtrType(mod);
+
         const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
         if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
-            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ty);
+            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic))
+        {
+            return o.lowerPtrToVoid(ptr_ty);
+        }
 
         const llvm_global = if (is_fn_body)
             (try o.resolveLlvmFunction(decl_index)).ptrConst(&o.builder).global
@@ -4452,10 +4364,7 @@ pub const Object = struct {
             try o.builder.ptrType(toLlvmAddressSpace(decl.@"addrspace", mod.getTarget())),
         );
 
-        return o.builder.convConst(if (ty.isAbiInt(mod)) switch (ty.intInfo(mod).signedness) {
-            .signed => .signed,
-            .unsigned => .unsigned,
-        } else .unneeded, llvm_val, try o.lowerType(ty));
+        return o.builder.convConst(.unneeded, llvm_val, try o.lowerType(ptr_ty));
     }
 
     fn lowerPtrToVoid(o: *Object, ptr_ty: Type) Allocator.Error!Builder.Constant {

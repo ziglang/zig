@@ -1532,7 +1532,7 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = packed union {
-        tag: enum { a, b },
+        tag: enum(u8) { a, b },
         val: u8,
 
         fn doTest() !void {
@@ -1850,9 +1850,8 @@ test "reinterpret packed union" {
 
             {
                 // Union initialization
-                var u: U = .{
-                    .qux = 0xe2a,
-                };
+                var u: U = .{ .baz = 0 }; // ensure all bits are defined
+                u.qux = 0xe2a;
                 try expectEqual(@as(u8, 0x2a), u.foo);
                 try expectEqual(@as(u12, 0xe2a), u.qux);
                 try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);

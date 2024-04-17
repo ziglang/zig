@@ -17,6 +17,7 @@ const max_string_len = 256;
 const FormatContext = struct {
     val: Value,
     mod: *Module,
+    opt_sema: ?*Sema,
 };
 
 pub fn format(
@@ -27,10 +28,10 @@ pub fn format(
 ) !void {
     _ = options;
     comptime std.debug.assert(fmt.len == 0);
-    return print(ctx.val, writer, 3, ctx.mod, null) catch |err| switch (err) {
+    return print(ctx.val, writer, 3, ctx.mod, ctx.opt_sema) catch |err| switch (err) {
         error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
         error.ComptimeBreak, error.ComptimeReturn => unreachable,
-        error.AnalysisFail, error.NeededSourceLocation => unreachable, // TODO: re-evaluate when we actually pass `opt_sema`
+        error.AnalysisFail, error.NeededSourceLocation => unreachable, // TODO: re-evaluate when we use `opt_sema` more fully
         else => |e| return e,
     };
 }
@@ -117,7 +118,7 @@ pub fn print(
         },
         .slice => |slice| {
             const print_contents = switch (ip.getBackingAddrTag(slice.ptr).?) {
-                .field, .elem, .eu_payload, .opt_payload => unreachable,
+                .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
                 .anon_decl, .comptime_alloc, .comptime_field => true,
                 .decl, .int => false,
             };
@@ -125,7 +126,7 @@ pub fn print(
                 // TODO: eventually we want to load the slice as an array with `opt_sema`, but that's
                 // currently not possible without e.g. triggering compile errors.
             }
-            try printPtr(slice.ptr, writer, false, false, 0, level, mod, opt_sema);
+            try printPtr(Value.fromInterned(slice.ptr), writer, level, mod, opt_sema);
             try writer.writeAll("[0..");
             if (level == 0) {
                 try writer.writeAll("(...)");
@@ -136,7 +137,7 @@ pub fn print(
         },
         .ptr => {
             const print_contents = switch (ip.getBackingAddrTag(val.toIntern()).?) {
-                .field, .elem, .eu_payload, .opt_payload => unreachable,
+                .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
                 .anon_decl, .comptime_alloc, .comptime_field => true,
                 .decl, .int => false,
             };
@@ -144,13 +145,13 @@ pub fn print(
                 // TODO: eventually we want to load the pointer with `opt_sema`, but that's
                 // currently not possible without e.g. triggering compile errors.
             }
-            try printPtr(val.toIntern(), writer, false, false, 0, level, mod, opt_sema);
+            try printPtr(val, writer, level, mod, opt_sema);
         },
         .opt => |opt| switch (opt.val) {
             .none => try writer.writeAll("null"),
             else => |payload| try print(Value.fromInterned(payload), writer, level, mod, opt_sema),
         },
-        .aggregate => |aggregate| try printAggregate(val, aggregate, writer, level, false, mod, opt_sema),
+        .aggregate => |aggregate| try printAggregate(val, aggregate, false, writer, level, mod, opt_sema),
         .un => |un| {
             if (level == 0) {
                 try writer.writeAll(".{ ... }");
@@ -176,13 +177,14 @@ pub fn print(
 fn printAggregate(
     val: Value,
     aggregate: InternPool.Key.Aggregate,
+    is_ref: bool,
     writer: anytype,
     level: u8,
-    is_ref: bool,
     zcu: *Zcu,
     opt_sema: ?*Sema,
 ) (@TypeOf(writer).Error || Module.CompileError)!void {
     if (level == 0) {
+        if (is_ref) try writer.writeByte('&');
         return writer.writeAll(".{ ... }");
     }
     const ip = &zcu.intern_pool;
@@ -257,107 +259,106 @@ fn printAggregate(
     return writer.writeAll(" }");
 }
 
-fn printPtr(
-    ptr_val: InternPool.Index,
-    writer: anytype,
-    force_type: bool,
-    force_addrof: bool,
-    leading_parens: u32,
-    level: u8,
-    zcu: *Zcu,
-    opt_sema: ?*Sema,
-) (@TypeOf(writer).Error || Module.CompileError)!void {
-    const ip = &zcu.intern_pool;
-    const ptr = switch (ip.indexToKey(ptr_val)) {
-        .undef => |ptr_ty| {
-            if (force_addrof) try writer.writeAll("&");
-            try writer.writeByteNTimes('(', leading_parens);
-            try writer.print("@as({}, undefined)", .{Type.fromInterned(ptr_ty).fmt(zcu)});
-            return;
-        },
+fn printPtr(ptr_val: Value, writer: anytype, level: u8, zcu: *Zcu, opt_sema: ?*Sema) (@TypeOf(writer).Error || Module.CompileError)!void {
+    const ptr = switch (zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
+        .undef => return writer.writeAll("undefined"),
         .ptr => |ptr| ptr,
         else => unreachable,
     };
-    if (level == 0) {
-        return writer.writeAll("&...");
-    }
-    switch (ptr.addr) {
-        .int => |int| {
-            if (force_addrof) try writer.writeAll("&");
-            try writer.writeByteNTimes('(', leading_parens);
-            if (force_type) {
-                try writer.print("@as({}, @ptrFromInt(", .{Type.fromInterned(ptr.ty).fmt(zcu)});
-                try print(Value.fromInterned(int), writer, level - 1, zcu, opt_sema);
-                try writer.writeAll("))");
-            } else {
-                try writer.writeAll("@ptrFromInt(");
-                try print(Value.fromInterned(int), writer, level - 1, zcu, opt_sema);
-                try writer.writeAll(")");
-            }
-        },
-        .decl => |index| {
-            try writer.writeAll("&");
-            try zcu.declPtr(index).renderFullyQualifiedName(zcu, writer);
-        },
-        .comptime_alloc => try writer.writeAll("&(comptime alloc)"),
-        .anon_decl => |anon| switch (ip.indexToKey(anon.val)) {
-            .aggregate => |aggregate| try printAggregate(
-                Value.fromInterned(anon.val),
-                aggregate,
-                writer,
-                level - 1,
+
+    if (ptr.base_addr == .anon_decl) {
+        // If the value is an aggregate, we can potentially print it more nicely.
+        switch (zcu.intern_pool.indexToKey(ptr.base_addr.anon_decl.val)) {
+            .aggregate => |agg| return printAggregate(
+                Value.fromInterned(ptr.base_addr.anon_decl.val),
+                agg,
                 true,
+                writer,
+                level,
                 zcu,
                 opt_sema,
             ),
-            else => {
-                const ty = Type.fromInterned(ip.typeOf(anon.val));
-                try writer.print("&@as({}, ", .{ty.fmt(zcu)});
-                try print(Value.fromInterned(anon.val), writer, level - 1, zcu, opt_sema);
-                try writer.writeAll(")");
-            },
+            else => {},
+        }
+    }
+
+    var arena = std.heap.ArenaAllocator.init(zcu.gpa);
+    defer arena.deinit();
+    const derivation = try ptr_val.pointerDerivationAdvanced(arena.allocator(), zcu, opt_sema);
+    try printPtrDerivation(derivation, writer, level, zcu, opt_sema);
+}
+
+/// Print `derivation` as an lvalue, i.e. such that writing `&` before this gives the pointer value.
+fn printPtrDerivation(derivation: Value.PointerDeriveStep, writer: anytype, level: u8, zcu: *Zcu, opt_sema: ?*Sema) (@TypeOf(writer).Error || Module.CompileError)!void {
+    const ip = &zcu.intern_pool;
+    switch (derivation) {
+        .int => |int| try writer.print("@as({}, @ptrFromInt({x})).*", .{
+            int.ptr_ty.fmt(zcu),
+            int.addr,
+        }),
+        .decl_ptr => |decl| {
+            try zcu.declPtr(decl).renderFullyQualifiedName(zcu, writer);
         },
-        .comptime_field => |val| {
-            const ty = Type.fromInterned(ip.typeOf(val));
-            try writer.print("&@as({}, ", .{ty.fmt(zcu)});
-            try print(Value.fromInterned(val), writer, level - 1, zcu, opt_sema);
-            try writer.writeAll(")");
+        .anon_decl_ptr => |anon| {
+            const ty = Value.fromInterned(anon.val).typeOf(zcu);
+            try writer.print("@as({}, ", .{ty.fmt(zcu)});
+            try print(Value.fromInterned(anon.val), writer, level - 1, zcu, opt_sema);
+            try writer.writeByte(')');
         },
-        .eu_payload => |base| {
-            try printPtr(base, writer, true, true, leading_parens, level, zcu, opt_sema);
+        .comptime_alloc_ptr => |info| {
+            try writer.print("@as({}, ", .{info.val.typeOf(zcu).fmt(zcu)});
+            try print(info.val, writer, level - 1, zcu, opt_sema);
+            try writer.writeByte(')');
+        },
+        .comptime_field_ptr => |val| {
+            const ty = val.typeOf(zcu);
+            try writer.print("@as({}, ", .{ty.fmt(zcu)});
+            try print(val, writer, level - 1, zcu, opt_sema);
+            try writer.writeByte(')');
+        },
+        .eu_payload_ptr => |info| {
+            try writer.writeByte('(');
+            try printPtrDerivation(info.parent.*, writer, level, zcu, opt_sema);
+            try writer.writeAll(" catch unreachable)");
+        },
+        .opt_payload_ptr => |info| {
+            try printPtrDerivation(info.parent.*, writer, level, zcu, opt_sema);
             try writer.writeAll(".?");
         },
-        .opt_payload => |base| {
-            try writer.writeAll("(");
-            try printPtr(base, writer, true, true, leading_parens + 1, level, zcu, opt_sema);
-            try writer.writeAll(" catch unreachable");
-        },
-        .elem => |elem| {
-            try printPtr(elem.base, writer, true, true, leading_parens, level, zcu, opt_sema);
-            try writer.print("[{d}]", .{elem.index});
-        },
-        .field => |field| {
-            try printPtr(field.base, writer, true, true, leading_parens, level, zcu, opt_sema);
-            const base_ty = Type.fromInterned(ip.typeOf(field.base)).childType(zcu);
-            switch (base_ty.zigTypeTag(zcu)) {
-                .Struct => if (base_ty.isTuple(zcu)) {
-                    try writer.print("[{d}]", .{field.index});
-                } else {
-                    const field_name = base_ty.structFieldName(@intCast(field.index), zcu).unwrap().?;
+        .field_ptr => |field| {
+            try printPtrDerivation(field.parent.*, writer, level, zcu, opt_sema);
+            const agg_ty = (try field.parent.ptrType(zcu)).childType(zcu);
+            switch (agg_ty.zigTypeTag(zcu)) {
+                .Struct => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
                     try writer.print(".{i}", .{field_name.fmt(ip)});
+                } else {
+                    try writer.print("[{d}]", .{field.field_idx});
                 },
                 .Union => {
-                    const tag_ty = base_ty.unionTagTypeHypothetical(zcu);
-                    const field_name = tag_ty.enumFieldName(@intCast(field.index), zcu);
+                    const tag_ty = agg_ty.unionTagTypeHypothetical(zcu);
+                    const field_name = tag_ty.enumFieldName(field.field_idx, zcu);
                     try writer.print(".{i}", .{field_name.fmt(ip)});
                 },
-                .Pointer => switch (field.index) {
+                .Pointer => switch (field.field_idx) {
                     Value.slice_ptr_index => try writer.writeAll(".ptr"),
                     Value.slice_len_index => try writer.writeAll(".len"),
                     else => unreachable,
                 },
                 else => unreachable,
             }
+        },
+        .elem_ptr => |elem| {
+            try printPtrDerivation(elem.parent.*, writer, level, zcu, opt_sema);
+            try writer.print("[{d}]", .{elem.elem_idx});
+        },
+        .offset_and_cast => |oac| if (oac.byte_offset == 0) {
+            try writer.print("@as({}, @ptrCast(", .{oac.new_ptr_ty.fmt(zcu)});
+            try printPtrDerivation(oac.parent.*, writer, level, zcu, opt_sema);
+            try writer.writeAll("))");
+        } else {
+            try writer.print("@as({}, @ptrFromInt(@intFromPtr(", .{oac.new_ptr_ty.fmt(zcu)});
+            try printPtrDerivation(oac.parent.*, writer, level, zcu, opt_sema);
+            try writer.print(") + {d}))", .{oac.byte_offset});
         },
     }
 }

@@ -16,7 +16,8 @@ const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const InternPool = @import("InternPool.zig");
 const Liveness = @import("Liveness.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
+const Module = Zcu;
 const Target = std.Target;
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");
@@ -185,7 +186,7 @@ pub fn generateSymbol(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{val.fmtValue(mod)});
+    log.debug("generateSymbol: val = {}", .{val.fmtValue(mod, null)});
 
     if (val.isUndefDeep(mod)) {
         const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
@@ -314,7 +315,7 @@ pub fn generateSymbol(
             },
             .f128 => |f128_val| writeFloat(f128, f128_val, target, endian, try code.addManyAsArray(16)),
         },
-        .ptr => switch (try lowerParentPtr(bin_file, src_loc, val.toIntern(), code, debug_output, reloc_info)) {
+        .ptr => switch (try lowerPtr(bin_file, src_loc, val.toIntern(), code, debug_output, reloc_info, 0)) {
             .ok => {},
             .fail => |em| return .{ .fail = em },
         },
@@ -614,111 +615,79 @@ pub fn generateSymbol(
     return .ok;
 }
 
-fn lowerParentPtr(
+fn lowerPtr(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    parent_ptr: InternPool.Index,
+    ptr_val: InternPool.Index,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    prev_offset: u64,
 ) CodeGenError!Result {
-    const mod = bin_file.comp.module.?;
-    const ip = &mod.intern_pool;
-    const ptr = ip.indexToKey(parent_ptr).ptr;
-    return switch (ptr.addr) {
-        .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
-        .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info),
-        .int => |int| try generateSymbol(bin_file, src_loc, Value.fromInterned(int), code, debug_output, reloc_info),
-        .eu_payload => |eu_payload| try lowerParentPtr(
+    const zcu = bin_file.comp.module.?;
+    const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
+    const offset: u64 = prev_offset + ptr.byte_offset;
+    return switch (ptr.base_addr) {
+        .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info, offset),
+        .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info, offset),
+        .int => try generateSymbol(bin_file, src_loc, try zcu.intValue(Type.usize, offset), code, debug_output, reloc_info),
+        .eu_payload => |eu_ptr| try lowerPtr(
             bin_file,
             src_loc,
-            eu_payload,
-            code,
-            debug_output,
-            reloc_info.offset(@intCast(errUnionPayloadOffset(
-                Type.fromInterned(ip.typeOf(eu_payload)),
-                mod,
-            ))),
-        ),
-        .opt_payload => |opt_payload| try lowerParentPtr(
-            bin_file,
-            src_loc,
-            opt_payload,
+            eu_ptr,
             code,
             debug_output,
             reloc_info,
+            offset + errUnionPayloadOffset(
+                Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu).errorUnionPayload(zcu),
+                zcu,
+            ),
         ),
-        .elem => |elem| try lowerParentPtr(
+        .opt_payload => |opt_ptr| try lowerPtr(
             bin_file,
             src_loc,
-            elem.base,
+            opt_ptr,
             code,
             debug_output,
-            reloc_info.offset(@intCast(elem.index *
-                Type.fromInterned(ip.typeOf(elem.base)).elemType2(mod).abiSize(mod))),
+            reloc_info,
+            offset,
         ),
         .field => |field| {
-            const base_ptr_ty = ip.typeOf(field.base);
-            const base_ty = ip.indexToKey(base_ptr_ty).ptr_type.child;
-            return lowerParentPtr(
-                bin_file,
-                src_loc,
-                field.base,
-                code,
-                debug_output,
-                reloc_info.offset(switch (ip.indexToKey(base_ty)) {
-                    .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                        .One, .Many, .C => unreachable,
-                        .Slice => switch (field.index) {
-                            0 => 0,
-                            1 => @divExact(mod.getTarget().ptrBitWidth(), 8),
-                            else => unreachable,
-                        },
-                    },
-                    .struct_type,
-                    .anon_struct_type,
-                    .union_type,
-                    => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
-                        .auto, .@"extern" => @intCast(Type.fromInterned(base_ty).structFieldOffset(
-                            @intCast(field.index),
-                            mod,
-                        )),
-                        .@"packed" => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
-                            if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
-                                @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
-                                    .packed_offset.bit_offset + mod.structPackedFieldBitOffset(
-                                    struct_obj,
-                                    @intCast(field.index),
-                                ), 8)
-                            else
-                                0
-                        else
-                            0,
-                    },
-                    else => unreachable,
-                }),
-            );
+            const base_ptr = Value.fromInterned(field.base);
+            const base_ty = base_ptr.typeOf(zcu).childType(zcu);
+            const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
+                .Pointer => off: {
+                    assert(base_ty.isSlice(zcu));
+                    break :off switch (field.index) {
+                        Value.slice_ptr_index => 0,
+                        Value.slice_len_index => @divExact(zcu.getTarget().ptrBitWidth(), 8),
+                        else => unreachable,
+                    };
+                },
+                .Struct, .Union => switch (base_ty.containerLayout(zcu)) {
+                    .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
+                    .@"extern", .@"packed" => unreachable,
+                },
+                else => unreachable,
+            };
+            return lowerPtr(bin_file, src_loc, field.base, code, debug_output, reloc_info, offset + field_off);
         },
-        .comptime_field, .comptime_alloc => unreachable,
+        .arr_elem, .comptime_field, .comptime_alloc => unreachable,
     };
 }
 
 const RelocInfo = struct {
     parent_atom_index: u32,
-    addend: ?u32 = null,
-
-    fn offset(ri: RelocInfo, addend: u32) RelocInfo {
-        return .{ .parent_atom_index = ri.parent_atom_index, .addend = (ri.addend orelse 0) + addend };
-    }
 };
 
 fn lowerAnonDeclRef(
     lf: *link.File,
     src_loc: Module.SrcLoc,
-    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    offset: u64,
 ) CodeGenError!Result {
     _ = debug_output;
     const zcu = lf.comp.module.?;
@@ -745,7 +714,7 @@ fn lowerAnonDeclRef(
     const vaddr = try lf.getAnonDeclVAddr(decl_val, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
-        .addend = reloc_info.addend orelse 0,
+        .addend = @intCast(offset),
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width_bytes) {
@@ -765,6 +734,7 @@ fn lowerDeclRef(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    offset: u64,
 ) CodeGenError!Result {
     _ = src_loc;
     _ = debug_output;
@@ -783,7 +753,7 @@ fn lowerDeclRef(
     const vaddr = try lf.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
-        .addend = reloc_info.addend orelse 0,
+        .addend = @intCast(offset),
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width) {
@@ -861,7 +831,7 @@ fn genDeclRef(
     const zcu = lf.comp.module.?;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
-    log.debug("genDeclRef: val = {}", .{val.fmtValue(zcu)});
+    log.debug("genDeclRef: val = {}", .{val.fmtValue(zcu, null)});
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
@@ -966,7 +936,7 @@ fn genUnnamedConst(
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
     const gpa = lf.comp.gpa;
-    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(zcu)});
+    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(zcu, null)});
 
     const local_sym_index = lf.lowerUnnamedConst(val, owner_decl_index) catch |err| {
         return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
@@ -1007,7 +977,7 @@ pub fn genTypedValue(
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: val = {}", .{val.fmtValue(zcu)});
+    log.debug("genTypedValue: val = {}", .{val.fmtValue(zcu, null)});
 
     if (val.isUndef(zcu))
         return GenResult.mcv(.undef);
@@ -1018,7 +988,7 @@ pub fn genTypedValue(
     const ptr_bits = target.ptrBitWidth();
 
     if (!ty.isSlice(zcu)) switch (ip.indexToKey(val.toIntern())) {
-        .ptr => |ptr| switch (ptr.addr) {
+        .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
             .decl => |decl| return genDeclRef(lf, src_loc, val, decl),
             else => {},
         },
