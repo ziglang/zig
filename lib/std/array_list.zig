@@ -155,6 +155,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Creates a copy of this ArrayList, using the same allocator.
         pub fn clone(self: Self) Allocator.Error!Self {
+            self.pointer_stability.assertUnlocked();
             var cloned = try Self.initCapacity(self.allocator, self.capacity);
             cloned.appendSliceAssumeCapacity(self.items);
             return cloned;
@@ -596,11 +597,12 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
-        /// Remove and return the last element from the list, or return `null` if list is empty.
-        /// Invalidates element pointers to the removed element, if any.
+        /// Remove and return the last element from the list.
+        /// Invalidates element pointers to the removed element.
+        /// Asserts that the list is not empty.
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
-
+            
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
@@ -684,6 +686,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             .items = &.{},
             .capacity = 0,
         };
+
+        /// Used to detect memory safety violations.
+        pointer_stability: debug.SafetyLock = .{},
 
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
 
@@ -787,6 +792,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Creates a copy of this ArrayList.
         pub fn clone(self: Self, allocator: Allocator) Allocator.Error!Self {
+            self.pointer_stability.assertUnlocked();
             var cloned = try Self.initCapacity(allocator, self.capacity);
             cloned.appendSliceAssumeCapacity(self.items);
             return cloned;
@@ -1269,9 +1275,10 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Remove and return the last element from the list.
         /// If the list is empty, returns `null`.
         /// Invalidates pointers to last element.
+        /// Asserts that the list is not empty.
         pub fn pop(self: *Self) ?T {
             if (self.items.len == 0) return null;
-
+            
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
