@@ -18,11 +18,20 @@ pub const Keccak_512 = @compileError("Deprecated: use `Keccak512` instead");
 pub const Shake128 = Shake(128);
 pub const Shake256 = Shake(256);
 
+pub const CShake128 = CShake(128, null);
+pub const CShake256 = CShake(256, null);
+
+pub const KMac128 = KMac(128);
+pub const KMac256 = KMac(256);
+
+pub const TupleHash128 = TupleHash(128);
+pub const TupleHash256 = TupleHash(256);
+
 /// TurboSHAKE128 is a XOF (a secure hash function with a variable output length), with a 128 bit security level.
 /// It is based on the same permutation as SHA3 and SHAKE128, but which much higher performance.
 /// The delimiter is 0x1f by default, but can be changed for context-separation.
 /// For a protocol that uses both KangarooTwelve and TurboSHAKE128, it is recommended to avoid using 0x06, 0x07 or 0x0b for the delimiter.
-pub fn TurboShake128(comptime delim: ?u7) type {
+pub fn TurboShake128(delim: ?u7) type {
     return TurboShake(128, delim);
 }
 
@@ -34,27 +43,26 @@ pub fn TurboShake256(comptime delim: ?u7) type {
 }
 
 /// A generic Keccak hash function.
-pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime delim: u8, comptime rounds: u5) type {
+pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime default_delim: u8, comptime rounds: u5) type {
     comptime assert(output_bits > 0 and output_bits * 2 < f and output_bits % 8 == 0); // invalid output length
 
-    const State = KeccakState(f, output_bits * 2, delim, rounds);
+    const State = KeccakState(f, output_bits * 2, rounds);
 
     return struct {
         const Self = @This();
 
-        st: State = .{},
+        st: State,
 
         /// The output length, in bytes.
         pub const digest_length = output_bits / 8;
         /// The block length, or rate, in bytes.
         pub const block_length = State.rate;
-        /// Keccak does not have any options.
-        pub const Options = struct {};
+        /// The delimiter can be overwritten in the options.
+        pub const Options = struct { delim: u8 = default_delim };
 
         /// Initialize a Keccak hash function.
         pub fn init(options: Options) Self {
-            _ = options;
-            return Self{};
+            return Self{ .st = .{ .delim = options.delim } };
         }
 
         /// Hash a slice of bytes.
@@ -105,29 +113,28 @@ pub fn TurboShake(comptime security_level: u11, comptime delim: ?u7) type {
     return ShakeLike(security_level, d, 12);
 }
 
-fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: u5) type {
+fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime rounds: u5) type {
     const f = 1600;
-    const State = KeccakState(f, security_level * 2, delim, rounds);
+    const State = KeccakState(f, security_level * 2, rounds);
 
     return struct {
         const Self = @This();
 
-        st: State = .{},
+        st: State,
         buf: [State.rate]u8 = undefined,
         offset: usize = 0,
         padded: bool = false,
 
         /// The recommended output length, in bytes.
-        pub const digest_length = security_level / 2;
+        pub const digest_length = security_level / 8 * 2;
         /// The block length, or rate, in bytes.
         pub const block_length = State.rate;
-        /// Keccak does not have any options.
-        pub const Options = struct {};
+        /// The delimiter can be overwritten in the options.
+        pub const Options = struct { delim: u8 = default_delim };
 
         /// Initialize a SHAKE extensible hash function.
         pub fn init(options: Options) Self {
-            _ = options;
-            return Self{};
+            return Self{ .st = .{ .delim = options.delim } };
         }
 
         /// Hash a slice of bytes.
@@ -182,6 +189,11 @@ fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: 
             self.st.st.clear(0, State.rate);
         }
 
+        /// Align the input to a block boundary.
+        pub fn fillBlock(self: *Self) void {
+            self.st.fillBlock();
+        }
+
         pub const Error = error{};
         pub const Writer = std.io.Writer(*Self, Error, write);
 
@@ -195,6 +207,338 @@ fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: 
         }
     };
 }
+
+/// The cSHAKE extendable output hash function.
+/// cSHAKE is similar to SHAKE, but in addition to the input message, it also takes an optional context (aka customization string).
+pub fn CShake(comptime security_level: u11, comptime fname: ?[]const u8) type {
+    return CShakeLike(security_level, 0x04, 24, fname);
+}
+
+fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime rounds: u5, comptime fname: ?[]const u8) type {
+    return struct {
+        const Shaker = ShakeLike(security_level, default_delim, rounds);
+        shaker: Shaker,
+
+        /// The recommended output length, in bytes.
+        pub const digest_length = Shaker.digest_length;
+        /// The block length, or rate, in bytes.
+        pub const block_length = Shaker.block_length;
+
+        /// cSHAKE options can include a context string.
+        pub const Options = struct { context: ?[]const u8 = null };
+
+        const Self = @This();
+
+        /// Initialize a SHAKE extensible hash function.
+        pub fn init(options: Options) Self {
+            if (fname == null and options.context == null) {
+                return Self{ .shaker = Shaker.init(.{ .delim = 0x1f }) };
+            }
+            var shaker = Shaker.init(.{});
+            comptime assert(Shaker.block_length % 8 == 0);
+            const encoded_rate_len = NistLengthEncoding.encode(.left, block_length / 8);
+            shaker.update(encoded_rate_len.slice());
+            const encoded_zero = comptime NistLengthEncoding.encode(.left, 0);
+            if (fname) |name| {
+                const encoded_fname_len = comptime NistLengthEncoding.encode(.left, name.len);
+                const encoded_fname = comptime encoded_fname_len.slice() ++ name;
+                shaker.update(encoded_fname);
+            } else {
+                shaker.update(encoded_zero.slice());
+            }
+            if (options.context) |context| {
+                const encoded_context_len = NistLengthEncoding.encode(.left, context.len);
+                shaker.update(encoded_context_len.slice());
+                shaker.update(context);
+            } else {
+                shaker.update(encoded_zero.slice());
+            }
+            shaker.st.fillBlock();
+            return Self{ .shaker = shaker };
+        }
+
+        /// Hash a slice of bytes.
+        /// `out` can be any length.
+        pub fn hash(bytes: []const u8, out: []u8, options: Options) void {
+            var st = Self.init(options);
+            st.update(bytes);
+            st.squeeze(out);
+        }
+
+        /// Absorb a slice of bytes into the state.
+        pub fn update(self: *Self, bytes: []const u8) void {
+            self.shaker.update(bytes);
+        }
+
+        /// Squeeze a slice of bytes from the state.
+        /// `out` can be any length, and the function can be called multiple times.
+        pub fn squeeze(self: *Self, out: []u8) void {
+            self.shaker.squeeze(out);
+        }
+
+        /// Return the hash of the absorbed bytes.
+        /// `out` can be of any length, but the function must not be called multiple times (use `squeeze` for that purpose instead).
+        pub fn final(self: *Self, out: []u8) void {
+            self.shaker.final(out);
+        }
+
+        /// Align the input to a block boundary.
+        pub fn fillBlock(self: *Self) void {
+            self.shaker.fillBlock();
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+    };
+}
+
+/// The KMAC extendable output authentication function.
+/// KMAC is a keyed version of the cSHAKE function, with an optional context.
+/// It can be used as an SHA-3 based alternative to HMAC, as well as a generic keyed XoF (extendable output function).
+pub fn KMac(comptime security_level: u11) type {
+    return KMacLike(security_level, 0x04, 24);
+}
+
+fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime rounds: u5) type {
+    const CShaker = CShakeLike(security_level, default_delim, rounds, "KMAC");
+
+    return struct {
+        const Self = @This();
+
+        /// The recommended output length, in bytes.
+        pub const mac_length = CShaker.digest_length;
+        /// The minimum output length, in bytes.
+        pub const mac_length_min = 4;
+        /// The recommended key length, in bytes.
+        pub const key_length = security_level / 8;
+        /// The minimum key length, in bytes.
+        pub const key_length_min = 0;
+        /// The block length, or rate, in bytes.
+        pub const block_length = CShaker.block_length;
+
+        cshaker: CShaker,
+        xof_mode: bool = false,
+
+        /// KMAC options can include a context string.
+        pub const Options = struct {
+            context: ?[]const u8 = null,
+        };
+
+        /// Initialize a state for the KMAC function, with an optional context and an arbitrary-long key.
+        /// If the context and key are going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
+        pub fn initWithOptions(key: []const u8, options: Options) Self {
+            var cshaker = CShaker.init(.{ .context = options.context });
+            const encoded_rate_len = NistLengthEncoding.encode(.left, block_length / 8);
+            cshaker.update(encoded_rate_len.slice());
+            const encoded_key_len = NistLengthEncoding.encode(.left, key.len);
+            cshaker.update(encoded_key_len.slice());
+            cshaker.update(key);
+            cshaker.fillBlock();
+            return Self{
+                .cshaker = cshaker,
+            };
+        }
+
+        /// Initialize a state for the KMAC function.
+        /// If the context and key are going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
+        pub fn init(key: []const u8) Self {
+            return initWithOptions(key, .{});
+        }
+
+        /// Add data to the state.
+        pub fn update(self: *Self, b: []const u8) void {
+            self.cshaker.update(b);
+        }
+
+        /// Return an authentication tag for the current state.
+        pub fn final(self: *Self, out: []u8) void {
+            const encoded_out_len = NistLengthEncoding.encode(.right, out.len);
+            self.update(encoded_out_len.slice());
+            self.cshaker.final(out);
+        }
+
+        /// Squeeze a slice of bytes from the state.
+        /// `out` can be any length, and the function can be called multiple times.
+        pub fn squeeze(self: *Self, out: []u8) void {
+            if (!self.xof_mode) {
+                const encoded_out_len = comptime NistLengthEncoding.encode(.right, 0);
+                self.update(encoded_out_len.slice());
+                self.xof_mode = true;
+            }
+            self.cshaker.squeeze(out);
+        }
+
+        /// Return an authentication tag for a message and a key, with an optional context.
+        pub fn createWithOptions(out: []u8, msg: []const u8, key: []const u8, options: Options) void {
+            var ctx = Self.initWithOptions(key, options);
+            ctx.update(msg);
+            ctx.final(out);
+        }
+
+        /// Return an authentication tag for a message and a key.
+        pub fn create(out: []u8, msg: []const u8, key: []const u8) void {
+            var ctx = Self.init(key);
+            ctx.update(msg);
+            ctx.final(out);
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+    };
+}
+
+/// The TupleHash extendable output hash function, with domain-separated inputs.
+/// TupleHash is a secure hash function with a variable output length, based on the cSHAKE function.
+/// It is designed for unambiguously hashing tuples of data.
+///
+/// With most hash functions, calling `update("A")` followed by `update("B")`is identical to `update("AB")`.
+/// With TupleHash, this is not the case: `update("A"); update("B")` is different from `update("AB")`.
+///
+/// Any number of inputs can be hashed, and the output depends on individual inputs and their order.
+pub fn TupleHash(comptime security_level: u11) type {
+    return TupleHashLike(security_level, 0x04, 24);
+}
+
+fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, comptime rounds: u5) type {
+    const CShaker = CShakeLike(security_level, default_delim, rounds, "TupleHash");
+
+    return struct {
+        const Self = @This();
+
+        /// The output length, in bytes.
+        pub const digest_length = CShaker.digest_length;
+        /// The block length, or rate, in bytes.
+        pub const block_length = CShaker.block_length;
+
+        cshaker: CShaker,
+        xof_mode: bool = false,
+
+        /// TupleHash options can include a context string.
+        pub const Options = struct {
+            context: ?[]const u8 = null,
+        };
+
+        /// Initialize a state for the TupleHash function, with an optional context.
+        /// If the context is going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
+        ///
+        /// A key can be optionally added to the context to create a keyed TupleHash function, similar to KMAC.
+        pub fn initWithOptions(options: Options) Self {
+            const cshaker = CShaker.init(.{ .context = options.context });
+            return Self{
+                .cshaker = cshaker,
+            };
+        }
+
+        /// Initialize a state for the MAC function.
+        pub fn init() Self {
+            return initWithOptions(.{});
+        }
+
+        /// Add data to the state, separated from previous updates.
+        pub fn update(self: *Self, b: []const u8) void {
+            const encoded_b_len = NistLengthEncoding.encode(.left, b.len);
+            self.cshaker.update(encoded_b_len.slice());
+            self.cshaker.update(b);
+        }
+
+        /// Return an authentication tag for the current state.
+        pub fn final(self: *Self, out: []u8) void {
+            const encoded_out_len = NistLengthEncoding.encode(.right, out.len);
+            self.cshaker.update(encoded_out_len.slice());
+            self.cshaker.final(out);
+        }
+
+        /// Align the input to a block boundary.
+        pub fn fillBlock(self: *Self) void {
+            self.cshaker.fillBlock();
+        }
+
+        /// Squeeze a slice of bytes from the state.
+        /// `out` can be any length, and the function can be called multiple times.
+        pub fn squeeze(self: *Self, out: []u8) void {
+            if (!self.xof_mode) {
+                const encoded_out_len = comptime NistLengthEncoding.encode(.right, 0);
+                self.update(encoded_out_len.slice());
+                self.xof_mode = true;
+            }
+            self.cshaker.squeeze(out);
+        }
+
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
+    };
+}
+
+/// The NIST SP 800-185 encoded length format.
+pub const NistLengthEncoding = enum {
+    left,
+    right,
+
+    /// A length encoded according to NIST SP 800-185.
+    pub const Length = struct {
+        /// The size of the encoded value, in bytes.
+        len: usize = 0,
+        /// A buffer to store the encoded length.
+        buf: [@sizeOf(usize) + 1]u8 = undefined,
+
+        /// Return the encoded length as a slice.
+        pub fn slice(self: *const Length) []const u8 {
+            return self.buf[0..self.len];
+        }
+    };
+
+    /// Encode a length according to NIST SP 800-185.
+    pub fn encode(comptime encoding: NistLengthEncoding, len: usize) Length {
+        const len_bits = @bitSizeOf(@TypeOf(len)) - @clz(len) + 3;
+        const len_bytes = std.math.divCeil(usize, len_bits, 8) catch unreachable;
+
+        var res = Length{ .len = len_bytes + 1 };
+        if (encoding == .right) {
+            res.buf[len_bytes] = @intCast(len_bytes);
+        }
+        const end = if (encoding == .right) len_bytes - 1 else len_bytes;
+        res.buf[end] = @truncate(len << 3);
+        var len_ = len >> 5;
+        for (1..len_bytes) |i| {
+            res.buf[end - i] = @truncate(len_);
+            len_ >>= 8;
+        }
+        if (encoding == .left) {
+            res.buf[0] = @intCast(len_bytes);
+        }
+        return res;
+    }
+};
 
 const htest = @import("test.zig");
 
@@ -396,4 +740,89 @@ test "SHA-3 with streaming" {
     h.update(msg[64..613]);
     h.final(&out);
     try htest.assertEqual("5780048dfa381a1d01c747906e4a08711dd34fd712ecd7c6801dd2b38fd81a89", &out);
+}
+
+test "cSHAKE-128 with no context nor function name" {
+    var out: [32]u8 = undefined;
+    CShake128.hash("hello123", &out, .{});
+    try htest.assertEqual("1b85861510bc4d8e467d6f8a92270533cbaa7ba5e06c2d2a502854bac468b8b9", &out);
+}
+
+test "cSHAKE-128 with context" {
+    var out: [32]u8 = undefined;
+    CShake128.hash("hello123", &out, .{ .context = "custom" });
+    try htest.assertEqual("7509fa13a6bd3e38ad5c6fac042142c233996e40ebffc86c276f108b3b19cc6a", &out);
+}
+
+test "cSHAKE-128 with context and function" {
+    var out: [32]u8 = undefined;
+    CShake(128, "function").hash("hello123", &out, .{ .context = "custom" });
+    try htest.assertEqual("ad7f4d7db2d96587fcd5047c65d37c368f5366e3afac60bb9b66b0bb95dfb675", &out);
+}
+
+test "cSHAKE-256" {
+    var out: [32]u8 = undefined;
+    CShake256.hash("hello123", &out, .{ .context = "custom" });
+    try htest.assertEqual("dabe027eb1a6cbe3a0542d0560eb4e6b39146dd72ae1bf89c970a61bd93b1813", &out);
+}
+
+test "KMAC-128 with empty key and message" {
+    var out: [KMac128.mac_length]u8 = undefined;
+    const key = "";
+    KMac128.create(&out, "", key);
+    try htest.assertEqual("5c135c615152fb4d9784dd1155f9b6034e013fd77165c327dfa4d36701983ef7", &out);
+}
+
+test "KMAC-128" {
+    var out: [KMac128.mac_length]u8 = undefined;
+    const key = "A KMAC secret key";
+    KMac128.create(&out, "hello123", key);
+    try htest.assertEqual("1fa1c0d761129a83f9a4299ca137674de8373a3cc437799ae4c129e651627f8e", &out);
+}
+
+test "KMAC-128 with a customization string" {
+    var out: [KMac128.mac_length]u8 = undefined;
+    const key = "A KMAC secret key";
+    KMac128.createWithOptions(&out, "hello123", key, .{ .context = "custom" });
+    try htest.assertEqual("c58c6d42dc00a27dfa8e7e08f8c9307cecb5d662ddb11b6c36057fc2e0e068ba", &out);
+}
+
+test "KMACXOF-128" {
+    const key = "A KMAC secret key";
+    var xof = KMac128.init(key);
+    xof.update("hello123");
+    var out: [50]u8 = undefined;
+    xof.squeeze(&out);
+    try htest.assertEqual("628c2fb870d294b3673ac82d9f0d651aae6a5bb8084ea8cd8343cb888d075b9053173200a71f301141069c3c0322527981f7", &out);
+    xof.squeeze(&out);
+    try htest.assertEqual("7b638e178cfdac5727a4ea7694efaa967a65a1d0034501855acff506b4158d187d5a18d668e67b43f2abf61144b20ed4c09f", &out);
+}
+
+test "KMACXOF-256" {
+    const key = "A KMAC secret key";
+    var xof = KMac256.init(key);
+    xof.update("hello123");
+    var out: [50]u8 = undefined;
+    xof.squeeze(&out);
+    try htest.assertEqual("23fc644bc2655ba6fde7b7c11f2804f22e8d8c6bd7db856268bf3370ce2362703f6c7e91916a1b8c116e60edfbcb25613054", &out);
+    xof.squeeze(&out);
+    try htest.assertEqual("ff97251020ff255ee65a1c1f5f78ebe904f61211c39f973f82fbce2b196b9f51c2cb12afe51549a0f1eaf7954e657ba11af3", &out);
+}
+
+test "TupleHash-128" {
+    var st = TupleHash128.init();
+    st.update("hello");
+    st.update("123");
+    var out: [32]u8 = undefined;
+    st.final(&out);
+    try htest.assertEqual("3938d49ade8ec0f0c305ac63497b2d2e8b2f650714f9667cc41816b1c11ffd20", &out);
+}
+
+test "TupleHash-256" {
+    var st = TupleHash256.init();
+    st.update("hello");
+    st.update("123");
+    var out: [64]u8 = undefined;
+    st.final(&out);
+    try htest.assertEqual("2dca563c2882f2ba4f46a441a4c5e13fb97150d1436fe99c7e4e43a2d20d0f1cd3d38483bde4a966930606dfa6c61c4ca6400aeedfb474d1bf0d7f6a70968289", &out);
 }

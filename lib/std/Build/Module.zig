@@ -451,7 +451,7 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 pub const AddCSourceFilesOptions = struct {
     /// When provided, `files` are relative to `root` rather than the
     /// package that owns the `Compile` step.
-    root: LazyPath = .{ .path = "" },
+    root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
 };
@@ -472,7 +472,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
 
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
-        .root = options.root,
+        .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
     };
@@ -573,17 +573,6 @@ pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    switch (directory_path) {
-        .path, .cwd_relative => |path| {
-            // TODO: remove this check after people upgrade and stop expecting it to work
-            if (std.mem.startsWith(u8, path, "@executable_path") or
-                std.mem.startsWith(u8, path, "@loader_path"))
-            {
-                @panic("this function is for adding directory paths. It does not support special rpaths. use addRPathSpecial for that.");
-            }
-        },
-        else => {},
-    }
     m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }

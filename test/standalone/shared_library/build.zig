@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     const target = b.host;
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
-        .root_source_file = .{ .path = "mathtest.zig" },
+        .root_source_file = b.path("mathtest.zig"),
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .target = target,
         .optimize = optimize,
@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.addCSourceFile(.{
-        .file = .{ .path = "test.c" },
+        .file = b.path("test.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
     exe.linkLibrary(lib);

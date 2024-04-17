@@ -2247,7 +2247,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             var data_off: i32 = 0;
             const tag_names = enum_ty.enumFields(mod);
             for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
-                const tag_name_len = ip.stringToSlice(tag_names.get(ip)[tag_index]).len;
+                const tag_name_len = tag_names.get(ip)[tag_index].length(ip);
                 const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
                 const tag_mcv = try self.genTypedValue(tag_val);
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);
@@ -12249,10 +12249,10 @@ fn genCall(self: *Self, info: union(enum) {
             const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
             switch (switch (func_key) {
                 else => func_key,
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
-                },
+                } else func_key,
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
@@ -12314,8 +12314,8 @@ fn genCall(self: *Self, info: union(enum) {
                 },
                 .extern_func => |extern_func| {
                     const owner_decl = mod.declPtr(extern_func.decl);
-                    const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
-                    const decl_name = mod.intern_pool.stringToSlice(owner_decl.name);
+                    const lib_name = extern_func.lib_name.toSlice(&mod.intern_pool);
+                    const decl_name = owner_decl.name.toSlice(&mod.intern_pool);
                     try self.genExternSymbolRef(.call, lib_name, decl_name);
                 },
                 else => return self.fail("TODO implement calling bitcasted functions", .{}),
@@ -15050,10 +15050,11 @@ fn genSetMem(
                 .general_purpose, .segment, .x87 => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
+            const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
             if (src_size > mem_size) {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
                     .size = src_size,
-                    .alignment = Alignment.fromNonzeroByteUnits(src_size),
+                    .alignment = src_align,
                 }));
                 const frame_mcv: MCValue = .{ .load_frame = .{ .index = frame_index } };
                 try (try self.moveStrategy(ty, src_alias.class(), true)).write(
@@ -15066,14 +15067,15 @@ fn genSetMem(
                 try self.genSetMem(base, disp, ty, frame_mcv, opts);
                 try self.freeValue(frame_mcv);
             } else try (try self.moveStrategy(ty, src_alias.class(), switch (base) {
-                .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                .none => src_align.check(@as(u32, @bitCast(disp))),
                 .reg => |reg| switch (reg) {
-                    .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                    .es, .cs, .ss, .ds => src_align.check(@as(u32, @bitCast(disp))),
                     else => false,
                 },
-                .frame => |frame_index| self.getFrameAddrAlignment(
-                    .{ .index = frame_index, .off = disp },
-                ).compare(.gte, ty.abiAlignment(mod)),
+                .frame => |frame_index| self.getFrameAddrAlignment(.{
+                    .index = frame_index,
+                    .off = disp,
+                }).compare(.gte, src_align),
                 .reloc => false,
             })).write(
                 self,
@@ -17875,8 +17877,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(mod),
+        lhs_ty.fmt(mod),                                    rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod, null),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }

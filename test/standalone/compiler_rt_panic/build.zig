@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     exe.addCSourceFile(.{
-        .file = .{ .path = "main.c" },
+        .file = b.path("main.c"),
         .flags = &.{},
     });
     exe.link_gc_sections = false;

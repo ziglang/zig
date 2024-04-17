@@ -863,7 +863,7 @@ const DeclGen = struct {
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod) });
+        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod, null) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_id);
         }
@@ -983,10 +983,10 @@ const DeclGen = struct {
                     const int_ty = ty.intTagType(mod);
                     break :cache try self.constant(int_ty, int_val, repr);
                 },
-                .ptr => return self.constantPtr(ty, val),
+                .ptr => return self.constantPtr(val),
                 .slice => |slice| {
                     const ptr_ty = ty.slicePtrFieldType(mod);
-                    const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
+                    const ptr_id = try self.constantPtr(Value.fromInterned(slice.ptr));
                     const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
                     return self.constructStruct(
                         ty,
@@ -1028,39 +1028,30 @@ const DeclGen = struct {
                     inline .array_type, .vector_type => |array_type, tag| {
                         const elem_ty = Type.fromInterned(array_type.child);
 
-                        const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
+                        const constituents = try self.gpa.alloc(IdRef, @intCast(ty.arrayLenIncludingSentinel(mod)));
                         defer self.gpa.free(constituents);
 
                         switch (aggregate.storage) {
                             .bytes => |bytes| {
                                 // TODO: This is really space inefficient, perhaps there is a better
                                 // way to do it?
-                                for (bytes, 0..) |byte, i| {
-                                    constituents[i] = try self.constInt(elem_ty, byte, .indirect);
+                                for (constituents, bytes.toSlice(constituents.len, ip)) |*constituent, byte| {
+                                    constituent.* = try self.constInt(elem_ty, byte, .indirect);
                                 }
                             },
                             .elems => |elems| {
-                                for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                    constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
+                                for (constituents, elems) |*constituent, elem| {
+                                    constituent.* = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
                                 }
                             },
                             .repeated_elem => |elem| {
-                                const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
-                                for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                    constituents[i] = val_id;
-                                }
+                                @memset(constituents, try self.constant(elem_ty, Value.fromInterned(elem), .indirect));
                             },
                         }
 
                         switch (tag) {
-                            inline .array_type => {
-                                if (array_type.sentinel != .none) {
-                                    const sentinel = Value.fromInterned(array_type.sentinel);
-                                    constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
-                                }
-                                return self.constructArray(ty, constituents);
-                            },
-                            inline .vector_type => return self.constructVector(ty, constituents),
+                            .array_type => return self.constructArray(ty, constituents),
+                            .vector_type => return self.constructVector(ty, constituents),
                             else => unreachable,
                         }
                     },
@@ -1116,62 +1107,86 @@ const DeclGen = struct {
         return cacheable_id;
     }
 
-    fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) Error!IdRef {
+    fn constantPtr(self: *DeclGen, ptr_val: Value) Error!IdRef {
         // TODO: Caching??
 
-        const result_ty_id = try self.resolveType(ptr_ty, .direct);
-        const mod = self.module;
+        const zcu = self.module;
 
-        if (ptr_val.isUndef(mod)) return self.spv.constUndef(result_ty_id);
+        if (ptr_val.isUndef(zcu)) {
+            const result_ty = ptr_val.typeOf(zcu);
+            const result_ty_id = try self.resolveType(result_ty, .direct);
+            return self.spv.constUndef(result_ty_id);
+        }
 
-        switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
-            .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
-            .anon_decl => |anon_decl| return try self.constantAnonDeclRef(ptr_ty, anon_decl),
+        var arena = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena.deinit();
+
+        const derivation = try ptr_val.pointerDerivation(arena.allocator(), zcu);
+        return self.derivePtr(derivation);
+    }
+
+    fn derivePtr(self: *DeclGen, derivation: Value.PointerDeriveStep) Error!IdRef {
+        const zcu = self.module;
+        switch (derivation) {
+            .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
-                const ptr_id = self.spv.allocId();
+                const result_ty_id = try self.resolveType(int.ptr_ty, .direct);
                 // TODO: This can probably be an OpSpecConstantOp Bitcast, but
                 // that is not implemented by Mesa yet. Therefore, just generate it
                 // as a runtime operation.
+                const result_ptr_id = self.spv.allocId();
                 try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
                     .id_result_type = result_ty_id,
-                    .id_result = ptr_id,
-                    .integer_value = try self.constant(Type.usize, Value.fromInterned(int), .direct),
+                    .id_result = result_ptr_id,
+                    .integer_value = try self.constant(Type.usize, try zcu.intValue(Type.usize, int.addr), .direct),
                 });
-                return ptr_id;
+                return result_ptr_id;
             },
-            .eu_payload => unreachable, // TODO
-            .opt_payload => unreachable, // TODO
-            .comptime_field, .comptime_alloc => unreachable,
-            .elem => |elem_ptr| {
-                const parent_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(elem_ptr.base));
-                const parent_ptr_id = try self.constantPtr(parent_ptr_ty, Value.fromInterned(elem_ptr.base));
-                const index_id = try self.constInt(Type.usize, elem_ptr.index, .direct);
+            .decl_ptr => |decl| {
+                const result_ptr_ty = try zcu.declPtr(decl).declPtrType(zcu);
+                return self.constantDeclRef(result_ptr_ty, decl);
+            },
+            .anon_decl_ptr => |ad| {
+                const result_ptr_ty = Type.fromInterned(ad.orig_ty);
+                return self.constantAnonDeclRef(result_ptr_ty, ad);
+            },
+            .eu_payload_ptr => @panic("TODO"),
+            .opt_payload_ptr => @panic("TODO"),
+            .field_ptr => |field| {
+                const parent_ptr_id = try self.derivePtr(field.parent.*);
+                const parent_ptr_ty = try field.parent.ptrType(zcu);
+                return self.structFieldPtr(field.result_ptr_ty, parent_ptr_ty, parent_ptr_id, field.field_idx);
+            },
+            .elem_ptr => |elem| {
+                const parent_ptr_id = try self.derivePtr(elem.parent.*);
+                const parent_ptr_ty = try elem.parent.ptrType(zcu);
+                const index_id = try self.constInt(Type.usize, elem.elem_idx, .direct);
+                return self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
+            },
+            .offset_and_cast => |oac| {
+                const parent_ptr_id = try self.derivePtr(oac.parent.*);
+                const parent_ptr_ty = try oac.parent.ptrType(zcu);
+                disallow: {
+                    if (oac.byte_offset != 0) break :disallow;
+                    // Allow changing the pointer type child only to restructure arrays.
+                    // e.g. [3][2]T to T is fine, as is [2]T -> [2][1]T.
+                    const src_base_ty = parent_ptr_ty.arrayBase(zcu)[0];
+                    const dest_base_ty = oac.new_ptr_ty.arrayBase(zcu)[0];
+                    if (self.getTarget().os.tag == .vulkan and src_base_ty.toIntern() != dest_base_ty.toIntern()) break :disallow;
 
-                const elem_ptr_id = try self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
-
-                // TODO: Can we consolidate this in ptrElemPtr?
-                const elem_ty = parent_ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
-                const elem_ptr_ty_id = try self.ptrType(elem_ty, self.spvStorageClass(parent_ptr_ty.ptrAddressSpace(mod)));
-
-                // TODO: Can we remove this ID comparison?
-                if (elem_ptr_ty_id == result_ty_id) {
-                    return elem_ptr_id;
+                    const result_ty_id = try self.resolveType(oac.new_ptr_ty, .direct);
+                    const result_ptr_id = self.spv.allocId();
+                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                        .id_result_type = result_ty_id,
+                        .id_result = result_ptr_id,
+                        .operand = parent_ptr_id,
+                    });
+                    return result_ptr_id;
                 }
-                // This may happen when we have pointer-to-array and the result is
-                // another pointer-to-array instead of a pointer-to-element.
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                    .id_result_type = result_ty_id,
-                    .id_result = result_id,
-                    .operand = elem_ptr_id,
+                return self.fail("Cannot perform pointer cast: '{}' to '{}'", .{
+                    parent_ptr_ty.fmt(zcu),
+                    oac.new_ptr_ty.fmt(zcu),
                 });
-                return result_id;
-            },
-            .field => |field| {
-                const base_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(field.base));
-                const base_ptr = try self.constantPtr(base_ptr_ty, Value.fromInterned(field.base));
-                const field_index: u32 = @intCast(field.index);
-                return try self.structFieldPtr(ptr_ty, base_ptr_ty, base_ptr, field_index);
             },
         }
     }
@@ -1179,7 +1194,7 @@ const DeclGen = struct {
     fn constantAnonDeclRef(
         self: *DeclGen,
         ty: Type,
-        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     ) !IdRef {
         // TODO: Merge this function with constantDeclRef.
 
@@ -1683,9 +1698,9 @@ const DeclGen = struct {
                     }
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index});
+                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index}, .no_embedded_nulls);
                     try member_types.append(try self.resolveType(field_ty, .indirect));
-                    try member_names.append(ip.stringToSlice(field_name));
+                    try member_names.append(field_name.toSlice(ip));
                 }
 
                 const result_id = try self.spv.structType(member_types.items, member_names.items);
@@ -2123,12 +2138,12 @@ const DeclGen = struct {
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                try self.spv.debugName(result_id, fqn);
+                const fqn = try decl.fullyQualifiedName(self.module);
+                try self.spv.debugName(result_id, fqn.toSlice(ip));
 
                 // Temporarily generate a test kernel declaration if this is a test function.
                 if (self.module.test_functions.contains(self.decl_index)) {
-                    try self.generateTestEntryPoint(fqn, spv_decl_index);
+                    try self.generateTestEntryPoint(fqn.toSlice(ip), spv_decl_index);
                 }
             },
             .global => {
@@ -2152,8 +2167,8 @@ const DeclGen = struct {
                     .storage_class = final_storage_class,
                 });
 
-                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                try self.spv.debugName(result_id, fqn);
+                const fqn = try decl.fullyQualifiedName(self.module);
+                try self.spv.debugName(result_id, fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
             .invocation_global => {
@@ -2197,8 +2212,8 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                    try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
+                    const fqn = try decl.fullyQualifiedName(self.module);
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                         .id_result_type = ptr_ty_id,
@@ -4465,16 +4480,20 @@ const DeclGen = struct {
     ) !IdRef {
         const result_ty_id = try self.resolveType(result_ptr_ty, .direct);
 
-        const mod = self.module;
-        const object_ty = object_ptr_ty.childType(mod);
-        switch (object_ty.zigTypeTag(mod)) {
-            .Struct => switch (object_ty.containerLayout(mod)) {
+        const zcu = self.module;
+        const object_ty = object_ptr_ty.childType(zcu);
+        switch (object_ty.zigTypeTag(zcu)) {
+            .Pointer => {
+                assert(object_ty.isSlice(zcu));
+                return self.accessChain(result_ty_id, object_ptr, &.{field_index});
+            },
+            .Struct => switch (object_ty.containerLayout(zcu)) {
                 .@"packed" => unreachable, // TODO
                 else => {
                     return try self.accessChain(result_ty_id, object_ptr, &.{field_index});
                 },
             },
-            .Union => switch (object_ty.containerLayout(mod)) {
+            .Union => switch (object_ty.containerLayout(zcu)) {
                 .@"packed" => unreachable, // TODO
                 else => {
                     const layout = self.unionLayout(object_ty);
@@ -4484,7 +4503,7 @@ const DeclGen = struct {
                         return try self.spv.constUndef(result_ty_id);
                     }
 
-                    const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(mod));
+                    const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(zcu));
                     const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, storage_class);
                     const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, object_ptr, &.{layout.payload_index});
 

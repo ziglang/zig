@@ -105,6 +105,13 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         return self;
     }
 
+    if (builtin.os.tag == .haiku) {
+        try self.addLibDir("/system/non-packaged/lib");
+        try self.addLibDir("/system/develop/lib");
+        try self.addLibDir("/system/lib");
+        return self;
+    }
+
     if (builtin.os.tag != .windows and builtin.os.tag != .wasi) {
         const triple = try native_target.linuxTriple(arena);
 

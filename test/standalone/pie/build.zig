@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const main = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
     });

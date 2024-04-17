@@ -3159,7 +3159,7 @@ pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Mod
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
         ref_traces.appendAssumeCapacity(.{
-            .decl_name = try eb.addString(ip.stringToSlice(module_reference.decl)),
+            .decl_name = try eb.addString(module_reference.decl.toSlice(ip)),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
@@ -3731,24 +3731,24 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     };
     defer tar_file.close();
 
-    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .{};
     defer seen_table.deinit(comp.gpa);
 
-    try seen_table.put(comp.gpa, zcu.main_mod, {});
-    try seen_table.put(comp.gpa, zcu.std_mod, {});
+    try seen_table.put(comp.gpa, zcu.main_mod, comp.root_name);
+    try seen_table.put(comp.gpa, zcu.std_mod, zcu.std_mod.fully_qualified_name);
 
     var i: usize = 0;
     while (i < seen_table.count()) : (i += 1) {
         const mod = seen_table.keys()[i];
-        try comp.docsCopyModule(mod, tar_file);
+        try comp.docsCopyModule(mod, seen_table.values()[i], tar_file);
 
         const deps = mod.deps.values();
         try seen_table.ensureUnusedCapacity(comp.gpa, deps.len);
-        for (deps) |dep| seen_table.putAssumeCapacity(dep, {});
+        for (deps) |dep| seen_table.putAssumeCapacity(dep, dep.fully_qualified_name);
     }
 }
 
-fn docsCopyModule(comp: *Compilation, module: *Package.Module, tar_file: std.fs.File) !void {
+fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: std.fs.File) !void {
     const root = module.root;
     const sub_path = if (root.sub_path.len == 0) "." else root.sub_path;
     var mod_dir = root.root_dir.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
@@ -3788,7 +3788,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, tar_file: std.fs.
 
         var file_header = std.tar.output.Header.init();
         file_header.typeflag = .regular;
-        try file_header.setPath(module.fully_qualified_name, entry.path);
+        try file_header.setPath(name, entry.path);
         try file_header.setSize(stat.size);
         try file_header.updateChecksum();
 
@@ -4074,8 +4074,7 @@ fn workerCheckEmbedFile(
 fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Module.EmbedFile) !void {
     const mod = comp.module.?;
     const ip = &mod.intern_pool;
-    const sub_file_path = ip.stringToSlice(embed_file.sub_file_path);
-    var file = try embed_file.owner.root.openFile(sub_file_path, .{});
+    var file = try embed_file.owner.root.openFile(embed_file.sub_file_path.toSlice(ip), .{});
     defer file.close();
 
     const stat = try file.stat();
@@ -4444,7 +4443,7 @@ fn reportRetryableEmbedFileError(
     const ip = &mod.intern_pool;
     const err_msg = try Module.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
         embed_file.owner.root,
-        ip.stringToSlice(embed_file.sub_file_path),
+        embed_file.sub_file_path.toSlice(ip),
         @errorName(err),
     });
 

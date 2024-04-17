@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 
 test "flags in packed union" {
@@ -106,7 +107,7 @@ test "packed union in packed struct" {
 
 fn testPackedUnionInPackedStruct() !void {
     const ReadRequest = packed struct { key: i32 };
-    const RequestType = enum {
+    const RequestType = enum(u1) {
         read,
         insert,
     };
@@ -168,4 +169,16 @@ test "assigning to non-active field at comptime" {
         var test_bits: FlagBits = .{ .flags = .{} };
         test_bits.bits = .{};
     }
+}
+
+test "comptime packed union of pointers" {
+    const U = packed union {
+        a: *const u32,
+        b: *const [1]u32,
+    };
+
+    const x: u32 = 123;
+    const u: U = .{ .a = &x };
+
+    comptime assert(u.b[0] == 123);
 }

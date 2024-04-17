@@ -367,7 +367,7 @@ pub fn claimUnresolved(self: ZigObject, elf_file: *Elf) void {
         }
 
         const is_import = blk: {
-            if (!elf_file.base.isDynLib()) break :blk false;
+            if (!elf_file.isEffectivelyDynLib()) break :blk false;
             const vis = @as(elf.STV, @enumFromInt(esym.st_other));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;
@@ -902,9 +902,9 @@ fn updateDeclCode(
     const gpa = elf_file.base.comp.gpa;
     const mod = elf_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
+    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
     const required_alignment = decl.getAlignment(mod);
 
@@ -915,7 +915,7 @@ fn updateDeclCode(
     sym.output_section_index = shdr_index;
     atom_ptr.output_section_index = shdr_index;
 
-    sym.name_offset = try self.strtab.insert(gpa, decl_name);
+    sym.name_offset = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
@@ -932,7 +932,7 @@ fn updateDeclCode(
         const need_realloc = code.len > capacity or !required_alignment.check(atom_ptr.value);
         if (need_realloc) {
             try atom_ptr.grow(elf_file);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom_ptr.value });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
                 esym.st_value = 0;
@@ -1000,9 +1000,9 @@ fn updateTlv(
     const gpa = elf_file.base.comp.gpa;
     const mod = elf_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
+    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
 
     const required_alignment = decl.getAlignment(mod);
 
@@ -1014,7 +1014,7 @@ fn updateTlv(
     sym.output_section_index = shndx;
     atom_ptr.output_section_index = shndx;
 
-    sym.name_offset = try self.strtab.insert(gpa, decl_name);
+    sym.name_offset = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_value = 0;
@@ -1136,8 +1136,8 @@ pub fn updateDecl(
     if (decl.isExtern(mod)) {
         // Extern variable gets a .got entry only.
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const name = decl.name.toSlice(&mod.intern_pool);
+        const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         const esym_index = try self.getGlobalSymbol(elf_file, name, lib_name);
         elf_file.symbol(self.symbol(esym_index)).flags.needs_got = true;
         return;
@@ -1293,9 +1293,9 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
     const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
     const ty = val.typeOf(mod);
     const sym_index = switch (try self.lowerConst(
@@ -1418,7 +1418,7 @@ pub fn updateExports(
 
     for (exports) |exp| {
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
+            if (!section_name.eqlSlice(".text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,
@@ -1445,7 +1445,7 @@ pub fn updateExports(
             },
         };
         const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         const name_off = try self.strtab.insert(gpa, exp_name);
         const global_esym_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
@@ -1476,9 +1476,9 @@ pub fn updateDeclLineNumber(
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
+    log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
     if (self.dwarf) |*dw| {
         try dw.updateDeclLineNumber(mod, decl_index);
@@ -1493,7 +1493,7 @@ pub fn deleteDeclExport(
 ) void {
     const metadata = self.decls.getPtr(decl_index) orelse return;
     const mod = elf_file.base.comp.module.?;
-    const exp_name = mod.intern_pool.stringToSlice(name);
+    const exp_name = name.toSlice(&mod.intern_pool);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
     const esym = &self.global_esyms.items(.elf_sym)[esym_index.*];

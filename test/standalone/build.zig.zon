@@ -104,6 +104,9 @@
         .windows_spawn = .{
             .path = "windows_spawn",
         },
+        .windows_argv = .{
+            .path = "windows_argv",
+        },
         .self_exe_symlink = .{
             .path = "self_exe_symlink",
         },

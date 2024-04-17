@@ -64,7 +64,7 @@ test "trailers" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -474,6 +474,15 @@ test "general client/server API coverage" {
                         .{ .name = "location", .value = "/redirect/3" },
                     },
                 });
+            } else if (mem.eql(u8, request.head.target, "/redirect/5")) {
+                try request.respond("Hello, Redirected!\n", .{
+                    .status = .found,
+                    .extra_headers = &.{
+                        .{ .name = "location", .value = "/%2525" },
+                    },
+                });
+            } else if (mem.eql(u8, request.head.target, "/%2525")) {
+                try request.respond("Encoded redirect successful!\n", .{});
             } else if (mem.eql(u8, request.head.target, "/redirect/invalid")) {
                 const invalid_port = try getUnusedTcpPort();
                 const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}", .{invalid_port});
@@ -529,7 +538,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -554,7 +563,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192 * 1024);
@@ -578,7 +587,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -604,7 +613,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -629,7 +638,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -656,7 +665,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -684,7 +693,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         try std.testing.expectEqual(.ok, req.response.status);
@@ -725,7 +734,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -749,7 +758,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -773,7 +782,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);
@@ -797,11 +806,32 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         req.wait() catch |err| switch (err) {
             error.TooManyHttpRedirects => {},
             else => return err,
         };
+    }
+
+    { // redirect to encoded url
+        const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/redirect/5", .{port});
+        defer gpa.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, .{
+            .server_header_buffer = &server_header_buffer,
+        });
+        defer req.deinit();
+
+        try req.send();
+        try req.wait();
+
+        const body = try req.reader().readAllAlloc(gpa, 8192);
+        defer gpa.free(body);
+
+        try expectEqualStrings("Encoded redirect successful!\n", body);
     }
 
     // connection has been kept alive
@@ -819,7 +849,7 @@ test "general client/server API coverage" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         const result = req.wait();
 
         // a proxy without an upstream is likely to return a 5xx status.
@@ -913,16 +943,16 @@ test "Server streams both reading and writing" {
     var server_header_buffer: [555]u8 = undefined;
     var req = try client.open(.POST, .{
         .scheme = "http",
-        .host = "127.0.0.1",
+        .host = .{ .raw = "127.0.0.1" },
         .port = test_server.port(),
-        .path = "/",
+        .path = .{ .percent_encoded = "/" },
     }, .{
         .server_header_buffer = &server_header_buffer,
     });
     defer req.deinit();
 
     req.transfer_encoding = .chunked;
-    try req.send(.{});
+    try req.send();
     try req.wait();
 
     try req.writeAll("one ");
@@ -956,7 +986,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .{ .content_length = 14 };
 
-        try req.send(.{});
+        try req.send();
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -990,7 +1020,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.send(.{});
+        try req.send();
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -1044,7 +1074,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.send(.{});
+        try req.send();
         try req.writeAll("Hello, ");
         try req.writeAll("World!\n");
         try req.finish();
@@ -1075,7 +1105,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
         try expectEqual(.expectation_failed, req.response.status);
     }
@@ -1180,7 +1210,7 @@ test "redirect to different connection" {
         });
         defer req.deinit();
 
-        try req.send(.{});
+        try req.send();
         try req.wait();
 
         const body = try req.reader().readAllAlloc(gpa, 8192);

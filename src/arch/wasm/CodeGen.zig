@@ -2199,14 +2199,14 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             const atom = func.bin_file.getAtomPtr(atom_index);
             const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
-                mod.intern_pool.stringToSlice(ext_decl.name),
+                ext_decl.name.toSlice(&mod.intern_pool),
                 atom.sym_index,
-                mod.intern_pool.stringToSliceUnwrap(ext_decl.getOwnedExternFunc(mod).?.lib_name),
+                ext_decl.getOwnedExternFunc(mod).?.lib_name.toSlice(&mod.intern_pool),
                 type_index,
             );
             break :blk extern_func.decl;
         } else switch (mod.intern_pool.indexToKey(func_val.ip_index)) {
-            .ptr => |ptr| switch (ptr.addr) {
+            .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                 .decl => |decl| {
                     _ = try func.bin_file.getOrCreateAtomForDecl(decl);
                     break :blk decl;
@@ -3058,72 +3058,59 @@ fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
     return WValue{ .stack = {} };
 }
 
-fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    const ptr = mod.intern_pool.indexToKey(ptr_val.ip_index).ptr;
-    switch (ptr.addr) {
-        .decl => |decl_index| {
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
-        },
-        .anon_decl => |ad| return func.lowerAnonDeclRef(ad, offset),
-        .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
-        .int => |base| return func.lowerConstant(Value.fromInterned(base), Type.usize),
-        .opt_payload => |base_ptr| return func.lowerParentPtr(Value.fromInterned(base_ptr), offset),
-        .comptime_field, .comptime_alloc => unreachable,
-        .elem => |elem| {
-            const index = elem.index;
-            const elem_type = Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod);
-            const elem_offset = index * elem_type.abiSize(mod);
-            return func.lowerParentPtr(Value.fromInterned(elem.base), @as(u32, @intCast(elem_offset + offset)));
-        },
+fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerError!WValue {
+    const zcu = func.bin_file.base.comp.module.?;
+    const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
+    const offset: u64 = prev_offset + ptr.byte_offset;
+    return switch (ptr.base_addr) {
+        .decl => |decl| return func.lowerDeclRefValue(decl, @intCast(offset)),
+        .anon_decl => |ad| return func.lowerAnonDeclRef(ad, @intCast(offset)),
+        .int => return func.lowerConstant(try zcu.intValue(Type.usize, offset), Type.usize),
+        .eu_payload => return func.fail("Wasm TODO: lower error union payload pointer", .{}),
+        .opt_payload => |opt_ptr| return func.lowerPtr(opt_ptr, offset),
         .field => |field| {
-            const parent_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(field.base));
-            const parent_ty = parent_ptr_ty.childType(mod);
-            const field_index: u32 = @intCast(field.index);
-
-            const field_offset = switch (parent_ty.zigTypeTag(mod)) {
-                .Struct => blk: {
-                    if (mod.typeToPackedStruct(parent_ty)) |struct_type| {
-                        if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
-                            break :blk @divExact(mod.structPackedFieldBitOffset(struct_type, field_index) + parent_ptr_ty.ptrInfo(mod).packed_offset.bit_offset, 8)
-                        else
-                            break :blk 0;
-                    }
-                    break :blk parent_ty.structFieldOffset(field_index, mod);
-                },
-                .Union => switch (parent_ty.containerLayout(mod)) {
-                    .@"packed" => 0,
-                    else => blk: {
-                        const layout: Module.UnionLayout = parent_ty.unionGetLayout(mod);
-                        if (layout.payload_size == 0) break :blk 0;
-                        if (layout.payload_align.compare(.gt, layout.tag_align)) break :blk 0;
-
-                        // tag is stored first so calculate offset from where payload starts
-                        break :blk layout.tag_align.forward(layout.tag_size);
-                    },
-                },
-                .Pointer => switch (parent_ty.ptrSize(mod)) {
-                    .Slice => switch (field.index) {
-                        0 => 0,
-                        1 => func.ptrSize(),
+            const base_ptr = Value.fromInterned(field.base);
+            const base_ty = base_ptr.typeOf(zcu).childType(zcu);
+            const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
+                .Pointer => off: {
+                    assert(base_ty.isSlice(zcu));
+                    break :off switch (field.index) {
+                        Value.slice_ptr_index => 0,
+                        Value.slice_len_index => @divExact(zcu.getTarget().ptrBitWidth(), 8),
                         else => unreachable,
+                    };
+                },
+                .Struct => switch (base_ty.containerLayout(zcu)) {
+                    .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
+                    .@"extern", .@"packed" => unreachable,
+                },
+                .Union => switch (base_ty.containerLayout(zcu)) {
+                    .auto => off: {
+                        // Keep in sync with the `un` case of `generateSymbol`.
+                        const layout = base_ty.unionGetLayout(zcu);
+                        if (layout.payload_size == 0) break :off 0;
+                        if (layout.tag_size == 0) break :off 0;
+                        if (layout.tag_align.compare(.gte, layout.payload_align)) {
+                            // Tag first.
+                            break :off layout.tag_size;
+                        } else {
+                            // Payload first.
+                            break :off 0;
+                        }
                     },
-                    else => unreachable,
+                    .@"extern", .@"packed" => unreachable,
                 },
                 else => unreachable,
             };
-            return func.lowerParentPtr(Value.fromInterned(field.base), @as(u32, @intCast(offset + field_offset)));
+            return func.lowerPtr(field.base, offset + field_off);
         },
-    }
-}
-
-fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
-    return func.lowerDeclRefValue(ptr_val, decl_index, offset);
+        .arr_elem, .comptime_field, .comptime_alloc => unreachable,
+    };
 }
 
 fn lowerAnonDeclRef(
     func: *CodeGen,
-    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     offset: u32,
 ) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
@@ -3153,7 +3140,7 @@ fn lowerAnonDeclRef(
     } else return WValue{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
-fn lowerDeclRefValue(func: *CodeGen, val: Value, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
+fn lowerDeclRefValue(func: *CodeGen, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
 
     const decl = mod.declPtr(decl_index);
@@ -3161,11 +3148,11 @@ fn lowerDeclRefValue(func: *CodeGen, val: Value, decl_index: InternPool.DeclInde
     // want to lower the actual decl, rather than the alias itself.
     if (decl.val.getFunction(mod)) |func_val| {
         if (func_val.owner_decl != decl_index) {
-            return func.lowerDeclRefValue(val, func_val.owner_decl, offset);
+            return func.lowerDeclRefValue(func_val.owner_decl, offset);
         }
     } else if (decl.val.getExternFunc(mod)) |func_val| {
         if (func_val.decl != decl_index) {
-            return func.lowerDeclRefValue(val, func_val.decl, offset);
+            return func.lowerDeclRefValue(func_val.decl, offset);
         }
     }
     const decl_ty = decl.typeOf(mod);
@@ -3309,23 +3296,16 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         },
         .slice => |slice| {
             var ptr = ip.indexToKey(slice.ptr).ptr;
-            const owner_decl = while (true) switch (ptr.addr) {
+            const owner_decl = while (true) switch (ptr.base_addr) {
                 .decl => |decl| break decl,
                 .int, .anon_decl => return func.fail("Wasm TODO: lower slice where ptr is not owned by decl", .{}),
                 .opt_payload, .eu_payload => |base| ptr = ip.indexToKey(base).ptr,
-                .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
-                .comptime_field, .comptime_alloc => unreachable,
+                .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
+                .arr_elem, .comptime_field, .comptime_alloc => unreachable,
             };
             return .{ .memory = try func.bin_file.lowerUnnamedConst(val, owner_decl) };
         },
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| return func.lowerDeclRefValue(val, decl, 0),
-            .int => |int| return func.lowerConstant(Value.fromInterned(int), Type.fromInterned(ip.typeOf(int))),
-            .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
-            .anon_decl => |ad| return func.lowerAnonDeclRef(ad, 0),
-            .comptime_field, .comptime_alloc => unreachable,
-            else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
-        },
+        .ptr => return func.lowerPtr(val.toIntern(), 0),
         .opt => if (ty.optionalReprIsPayload(mod)) {
             const pl_ty = ty.optionalChild(mod);
             if (val.optionalValue(mod)) |payload| {
@@ -3435,7 +3415,10 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
         else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
             .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, mod),
             .int => |int| intStorageAsI32(int.storage, mod),
-            .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int, mod),
+            .ptr => |ptr| {
+                assert(ptr.base_addr == .int);
+                return @intCast(ptr.byte_offset);
+            },
             .err => |err| @as(i32, @bitCast(@as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(err.name).?)))),
             else => unreachable,
         },
@@ -7236,8 +7219,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = ip.stringToSlice(try mod.declPtr(enum_decl_index).fullyQualifiedName(mod));
-    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
+    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(mod);
+    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{fqn.fmt(ip)});
 
     // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
@@ -7268,17 +7251,18 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     // generate an if-else chain for each tag value as well as constant.
     const tag_names = enum_ty.enumFields(mod);
     for (0..tag_names.len) |tag_index| {
-        const tag_name = ip.stringToSlice(tag_names.get(ip)[tag_index]);
+        const tag_name = tag_names.get(ip)[tag_index];
+        const tag_name_len = tag_name.length(ip);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
         const name_ty = try mod.arrayType(.{
-            .len = tag_name.len,
+            .len = tag_name_len,
             .child = .u8_type,
             .sentinel = .zero_u8,
         });
         const name_val = try mod.intern(.{ .aggregate = .{
             .ty = name_ty.toIntern(),
-            .storage = .{ .bytes = tag_name },
+            .storage = .{ .bytes = tag_name.toString() },
         } });
         const tag_sym_index = try func.bin_file.lowerUnnamedConst(
             Value.fromInterned(name_val),
@@ -7338,7 +7322,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, @intCast(tag_name.len)));
+            try leb.writeULEB128(writer, @as(u32, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i32_store));
             try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 4));
@@ -7359,7 +7343,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i64_const));
-            try leb.writeULEB128(writer, @as(u64, @intCast(tag_name.len)));
+            try leb.writeULEB128(writer, @as(u64, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i64_store));
             try leb.writeULEB128(writer, encoded_alignment);
             try leb.writeULEB128(writer, @as(u32, 8));

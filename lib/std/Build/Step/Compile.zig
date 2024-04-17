@@ -55,7 +55,7 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?[]const u8,
+test_runner: ?LazyPath,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
@@ -236,7 +236,7 @@ pub const Options = struct {
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?[]const u8 = null,
+    test_runner: ?LazyPath = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -264,20 +264,8 @@ pub const HeaderInstallation = union(enum) {
         dest_rel_path: []const u8,
 
         pub fn dupe(self: File, b: *std.Build) File {
-            // 'path' lazy paths are relative to the build root of some step, inferred from the step
-            // in which they are used. This means that we can't dupe such paths, because they may
-            // come from dependencies with their own build roots and duping the paths as is might
-            // cause the build script to search for the file relative to the wrong root.
-            // As a temporary workaround, we convert build root-relative paths to absolute paths.
-            // If/when the build-root relative paths are updated to encode which build root they are
-            // relative to, this workaround should be removed.
-            const duped_source: LazyPath = switch (self.source) {
-                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
-                else => self.source.dupe(b),
-            };
-
             return .{
-                .source = duped_source,
+                .source = self.source.dupe(b),
                 .dest_rel_path = b.dupePath(self.dest_rel_path),
             };
         }
@@ -305,20 +293,8 @@ pub const HeaderInstallation = union(enum) {
         };
 
         pub fn dupe(self: Directory, b: *std.Build) Directory {
-            // 'path' lazy paths are relative to the build root of some step, inferred from the step
-            // in which they are used. This means that we can't dupe such paths, because they may
-            // come from dependencies with their own build roots and duping the paths as is might
-            // cause the build script to search for the file relative to the wrong root.
-            // As a temporary workaround, we convert build root-relative paths to absolute paths.
-            // If/when the build-root relative paths are updated to encode which build root they are
-            // relative to, this workaround should be removed.
-            const duped_source: LazyPath = switch (self.source) {
-                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
-                else => self.source.dupe(b),
-            };
-
             return .{
-                .source = duped_source,
+                .source = self.source.dupe(b),
                 .dest_rel_path = b.dupePath(self.dest_rel_path),
                 .options = self.options.dupe(b),
             };
@@ -402,7 +378,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = options.test_runner,
+        .test_runner = null,
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
         .installed_path = null,
@@ -426,6 +402,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     if (options.zig_lib_dir) |lp| {
         self.zig_lib_dir = lp.dupe(self.step.owner);
+        lp.addStepDependencies(&self.step);
+    }
+
+    if (options.test_runner) |lp| {
+        self.test_runner = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
     }
 
@@ -1402,7 +1383,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(b.pathFromRoot(test_runner));
+        try zig_args.append(test_runner.getPath(b));
     }
 
     for (b.debug_log_scopes) |log_scope| {

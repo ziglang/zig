@@ -30,7 +30,7 @@ pub const Diagnostics = struct {
     errors: std.ArrayListUnmanaged(Error) = .{},
 
     root_entries: usize = 0,
-    root_dir: ?[]const u8 = null,
+    root_dir: []const u8 = "",
 
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -55,10 +55,8 @@ pub const Diagnostics = struct {
                 d.root_dir = try d.allocator.dupe(u8, root_dir);
                 return;
             }
-            if (d.root_dir) |r| {
-                d.allocator.free(r);
-                d.root_dir = null;
-            }
+            d.allocator.free(d.root_dir);
+            d.root_dir = "";
         }
     }
 
@@ -103,10 +101,7 @@ pub const Diagnostics = struct {
             }
         }
         d.errors.deinit(d.allocator);
-        if (d.root_dir) |r| {
-            d.allocator.free(r);
-            d.root_dir = null;
-        }
+        d.allocator.free(d.root_dir);
         d.* = undefined;
     }
 };
@@ -1060,7 +1055,7 @@ test "pipeToFileSystem root_dir" {
         };
 
         // there is no root_dir
-        try testing.expect(diagnostics.root_dir == null);
+        try testing.expectEqual(0, diagnostics.root_dir.len);
         try testing.expectEqual(3, diagnostics.root_entries);
     }
 
@@ -1082,7 +1077,7 @@ test "pipeToFileSystem root_dir" {
         };
 
         // root_dir found
-        try testing.expectEqualStrings("example", diagnostics.root_dir.?);
+        try testing.expectEqualStrings("example", diagnostics.root_dir);
         try testing.expectEqual(1, diagnostics.root_entries);
     }
 }

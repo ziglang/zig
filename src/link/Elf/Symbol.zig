@@ -105,6 +105,29 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         return symbol.pltAddress(elf_file);
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
+        if (!atom_ptr.flags.alive) {
+            if (mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame")) {
+                const sym_name = symbol.name(elf_file);
+                if (mem.startsWith(u8, sym_name, "__EH_FRAME_BEGIN__") or
+                    mem.startsWith(u8, sym_name, "__EH_FRAME_LIST__") or
+                    mem.startsWith(u8, sym_name, ".eh_frame_seg") or
+                    symbol.elfSym(elf_file).st_type() == elf.STT_SECTION)
+                {
+                    return elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr;
+                }
+
+                if (mem.startsWith(u8, sym_name, "__FRAME_END__") or
+                    mem.startsWith(u8, sym_name, "__EH_FRAME_LIST_END__"))
+                {
+                    const shdr = elf_file.shdrs.items[elf_file.eh_frame_section_index.?];
+                    return shdr.sh_addr + shdr.sh_size;
+                }
+
+                // TODO I think we potentially should error here
+            }
+
+            return 0;
+        }
         return atom_ptr.address(elf_file) + symbol.value;
     }
     return symbol.value;
@@ -432,6 +455,7 @@ pub const Index = u32;
 
 const assert = std.debug.assert;
 const elf = std.elf;
+const mem = std.mem;
 const std = @import("std");
 const synthetic_sections = @import("synthetic_sections.zig");
 

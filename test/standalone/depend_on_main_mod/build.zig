@@ -9,13 +9,13 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "depend_on_main_mod",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     const foo_module = b.addModule("foo", .{
-        .root_source_file = .{ .path = "src/foo.zig" },
+        .root_source_file = b.path("src/foo.zig"),
     });
 
     foo_module.addImport("root2", &exe.root_module);

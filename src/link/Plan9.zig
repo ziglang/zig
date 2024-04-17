@@ -477,11 +477,11 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
     }
     const unnamed_consts = gop.value_ptr;
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
     const index = unnamed_consts.items.len;
     // name is freed when the unnamed const is freed
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
 
     const sym_index = try self.allocateSymbolIndex();
     const new_atom_idx = try self.createAtom();
@@ -529,7 +529,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     const decl = mod.declPtr(decl_index);
 
     if (decl.isExtern(mod)) {
-        log.debug("found extern decl: {s}", .{mod.intern_pool.stringToSlice(decl.name)});
+        log.debug("found extern decl: {}", .{decl.name.fmt(&mod.intern_pool)});
         return;
     }
     const atom_idx = try self.seeDecl(decl_index);
@@ -573,7 +573,7 @@ fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
         .type = atom.type,
-        .name = try gpa.dupe(u8, mod.intern_pool.stringToSlice(decl.name)),
+        .name = try gpa.dupe(u8, decl.name.toSlice(&mod.intern_pool)),
     };
 
     if (atom.sym_index) |s| {
@@ -1013,10 +1013,12 @@ fn addDeclExports(
     const atom = self.getAtom(metadata.index);
 
     for (exports) |exp| {
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         // plan9 does not support custom sections
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, ".text") and !mod.intern_pool.stringEqlSlice(section_name, ".data")) {
+            if (!section_name.eqlSlice(".text", &mod.intern_pool) and
+                !section_name.eqlSlice(".data", &mod.intern_pool))
+            {
                 try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     gpa,
                     mod.declPtr(decl_index).srcLoc(mod),
@@ -1129,19 +1131,21 @@ pub fn seeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) !Atom.Index {
     // handle externs here because they might not get updateDecl called on them
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const name = mod.intern_pool.stringToSlice(decl.name);
     if (decl.isExtern(mod)) {
         // this is a "phantom atom" - it is never actually written to disk, just convenient for us to store stuff about externs
-        if (std.mem.eql(u8, name, "etext")) {
+        if (decl.name.eqlSlice("etext", &mod.intern_pool)) {
             self.etext_edata_end_atom_indices[0] = atom_idx;
-        } else if (std.mem.eql(u8, name, "edata")) {
+        } else if (decl.name.eqlSlice("edata", &mod.intern_pool)) {
             self.etext_edata_end_atom_indices[1] = atom_idx;
-        } else if (std.mem.eql(u8, name, "end")) {
+        } else if (decl.name.eqlSlice("end", &mod.intern_pool)) {
             self.etext_edata_end_atom_indices[2] = atom_idx;
         }
         try self.updateFinish(decl_index);
-        log.debug("seeDecl(extern) for {s} (got_addr=0x{x})", .{ name, self.getAtom(atom_idx).getOffsetTableAddress(self) });
-    } else log.debug("seeDecl for {s}", .{name});
+        log.debug("seeDecl(extern) for {} (got_addr=0x{x})", .{
+            decl.name.fmt(&mod.intern_pool),
+            self.getAtom(atom_idx).getOffsetTableAddress(self),
+        });
+    } else log.debug("seeDecl for {}", .{decl.name.fmt(&mod.intern_pool)});
     return atom_idx;
 }
 
@@ -1393,7 +1397,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const sym = self.syms.items[atom.sym_index.?];
             try self.writeSym(writer, sym);
             if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
+                for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
                     try self.writeSym(writer, self.syms.items[exp_i]);
                 };
             }
@@ -1440,7 +1444,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const sym = self.syms.items[atom.sym_index.?];
                 try self.writeSym(writer, sym);
                 if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                    for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
+                    for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
                         const s = self.syms.items[exp_i];
                         if (mem.eql(u8, s.name, "_start"))
                             self.entry_val = s.value;
@@ -1483,25 +1487,25 @@ pub fn getDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const mod = self.base.comp.module.?;
+    const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
-    log.debug("getDeclVAddr for {s}", .{mod.intern_pool.stringToSlice(decl.name)});
+    log.debug("getDeclVAddr for {}", .{decl.name.fmt(ip)});
     if (decl.isExtern(mod)) {
-        const extern_name = mod.intern_pool.stringToSlice(decl.name);
-        if (std.mem.eql(u8, extern_name, "etext")) {
+        if (decl.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent_atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_etext,
             });
-        } else if (std.mem.eql(u8, extern_name, "edata")) {
+        } else if (decl.name.eqlSlice("edata", ip)) {
             try self.addReloc(reloc_info.parent_atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,
                 .addend = reloc_info.addend,
                 .type = .special_edata,
             });
-        } else if (std.mem.eql(u8, extern_name, "end")) {
+        } else if (decl.name.eqlSlice("end", ip)) {
             try self.addReloc(reloc_info.parent_atom_index, .{
                 .target = undefined,
                 .offset = reloc_info.offset,

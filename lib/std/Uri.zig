@@ -1,156 +1,157 @@
 //! Uniform Resource Identifier (URI) parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
 //! Does not do perfect grammar and character class checking, but should be robust against URIs in the wild.
 
-const Uri = @This();
-const std = @import("std.zig");
-const testing = std.testing;
-const Allocator = std.mem.Allocator;
-
 scheme: []const u8,
-user: ?[]const u8 = null,
-password: ?[]const u8 = null,
-host: ?[]const u8 = null,
+user: ?Component = null,
+password: ?Component = null,
+host: ?Component = null,
 port: ?u16 = null,
-path: []const u8,
-query: ?[]const u8 = null,
-fragment: ?[]const u8 = null,
+path: Component = Component.empty,
+query: ?Component = null,
+fragment: ?Component = null,
 
-/// Applies URI encoding and replaces all reserved characters with their respective %XX code.
-pub fn escapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isUnreserved);
-}
+pub const Component = union(enum) {
+    /// Invalid characters in this component must be percent encoded
+    /// before being printed as part of a URI.
+    raw: []const u8,
+    /// This component is already percent-encoded, it can be printed
+    /// directly as part of a URI.
+    percent_encoded: []const u8,
 
-pub fn escapePath(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isPathChar);
-}
+    pub const empty: Component = .{ .percent_encoded = "" };
 
-pub fn escapeQuery(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    return escapeStringWithFn(allocator, input, isQueryChar);
-}
-
-pub fn writeEscapedString(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isUnreserved);
-}
-
-pub fn writeEscapedPath(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isPathChar);
-}
-
-pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
-    return writeEscapedStringWithFn(writer, input, isQueryChar);
-}
-
-pub fn escapeStringWithFn(allocator: Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) Allocator.Error![]u8 {
-    var outsize: usize = 0;
-    for (input) |c| {
-        outsize += if (keepUnescaped(c)) @as(usize, 1) else 3;
+    pub fn isEmpty(component: Component) bool {
+        return switch (component) {
+            .raw, .percent_encoded => |string| string.len == 0,
+        };
     }
-    var output = try allocator.alloc(u8, outsize);
-    var outptr: usize = 0;
 
-    for (input) |c| {
-        if (keepUnescaped(c)) {
-            output[outptr] = c;
-            outptr += 1;
-        } else {
-            var buf: [2]u8 = undefined;
-            _ = std.fmt.bufPrint(&buf, "{X:0>2}", .{c}) catch unreachable;
+    /// Allocates the result with `arena` only if needed, so the result should not be freed.
+    pub fn toRawMaybeAlloc(
+        component: Component,
+        arena: std.mem.Allocator,
+    ) std.mem.Allocator.Error![]const u8 {
+        return switch (component) {
+            .raw => |raw| raw,
+            .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
+                try std.fmt.allocPrint(arena, "{raw}", .{component})
+            else
+                percent_encoded,
+        };
+    }
 
-            output[outptr + 0] = '%';
-            output[outptr + 1] = buf[0];
-            output[outptr + 2] = buf[1];
-            outptr += 3;
+    pub fn format(
+        component: Component,
+        comptime fmt_str: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (fmt_str.len == 0) {
+            try writer.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
+                @tagName(component),
+                std.zig.fmtEscapes(switch (component) {
+                    .raw, .percent_encoded => |string| string,
+                }),
+            });
+        } else if (comptime std.mem.eql(u8, fmt_str, "raw")) switch (component) {
+            .raw => |raw| try writer.writeAll(raw),
+            .percent_encoded => |percent_encoded| {
+                var start: usize = 0;
+                var index: usize = 0;
+                while (std.mem.indexOfScalarPos(u8, percent_encoded, index, '%')) |percent| {
+                    index = percent + 1;
+                    if (percent_encoded.len - index < 2) continue;
+                    const percent_encoded_char =
+                        std.fmt.parseInt(u8, percent_encoded[index..][0..2], 16) catch continue;
+                    try writer.print("{s}{c}", .{
+                        percent_encoded[start..percent],
+                        percent_encoded_char,
+                    });
+                    start = percent + 3;
+                    index = percent + 3;
+                }
+                try writer.writeAll(percent_encoded[start..]);
+            },
+        } else if (comptime std.mem.eql(u8, fmt_str, "%")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isUnreserved),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "user")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isUserChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "password")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isPasswordChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "host")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isHostChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "path")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isPathChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "query")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isQueryChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else if (comptime std.mem.eql(u8, fmt_str, "fragment")) switch (component) {
+            .raw => |raw| try percentEncode(writer, raw, isFragmentChar),
+            .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
+        } else @compileError("invalid format string '" ++ fmt_str ++ "'");
+    }
+
+    pub fn percentEncode(
+        writer: anytype,
+        raw: []const u8,
+        comptime isValidChar: fn (u8) bool,
+    ) @TypeOf(writer).Error!void {
+        var start: usize = 0;
+        for (raw, 0..) |char, index| {
+            if (isValidChar(char)) continue;
+            try writer.print("{s}%{X:0>2}", .{ raw[start..index], char });
+            start = index + 1;
         }
+        try writer.writeAll(raw[start..]);
     }
-    return output;
-}
+};
 
-pub fn writeEscapedStringWithFn(writer: anytype, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) @TypeOf(writer).Error!void {
-    for (input) |c| {
-        if (keepUnescaped(c)) {
-            try writer.writeByte(c);
-        } else {
-            try writer.print("%{X:0>2}", .{c});
-        }
-    }
-}
-
-/// Parses a URI string and unescapes all %XX where XX is a valid hex number. Otherwise, verbatim copies
-/// them to the output.
-pub fn unescapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
-    var outsize: usize = 0;
-    var inptr: usize = 0;
-    while (inptr < input.len) {
-        if (input[inptr] == '%') {
-            inptr += 1;
-            if (inptr + 2 <= input.len) {
-                _ = std.fmt.parseInt(u8, input[inptr..][0..2], 16) catch {
-                    outsize += 3;
-                    inptr += 2;
+/// Percent decodes all %XX where XX is a valid hex number.
+/// `output` may alias `input` if `output.ptr <= input.ptr`.
+/// Mutates and returns a subslice of `output`.
+pub fn percentDecodeBackwards(output: []u8, input: []const u8) []u8 {
+    var input_index = input.len;
+    var output_index = output.len;
+    while (input_index > 0) {
+        if (input_index >= 3) {
+            const maybe_percent_encoded = input[input_index - 3 ..][0..3];
+            if (maybe_percent_encoded[0] == '%') {
+                if (std.fmt.parseInt(u8, maybe_percent_encoded[1..], 16)) |percent_encoded_char| {
+                    input_index -= maybe_percent_encoded.len;
+                    output_index -= 1;
+                    output[output_index] = percent_encoded_char;
                     continue;
-                };
-                inptr += 2;
-                outsize += 1;
-            } else {
-                outsize += 1;
+                } else |_| {}
             }
-        } else {
-            inptr += 1;
-            outsize += 1;
         }
+        input_index -= 1;
+        output_index -= 1;
+        output[output_index] = input[input_index];
     }
+    return output[output_index..];
+}
 
-    var output = try allocator.alloc(u8, outsize);
-    var outptr: usize = 0;
-    inptr = 0;
-    while (inptr < input.len) {
-        if (input[inptr] == '%') {
-            inptr += 1;
-            if (inptr + 2 <= input.len) {
-                const value = std.fmt.parseInt(u8, input[inptr..][0..2], 16) catch {
-                    output[outptr + 0] = input[inptr + 0];
-                    output[outptr + 1] = input[inptr + 1];
-                    inptr += 2;
-                    outptr += 2;
-                    continue;
-                };
-
-                output[outptr] = value;
-
-                inptr += 2;
-                outptr += 1;
-            } else {
-                output[outptr] = input[inptr - 1];
-                outptr += 1;
-            }
-        } else {
-            output[outptr] = input[inptr];
-            inptr += 1;
-            outptr += 1;
-        }
-    }
-    return output;
+/// Percent decodes all %XX where XX is a valid hex number.
+/// Mutates and returns a subslice of `buffer`.
+pub fn percentDecodeInPlace(buffer: []u8) []u8 {
+    return percentDecodeBackwards(buffer, buffer);
 }
 
 pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 
 /// Parses the URI or returns an error. This function is not compliant, but is required to parse
 /// some forms of URIs in the wild, such as HTTP Location headers.
-/// The return value will contain unescaped strings pointing into the
-/// original `text`. Each component that is provided, will be non-`null`.
-pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
+/// The return value will contain strings pointing into the original `text`.
+/// Each component that is provided, will be non-`null`.
+pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
     var reader = SliceReader{ .slice = text };
 
-    var uri = Uri{
-        .scheme = "",
-        .user = null,
-        .password = null,
-        .host = null,
-        .port = null,
-        .path = "", // path is always set, but empty by default.
-        .query = null,
-        .fragment = null,
-    };
+    var uri: Uri = .{ .scheme = scheme, .path = undefined };
 
     if (reader.peekPrefix("//")) a: { // authority part
         std.debug.assert(reader.get().? == '/');
@@ -167,12 +168,12 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
             const user_info = authority[0..index];
 
             if (std.mem.indexOf(u8, user_info, ":")) |idx| {
-                uri.user = user_info[0..idx];
+                uri.user = .{ .percent_encoded = user_info[0..idx] };
                 if (idx < user_info.len - 1) { // empty password is also "no password"
-                    uri.password = user_info[idx + 1 ..];
+                    uri.password = .{ .percent_encoded = user_info[idx + 1 ..] };
                 }
             } else {
-                uri.user = user_info;
+                uri.user = .{ .percent_encoded = user_info };
                 uri.password = null;
             }
         }
@@ -205,19 +206,19 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
         }
 
         if (start_of_host >= end_of_host) return error.InvalidFormat;
-        uri.host = authority[start_of_host..end_of_host];
+        uri.host = .{ .percent_encoded = authority[start_of_host..end_of_host] };
     }
 
-    uri.path = reader.readUntil(isPathSeparator);
+    uri.path = .{ .percent_encoded = reader.readUntil(isPathSeparator) };
 
     if ((reader.peek() orelse 0) == '?') { // query part
         std.debug.assert(reader.get().? == '?');
-        uri.query = reader.readUntil(isQuerySeparator);
+        uri.query = .{ .percent_encoded = reader.readUntil(isQuerySeparator) };
     }
 
     if ((reader.peek() orelse 0) == '#') { // fragment part
         std.debug.assert(reader.get().? == '#');
-        uri.fragment = reader.readUntilEof();
+        uri.fragment = .{ .percent_encoded = reader.readUntilEof() };
     }
 
     return uri;
@@ -242,8 +243,8 @@ pub const WriteToStreamOptions = struct {
     /// When true, include the fragment part of the URI. Ignored when `path` is false.
     fragment: bool = false,
 
-    /// When true, do not escape any part of the URI.
-    raw: bool = false,
+    /// When true, include the port part of the URI. Ignored when `port` is null.
+    port: bool = true,
 };
 
 pub fn writeToStream(
@@ -252,80 +253,53 @@ pub fn writeToStream(
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     if (options.scheme) {
-        try writer.writeAll(uri.scheme);
-        try writer.writeAll(":");
-
+        try writer.print("{s}:", .{uri.scheme});
         if (options.authority and uri.host != null) {
             try writer.writeAll("//");
         }
     }
-
     if (options.authority) {
         if (options.authentication and uri.host != null) {
             if (uri.user) |user| {
-                try writer.writeAll(user);
+                try writer.print("{user}", .{user});
                 if (uri.password) |password| {
-                    try writer.writeAll(":");
-                    try writer.writeAll(password);
+                    try writer.print(":{password}", .{password});
                 }
-                try writer.writeAll("@");
+                try writer.writeByte('@');
             }
         }
-
         if (uri.host) |host| {
-            try writer.writeAll(host);
-
-            if (uri.port) |port| {
-                try writer.writeAll(":");
-                try std.fmt.formatInt(port, 10, .lower, .{}, writer);
+            try writer.print("{host}", .{host});
+            if (options.port) {
+                if (uri.port) |port| try writer.print(":{d}", .{port});
             }
         }
     }
-
     if (options.path) {
-        if (uri.path.len == 0) {
-            try writer.writeAll("/");
-        } else if (options.raw) {
-            try writer.writeAll(uri.path);
-        } else {
-            try writeEscapedPath(writer, uri.path);
+        try writer.print("{path}", .{
+            if (uri.path.isEmpty()) Uri.Component{ .percent_encoded = "/" } else uri.path,
+        });
+        if (options.query) {
+            if (uri.query) |query| try writer.print("?{query}", .{query});
         }
-
-        if (options.query) if (uri.query) |q| {
-            try writer.writeAll("?");
-            if (options.raw) {
-                try writer.writeAll(q);
-            } else {
-                try writeEscapedQuery(writer, q);
-            }
-        };
-
-        if (options.fragment) if (uri.fragment) |f| {
-            try writer.writeAll("#");
-            if (options.raw) {
-                try writer.writeAll(f);
-            } else {
-                try writeEscapedQuery(writer, f);
-            }
-        };
+        if (options.fragment) {
+            if (uri.fragment) |fragment| try writer.print("#{fragment}", .{fragment});
+        }
     }
 }
 
 pub fn format(
     uri: Uri,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
+    comptime fmt_str: []const u8,
+    _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    _ = options;
-
-    const scheme = comptime std.mem.indexOf(u8, fmt, ";") != null or fmt.len == 0;
-    const authentication = comptime std.mem.indexOf(u8, fmt, "@") != null or fmt.len == 0;
-    const authority = comptime std.mem.indexOf(u8, fmt, "+") != null or fmt.len == 0;
-    const path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
-    const query = comptime std.mem.indexOf(u8, fmt, "?") != null or fmt.len == 0;
-    const fragment = comptime std.mem.indexOf(u8, fmt, "#") != null or fmt.len == 0;
-    const raw = comptime std.mem.indexOf(u8, fmt, "r") != null or fmt.len == 0;
+    const scheme = comptime std.mem.indexOfScalar(u8, fmt_str, ';') != null or fmt_str.len == 0;
+    const authentication = comptime std.mem.indexOfScalar(u8, fmt_str, '@') != null or fmt_str.len == 0;
+    const authority = comptime std.mem.indexOfScalar(u8, fmt_str, '+') != null or fmt_str.len == 0;
+    const path = comptime std.mem.indexOfScalar(u8, fmt_str, '/') != null or fmt_str.len == 0;
+    const query = comptime std.mem.indexOfScalar(u8, fmt_str, '?') != null or fmt_str.len == 0;
+    const fragment = comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null or fmt_str.len == 0;
 
     return writeToStream(uri, .{
         .scheme = scheme,
@@ -334,12 +308,11 @@ pub fn format(
         .path = path,
         .query = query,
         .fragment = fragment,
-        .raw = raw,
     }, writer);
 }
 
 /// Parses the URI or returns an error.
-/// The return value will contain unescaped strings pointing into the
+/// The return value will contain strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parse(text: []const u8) ParseError!Uri {
     var reader: SliceReader = .{ .slice = text };
@@ -353,42 +326,32 @@ pub fn parse(text: []const u8) ParseError!Uri {
         return error.InvalidFormat;
     }
 
-    var uri = try parseWithoutScheme(reader.readUntilEof());
-    uri.scheme = scheme;
-
-    return uri;
+    return parseAfterScheme(scheme, reader.readUntilEof());
 }
 
-pub const ResolveInplaceError = ParseError || error{OutOfMemory};
+pub const ResolveInPlaceError = ParseError || error{NoSpaceLeft};
 
 /// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
-/// Copies `new` to the beginning of `aux_buf`, allowing the slices to overlap,
+/// Copies `new` to the beginning of `aux_buf.*`, allowing the slices to overlap,
 /// then parses `new` as a URI, and then resolves the path in place.
 /// If a merge needs to take place, the newly constructed path will be stored
-/// in `aux_buf` just after the copied `new`.
-pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplaceError!Uri {
-    std.mem.copyForwards(u8, aux_buf, new);
+/// in `aux_buf.*` just after the copied `new`, and `aux_buf.*` will be modified
+/// to only contain the remaining unused space.
+pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: *[]u8) ResolveInPlaceError!Uri {
+    std.mem.copyForwards(u8, aux_buf.*, new);
     // At this point, new is an invalid pointer.
-    const new_mut = aux_buf[0..new.len];
+    const new_mut = aux_buf.*[0..new.len];
+    aux_buf.* = aux_buf.*[new.len..];
 
-    const new_parsed, const has_scheme = p: {
-        break :p .{
-            parse(new_mut) catch |first_err| {
-                break :p .{
-                    parseWithoutScheme(new_mut) catch return first_err,
-                    false,
-                };
-            },
-            true,
-        };
-    };
-
+    const new_parsed = parse(new_mut) catch |err|
+        (parseAfterScheme("", new_mut) catch return err);
     // As you can see above, `new_mut` is not a const pointer.
-    const new_path: []u8 = @constCast(new_parsed.path);
+    const new_path: []u8 = @constCast(new_parsed.path.percent_encoded);
 
-    if (has_scheme) return .{
+    if (new_parsed.scheme.len > 0) return .{
         .scheme = new_parsed.scheme,
         .user = new_parsed.user,
+        .password = new_parsed.password,
         .host = new_parsed.host,
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
@@ -399,6 +362,7 @@ pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplace
     if (new_parsed.host) |host| return .{
         .scheme = base.scheme,
         .user = new_parsed.user,
+        .password = new_parsed.password,
         .host = host,
         .port = new_parsed.port,
         .path = remove_dot_segments(new_path),
@@ -406,28 +370,21 @@ pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplace
         .fragment = new_parsed.fragment,
     };
 
-    const path, const query = b: {
-        if (new_path.len == 0)
-            break :b .{
-                base.path,
-                new_parsed.query orelse base.query,
-            };
-
-        if (new_path[0] == '/')
-            break :b .{
-                remove_dot_segments(new_path),
-                new_parsed.query,
-            };
-
-        break :b .{
-            try merge_paths(base.path, new_path, aux_buf[new_mut.len..]),
-            new_parsed.query,
-        };
+    const path, const query = if (new_path.len == 0) .{
+        base.path,
+        new_parsed.query orelse base.query,
+    } else if (new_path[0] == '/') .{
+        remove_dot_segments(new_path),
+        new_parsed.query,
+    } else .{
+        try merge_paths(base.path, new_path, aux_buf),
+        new_parsed.query,
     };
 
     return .{
         .scheme = base.scheme,
         .user = base.user,
+        .password = base.password,
         .host = base.host,
         .port = base.port,
         .path = path,
@@ -437,7 +394,7 @@ pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplace
 }
 
 /// In-place implementation of RFC 3986, Section 5.2.4.
-fn remove_dot_segments(path: []u8) []u8 {
+fn remove_dot_segments(path: []u8) Component {
     var in_i: usize = 0;
     var out_i: usize = 0;
     while (in_i < path.len) {
@@ -476,28 +433,28 @@ fn remove_dot_segments(path: []u8) []u8 {
             }
         }
     }
-    return path[0..out_i];
+    return .{ .percent_encoded = path[0..out_i] };
 }
 
 test remove_dot_segments {
     {
         var buffer = "/a/b/c/./../../g".*;
-        try std.testing.expectEqualStrings("/a/g", remove_dot_segments(&buffer));
+        try std.testing.expectEqualStrings("/a/g", remove_dot_segments(&buffer).percent_encoded);
     }
 }
 
 /// 5.2.3. Merge Paths
-fn merge_paths(base: []const u8, new: []u8, aux: []u8) error{OutOfMemory}![]u8 {
-    if (aux.len < base.len + 1 + new.len) return error.OutOfMemory;
-    if (base.len == 0) {
-        aux[0] = '/';
-        @memcpy(aux[1..][0..new.len], new);
-        return remove_dot_segments(aux[0 .. new.len + 1]);
+fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Component {
+    var aux = std.io.fixedBufferStream(aux_buf.*);
+    if (!base.isEmpty()) {
+        try aux.writer().print("{path}", .{base});
+        aux.pos = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
+            return remove_dot_segments(new);
     }
-    const pos = std.mem.lastIndexOfScalar(u8, base, '/') orelse return remove_dot_segments(new);
-    @memcpy(aux[0 .. pos + 1], base[0 .. pos + 1]);
-    @memcpy(aux[pos + 1 ..][0..new.len], new);
-    return remove_dot_segments(aux[0 .. pos + 1 + new.len]);
+    try aux.writer().print("/{s}", .{new});
+    const merged_path = remove_dot_segments(aux.getWritten());
+    aux_buf.* = aux_buf.*[merged_path.percent_encoded.len..];
+    return merged_path;
 }
 
 const SliceReader = struct {
@@ -561,13 +518,6 @@ fn isSchemeChar(c: u8) bool {
     };
 }
 
-fn isAuthoritySeparator(c: u8) bool {
-    return switch (c) {
-        '/', '?', '#' => true,
-        else => false,
-    };
-}
-
 /// reserved    = gen-delims / sub-delims
 fn isReserved(c: u8) bool {
     return isGenLimit(c) or isSubLimit(c);
@@ -598,19 +548,40 @@ fn isUnreserved(c: u8) bool {
     };
 }
 
+fn isUserChar(c: u8) bool {
+    return isUnreserved(c) or isSubLimit(c);
+}
+
+fn isPasswordChar(c: u8) bool {
+    return isUserChar(c) or c == ':';
+}
+
+fn isHostChar(c: u8) bool {
+    return isPasswordChar(c) or c == '[' or c == ']';
+}
+
+fn isPathChar(c: u8) bool {
+    return isUserChar(c) or c == '/' or c == ':' or c == '@';
+}
+
+fn isQueryChar(c: u8) bool {
+    return isPathChar(c) or c == '?';
+}
+
+const isFragmentChar = isQueryChar;
+
+fn isAuthoritySeparator(c: u8) bool {
+    return switch (c) {
+        '/', '?', '#' => true,
+        else => false,
+    };
+}
+
 fn isPathSeparator(c: u8) bool {
     return switch (c) {
         '?', '#' => true,
         else => false,
     };
-}
-
-fn isPathChar(c: u8) bool {
-    return isUnreserved(c) or isSubLimit(c) or c == '/' or c == ':' or c == '@';
-}
-
-fn isQueryChar(c: u8) bool {
-    return isPathChar(c) or c == '?' or c == '%';
 }
 
 fn isQuerySeparator(c: u8) bool {
@@ -623,92 +594,92 @@ fn isQuerySeparator(c: u8) bool {
 test "basic" {
     const parsed = try parse("https://ziglang.org/download");
     try testing.expectEqualStrings("https", parsed.scheme);
-    try testing.expectEqualStrings("ziglang.org", parsed.host orelse return error.UnexpectedNull);
-    try testing.expectEqualStrings("/download", parsed.path);
+    try testing.expectEqualStrings("ziglang.org", parsed.host.?.percent_encoded);
+    try testing.expectEqualStrings("/download", parsed.path.percent_encoded);
     try testing.expectEqual(@as(?u16, null), parsed.port);
 }
 
 test "with port" {
     const parsed = try parse("http://example:1337/");
     try testing.expectEqualStrings("http", parsed.scheme);
-    try testing.expectEqualStrings("example", parsed.host orelse return error.UnexpectedNull);
-    try testing.expectEqualStrings("/", parsed.path);
+    try testing.expectEqualStrings("example", parsed.host.?.percent_encoded);
+    try testing.expectEqualStrings("/", parsed.path.percent_encoded);
     try testing.expectEqual(@as(?u16, 1337), parsed.port);
 }
 
 test "should fail gracefully" {
-    try std.testing.expectEqual(@as(ParseError!Uri, error.InvalidFormat), parse("foobar://"));
+    try std.testing.expectError(error.InvalidFormat, parse("foobar://"));
 }
 
 test "file" {
     const parsed = try parse("file:///");
-    try std.testing.expectEqualSlices(u8, "file", parsed.scheme);
-    try std.testing.expectEqual(@as(?[]const u8, null), parsed.host);
-    try std.testing.expectEqualSlices(u8, "/", parsed.path);
+    try std.testing.expectEqualStrings("file", parsed.scheme);
+    try std.testing.expectEqual(@as(?Component, null), parsed.host);
+    try std.testing.expectEqualStrings("/", parsed.path.percent_encoded);
 
     const parsed2 = try parse("file:///an/absolute/path/to/something");
-    try std.testing.expectEqualSlices(u8, "file", parsed2.scheme);
-    try std.testing.expectEqual(@as(?[]const u8, null), parsed2.host);
-    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/something", parsed2.path);
+    try std.testing.expectEqualStrings("file", parsed2.scheme);
+    try std.testing.expectEqual(@as(?Component, null), parsed2.host);
+    try std.testing.expectEqualStrings("/an/absolute/path/to/something", parsed2.path.percent_encoded);
 
     const parsed3 = try parse("file://localhost/an/absolute/path/to/another/thing/");
-    try std.testing.expectEqualSlices(u8, "file", parsed3.scheme);
-    try std.testing.expectEqualSlices(u8, "localhost", parsed3.host.?);
-    try std.testing.expectEqualSlices(u8, "/an/absolute/path/to/another/thing/", parsed3.path);
+    try std.testing.expectEqualStrings("file", parsed3.scheme);
+    try std.testing.expectEqualStrings("localhost", parsed3.host.?.percent_encoded);
+    try std.testing.expectEqualStrings("/an/absolute/path/to/another/thing/", parsed3.path.percent_encoded);
 }
 
 test "scheme" {
-    try std.testing.expectEqualSlices(u8, "http", (try parse("http:_")).scheme);
-    try std.testing.expectEqualSlices(u8, "scheme-mee", (try parse("scheme-mee:_")).scheme);
-    try std.testing.expectEqualSlices(u8, "a.b.c", (try parse("a.b.c:_")).scheme);
-    try std.testing.expectEqualSlices(u8, "ab+", (try parse("ab+:_")).scheme);
-    try std.testing.expectEqualSlices(u8, "X+++", (try parse("X+++:_")).scheme);
-    try std.testing.expectEqualSlices(u8, "Y+-.", (try parse("Y+-.:_")).scheme);
+    try std.testing.expectEqualStrings("http", (try parse("http:_")).scheme);
+    try std.testing.expectEqualStrings("scheme-mee", (try parse("scheme-mee:_")).scheme);
+    try std.testing.expectEqualStrings("a.b.c", (try parse("a.b.c:_")).scheme);
+    try std.testing.expectEqualStrings("ab+", (try parse("ab+:_")).scheme);
+    try std.testing.expectEqualStrings("X+++", (try parse("X+++:_")).scheme);
+    try std.testing.expectEqualStrings("Y+-.", (try parse("Y+-.:_")).scheme);
 }
 
 test "authority" {
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://hostname")).host.?);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://hostname")).host.?.percent_encoded);
 
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://userinfo@hostname")).host.?);
-    try std.testing.expectEqualSlices(u8, "userinfo", (try parse("scheme://userinfo@hostname")).user.?);
-    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@hostname")).password);
-    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@")).host);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://userinfo@hostname")).host.?.percent_encoded);
+    try std.testing.expectEqualStrings("userinfo", (try parse("scheme://userinfo@hostname")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://userinfo@hostname")).password);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://userinfo@")).host);
 
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://user:password@hostname")).host.?);
-    try std.testing.expectEqualSlices(u8, "user", (try parse("scheme://user:password@hostname")).user.?);
-    try std.testing.expectEqualSlices(u8, "password", (try parse("scheme://user:password@hostname")).password.?);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user:password@hostname")).host.?.percent_encoded);
+    try std.testing.expectEqualStrings("user", (try parse("scheme://user:password@hostname")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings("password", (try parse("scheme://user:password@hostname")).password.?.percent_encoded);
 
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://hostname:0")).host.?);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://hostname:0")).host.?.percent_encoded);
     try std.testing.expectEqual(@as(u16, 1234), (try parse("scheme://hostname:1234")).port.?);
 
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://userinfo@hostname:1234")).host.?);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://userinfo@hostname:1234")).host.?.percent_encoded);
     try std.testing.expectEqual(@as(u16, 1234), (try parse("scheme://userinfo@hostname:1234")).port.?);
-    try std.testing.expectEqualSlices(u8, "userinfo", (try parse("scheme://userinfo@hostname:1234")).user.?);
-    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://userinfo@hostname:1234")).password);
+    try std.testing.expectEqualStrings("userinfo", (try parse("scheme://userinfo@hostname:1234")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://userinfo@hostname:1234")).password);
 
-    try std.testing.expectEqualSlices(u8, "hostname", (try parse("scheme://user:password@hostname:1234")).host.?);
+    try std.testing.expectEqualStrings("hostname", (try parse("scheme://user:password@hostname:1234")).host.?.percent_encoded);
     try std.testing.expectEqual(@as(u16, 1234), (try parse("scheme://user:password@hostname:1234")).port.?);
-    try std.testing.expectEqualSlices(u8, "user", (try parse("scheme://user:password@hostname:1234")).user.?);
-    try std.testing.expectEqualSlices(u8, "password", (try parse("scheme://user:password@hostname:1234")).password.?);
+    try std.testing.expectEqualStrings("user", (try parse("scheme://user:password@hostname:1234")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings("password", (try parse("scheme://user:password@hostname:1234")).password.?.percent_encoded);
 }
 
 test "authority.password" {
-    try std.testing.expectEqualSlices(u8, "username", (try parse("scheme://username@a")).user.?);
-    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://username@a")).password);
+    try std.testing.expectEqualStrings("username", (try parse("scheme://username@a")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://username@a")).password);
 
-    try std.testing.expectEqualSlices(u8, "username", (try parse("scheme://username:@a")).user.?);
-    try std.testing.expectEqual(@as(?[]const u8, null), (try parse("scheme://username:@a")).password);
+    try std.testing.expectEqualStrings("username", (try parse("scheme://username:@a")).user.?.percent_encoded);
+    try std.testing.expectEqual(@as(?Component, null), (try parse("scheme://username:@a")).password);
 
-    try std.testing.expectEqualSlices(u8, "username", (try parse("scheme://username:password@a")).user.?);
-    try std.testing.expectEqualSlices(u8, "password", (try parse("scheme://username:password@a")).password.?);
+    try std.testing.expectEqualStrings("username", (try parse("scheme://username:password@a")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings("password", (try parse("scheme://username:password@a")).password.?.percent_encoded);
 
-    try std.testing.expectEqualSlices(u8, "username", (try parse("scheme://username::@a")).user.?);
-    try std.testing.expectEqualSlices(u8, ":", (try parse("scheme://username::@a")).password.?);
+    try std.testing.expectEqualStrings("username", (try parse("scheme://username::@a")).user.?.percent_encoded);
+    try std.testing.expectEqualStrings(":", (try parse("scheme://username::@a")).password.?.percent_encoded);
 }
 
 fn testAuthorityHost(comptime hostlist: anytype) !void {
     inline for (hostlist) |hostname| {
-        try std.testing.expectEqualSlices(u8, hostname, (try parse("scheme://" ++ hostname)).host.?);
+        try std.testing.expectEqualStrings(hostname, (try parse("scheme://" ++ hostname)).host.?.percent_encoded);
     }
 }
 
@@ -761,11 +732,11 @@ test "RFC example 1" {
         .scheme = uri[0..3],
         .user = null,
         .password = null,
-        .host = uri[6..17],
+        .host = .{ .percent_encoded = uri[6..17] },
         .port = 8042,
-        .path = uri[22..33],
-        .query = uri[34..45],
-        .fragment = uri[46..50],
+        .path = .{ .percent_encoded = uri[22..33] },
+        .query = .{ .percent_encoded = uri[34..45] },
+        .fragment = .{ .percent_encoded = uri[46..50] },
     }, try parse(uri));
 }
 
@@ -777,7 +748,7 @@ test "RFC example 2" {
         .password = null,
         .host = null,
         .port = null,
-        .path = uri[4..],
+        .path = .{ .percent_encoded = uri[4..] },
         .query = null,
         .fragment = null,
     }, try parse(uri));
@@ -838,55 +809,60 @@ test "Special test" {
     _ = try parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ&feature=youtu.be&t=0");
 }
 
-test "URI escaping" {
-    const input = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
-    const expected = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad";
-
-    const actual = try escapeString(std.testing.allocator, input);
-    defer std.testing.allocator.free(actual);
-
-    try std.testing.expectEqualSlices(u8, expected, actual);
+test "URI percent encoding" {
+    try std.testing.expectFmt(
+        "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad",
+        "{%}",
+        .{Component{ .raw = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad" }},
+    );
 }
 
-test "URI unescaping" {
-    const input = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad";
-    const expected = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
+test "URI percent decoding" {
+    {
+        const expected = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
+        var input = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad".*;
 
-    const actual = try unescapeString(std.testing.allocator, input);
-    defer std.testing.allocator.free(actual);
+        try std.testing.expectFmt(expected, "{raw}", .{Component{ .percent_encoded = &input }});
 
-    try std.testing.expectEqualSlices(u8, expected, actual);
+        var output: [expected.len]u8 = undefined;
+        try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);
 
-    const decoded = try unescapeString(std.testing.allocator, "/abc%");
-    defer std.testing.allocator.free(decoded);
-    try std.testing.expectEqualStrings("/abc%", decoded);
+        try std.testing.expectEqualStrings(expected, percentDecodeInPlace(&input));
+    }
+
+    {
+        const expected = "/abc%";
+        var input = expected.*;
+
+        try std.testing.expectFmt(expected, "{raw}", .{Component{ .percent_encoded = &input }});
+
+        var output: [expected.len]u8 = undefined;
+        try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);
+
+        try std.testing.expectEqualStrings(expected, percentDecodeInPlace(&input));
+    }
 }
 
-test "URI query escaping" {
+test "URI query encoding" {
     const address = "https://objects.githubusercontent.com/?response-content-type=application%2Foctet-stream";
     const parsed = try Uri.parse(address);
 
-    // format the URI to escape it
-    const formatted_uri = try std.fmt.allocPrint(std.testing.allocator, "{/?}", .{parsed});
-    defer std.testing.allocator.free(formatted_uri);
-    try std.testing.expectEqualStrings("/?response-content-type=application%2Foctet-stream", formatted_uri);
+    // format the URI to percent encode it
+    try std.testing.expectFmt("/?response-content-type=application%2Foctet-stream", "{/?}", .{parsed});
 }
 
 test "format" {
-    const uri = Uri{
+    const uri: Uri = .{
         .scheme = "file",
         .user = null,
         .password = null,
         .host = null,
         .port = null,
-        .path = "/foo/bar/baz",
+        .path = .{ .raw = "/foo/bar/baz" },
         .query = null,
         .fragment = null,
     };
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    try buf.writer().print("{;/?#}", .{uri});
-    try std.testing.expectEqualSlices(u8, "file:/foo/bar/baz", buf.items);
+    try std.testing.expectFmt("file:/foo/bar/baz", "{;/?#}", .{uri});
 }
 
 test "URI malformed input" {
@@ -894,3 +870,7 @@ test "URI malformed input" {
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
 }
+
+const std = @import("std.zig");
+const testing = std.testing;
+const Uri = @This();

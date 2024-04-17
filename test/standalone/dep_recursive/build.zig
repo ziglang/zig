@@ -7,13 +7,13 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const foo = b.createModule(.{
-        .root_source_file = .{ .path = "foo.zig" },
+        .root_source_file = b.path("foo.zig"),
     });
     foo.addImport("foo", foo);
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
         .target = b.host,
         .optimize = optimize,
     });

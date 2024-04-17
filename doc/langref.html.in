@@ -3323,6 +3323,16 @@ fn doTheTest() !void {
 }
       {#code_end#}
       <p>
+      The backing integer is inferred from the fields' total bit width.
+      Optionally, it can be explicitly provided and enforced at compile time:
+      </p>
+      {#code_begin|test_err|test_missized_packed_struct|backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 24#}
+test "missized packed struct" {
+    const S = packed struct(u32) { a: u16, b: u8 };
+    _ = S{ .a = 4, .b = 2 };
+}
+      {#code_end#}
+      <p>
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
       {#code_begin|test|test_pointer_to_non-byte_aligned_field#}

@@ -4345,8 +4345,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 .data = .{ .reg = .x30 },
             });
         } else if (func_value.getExternFunc(mod)) |extern_func| {
-            const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
-            const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
+            const decl_name = mod.declPtr(extern_func.decl).name.toSlice(&mod.intern_pool);
+            const lib_name = extern_func.lib_name.toSlice(&mod.intern_pool);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 _ = macho_file;
                 @panic("TODO airCall");

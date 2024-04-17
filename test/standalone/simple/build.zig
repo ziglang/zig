@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
             if (case.is_exe) {
                 const exe = b.addExecutable(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
+                    .root_source_file = b.path(case.src_path),
                     .optimize = optimize,
                     .target = resolved_target,
                 });
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
             if (case.is_test) {
                 const exe = b.addTest(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
+                    .root_source_file = b.path(case.src_path),
                     .optimize = optimize,
                     .target = resolved_target,
                 });

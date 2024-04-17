@@ -2086,6 +2086,11 @@ fn finishBoolExpr(
             }
         },
         .Pointer => {
+            if (node.tag() == .string_literal) {
+                // @intFromPtr(node) != 0
+                const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+                return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+            }
             // node != null
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
@@ -5793,7 +5798,12 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
     if (isBoolRes(node)) {
         return node;
     }
-
+    if (node.tag() == .string_literal) {
+        // @intFromPtr(node) != 0
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+        return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+    }
+    // node != 0
     return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
 }
 

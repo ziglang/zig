@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     {
         const exe = b.addExecutable(.{
             .name = "unwind_fp",
-            .root_source_file = .{ .path = "unwind.zig" },
+            .root_source_file = b.path("unwind.zig"),
             .target = target,
             .optimize = optimize,
             .unwind_tables = if (target.result.isDarwin()) true else null,
@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
     {
         const exe = b.addExecutable(.{
             .name = "unwind_nofp",
-            .root_source_file = .{ .path = "unwind.zig" },
+            .root_source_file = b.path("unwind.zig"),
             .target = target,
             .optimize = optimize,
             .unwind_tables = true,
@@ -74,14 +74,14 @@ pub fn build(b: *std.Build) void {
             c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
 
         c_shared_lib.addCSourceFile(.{
-            .file = .{ .path = "shared_lib.c" },
+            .file = b.path("shared_lib.c"),
             .flags = &.{"-fomit-frame-pointer"},
         });
         c_shared_lib.linkLibC();
 
         const exe = b.addExecutable(.{
             .name = "shared_lib_unwind",
-            .root_source_file = .{ .path = "shared_lib_unwind.zig" },
+            .root_source_file = b.path("shared_lib_unwind.zig"),
             .target = target,
             .optimize = optimize,
             .unwind_tables = if (target.result.isDarwin()) true else null,

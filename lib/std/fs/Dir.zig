@@ -220,71 +220,83 @@ pub const Iterator = switch (native_os) {
     },
     .haiku => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.dirent64)),
+        buf: [@sizeOf(DirEnt) + posix.PATH_MAX]u8 align(@alignOf(DirEnt)),
+        offset: usize,
         index: usize,
         end_index: usize,
         first_iter: bool,
 
         const Self = @This();
+        const DirEnt = posix.system.DirEnt;
 
         pub const Error = IteratorError;
 
         /// Memory such as file names referenced in this returned entry becomes invalid
         /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
         pub fn next(self: *Self) Error!?Entry {
-            start_over: while (true) {
-                // TODO: find a better max
-                const HAIKU_MAX_COUNT = 10000;
+            while (true) {
                 if (self.index >= self.end_index) {
                     if (self.first_iter) {
-                        posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                        switch (@as(posix.E, @enumFromInt(posix.system._kern_rewind_dir(self.dir.fd)))) {
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            .ACCES => return error.AccessDenied,
+                            .PERM => return error.AccessDenied,
+                            else => |err| return posix.unexpectedErrno(err),
+                        }
                         self.first_iter = false;
                     }
                     const rc = posix.system._kern_read_dir(
                         self.dir.fd,
                         &self.buf,
                         self.buf.len,
-                        HAIKU_MAX_COUNT,
+                        self.buf.len / @sizeOf(DirEnt),
                     );
                     if (rc == 0) return null;
                     if (rc < 0) {
-                        switch (posix.errno(rc)) {
-                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                        switch (@as(posix.E, @enumFromInt(rc))) {
+                            .BADF => unreachable, // Dir is invalid
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
+                            .OVERFLOW => unreachable,
+                            .ACCES => return error.AccessDenied,
+                            .PERM => return error.AccessDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
+                    self.offset = 0;
                     self.index = 0;
-                    self.end_index = @as(usize, @intCast(rc));
+                    self.end_index = @intCast(rc);
                 }
-                const haiku_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + haiku_entry.reclen;
-                self.index = next_index;
-                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.name)), 0);
-
-                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.ino == 0)) {
-                    continue :start_over;
-                }
+                const dirent: *DirEnt = @ptrCast(@alignCast(&self.buf[self.offset]));
+                self.offset += dirent.reclen;
+                self.index += 1;
+                const name = mem.span(dirent.getName());
+                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or dirent.ino == 0) continue;
 
                 var stat_info: posix.Stat = undefined;
-                const rc = posix.system._kern_read_stat(
+                switch (@as(posix.E, @enumFromInt(posix.system._kern_read_stat(
                     self.dir.fd,
-                    &haiku_entry.name,
+                    name,
                     false,
                     &stat_info,
                     0,
-                );
-                if (rc != 0) {
-                    switch (posix.errno(rc)) {
-                        .SUCCESS => {},
-                        .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                        .FAULT => unreachable,
-                        .NOTDIR => unreachable,
-                        .INVAL => unreachable,
-                        else => |err| return posix.unexpectedErrno(err),
-                    }
+                )))) {
+                    .SUCCESS => {},
+                    .INVAL => unreachable,
+                    .BADF => unreachable, // Dir is invalid
+                    .NOMEM => return error.SystemResources,
+                    .ACCES => return error.AccessDenied,
+                    .PERM => return error.AccessDenied,
+                    .FAULT => unreachable,
+                    .NAMETOOLONG => unreachable,
+                    .LOOP => unreachable,
+                    .NOENT => continue,
+                    else => |err| return posix.unexpectedErrno(err),
                 }
                 const statmode = stat_info.mode & posix.S.IFMT;
 
@@ -315,7 +327,7 @@ pub const Iterator = switch (native_os) {
         dir: Dir,
         // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
         // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-        buf: [1024]u8 align(if (native_os != .linux) 1 else @alignOf(linux.dirent64)),
+        buf: [1024]u8 align(@alignOf(linux.dirent64)),
         index: usize,
         end_index: usize,
         first_iter: bool,
@@ -599,8 +611,16 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
             .buf = undefined,
             .first_iter = first_iter_start_value,
         },
-        .linux, .haiku => return Iterator{
+        .linux => return Iterator{
             .dir = self,
+            .index = 0,
+            .end_index = 0,
+            .buf = undefined,
+            .first_iter = first_iter_start_value,
+        },
+        .haiku => return Iterator{
+            .dir = self,
+            .offset = 0,
             .index = 0,
             .end_index = 0,
             .buf = undefined,
@@ -626,16 +646,17 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
 }
 
 pub const Walker = struct {
-    stack: std.ArrayList(StackItem),
-    name_buffer: std.ArrayList(u8),
+    stack: std.ArrayListUnmanaged(StackItem),
+    name_buffer: std.ArrayListUnmanaged(u8),
+    allocator: Allocator,
 
-    pub const WalkerEntry = struct {
+    pub const Entry = struct {
         /// The containing directory. This can be used to operate directly on `basename`
         /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
         /// The directory remains open until `next` or `deinit` is called.
         dir: Dir,
-        basename: []const u8,
-        path: []const u8,
+        basename: [:0]const u8,
+        path: [:0]const u8,
         kind: Dir.Entry.Kind,
     };
 
@@ -647,7 +668,8 @@ pub const Walker = struct {
     /// After each call to this function, and on deinit(), the memory returned
     /// from this function becomes invalid. A copy must be made in order to keep
     /// a reference to the path.
-    pub fn next(self: *Walker) !?WalkerEntry {
+    pub fn next(self: *Walker) !?Walker.Entry {
+        const gpa = self.allocator;
         while (self.stack.items.len != 0) {
             // `top` and `containing` become invalid after appending to `self.stack`
             var top = &self.stack.items[self.stack.items.len - 1];
@@ -666,10 +688,12 @@ pub const Walker = struct {
             }) |base| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 if (self.name_buffer.items.len != 0) {
-                    try self.name_buffer.append(fs.path.sep);
+                    try self.name_buffer.append(gpa, fs.path.sep);
                     dirname_len += 1;
                 }
-                try self.name_buffer.appendSlice(base.name);
+                try self.name_buffer.ensureUnusedCapacity(gpa, base.name.len + 1);
+                self.name_buffer.appendSliceAssumeCapacity(base.name);
+                self.name_buffer.appendAssumeCapacity(0);
                 if (base.kind == .directory) {
                     var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // no path sep in base.name
@@ -677,18 +701,18 @@ pub const Walker = struct {
                     };
                     {
                         errdefer new_dir.close();
-                        try self.stack.append(StackItem{
+                        try self.stack.append(gpa, .{
                             .iter = new_dir.iterateAssumeFirstIteration(),
-                            .dirname_len = self.name_buffer.items.len,
+                            .dirname_len = self.name_buffer.items.len - 1,
                         });
                         top = &self.stack.items[self.stack.items.len - 1];
                         containing = &self.stack.items[self.stack.items.len - 2];
                     }
                 }
-                return WalkerEntry{
+                return .{
                     .dir = containing.iter.dir,
-                    .basename = self.name_buffer.items[dirname_len..],
-                    .path = self.name_buffer.items,
+                    .basename = self.name_buffer.items[dirname_len .. self.name_buffer.items.len - 1 :0],
+                    .path = self.name_buffer.items[0 .. self.name_buffer.items.len - 1 :0],
                     .kind = base.kind,
                 };
             } else {
@@ -702,37 +726,39 @@ pub const Walker = struct {
     }
 
     pub fn deinit(self: *Walker) void {
+        const gpa = self.allocator;
         // Close any remaining directories except the initial one (which is always at index 0)
         if (self.stack.items.len > 1) {
             for (self.stack.items[1..]) |*item| {
                 item.iter.dir.close();
             }
         }
-        self.stack.deinit();
-        self.name_buffer.deinit();
+        self.stack.deinit(gpa);
+        self.name_buffer.deinit(gpa);
     }
 };
 
 /// Recursively iterates over a directory.
+///
 /// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
-/// Must call `Walker.deinit` when done.
+///
+/// `Walker.deinit` releases allocated memory and directory handles.
+///
 /// The order of returned file system entries is undefined.
+///
 /// `self` will not be closed after walking it.
-pub fn walk(self: Dir, allocator: Allocator) !Walker {
-    var name_buffer = std.ArrayList(u8).init(allocator);
-    errdefer name_buffer.deinit();
+pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .{};
 
-    var stack = std.ArrayList(Walker.StackItem).init(allocator);
-    errdefer stack.deinit();
-
-    try stack.append(Walker.StackItem{
+    try stack.append(allocator, .{
         .iter = self.iterate(),
         .dirname_len = 0,
     });
 
-    return Walker{
+    return .{
         .stack = stack,
-        .name_buffer = name_buffer,
+        .name_buffer = .{},
+        .allocator = allocator,
     };
 }
 
@@ -1428,6 +1454,27 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) Open
         },
         .wasi => {
             return openDir(self, mem.sliceTo(sub_path_c, 0), args);
+        },
+        .haiku => {
+            const rc = posix.system._kern_open_dir(self.fd, sub_path_c);
+            if (rc >= 0) return .{ .fd = rc };
+            switch (@as(posix.E, @enumFromInt(rc))) {
+                .FAULT => unreachable,
+                .INVAL => unreachable,
+                .BADF => unreachable,
+                .ACCES => return error.AccessDenied,
+                .LOOP => return error.SymLinkLoop,
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NAMETOOLONG => return error.NameTooLong,
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .NODEV => return error.NoDevice,
+                .NOENT => return error.FileNotFound,
+                .NOMEM => return error.SystemResources,
+                .NOTDIR => return error.NotDir,
+                .PERM => return error.AccessDenied,
+                .BUSY => return error.DeviceBusy,
+                else => |err| return posix.unexpectedErrno(err),
+            }
         },
         else => {
             var symlink_flags: posix.O = .{

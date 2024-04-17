@@ -131,7 +131,7 @@ pub const Node = struct {
         }
     };
 
-    pub const TableCellAlignment = enum {
+    pub const TableCellAlignment = enum(u2) {
         unset,
         left,
         center,
