@@ -2869,14 +2869,14 @@ fn createAnonymousDeclTypeNamed(
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
 ) !InternPool.DeclIndex {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
+    const zcu = sema.mod;
+    const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
     const namespace = block.namespace;
-    const src_decl = mod.declPtr(block.src_decl);
+    const src_decl = zcu.declPtr(block.src_decl);
     const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_node);
-    errdefer mod.destroyDecl(new_decl_index);
+    const new_decl_index = try zcu.allocateNewDecl(namespace, src_node);
+    errdefer zcu.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
         .anon => {
@@ -2887,15 +2887,15 @@ fn createAnonymousDeclTypeNamed(
             // This name is also used as the key in the parent namespace so it cannot be
             // renamed.
 
-            const name = mod.intern_pool.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
-                src_decl.name.fmt(&mod.intern_pool), anon_prefix, @intFromEnum(new_decl_index),
+            const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
+                src_decl.name.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
             }, .no_embedded_nulls) catch unreachable;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .parent => {
-            const name = mod.declPtr(block.src_decl).name;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            const name = zcu.declPtr(block.src_decl).name;
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .func => {
@@ -2906,7 +2906,7 @@ fn createAnonymousDeclTypeNamed(
             defer buf.deinit();
 
             const writer = buf.writer();
-            try writer.print("{}(", .{mod.declPtr(block.src_decl).name.fmt(&mod.intern_pool)});
+            try writer.print("{}(", .{zcu.declPtr(block.src_decl).name.fmt(ip)});
 
             var arg_i: usize = 0;
             for (fn_info.param_body) |zir_inst| switch (zir_tags[@intFromEnum(zir_inst)]) {
@@ -2921,7 +2921,17 @@ fn createAnonymousDeclTypeNamed(
                         return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try writer.writeByte(',');
-                    try writer.print("{}", .{arg_val.fmtValue(sema.mod, sema)});
+
+                    // Limiting the depth here helps avoid type names getting too long, which
+                    // in turn helps to avoid unreasonably long symbol names for namespaced
+                    // symbols. Such names should ideally be human-readable, and additionally,
+                    // some tooling may not support very long symbol names.
+                    try writer.print("{}", .{Value.fmtValueFull(.{
+                        .val = arg_val,
+                        .mod = zcu,
+                        .opt_sema = sema,
+                        .depth = 1,
+                    })});
 
                     arg_i += 1;
                     continue;
@@ -2930,8 +2940,8 @@ fn createAnonymousDeclTypeNamed(
             };
 
             try writer.writeByte(')');
-            const name = try mod.intern_pool.getOrPutString(gpa, buf.items, .no_embedded_nulls);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            const name = try ip.getOrPutString(gpa, buf.items, .no_embedded_nulls);
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2942,10 +2952,10 @@ fn createAnonymousDeclTypeNamed(
                 .dbg_var_ptr, .dbg_var_val => {
                     if (zir_data[i].str_op.operand != ref) continue;
 
-                    const name = try mod.intern_pool.getOrPutStringFmt(gpa, "{}.{s}", .{
-                        src_decl.name.fmt(&mod.intern_pool), zir_data[i].str_op.getStr(sema.code),
+                    const name = try ip.getOrPutStringFmt(gpa, "{}.{s}", .{
+                        src_decl.name.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+                    try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
                     return new_decl_index;
                 },
                 else => {},
