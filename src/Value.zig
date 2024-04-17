@@ -1917,16 +1917,29 @@ pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *
 }
 
 /// operands must be integers; handles undefined.
-pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
+pub fn bitwiseAndScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
+    // still zero out some bits.
+    // TODO: ideally we'd still like tracking for the undef bits. Related: #19634.
+    const lhs: Value, const rhs: Value = make_defined: {
+        const lhs_undef = orig_lhs.isUndef(zcu);
+        const rhs_undef = orig_rhs.isUndef(zcu);
+        break :make_defined switch ((@as(u2, @intFromBool(lhs_undef)) << 1) | @intFromBool(rhs_undef)) {
+            0b00 => .{ orig_lhs, orig_rhs },
+            0b01 => .{ orig_lhs, try intValueAa(ty, arena, zcu) },
+            0b10 => .{ try intValueAa(ty, arena, zcu), orig_rhs },
+            0b11 => return zcu.undefValue(ty),
+        };
+    };
+
     if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() and rhs.toBool());
 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try arena.alloc(
         std.math.big.Limb,
         // + 1 for negatives
@@ -1934,7 +1947,25 @@ pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod:
     );
     var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.bitAnd(lhs_bigint, rhs_bigint);
-    return mod.intValue_big(ty, result_bigint.toConst());
+    return zcu.intValue_big(ty, result_bigint.toConst());
+}
+
+/// Given an integer or boolean type, creates an value of that with the bit pattern 0xAA.
+/// This is used to convert undef values into 0xAA when performing e.g. bitwise operations.
+fn intValueAa(ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    if (ty.toIntern() == .bool_type) return Value.true;
+    const info = ty.intInfo(zcu);
+
+    const buf = try arena.alloc(u8, (info.bits + 7) / 8);
+    @memset(buf, 0xAA);
+
+    const limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+    result_bigint.readTwosComplement(buf, info.bits, zcu.getTarget().cpu.arch.endian(), info.signedness);
+    return zcu.intValue_big(ty, result_bigint.toConst());
 }
 
 /// operands must be (vectors of) integers; handles undefined scalars.
@@ -1984,23 +2015,36 @@ pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
 }
 
 /// operands must be integers; handles undefined.
-pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
+pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
+    // still zero out some bits.
+    // TODO: ideally we'd still like tracking for the undef bits. Related: #19634.
+    const lhs: Value, const rhs: Value = make_defined: {
+        const lhs_undef = orig_lhs.isUndef(zcu);
+        const rhs_undef = orig_rhs.isUndef(zcu);
+        break :make_defined switch ((@as(u2, @intFromBool(lhs_undef)) << 1) | @intFromBool(rhs_undef)) {
+            0b00 => .{ orig_lhs, orig_rhs },
+            0b01 => .{ orig_lhs, try intValueAa(ty, arena, zcu) },
+            0b10 => .{ try intValueAa(ty, arena, zcu), orig_rhs },
+            0b11 => return zcu.undefValue(ty),
+        };
+    };
+
     if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() or rhs.toBool());
 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try arena.alloc(
         std.math.big.Limb,
         @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
     );
     var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.bitOr(lhs_bigint, rhs_bigint);
-    return mod.intValue_big(ty, result_bigint.toConst());
+    return zcu.intValue_big(ty, result_bigint.toConst());
 }
 
 /// operands must be (vectors of) integers; handles undefined scalars.
