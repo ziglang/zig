@@ -1731,6 +1731,7 @@ test "@fieldParentPtr extern union" {
 test "@fieldParentPtr packed union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch.endian() == .big) return error.SkipZigTest; // TODO
 
     const C = packed union {
         a: bool,

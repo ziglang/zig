@@ -539,7 +539,6 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: V
             .none,
             .{
                 .parent_atom_index = @intFromEnum(atom.sym_index),
-                .addend = null,
             },
         );
         break :code switch (result) {

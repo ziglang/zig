@@ -1011,16 +1011,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
     try zig_args.append(cmd);
 
-    if (!mem.eql(u8, b.graph.host_query_options.arch_os_abi, "native")) {
-        try zig_args.appendSlice(&.{ "--host-target", b.graph.host_query_options.arch_os_abi });
-    }
-    if (b.graph.host_query_options.cpu_features) |cpu| {
-        try zig_args.appendSlice(&.{ "--host-cpu", cpu });
-    }
-    if (b.graph.host_query_options.dynamic_linker) |dl| {
-        try zig_args.appendSlice(&.{ "--host-dynamic-linker", dl });
-    }
-
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }

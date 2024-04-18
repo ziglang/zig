@@ -247,13 +247,25 @@ const ComputeCompareExpected = struct {
 
 const Check = struct {
     kind: Kind,
+    payload: Payload,
+    data: std.ArrayList(u8),
     actions: std.ArrayList(Action),
 
     fn create(allocator: Allocator, kind: Kind) Check {
         return .{
             .kind = kind,
+            .payload = .{ .none = {} },
+            .data = std.ArrayList(u8).init(allocator),
             .actions = std.ArrayList(Action).init(allocator),
         };
+    }
+
+    fn dumpSection(allocator: Allocator, name: [:0]const u8) Check {
+        var check = Check.create(allocator, .dump_section);
+        const off: u32 = @intCast(check.data.items.len);
+        check.data.writer().print("{s}\x00", .{name}) catch @panic("OOM");
+        check.payload = .{ .dump_section = off };
+        return check;
     }
 
     fn extract(self: *Check, phrase: SearchPhrase) void {
@@ -305,6 +317,13 @@ const Check = struct {
         dyld_lazy_bind,
         exports,
         compute_compare,
+        dump_section,
+    };
+
+    const Payload = union {
+        none: void,
+        /// Null-delimited string in the 'data' buffer.
+        dump_section: u32,
     };
 };
 
@@ -513,6 +532,11 @@ pub fn checkInArchiveSymtab(self: *CheckObject) void {
     self.checkExact(label);
 }
 
+pub fn dumpSection(self: *CheckObject, name: [:0]const u8) void {
+    const new_check = Check.dumpSection(self.step.owner.allocator, name);
+    self.checks.append(new_check) catch @panic("OOM");
+}
+
 /// Creates a new standalone, singular check which allows running simple binary operations
 /// on the extracted variables. It will then compare the reduced program with the value of
 /// the expected variable.
@@ -564,12 +588,43 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
 
         const output = switch (self.obj_format) {
-            .macho => try MachODumper.parseAndDump(step, chk.kind, contents),
-            .elf => try ElfDumper.parseAndDump(step, chk.kind, contents),
+            .macho => try MachODumper.parseAndDump(step, chk, contents),
+            .elf => try ElfDumper.parseAndDump(step, chk, contents),
             .coff => return step.fail("TODO coff parser", .{}),
-            .wasm => try WasmDumper.parseAndDump(step, chk.kind, contents),
+            .wasm => try WasmDumper.parseAndDump(step, chk, contents),
             else => unreachable,
         };
+
+        // Depending on whether we requested dumping section verbatim or not,
+        // we either format message string with escaped codes, or not to aid debugging
+        // the failed test.
+        const fmtMessageString = struct {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+                return .{ .data = .{
+                    .kind = kind,
+                    .msg = msg,
+                } };
+            }
+
+            const Ctx = struct {
+                kind: Check.Kind,
+                msg: []const u8,
+            };
+
+            fn formatMessageString(
+                ctx: Ctx,
+                comptime unused_fmt_string: []const u8,
+                options: std.fmt.FormatOptions,
+                writer: anytype,
+            ) !void {
+                _ = unused_fmt_string;
+                _ = options;
+                switch (ctx.kind) {
+                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
+                    else => try writer.writeAll(ctx.msg),
+                }
+            }
+        }.fmtMessageString;
 
         var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
@@ -585,7 +640,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -600,7 +655,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -614,7 +669,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does contain it: ========
                             \\{s}
                             \\===================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -629,7 +684,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ act.phrase.resolve(b, step), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -660,7 +715,7 @@ const MachODumper = struct {
         }
     };
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -731,7 +786,7 @@ const MachODumper = struct {
             }
         }
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 try dumpHeader(hdr, writer);
 
@@ -764,7 +819,7 @@ const MachODumper = struct {
                 if (dyld_info_lc == null) return step.fail("no dyld info found", .{});
                 const lc = dyld_info_lc.?;
 
-                switch (kind) {
+                switch (check.kind) {
                     .dyld_rebase => if (lc.rebase_size > 0) {
                         const data = bytes[lc.rebase_off..][0..lc.rebase_size];
                         try writer.writeAll(dyld_rebase_label ++ "\n");
@@ -805,7 +860,7 @@ const MachODumper = struct {
                 return step.fail("no exports data found", .{});
             },
 
-            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(kind)}),
+            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -1633,14 +1688,14 @@ const ElfDumper = struct {
     const dynamic_section_label = "dynamic section";
     const archive_symtab_label = "archive symbol table";
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
-        return parseAndDumpArchive(step, kind, bytes) catch |err| switch (err) {
-            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, kind, bytes),
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
+        return parseAndDumpArchive(step, check, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, check, bytes),
             else => |e| return e,
         };
     }
 
-    fn parseAndDumpArchive(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -1702,13 +1757,13 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .archive_symtab => if (ctx.symtab.items.len > 0) {
                 try ctx.dumpSymtab(writer);
             } else return step.fail("no archive symbol table found", .{}),
 
             else => if (ctx.objects.items.len > 0) {
-                try ctx.dumpObjects(step, kind, writer);
+                try ctx.dumpObjects(step, check, writer);
             } else return step.fail("empty archive", .{}),
         }
 
@@ -1785,10 +1840,10 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpObjects(ctx: ArchiveContext, step: *Step, kind: Check.Kind, writer: anytype) !void {
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, writer: anytype) !void {
             for (ctx.objects.items) |object| {
                 try writer.print("object {s}\n", .{object.name});
-                const output = try parseAndDumpObject(step, kind, ctx.data[object.off..][0..object.len]);
+                const output = try parseAndDumpObject(step, check, ctx.data[object.off..][0..object.len]);
                 defer ctx.gpa.free(output);
                 try writer.print("{s}\n", .{output});
             }
@@ -1806,7 +1861,7 @@ const ElfDumper = struct {
         };
     };
 
-    fn parseAndDumpObject(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -1859,7 +1914,7 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 try ctx.dumpHeader(writer);
                 try ctx.dumpShdrs(writer);
@@ -1878,7 +1933,13 @@ const ElfDumper = struct {
                 try ctx.dumpDynamicSection(shndx, writer);
             } else return step.fail("no .dynamic section found", .{}),
 
-            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(kind)}),
+            .dump_section => {
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
+                const shndx = ctx.getSectionByName(name) orelse return step.fail("no '{s}' section found", .{name});
+                try ctx.dumpSection(shndx, writer);
+            },
+
+            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -2176,6 +2237,11 @@ const ElfDumper = struct {
             }
         }
 
+        fn dumpSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
+            const data = ctx.getSectionContents(shndx);
+            try writer.print("{s}", .{data});
+        }
+
         inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
             const shdr = ctx.shdrs[shndx];
             return getString(ctx.shstrtab, shdr.sh_name);
@@ -2300,7 +2366,7 @@ const ElfDumper = struct {
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
@@ -2317,7 +2383,7 @@ const WasmDumper = struct {
         errdefer output.deinit();
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 while (reader.readByte()) |current_byte| {
                     const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
@@ -2330,7 +2396,7 @@ const WasmDumper = struct {
                 } else |_| {} // reached end of stream
             },
 
-            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(kind)}),
+            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -2364,7 +2430,7 @@ const WasmDumper = struct {
             => {
                 const entries = try std.leb.readULEB128(u32, reader);
                 try writer.print("\nentries {d}\n", .{entries});
-                try dumpSection(step, section, data[fbs.pos..], entries, writer);
+                try parseSection(step, section, data[fbs.pos..], entries, writer);
             },
             .custom => {
                 const name_length = try std.leb.readULEB128(u32, reader);
@@ -2393,7 +2459,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn dumpSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
+    fn parseSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
         var fbs = std.io.fixedBufferStream(data);
         const reader = fbs.reader();
 

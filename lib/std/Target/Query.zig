@@ -124,71 +124,21 @@ pub fn fromTarget(target: Target) Query {
 }
 
 fn updateOsVersionRange(self: *Query, os: Target.Os) void {
-    switch (os.tag) {
-        .freestanding,
-        .ananas,
-        .cloudabi,
-        .fuchsia,
-        .kfreebsd,
-        .lv2,
-        .solaris,
-        .illumos,
-        .zos,
-        .haiku,
-        .minix,
-        .rtems,
-        .nacl,
-        .aix,
-        .cuda,
-        .nvcl,
-        .amdhsa,
-        .ps4,
-        .ps5,
-        .elfiamcu,
-        .mesa3d,
-        .contiki,
-        .amdpal,
-        .hermit,
-        .hurd,
-        .wasi,
-        .emscripten,
-        .driverkit,
-        .shadermodel,
-        .liteos,
-        .uefi,
-        .opencl,
-        .glsl450,
-        .vulkan,
-        .plan9,
-        .other,
-        => {
-            self.os_version_min = .{ .none = {} };
-            self.os_version_max = .{ .none = {} };
+    self.os_version_min, self.os_version_max = switch (os.tag.getVersionRangeTag()) {
+        .none => .{ .{ .none = {} }, .{ .none = {} } },
+        .semver => .{
+            .{ .semver = os.version_range.semver.min },
+            .{ .semver = os.version_range.semver.max },
         },
-
-        .freebsd,
-        .macos,
-        .ios,
-        .tvos,
-        .watchos,
-        .netbsd,
-        .openbsd,
-        .dragonfly,
-        => {
-            self.os_version_min = .{ .semver = os.version_range.semver.min };
-            self.os_version_max = .{ .semver = os.version_range.semver.max };
+        .linux => .{
+            .{ .semver = os.version_range.linux.range.min },
+            .{ .semver = os.version_range.linux.range.max },
         },
-
-        .linux => {
-            self.os_version_min = .{ .semver = os.version_range.linux.range.min };
-            self.os_version_max = .{ .semver = os.version_range.linux.range.max };
+        .windows => .{
+            .{ .windows = os.version_range.windows.min },
+            .{ .windows = os.version_range.windows.max },
         },
-
-        .windows => {
-            self.os_version_min = .{ .windows = os.version_range.windows.min };
-            self.os_version_max = .{ .windows = os.version_range.windows.max };
-        },
-    }
+    };
 }
 
 pub const ParseOptions = struct {
@@ -278,7 +228,8 @@ pub fn parse(args: ParseOptions) !Query {
 
         const abi_ver_text = abi_it.rest();
         if (abi_it.next() != null) {
-            if (Target.isGnuLibC_os_tag_abi(result.os_tag orelse builtin.os.tag, abi)) {
+            const tag = result.os_tag orelse builtin.os.tag;
+            if (tag.isGnuLibC(abi)) {
                 result.glibc_version = parseVersion(abi_ver_text) catch |err| switch (err) {
                     error.Overflow => return error.InvalidAbiVersion,
                     error.InvalidVersion => return error.InvalidAbiVersion,
@@ -411,12 +362,16 @@ pub fn isNativeAbi(self: Query) bool {
     return self.os_tag == null and self.abi == null;
 }
 
-pub fn isNative(self: Query) bool {
+pub fn isNativeTriple(self: Query) bool {
     return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
 }
 
+pub fn isNative(self: Query) bool {
+    return self.isNativeTriple() and self.ofmt == null;
+}
+
 pub fn canDetectLibC(self: Query) bool {
-    if (self.isNative()) return true;
+    if (self.isNativeOs()) return true;
     if (self.os_tag) |os| {
         if (builtin.os.tag == .macos and os.isDarwin()) return true;
         if (os == .linux and self.abi == .android) return true;
@@ -435,9 +390,8 @@ fn formatVersion(version: SemanticVersion, writer: anytype) !void {
 }
 
 pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
-    if (self.isNative()) {
+    if (self.isNativeTriple())
         return allocator.dupe(u8, "native");
-    }
 
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
@@ -567,88 +521,33 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     diags.os_tag = tag;
 
     const version_text = it.rest();
-    if (it.next() == null) return;
-
-    switch (tag) {
-        .freestanding,
-        .ananas,
-        .cloudabi,
-        .fuchsia,
-        .kfreebsd,
-        .lv2,
-        .solaris,
-        .illumos,
-        .zos,
-        .haiku,
-        .minix,
-        .rtems,
-        .nacl,
-        .aix,
-        .cuda,
-        .nvcl,
-        .amdhsa,
-        .ps4,
-        .ps5,
-        .elfiamcu,
-        .mesa3d,
-        .contiki,
-        .amdpal,
-        .hermit,
-        .hurd,
-        .wasi,
-        .emscripten,
-        .uefi,
-        .opencl,
-        .glsl450,
-        .vulkan,
-        .plan9,
-        .driverkit,
-        .shadermodel,
-        .liteos,
-        .other,
-        => return error.InvalidOperatingSystemVersion,
-
-        .freebsd,
-        .macos,
-        .ios,
-        .tvos,
-        .watchos,
-        .netbsd,
-        .openbsd,
-        .linux,
-        .dragonfly,
-        => {
+    if (version_text.len > 0) switch (tag.getVersionRangeTag()) {
+        .none => return error.InvalidOperatingSystemVersion,
+        .semver, .linux => range: {
             var range_it = mem.splitSequence(u8, version_text, "...");
-
-            const min_text = range_it.next().?;
-            const min_ver = parseVersion(min_text) catch |err| switch (err) {
-                error.Overflow => return error.InvalidOperatingSystemVersion,
-                error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+            result.os_version_min = .{
+                .semver = parseVersion(range_it.first()) catch |err| switch (err) {
+                    error.Overflow => return error.InvalidOperatingSystemVersion,
+                    error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                },
             };
-            result.os_version_min = .{ .semver = min_ver };
-
-            const max_text = range_it.next() orelse return;
-            const max_ver = parseVersion(max_text) catch |err| switch (err) {
-                error.Overflow => return error.InvalidOperatingSystemVersion,
-                error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+            result.os_version_max = .{
+                .semver = parseVersion(range_it.next() orelse break :range) catch |err| switch (err) {
+                    error.Overflow => return error.InvalidOperatingSystemVersion,
+                    error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                },
             };
-            result.os_version_max = .{ .semver = max_ver };
         },
-
-        .windows => {
+        .windows => range: {
             var range_it = mem.splitSequence(u8, version_text, "...");
-
-            const min_text = range_it.first();
-            const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse
-                return error.InvalidOperatingSystemVersion;
-            result.os_version_min = .{ .windows = min_ver };
-
-            const max_text = range_it.next() orelse return;
-            const max_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, max_text) orelse
-                return error.InvalidOperatingSystemVersion;
-            result.os_version_max = .{ .windows = max_ver };
+            result.os_version_min = .{
+                .windows = try Target.Os.WindowsVersion.parse(range_it.first()),
+            };
+            result.os_version_max = .{
+                .windows = try Target.Os.WindowsVersion.parse(range_it.next() orelse break :range),
+            };
         },
-    }
+    };
 }
 
 pub fn eql(a: Query, b: Query) bool {

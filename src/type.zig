@@ -172,6 +172,7 @@ pub const Type = struct {
     }
 
     /// Prints a name suitable for `@typeName`.
+    /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
@@ -187,8 +188,8 @@ pub const Type = struct {
 
                 if (info.sentinel != .none) switch (info.flags.size) {
                     .One, .C => unreachable,
-                    .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod)}),
-                    .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod)}),
+                    .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod, null)}),
+                    .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod, null)}),
                 } else switch (info.flags.size) {
                     .One => try writer.writeAll("*"),
                     .Many => try writer.writeAll("[*]"),
@@ -234,7 +235,7 @@ pub const Type = struct {
                 } else {
                     try writer.print("[{d}:{}]", .{
                         array_type.len,
-                        Value.fromInterned(array_type.sentinel).fmtValue(mod),
+                        Value.fromInterned(array_type.sentinel).fmtValue(mod, null),
                     });
                     try print(Type.fromInterned(array_type.child), writer, mod);
                 }
@@ -352,7 +353,7 @@ pub const Type = struct {
                     try print(Type.fromInterned(field_ty), writer, mod);
 
                     if (val != .none) {
-                        try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(mod)});
+                        try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(mod, null)});
                     }
                 }
                 try writer.writeAll("}");
@@ -1965,6 +1966,12 @@ pub const Type = struct {
         return Type.fromInterned(union_fields[index]);
     }
 
+    pub fn unionFieldTypeByIndex(ty: Type, index: usize, mod: *Module) Type {
+        const ip = &mod.intern_pool;
+        const union_obj = mod.typeToUnion(ty).?;
+        return Type.fromInterned(union_obj.field_types.get(ip)[index]);
+    }
+
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
         const union_obj = mod.typeToUnion(ty).?;
         return mod.unionTagFieldIndex(union_obj, enum_tag);
@@ -3049,22 +3056,34 @@ pub const Type = struct {
         };
     }
 
-    pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) Alignment {
-        const ip = &mod.intern_pool;
+    pub fn structFieldAlign(ty: Type, index: usize, zcu: *Zcu) Alignment {
+        return ty.structFieldAlignAdvanced(index, zcu, null) catch unreachable;
+    }
+
+    pub fn structFieldAlignAdvanced(ty: Type, index: usize, zcu: *Zcu, opt_sema: ?*Sema) !Alignment {
+        const ip = &zcu.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
                 assert(struct_type.layout != .@"packed");
                 const explicit_align = struct_type.fieldAlign(ip, index);
                 const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[index]);
-                return mod.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
+                if (opt_sema) |sema| {
+                    return sema.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
+                } else {
+                    return zcu.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
+                }
             },
             .anon_struct_type => |anon_struct| {
-                return Type.fromInterned(anon_struct.types.get(ip)[index]).abiAlignment(mod);
+                return (try Type.fromInterned(anon_struct.types.get(ip)[index]).abiAlignmentAdvanced(zcu, if (opt_sema) |sema| .{ .sema = sema } else .eager)).scalar;
             },
             .union_type => {
                 const union_obj = ip.loadUnionType(ty.toIntern());
-                return mod.unionFieldNormalAlignment(union_obj, @intCast(index));
+                if (opt_sema) |sema| {
+                    return sema.unionFieldAlignment(union_obj, @intCast(index));
+                } else {
+                    return zcu.unionFieldNormalAlignment(union_obj, @intCast(index));
+                }
             },
             else => unreachable,
         }
@@ -3299,6 +3318,71 @@ pub const Type = struct {
             .opaque_type => ip.loadOpaqueType(ty.toIntern()).captures,
             else => unreachable,
         };
+    }
+
+    pub fn arrayBase(ty: Type, zcu: *const Zcu) struct { Type, u64 } {
+        var cur_ty: Type = ty;
+        var cur_len: u64 = 1;
+        while (cur_ty.zigTypeTag(zcu) == .Array) {
+            cur_len *= cur_ty.arrayLenIncludingSentinel(zcu);
+            cur_ty = cur_ty.childType(zcu);
+        }
+        return .{ cur_ty, cur_len };
+    }
+
+    pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx: u32, zcu: *Zcu) union(enum) {
+        /// The result is a bit-pointer with the same value and a new packed offset.
+        bit_ptr: InternPool.Key.PtrType.PackedOffset,
+        /// The result is a standard pointer.
+        byte_ptr: struct {
+            /// The byte offset of the field pointer from the parent pointer value.
+            offset: u64,
+            /// The alignment of the field pointer type.
+            alignment: InternPool.Alignment,
+        },
+    } {
+        comptime assert(Type.packed_struct_layout_version == 2);
+
+        const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
+        const field_ty = struct_ty.structFieldType(field_idx, zcu);
+
+        var bit_offset: u16 = 0;
+        var running_bits: u16 = 0;
+        for (0..struct_ty.structFieldCount(zcu)) |i| {
+            const f_ty = struct_ty.structFieldType(i, zcu);
+            if (i == field_idx) {
+                bit_offset = running_bits;
+            }
+            running_bits += @intCast(f_ty.bitSize(zcu));
+        }
+
+        const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0)
+            .{ parent_ptr_info.packed_offset.host_size, parent_ptr_info.packed_offset.bit_offset + bit_offset }
+        else
+            .{ (running_bits + 7) / 8, bit_offset };
+
+        // If the field happens to be byte-aligned, simplify the pointer type.
+        // We can only do this if the pointee's bit size matches its ABI byte size,
+        // so that loads and stores do not interfere with surrounding packed bits.
+        //
+        // TODO: we do not attempt this with big-endian targets yet because of nested
+        // structs and floats. I need to double-check the desired behavior for big endian
+        // targets before adding the necessary complications to this code. This will not
+        // cause miscompilations; it only means the field pointer uses bit masking when it
+        // might not be strictly necessary.
+        if (res_bit_offset % 8 == 0 and field_ty.bitSize(zcu) == field_ty.abiSize(zcu) * 8 and zcu.getTarget().cpu.arch.endian() == .little) {
+            const byte_offset = res_bit_offset / 8;
+            const new_align = Alignment.fromLog2Units(@ctz(byte_offset | parent_ptr_ty.ptrAlignment(zcu).toByteUnits().?));
+            return .{ .byte_ptr = .{
+                .offset = byte_offset,
+                .alignment = new_align,
+            } };
+        }
+
+        return .{ .bit_ptr = .{
+            .host_size = res_host_size,
+            .bit_offset = res_bit_offset,
+        } };
     }
 
     pub const @"u1": Type = .{ .ip_index = .u1_type };

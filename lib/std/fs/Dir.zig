@@ -646,16 +646,17 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
 }
 
 pub const Walker = struct {
-    stack: std.ArrayList(StackItem),
-    name_buffer: std.ArrayList(u8),
+    stack: std.ArrayListUnmanaged(StackItem),
+    name_buffer: std.ArrayListUnmanaged(u8),
+    allocator: Allocator,
 
-    pub const WalkerEntry = struct {
+    pub const Entry = struct {
         /// The containing directory. This can be used to operate directly on `basename`
         /// rather than `path`, avoiding `error.NameTooLong` for deeply nested paths.
         /// The directory remains open until `next` or `deinit` is called.
         dir: Dir,
-        basename: []const u8,
-        path: []const u8,
+        basename: [:0]const u8,
+        path: [:0]const u8,
         kind: Dir.Entry.Kind,
     };
 
@@ -667,7 +668,8 @@ pub const Walker = struct {
     /// After each call to this function, and on deinit(), the memory returned
     /// from this function becomes invalid. A copy must be made in order to keep
     /// a reference to the path.
-    pub fn next(self: *Walker) !?WalkerEntry {
+    pub fn next(self: *Walker) !?Walker.Entry {
+        const gpa = self.allocator;
         while (self.stack.items.len != 0) {
             // `top` and `containing` become invalid after appending to `self.stack`
             var top = &self.stack.items[self.stack.items.len - 1];
@@ -686,10 +688,12 @@ pub const Walker = struct {
             }) |base| {
                 self.name_buffer.shrinkRetainingCapacity(dirname_len);
                 if (self.name_buffer.items.len != 0) {
-                    try self.name_buffer.append(fs.path.sep);
+                    try self.name_buffer.append(gpa, fs.path.sep);
                     dirname_len += 1;
                 }
-                try self.name_buffer.appendSlice(base.name);
+                try self.name_buffer.ensureUnusedCapacity(gpa, base.name.len + 1);
+                self.name_buffer.appendSliceAssumeCapacity(base.name);
+                self.name_buffer.appendAssumeCapacity(0);
                 if (base.kind == .directory) {
                     var new_dir = top.iter.dir.openDir(base.name, .{ .iterate = true }) catch |err| switch (err) {
                         error.NameTooLong => unreachable, // no path sep in base.name
@@ -697,18 +701,18 @@ pub const Walker = struct {
                     };
                     {
                         errdefer new_dir.close();
-                        try self.stack.append(StackItem{
+                        try self.stack.append(gpa, .{
                             .iter = new_dir.iterateAssumeFirstIteration(),
-                            .dirname_len = self.name_buffer.items.len,
+                            .dirname_len = self.name_buffer.items.len - 1,
                         });
                         top = &self.stack.items[self.stack.items.len - 1];
                         containing = &self.stack.items[self.stack.items.len - 2];
                     }
                 }
-                return WalkerEntry{
+                return .{
                     .dir = containing.iter.dir,
-                    .basename = self.name_buffer.items[dirname_len..],
-                    .path = self.name_buffer.items,
+                    .basename = self.name_buffer.items[dirname_len .. self.name_buffer.items.len - 1 :0],
+                    .path = self.name_buffer.items[0 .. self.name_buffer.items.len - 1 :0],
                     .kind = base.kind,
                 };
             } else {
@@ -722,37 +726,39 @@ pub const Walker = struct {
     }
 
     pub fn deinit(self: *Walker) void {
+        const gpa = self.allocator;
         // Close any remaining directories except the initial one (which is always at index 0)
         if (self.stack.items.len > 1) {
             for (self.stack.items[1..]) |*item| {
                 item.iter.dir.close();
             }
         }
-        self.stack.deinit();
-        self.name_buffer.deinit();
+        self.stack.deinit(gpa);
+        self.name_buffer.deinit(gpa);
     }
 };
 
 /// Recursively iterates over a directory.
+///
 /// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
-/// Must call `Walker.deinit` when done.
+///
+/// `Walker.deinit` releases allocated memory and directory handles.
+///
 /// The order of returned file system entries is undefined.
+///
 /// `self` will not be closed after walking it.
-pub fn walk(self: Dir, allocator: Allocator) !Walker {
-    var name_buffer = std.ArrayList(u8).init(allocator);
-    errdefer name_buffer.deinit();
+pub fn walk(self: Dir, allocator: Allocator) Allocator.Error!Walker {
+    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .{};
 
-    var stack = std.ArrayList(Walker.StackItem).init(allocator);
-    errdefer stack.deinit();
-
-    try stack.append(Walker.StackItem{
+    try stack.append(allocator, .{
         .iter = self.iterate(),
         .dirname_len = 0,
     });
 
-    return Walker{
+    return .{
         .stack = stack,
-        .name_buffer = name_buffer,
+        .name_buffer = .{},
+        .allocator = allocator,
     };
 }
 

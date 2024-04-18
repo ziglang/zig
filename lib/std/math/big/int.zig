@@ -3776,19 +3776,19 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     const limb_shift = shift / limb_bits;
     const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
-    var carry: Limb = 0;
     var i: usize = 0;
     while (i < a.len - limb_shift) : (i += 1) {
-        const src_i = a.len - i - 1;
-        const dst_i = src_i - limb_shift;
+        const dst_i = i;
+        const src_i = dst_i + limb_shift;
 
         const src_digit = a[src_i];
-        r[dst_i] = carry | (src_digit >> interior_limb_shift);
-        carry = @call(.always_inline, math.shl, .{
+        const src_digit_next = if (src_i + 1 < a.len) a[src_i + 1] else 0;
+        const carry = @call(.always_inline, math.shl, .{
             Limb,
-            src_digit,
+            src_digit_next,
             limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
+        r[dst_i] = carry | (src_digit >> interior_limb_shift);
     }
 }
 

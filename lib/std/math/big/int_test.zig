@@ -2019,6 +2019,19 @@ test "shift-right multi" {
     try a.shiftRight(&a, 63);
     try a.shiftRight(&a, 2);
     try testing.expect(a.eqlZero());
+
+    try a.set(0xffff0000eeee1111dddd2222cccc3333000000000000000000000);
+    try a.shiftRight(&a, 84);
+    const string = try a.toString(
+        testing.allocator,
+        16,
+        .lower,
+    );
+    defer testing.allocator.free(string);
+    try std.testing.expectEqualStrings(
+        string,
+        "ffff0000eeee1111dddd2222cccc3333",
+    );
 }
 
 test "shift-left single" {

@@ -625,11 +625,22 @@ pub const ArgIteratorWasi = struct {
 };
 
 /// Iterator that implements the Windows command-line parsing algorithm.
+/// The implementation is intended to be compatible with the post-2008 C runtime,
+/// but is *not* intended to be compatible with `CommandLineToArgvW` since
+/// `CommandLineToArgvW` uses the pre-2008 parsing rules.
 ///
-/// This iterator faithfully implements the parsing behavior observed in `CommandLineToArgvW` with
+/// This iterator faithfully implements the parsing behavior observed from the C runtime with
 /// one exception: if the command-line string is empty, the iterator will immediately complete
-/// without returning any arguments (whereas `CommandLineArgvW` will return a single argument
+/// without returning any arguments (whereas the C runtime will return a single argument
 /// representing the name of the current executable).
+///
+/// The essential parts of the algorithm are described in Microsoft's documentation:
+///
+/// - https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#parsing-c-command-line-arguments
+///
+/// David Deley explains some additional undocumented quirks in great detail:
+///
+/// - https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULES
 pub const ArgIteratorWindows = struct {
     allocator: Allocator,
     /// Owned by the iterator.
@@ -686,6 +697,51 @@ pub const ArgIteratorWindows = struct {
         fn emitCharacter(self: *ArgIteratorWindows, char: u8) void {
             self.buffer[self.end] = char;
             self.end += 1;
+
+            // Because we are emitting WTF-8 byte-by-byte, we need to
+            // check to see if we've emitted two consecutive surrogate
+            // codepoints that form a valid surrogate pair in order
+            // to ensure that we're always emitting well-formed WTF-8
+            // (https://simonsapin.github.io/wtf-8/#concatenating).
+            //
+            // If we do have a valid surrogate pair, we need to emit
+            // the UTF-8 sequence for the codepoint that they encode
+            // instead of the WTF-8 encoding for the two surrogate pairs
+            // separately.
+            //
+            // This is relevant when dealing with a WTF-16 encoded
+            // command line like this:
+            // "<0xD801>"<0xDC37>
+            // which would get converted to WTF-8 in `cmd_line` as:
+            // "<0xED><0xA0><0x81>"<0xED><0xB0><0xB7>
+            // and then after parsing it'd naively get emitted as:
+            // <0xED><0xA0><0x81><0xED><0xB0><0xB7>
+            // but instead, we need to recognize the surrogate pair
+            // and emit the codepoint it encodes, which in this
+            // example is U+10437 (𐐷), which is encoded in UTF-8 as:
+            // <0xF0><0x90><0x90><0xB7>
+            concatSurrogatePair(self);
+        }
+
+        fn concatSurrogatePair(self: *ArgIteratorWindows) void {
+            // Surrogate codepoints are always encoded as 3 bytes, so there
+            // must be 6 bytes for a surrogate pair to exist.
+            if (self.end - self.start >= 6) {
+                const window = self.buffer[self.end - 6 .. self.end];
+                const view = std.unicode.Wtf8View.init(window) catch return;
+                var it = view.iterator();
+                var pair: [2]u16 = undefined;
+                pair[0] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
+                if (!std.unicode.utf16IsHighSurrogate(std.mem.littleToNative(u16, pair[0]))) return;
+                pair[1] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
+                if (!std.unicode.utf16IsLowSurrogate(std.mem.littleToNative(u16, pair[1]))) return;
+                // We know we have a valid surrogate pair, so convert
+                // it to UTF-8, overwriting the surrogate pair's bytes
+                // and then chop off the extra bytes.
+                const len = std.unicode.utf16LeToUtf8(window, &pair) catch unreachable;
+                const delta = 6 - len;
+                self.end -= delta;
+            }
         }
 
         fn yieldArg(self: *ArgIteratorWindows) [:0]const u8 {
@@ -711,69 +767,37 @@ pub const ArgIteratorWindows = struct {
         }
     };
 
-    // The essential parts of the algorithm are described in Microsoft's documentation:
-    //
-    // - <https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#parsing-c-command-line-arguments>
-    // - <https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw>
-    //
-    // David Deley explains some additional undocumented quirks in great detail:
-    //
-    // - <https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULES>
-    //
-    // Code points <= U+0020 terminating an unquoted first argument was discovered independently by
-    // testing and observing the behavior of 'CommandLineToArgvW' on Windows 10.
-
     fn nextWithStrategy(self: *ArgIteratorWindows, comptime strategy: type) strategy.T {
         // The first argument (the executable name) uses different parsing rules.
         if (self.index == 0) {
-            var char = if (self.cmd_line.len != 0) self.cmd_line[0] else 0;
-            switch (char) {
-                0 => {
-                    // Immediately complete the iterator.
-                    // 'CommandLineToArgvW' would return the name of the current executable here.
-                    return strategy.eof;
-                },
-                '"' => {
-                    // If the first character is a quote, read everything until the next quote (then
-                    // skip that quote), or until the end of the string.
-                    self.index += 1;
-                    while (true) : (self.index += 1) {
-                        char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
-                        switch (char) {
-                            0 => {
-                                return strategy.yieldArg(self);
-                            },
-                            '"' => {
-                                self.index += 1;
-                                return strategy.yieldArg(self);
-                            },
-                            else => {
-                                strategy.emitCharacter(self, char);
-                            },
+            if (self.cmd_line.len == 0 or self.cmd_line[0] == 0) {
+                // Immediately complete the iterator.
+                // The C runtime would return the name of the current executable here.
+                return strategy.eof;
+            }
+
+            var inside_quotes = false;
+            while (true) : (self.index += 1) {
+                const char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+                switch (char) {
+                    0 => {
+                        return strategy.yieldArg(self);
+                    },
+                    '"' => {
+                        inside_quotes = !inside_quotes;
+                    },
+                    ' ', '\t' => {
+                        if (inside_quotes)
+                            strategy.emitCharacter(self, char)
+                        else {
+                            self.index += 1;
+                            return strategy.yieldArg(self);
                         }
-                    }
-                },
-                else => {
-                    // Otherwise, read everything until the next space or ASCII control character
-                    // (not including DEL) (then skip that character), or until the end of the
-                    // string. This means that if the command-line string starts with one of these
-                    // characters, the first returned argument will be the empty string.
-                    while (true) : (self.index += 1) {
-                        char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
-                        switch (char) {
-                            0 => {
-                                return strategy.yieldArg(self);
-                            },
-                            '\x01'...' ' => {
-                                self.index += 1;
-                                return strategy.yieldArg(self);
-                            },
-                            else => {
-                                strategy.emitCharacter(self, char);
-                            },
-                        }
-                    }
-                },
+                    },
+                    else => {
+                        strategy.emitCharacter(self, char);
+                    },
+                }
             }
         }
 
@@ -791,9 +815,10 @@ pub const ArgIteratorWindows = struct {
         //
         // - The end of the string always terminates the current argument.
         // - When not in 'inside_quotes' mode, a space or tab terminates the current argument.
-        // - 2n backslashes followed by a quote emit n backslashes. If in 'inside_quotes' and the
-        //   quote is immediately followed by a second quote, one quote is emitted and the other is
-        //   skipped, otherwise, the quote is skipped. Finally, 'inside_quotes' is toggled.
+        // - 2n backslashes followed by a quote emit n backslashes (note: n can be zero).
+        //   If in 'inside_quotes' and the quote is immediately followed by a second quote,
+        //   one quote is emitted and the other is skipped, otherwise, the quote is skipped
+        //   and 'inside_quotes' is toggled.
         // - 2n + 1 backslashes followed by a quote emit n backslashes followed by a quote.
         // - n backslashes not followed by a quote emit n backslashes.
         var backslash_count: usize = 0;
@@ -826,8 +851,9 @@ pub const ArgIteratorWindows = struct {
                         {
                             strategy.emitCharacter(self, '"');
                             self.index += 1;
+                        } else {
+                            inside_quotes = !inside_quotes;
                         }
-                        inside_quotes = !inside_quotes;
                     }
                 },
                 '\\' => {
@@ -1215,10 +1241,10 @@ test ArgIteratorWindows {
     // Separators
     try t("aa bb cc", &.{ "aa", "bb", "cc" });
     try t("aa\tbb\tcc", &.{ "aa", "bb", "cc" });
-    try t("aa\nbb\ncc", &.{ "aa", "bb\ncc" });
-    try t("aa\r\nbb\r\ncc", &.{ "aa", "\nbb\r\ncc" });
-    try t("aa\rbb\rcc", &.{ "aa", "bb\rcc" });
-    try t("aa\x07bb\x07cc", &.{ "aa", "bb\x07cc" });
+    try t("aa\nbb\ncc", &.{"aa\nbb\ncc"});
+    try t("aa\r\nbb\r\ncc", &.{"aa\r\nbb\r\ncc"});
+    try t("aa\rbb\rcc", &.{"aa\rbb\rcc"});
+    try t("aa\x07bb\x07cc", &.{"aa\x07bb\x07cc"});
     try t("aa\x7Fbb\x7Fcc", &.{"aa\x7Fbb\x7Fcc"});
     try t("aa🦎bb🦎cc", &.{"aa🦎bb🦎cc"});
 
@@ -1227,22 +1253,22 @@ test ArgIteratorWindows {
     try t("  aa  bb  ", &.{ "", "aa", "bb" });
     try t("\t\t", &.{""});
     try t("\t\taa\t\tbb\t\t", &.{ "", "aa", "bb" });
-    try t("\n\n", &.{ "", "\n" });
-    try t("\n\naa\n\nbb\n\n", &.{ "", "\naa\n\nbb\n\n" });
+    try t("\n\n", &.{"\n\n"});
+    try t("\n\naa\n\nbb\n\n", &.{"\n\naa\n\nbb\n\n"});
 
     // Executable name with quotes/backslashes
     try t("\"aa bb\tcc\ndd\"", &.{"aa bb\tcc\ndd"});
     try t("\"", &.{""});
     try t("\"\"", &.{""});
-    try t("\"\"\"", &.{ "", "" });
-    try t("\"\"\"\"", &.{ "", "" });
-    try t("\"\"\"\"\"", &.{ "", "\"" });
-    try t("aa\"bb\"cc\"dd", &.{"aa\"bb\"cc\"dd"});
-    try t("aa\"bb cc\"dd", &.{ "aa\"bb", "ccdd" });
-    try t("\"aa\\\"bb\"", &.{ "aa\\", "bb" });
+    try t("\"\"\"", &.{""});
+    try t("\"\"\"\"", &.{""});
+    try t("\"\"\"\"\"", &.{""});
+    try t("aa\"bb\"cc\"dd", &.{"aabbccdd"});
+    try t("aa\"bb cc\"dd", &.{"aabb ccdd"});
+    try t("\"aa\\\"bb\"", &.{"aa\\bb"});
     try t("\"aa\\\\\"", &.{"aa\\\\"});
-    try t("aa\\\"bb", &.{"aa\\\"bb"});
-    try t("aa\\\\\"bb", &.{"aa\\\\\"bb"});
+    try t("aa\\\"bb", &.{"aa\\bb"});
+    try t("aa\\\\\"bb", &.{"aa\\\\bb"});
 
     // Arguments with quotes/backslashes
     try t(". \"aa bb\tcc\ndd\"", &.{ ".", "aa bb\tcc\ndd" });
@@ -1252,29 +1278,66 @@ test ArgIteratorWindows {
     try t(". \"\"", &.{ ".", "" });
     try t(". \"\"\"", &.{ ".", "\"" });
     try t(". \"\"\"\"", &.{ ".", "\"" });
-    try t(". \"\"\"\"\"", &.{ ".", "\"" });
+    try t(". \"\"\"\"\"", &.{ ".", "\"\"" });
     try t(". \"\"\"\"\"\"", &.{ ".", "\"\"" });
     try t(". \" \"", &.{ ".", " " });
     try t(". \" \"\"", &.{ ".", " \"" });
     try t(". \" \"\"\"", &.{ ".", " \"" });
-    try t(". \" \"\"\"\"", &.{ ".", " \"" });
+    try t(". \" \"\"\"\"", &.{ ".", " \"\"" });
     try t(". \" \"\"\"\"\"", &.{ ".", " \"\"" });
-    try t(". \" \"\"\"\"\"\"", &.{ ".", " \"\"" });
+    try t(". \" \"\"\"\"\"\"", &.{ ".", " \"\"\"" });
     try t(". \\\"", &.{ ".", "\"" });
     try t(". \\\"\"", &.{ ".", "\"" });
     try t(". \\\"\"\"", &.{ ".", "\"" });
     try t(". \\\"\"\"\"", &.{ ".", "\"\"" });
     try t(". \\\"\"\"\"\"", &.{ ".", "\"\"" });
-    try t(". \\\"\"\"\"\"\"", &.{ ".", "\"\"" });
+    try t(". \\\"\"\"\"\"\"", &.{ ".", "\"\"\"" });
     try t(". \" \\\"", &.{ ".", " \"" });
     try t(". \" \\\"\"", &.{ ".", " \"" });
     try t(". \" \\\"\"\"", &.{ ".", " \"\"" });
     try t(". \" \\\"\"\"\"", &.{ ".", " \"\"" });
-    try t(". \" \\\"\"\"\"\"", &.{ ".", " \"\"" });
+    try t(". \" \\\"\"\"\"\"", &.{ ".", " \"\"\"" });
     try t(". \" \\\"\"\"\"\"\"", &.{ ".", " \"\"\"" });
     try t(". aa\\bb\\\\cc\\\\\\dd", &.{ ".", "aa\\bb\\\\cc\\\\\\dd" });
     try t(". \\\\\\\"aa bb\"", &.{ ".", "\\\"aa", "bb" });
     try t(". \\\\\\\\\"aa bb\"", &.{ ".", "\\\\aa bb" });
+
+    // From https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args#results-of-parsing-command-lines
+    try t(
+        \\foo.exe "abc" d e
+    , &.{ "foo.exe", "abc", "d", "e" });
+    try t(
+        \\foo.exe a\\b d"e f"g h
+    , &.{ "foo.exe", "a\\\\b", "de fg", "h" });
+    try t(
+        \\foo.exe a\\\"b c d
+    , &.{ "foo.exe", "a\\\"b", "c", "d" });
+    try t(
+        \\foo.exe a\\\\"b c" d e
+    , &.{ "foo.exe", "a\\\\b c", "d", "e" });
+    try t(
+        \\foo.exe a"b"" c d
+    , &.{ "foo.exe", "ab\" c d" });
+
+    // From https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULESEX
+    try t("foo.exe CallMeIshmael", &.{ "foo.exe", "CallMeIshmael" });
+    try t("foo.exe \"Call Me Ishmael\"", &.{ "foo.exe", "Call Me Ishmael" });
+    try t("foo.exe Cal\"l Me I\"shmael", &.{ "foo.exe", "Call Me Ishmael" });
+    try t("foo.exe CallMe\\\"Ishmael", &.{ "foo.exe", "CallMe\"Ishmael" });
+    try t("foo.exe \"CallMe\\\"Ishmael\"", &.{ "foo.exe", "CallMe\"Ishmael" });
+    try t("foo.exe \"Call Me Ishmael\\\\\"", &.{ "foo.exe", "Call Me Ishmael\\" });
+    try t("foo.exe \"CallMe\\\\\\\"Ishmael\"", &.{ "foo.exe", "CallMe\\\"Ishmael" });
+    try t("foo.exe a\\\\\\b", &.{ "foo.exe", "a\\\\\\b" });
+    try t("foo.exe \"a\\\\\\b\"", &.{ "foo.exe", "a\\\\\\b" });
+
+    // Surrogate pair encoding of 𐐷 separated by quotes.
+    // Encoded as WTF-16:
+    // "<0xD801>"<0xDC37>
+    // Encoded as WTF-8:
+    // "<0xED><0xA0><0x81>"<0xED><0xB0><0xB7>
+    // During parsing, the quotes drop out and the surrogate pair
+    // should end up encoded as its normal UTF-8 representation.
+    try t("foo.exe \"\xed\xa0\x81\"\xed\xb0\xb7", &.{ "foo.exe", "𐐷" });
 }
 
 fn testArgIteratorWindows(cmd_line: []const u8, expected_args: []const []const u8) !void {

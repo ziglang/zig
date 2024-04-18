@@ -985,9 +985,6 @@ fn buildOutputType(
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
-        .host_triple = null,
-        .host_cpu = null,
-        .host_dynamic_linker = null,
     };
 
     // before arg parsing, check for the NO_COLOR environment variable
@@ -1285,12 +1282,6 @@ fn buildOutputType(
                         mod_opts.optimize_mode = parseOptimizeMode(arg["-O".len..]);
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--host-target")) {
-                        create_module.host_triple = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--host-cpu")) {
-                        create_module.host_cpu = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--host-dynamic-linker")) {
-                        create_module.host_dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
                         create_module.sysroot = next_arg;
@@ -3521,9 +3512,6 @@ const CreateModule = struct {
     each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
-    host_triple: ?[]const u8,
-    host_cpu: ?[]const u8,
-    host_dynamic_linker: ?[]const u8,
 };
 
 fn createModule(
@@ -3605,15 +3593,7 @@ fn createModule(
         }
 
         const target_query = std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
-        const adjusted_target_query = a: {
-            if (!target_query.isNative()) break :a target_query;
-            if (create_module.host_triple) |triple| target_parse_options.arch_os_abi = triple;
-            if (create_module.host_cpu) |cpu| target_parse_options.cpu_features = cpu;
-            if (create_module.host_dynamic_linker) |dl| target_parse_options.dynamic_linker = dl;
-            break :a std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
-        };
-
-        const target = std.zig.resolveTargetQueryOrFatal(adjusted_target_query);
+        const target = std.zig.resolveTargetQueryOrFatal(target_query);
         break :t .{
             .result = target,
             .is_native_os = target_query.isNativeOs(),

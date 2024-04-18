@@ -82,7 +82,7 @@ enable_wine: bool = false,
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
 glibc_runtimes_dir: ?[]const u8 = null,
 
-/// Information about the native target. Computed before build() is invoked.
+/// Deprecated. Use `b.graph.host`.
 host: ResolvedTarget,
 
 dep_prefix: []const u8 = "",
@@ -118,8 +118,9 @@ pub const Graph = struct {
     zig_exe: [:0]const u8,
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
-    host_query_options: std.Target.Query.ParseOptions = .{},
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
+    /// Information about the native target. Computed before build() is invoked.
+    host: ResolvedTarget,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -297,7 +298,7 @@ pub fn create(
         .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
-        .host = undefined,
+        .host = graph.host,
         .modules = std.StringArrayHashMap(*Module).init(arena),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
         .initialized_deps = initialized_deps,
@@ -2489,14 +2490,9 @@ pub const ResolvedTarget = struct {
 /// various parts of the API.
 pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     if (query.isNative()) {
-        var adjusted = b.host;
-        if (query.ofmt) |ofmt| {
-            adjusted.query.ofmt = ofmt;
-            adjusted.result.ofmt = ofmt;
-        }
-        return adjusted;
+        // Hot path. This is faster than querying the native CPU and OS again.
+        return b.graph.host;
     }
-
     return .{
         .query = query,
         .result = std.zig.system.resolveTargetQuery(query) catch

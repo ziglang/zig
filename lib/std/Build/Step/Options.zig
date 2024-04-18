@@ -516,6 +516,10 @@ test Options {
         .zig_exe = "test",
         .env_map = std.process.EnvMap.init(arena.allocator()),
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
+        .host = .{
+            .query = .{},
+            .result = try std.zig.system.resolveTargetQuery(.{}),
+        },
     };
 
     var builder = try std.Build.create(
@@ -524,11 +528,6 @@ test Options {
         .{ .path = "test", .handle = std.fs.cwd() },
         &.{},
     );
-
-    builder.host = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
 
     const options = builder.addOptions();
 
