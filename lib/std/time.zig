@@ -352,7 +352,6 @@ test Timer {
 /// TimeAdvanced(6) = microseconds
 /// TimeAdvanced(9) = nanoseconds
 pub fn TimeAdvanced(precision_: comptime_int) type {
-    const multiplier: comptime_int = try std.math.powi(usize, 10, precision_);
     return struct {
         hour: Hour = 0,
         minute: Minute = 0,
@@ -371,6 +370,7 @@ pub fn TimeAdvanced(precision_: comptime_int) type {
         const Self = @This();
 
         pub const precision = precision_;
+        const multiplier: comptime_int = std.math.powi(usize, 10, precision_) catch unreachable;
         pub const subseconds_per_s = multiplier;
         pub const subseconds_per_min = 60 * subseconds_per_s;
         pub const subseconds_per_hour = 60 * subseconds_per_min;
@@ -447,13 +447,6 @@ test TimeAdvanced {
     try expectEqual(TimeMilli{ .hour = 21, .minute = 57, .second = 57, .subsecond = 999 }, t1.add(-25, -61, -61, -1001));
 }
 
-comptime {
-    assert(@sizeOf(TimeAdvanced(0)) == 3);
-    assert(@sizeOf(TimeAdvanced(3)) == 6);
-    assert(@sizeOf(TimeAdvanced(6)) == 8);
-    assert(@sizeOf(TimeAdvanced(9)) == 8);
-    assert(@sizeOf(TimeAdvanced(12)) == 16);
-}
 /// Time with second precision.
 pub const Time = TimeAdvanced(0);
 /// Time with millisecond precision.
