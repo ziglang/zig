@@ -70,6 +70,10 @@ pub fn main() !void {
         .zig_exe = zig_exe,
         .env_map = try process.getEnvMap(arena),
         .global_cache_root = global_cache_directory,
+        .host = .{
+            .query = .{},
+            .result = try std.zig.system.resolveTargetQuery(.{}),
+        },
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -142,12 +146,6 @@ pub fn main() !void {
                         arg, text,
                     });
                 };
-            } else if (mem.eql(u8, arg, "--host-target")) {
-                graph.host_query_options.arch_os_abi = nextArgOrFatal(args, &arg_idx);
-            } else if (mem.eql(u8, arg, "--host-cpu")) {
-                graph.host_query_options.cpu_features = nextArgOrFatal(args, &arg_idx);
-            } else if (mem.eql(u8, arg, "--host-dynamic-linker")) {
-                graph.host_query_options.dynamic_linker = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
                 dir_list.lib_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
@@ -282,14 +280,6 @@ pub fn main() !void {
             try targets.append(arg);
         }
     }
-
-    const host_query = std.Build.parseTargetQuery(graph.host_query_options) catch |err| switch (err) {
-        error.ParseFailed => process.exit(1),
-    };
-    builder.host = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(host_query),
-    };
 
     const stderr = std.io.getStdErr();
     const ttyconf = get_tty_conf(color, stderr);
@@ -1170,10 +1160,6 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
         \\  --sysroot [path]             Set the system root directory (usually /)
         \\  --libc [file]                Provide a file which specifies libc paths
-        \\
-        \\  --host-target [triple]       Use the provided target as the host
-        \\  --host-cpu [cpu]             Use the provided CPU as the host
-        \\  --host-dynamic-linker [path] Use the provided dynamic linker as the host
         \\
         \\  --system [pkgdir]            Disable package fetching; enable all integrations
         \\  -fsys=[name]                 Enable a system integration
