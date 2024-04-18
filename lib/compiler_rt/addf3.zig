@@ -114,7 +114,7 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
         // If a == -b, return +zero.
         if (aSignificand == 0) return @bitCast(@as(Z, 0));
 
-        // If partial cancellation occured, we need to left-shift the result
+        // If partial cancellation occurred, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < integerBit << 3) {
             const shift = @as(i32, @intCast(@clz(aSignificand))) - @as(i32, @intCast(@clz(integerBit << 3)));

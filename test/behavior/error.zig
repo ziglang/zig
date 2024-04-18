@@ -124,7 +124,6 @@ test "debug info for optional error set" {
 
 test "implicit cast to optional to error union to return result loc" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -931,6 +930,16 @@ test "optional error set return type" {
     try expect(E.A == S.foo(false).?);
 }
 
+test "optional error set function parameter" {
+    const S = struct {
+        fn doTheTest(a: ?anyerror) !void {
+            try std.testing.expect(a.? == error.OutOfMemory);
+        }
+    };
+    try S.doTheTest(error.OutOfMemory);
+    try comptime S.doTheTest(error.OutOfMemory);
+}
+
 test "returning an error union containing a type with no runtime bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -951,7 +960,6 @@ test "returning an error union containing a type with no runtime bits" {
 test "try used in recursive function with inferred error set" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const Value = union(enum) {
         values: []const @This(),
@@ -1040,4 +1048,32 @@ test "errorCast to adhoc inferred error set" {
         }
     };
     try std.testing.expect((try S.baz()) == 1234);
+}
+
+test "errorCast from error sets to error unions" {
+    const err_union: Set1!void = @errorCast(error.A);
+    try expectError(error.A, err_union);
+}
+
+test "result location initialization of error union with OPV payload" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: u0,
+    };
+
+    const a: anyerror!S = .{ .x = 0 };
+    comptime assert((a catch unreachable).x == 0);
+
+    comptime {
+        var b: anyerror!S = .{ .x = 0 };
+        _ = &b;
+        assert((b catch unreachable).x == 0);
+    }
+
+    var c: anyerror!S = .{ .x = 0 };
+    _ = &c;
+    try expectEqual(0, (c catch return error.TestFailed).x);
 }

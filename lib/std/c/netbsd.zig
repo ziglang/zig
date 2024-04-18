@@ -2,8 +2,8 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const timezone = std.c.timezone;
 const rusage = std.c.rusage;
 
@@ -18,46 +18,13 @@ pub extern "c" fn _lwp_self() lwpid_t;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
-pub const stat = __stat50;
-
-pub extern "c" fn __clock_gettime50(clk_id: c_int, tp: *timespec) c_int;
-pub const clock_gettime = __clock_gettime50;
-
-pub extern "c" fn __clock_getres50(clk_id: c_int, tp: *timespec) c_int;
-pub const clock_getres = __clock_getres50;
-
 pub extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub const getdents = __getdents30;
 
 pub extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub const sigaltstack = __sigaltstack14;
 
-pub extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-pub const nanosleep = __nanosleep50;
-
-pub extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-pub const sigaction = __sigaction14;
-
-pub extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-pub const sigprocmask = __sigaction14;
-
-pub extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-pub const socket = __socket30;
-
-pub extern "c" fn __gettimeofday50(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-pub const gettimeofday = __gettimeofday50;
-
-pub extern "c" fn __getrusage50(who: c_int, usage: *rusage) c_int;
-pub const getrusage = __getrusage50;
-
-pub extern "c" fn __libc_thr_yield() c_int;
-pub const sched_yield = __libc_thr_yield;
-
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
-
-pub extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
-pub const msync = __msync13;
 
 pub const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
@@ -483,6 +450,8 @@ pub const sockaddr = extern struct {
     };
 };
 
+pub const IFNAMESIZE = 16;
+
 pub const AI = struct {
     /// get address to use bind()
     pub const PASSIVE = 0x00000001;
@@ -831,9 +800,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -895,8 +864,8 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -939,7 +908,7 @@ pub const _ksiginfo = extern struct {
             stime: clock_t,
         },
         fault: extern struct {
-            addr: ?*anyopaque,
+            addr: *allowzero anyopaque,
             trap: i32,
             trap2: i32,
             trap3: i32,

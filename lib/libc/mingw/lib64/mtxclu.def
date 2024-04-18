@@ -90,4 +90,3 @@ MtxCluUninitialize
 MtxCluUpgradeDtcResourceW
 Startup
 WasDTCInstalledBySQL
-DllMain

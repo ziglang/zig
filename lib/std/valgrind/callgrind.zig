@@ -27,7 +27,7 @@ pub fn dumpStats() void {
 /// The argument is appended to a string stating the reason which triggered
 /// the dump. This string is written as a description field into the
 /// profile data dump.
-pub fn dumpStatsAt(pos_str: [*]u8) void {
+pub fn dumpStatsAt(pos_str: [*:0]const u8) void {
     doCallgrindClientRequestStmt(.DumpStatsAt, @intFromPtr(pos_str), 0, 0, 0, 0);
 }
 

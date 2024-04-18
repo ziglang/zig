@@ -504,7 +504,7 @@ pub const list = list: {
             "@fieldParentPtr",
             .{
                 .tag = .field_parent_ptr,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{

@@ -1986,7 +1986,6 @@ CreateRefTraceLog
 CreateTraceLog
 DestroyRefTraceLog
 DestroyTraceLog
-DllMain
 GetAllocCounters
 GetCurrentTimeInMilliseconds
 GetCurrentTimeInSeconds

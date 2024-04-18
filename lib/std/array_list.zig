@@ -1651,115 +1651,219 @@ test "insertSlice" {
     }
 }
 
-test "replaceRange" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const init = [_]i32{ 1, 2, 3, 4, 5 };
-    const new = [_]i32{ 0, 0, 0 };
-
-    const result_zero = [_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 };
-    const result_eq = [_]i32{ 1, 0, 0, 0, 5 };
-    const result_le = [_]i32{ 1, 0, 0, 0, 4, 5 };
-    const result_gt = [_]i32{ 1, 0, 0, 0 };
+test "ArrayList.replaceRange" {
+    const a = testing.allocator;
 
     {
-        var list_zero = ArrayList(i32).init(a);
-        var list_eq = ArrayList(i32).init(a);
-        var list_lt = ArrayList(i32).init(a);
-        var list_gt = ArrayList(i32).init(a);
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        try list_zero.appendSlice(&init);
-        try list_eq.appendSlice(&init);
-        try list_lt.appendSlice(&init);
-        try list_gt.appendSlice(&init);
+        try list.replaceRange(1, 0, &[_]i32{ 0, 0, 0 });
 
-        try list_zero.replaceRange(1, 0, &new);
-        try list_eq.replaceRange(1, 3, &new);
-        try list_lt.replaceRange(1, 2, &new);
-
-        // after_range > new_items.len in function body
-        try testing.expect(1 + 4 > new.len);
-        try list_gt.replaceRange(1, 4, &new);
-
-        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
     }
     {
-        var list_zero = ArrayListUnmanaged(i32){};
-        var list_eq = ArrayListUnmanaged(i32){};
-        var list_lt = ArrayListUnmanaged(i32){};
-        var list_gt = ArrayListUnmanaged(i32){};
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        try list_zero.appendSlice(a, &init);
-        try list_eq.appendSlice(a, &init);
-        try list_lt.appendSlice(a, &init);
-        try list_gt.appendSlice(a, &init);
+        try list.replaceRange(1, 1, &[_]i32{ 0, 0, 0 });
 
-        try list_zero.replaceRange(a, 1, 0, &new);
-        try list_eq.replaceRange(a, 1, 3, &new);
-        try list_lt.replaceRange(a, 1, 2, &new);
-
-        // after_range > new_items.len in function body
-        try testing.expect(1 + 4 > new.len);
-        try list_gt.replaceRange(a, 1, 4, &new);
-
-        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
-    }
-
-    {
-        var list_zero = ArrayList(i32).init(a);
-        var list_eq = ArrayList(i32).init(a);
-        var list_lt = ArrayList(i32).init(a);
-        var list_gt = ArrayList(i32).init(a);
-
-        try list_zero.appendSlice(&init);
-        try list_eq.appendSlice(&init);
-        try list_lt.appendSlice(&init);
-        try list_gt.appendSlice(&init);
-
-        list_zero.replaceRangeAssumeCapacity(1, 0, &new);
-        list_eq.replaceRangeAssumeCapacity(1, 3, &new);
-        list_lt.replaceRangeAssumeCapacity(1, 2, &new);
-
-        // after_range > new_items.len in function body
-        try testing.expect(1 + 4 > new.len);
-        list_gt.replaceRangeAssumeCapacity(1, 4, &new);
-
-        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+        try testing.expectEqualSlices(
+            i32,
+            &[_]i32{ 1, 0, 0, 0, 3, 4, 5 },
+            list.items,
+        );
     }
     {
-        var list_zero = ArrayListUnmanaged(i32){};
-        var list_eq = ArrayListUnmanaged(i32){};
-        var list_lt = ArrayListUnmanaged(i32){};
-        var list_gt = ArrayListUnmanaged(i32){};
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        try list_zero.appendSlice(a, &init);
-        try list_eq.appendSlice(a, &init);
-        try list_lt.appendSlice(a, &init);
-        try list_gt.appendSlice(a, &init);
+        try list.replaceRange(1, 2, &[_]i32{ 0, 0, 0 });
 
-        list_zero.replaceRangeAssumeCapacity(1, 0, &new);
-        list_eq.replaceRangeAssumeCapacity(1, 3, &new);
-        list_lt.replaceRangeAssumeCapacity(1, 2, &new);
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
 
-        // after_range > new_items.len in function body
-        try testing.expect(1 + 4 > new.len);
-        list_gt.replaceRangeAssumeCapacity(1, 4, &new);
+        try list.replaceRange(1, 3, &[_]i32{ 0, 0, 0 });
 
-        try testing.expectEqualSlices(i32, list_zero.items, &result_zero);
-        try testing.expectEqualSlices(i32, list_eq.items, &result_eq);
-        try testing.expectEqualSlices(i32, list_lt.items, &result_le);
-        try testing.expectEqualSlices(i32, list_gt.items, &result_gt);
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(1, 4, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
+    }
+}
+
+test "ArrayList.replaceRangeAssumeCapacity" {
+    const a = testing.allocator;
+
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 0, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 1, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(
+            i32,
+            &[_]i32{ 1, 0, 0, 0, 3, 4, 5 },
+            list.items,
+        );
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 2, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 3, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
+    }
+    {
+        var list = ArrayList(i32).init(a);
+        defer list.deinit();
+        try list.appendSlice(&[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 4, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
+    }
+}
+
+test "ArrayListUnmanaged.replaceRange" {
+    const a = testing.allocator;
+
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(a, 1, 0, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(a, 1, 1, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(
+            i32,
+            &[_]i32{ 1, 0, 0, 0, 3, 4, 5 },
+            list.items,
+        );
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(a, 1, 2, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(a, 1, 3, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        try list.replaceRange(a, 1, 4, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
+    }
+}
+
+test "ArrayListUnmanaged.replaceRangeAssumeCapacity" {
+    const a = testing.allocator;
+
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 0, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 2, 3, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 1, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(
+            i32,
+            &[_]i32{ 1, 0, 0, 0, 3, 4, 5 },
+            list.items,
+        );
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 2, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 4, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 3, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0, 5 }, list.items);
+    }
+    {
+        var list = ArrayListUnmanaged(i32){};
+        defer list.deinit(a);
+        try list.appendSlice(a, &[_]i32{ 1, 2, 3, 4, 5 });
+
+        list.replaceRangeAssumeCapacity(1, 4, &[_]i32{ 0, 0, 0 });
+
+        try testing.expectEqualSlices(i32, &[_]i32{ 1, 0, 0, 0 }, list.items);
     }
 }
 

@@ -8,7 +8,6 @@ LIBRARY unidrvui.dll
 EXPORTS
 DrvSplDeviceCaps
 DevQueryPrintEx
-DllMain
 DrvConvertDevMode
 DrvDeviceCapabilities
 DrvDevicePropertySheets

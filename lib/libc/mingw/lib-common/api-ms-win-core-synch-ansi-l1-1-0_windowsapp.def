@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-core-synch-ansi-l1-1-0
+
+EXPORTS
+
+CreateSemaphoreA
+CreateSemaphoreExA
+CreateWaitableTimerA
+CreateWaitableTimerExA
+OpenMutexA
+OpenWaitableTimerA

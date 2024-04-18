@@ -58,6 +58,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     if (options.style.getPath()) |s| default_include_path: {
         const sub_path = switch (s) {
+            .src_path => |sp| sp.sub_path,
             .path => |path| path,
             .generated, .generated_dirname => break :default_include_path,
             .cwd_relative => |sub_path| sub_path,
@@ -167,7 +168,7 @@ fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T)
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const self = @fieldParentPtr(ConfigHeader, "step", step);
+    const self: *ConfigHeader = @fieldParentPtr("step", step);
     const gpa = b.allocator;
     const arena = b.allocator;
 
@@ -192,13 +193,21 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+                return step.fail("unable to read autoconf input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
             try render_autoconf(step, contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+                return step.fail("unable to read cmake input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
             try render_cmake(step, contents, &output, self.values, src_path);
         },
         .blank => {

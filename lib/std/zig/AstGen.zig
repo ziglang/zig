@@ -316,8 +316,7 @@ const ResultInfo = struct {
         };
 
         /// Find the result type for a cast builtin given the result location.
-        /// If the location does not have a known result type, emits an error on
-        /// the given node.
+        /// If the location does not have a known result type, returns `null`.
         fn resultType(rl: Loc, gz: *GenZir, node: Ast.Node.Index) !?Zir.Inst.Ref {
             return switch (rl) {
                 .discard, .none, .ref, .inferred_ptr, .destructure => null,
@@ -330,6 +329,9 @@ const ResultInfo = struct {
             };
         }
 
+        /// Find the result type for a cast builtin given the result location.
+        /// If the location does not have a known result type, emits an error on
+        /// the given node.
         fn resultTypeForCast(rl: Loc, gz: *GenZir, node: Ast.Node.Index, builtin_name: []const u8) !Zir.Inst.Ref {
             const astgen = gz.astgen;
             if (try rl.resultType(gz, node)) |ty| return ty;
@@ -1369,16 +1371,16 @@ fn fnProtoExpr(
         break :is_var_args false;
     };
 
-    const align_ref: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(&block_scope, scope, coerced_align_ri, fn_proto.ast.align_expr);
-    };
+    if (fn_proto.ast.align_expr != 0) {
+        return astgen.failNode(fn_proto.ast.align_expr, "function type cannot have an alignment", .{});
+    }
 
     if (fn_proto.ast.addrspace_expr != 0) {
-        return astgen.failNode(fn_proto.ast.addrspace_expr, "addrspace not allowed on function prototypes", .{});
+        return astgen.failNode(fn_proto.ast.addrspace_expr, "function type cannot have an addrspace", .{});
     }
 
     if (fn_proto.ast.section_expr != 0) {
-        return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
+        return astgen.failNode(fn_proto.ast.section_expr, "function type cannot have a linksection", .{});
     }
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
@@ -1394,7 +1396,7 @@ fn fnProtoExpr(
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
     if (is_inferred_error) {
-        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
+        return astgen.failTok(maybe_bang, "function type cannot have an inferred error set", .{});
     }
     const ret_ty = try expr(&block_scope, scope, coerced_type_ri, fn_proto.ast.return_type);
 
@@ -1403,7 +1405,7 @@ fn fnProtoExpr(
 
         .cc_ref = cc,
         .cc_gz = null,
-        .align_ref = align_ref,
+        .align_ref = .none,
         .align_gz = null,
         .ret_ref = ret_ty,
         .ret_gz = null,
@@ -2786,7 +2788,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .atomic_load,
             .atomic_rmw,
             .mul_add,
-            .field_parent_ptr,
             .max,
             .min,
             .c_import,
@@ -3406,45 +3407,36 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
     try emitDbgNode(gz, node);
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const token_tags = tree.tokens.items(.tag);
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
 
-    const extra_index = node_datas[node].lhs;
-    const lhs_count = tree.extra_data[extra_index];
-    const lhs_nodes: []const Ast.Node.Index = @ptrCast(tree.extra_data[extra_index + 1 ..][0..lhs_count]);
-    const rhs = node_datas[node].rhs;
-
-    const maybe_comptime_token = tree.firstToken(node) - 1;
-    const declared_comptime = token_tags[maybe_comptime_token] == .keyword_comptime;
-
-    if (declared_comptime and gz.is_comptime) {
+    const full = tree.assignDestructure(node);
+    if (full.comptime_token != null and gz.is_comptime) {
         return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
     // If this expression is marked comptime, we must wrap the whole thing in a comptime block.
     var gz_buf: GenZir = undefined;
-    const inner_gz = if (declared_comptime) bs: {
+    const inner_gz = if (full.comptime_token) |_| bs: {
         gz_buf = gz.makeSubBlock(scope);
         gz_buf.is_comptime = true;
         break :bs &gz_buf;
     } else gz;
-    defer if (declared_comptime) inner_gz.unstack();
+    defer if (full.comptime_token) |_| inner_gz.unstack();
 
-    const rl_components = try astgen.arena.alloc(ResultInfo.Loc.DestructureComponent, lhs_nodes.len);
-    for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-        if (node_tags[lhs_node] == .identifier) {
+    const rl_components = try astgen.arena.alloc(ResultInfo.Loc.DestructureComponent, full.ast.variables.len);
+    for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+        if (node_tags[variable_node] == .identifier) {
             // This intentionally does not support `@"_"` syntax.
-            const ident_name = tree.tokenSlice(main_tokens[lhs_node]);
+            const ident_name = tree.tokenSlice(main_tokens[variable_node]);
             if (mem.eql(u8, ident_name, "_")) {
-                lhs_rl.* = .discard;
+                variable_rl.* = .discard;
                 continue;
             }
         }
-        lhs_rl.* = .{ .typed_ptr = .{
-            .inst = try lvalExpr(inner_gz, scope, lhs_node),
-            .src_node = lhs_node,
+        variable_rl.* = .{ .typed_ptr = .{
+            .inst = try lvalExpr(inner_gz, scope, variable_node),
+            .src_node = variable_node,
         } };
     }
 
@@ -3453,9 +3445,9 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
         .components = rl_components,
     } } };
 
-    _ = try expr(inner_gz, scope, ri, rhs);
+    _ = try expr(inner_gz, scope, ri, full.ast.value_expr);
 
-    if (declared_comptime) {
+    if (full.comptime_token) |_| {
         const comptime_block_inst = try gz.makeBlockInst(.block_comptime, node);
         _ = try inner_gz.addBreak(.@"break", comptime_block_inst, .void_value);
         try inner_gz.setBlockBody(comptime_block_inst);
@@ -3474,23 +3466,16 @@ fn assignDestructureMaybeDecls(
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
 
-    const extra_index = node_datas[node].lhs;
-    const lhs_count = tree.extra_data[extra_index];
-    const lhs_nodes: []const Ast.Node.Index = @ptrCast(tree.extra_data[extra_index + 1 ..][0..lhs_count]);
-    const rhs = node_datas[node].rhs;
-
-    const maybe_comptime_token = tree.firstToken(node) - 1;
-    const declared_comptime = token_tags[maybe_comptime_token] == .keyword_comptime;
-    if (declared_comptime and gz.is_comptime) {
+    const full = tree.assignDestructure(node);
+    if (full.comptime_token != null and gz.is_comptime) {
         return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
-    const is_comptime = declared_comptime or gz.is_comptime;
-    const rhs_is_comptime = tree.nodes.items(.tag)[rhs] == .@"comptime";
+    const is_comptime = full.comptime_token != null or gz.is_comptime;
+    const value_is_comptime = node_tags[full.ast.value_expr] == .@"comptime";
 
     // When declaring consts via a destructure, we always use a result pointer.
     // This avoids the need to create tuple types, and is also likely easier to
@@ -3499,24 +3484,24 @@ fn assignDestructureMaybeDecls(
 
     // We know this rl information won't live past the evaluation of this
     // expression, so it may as well go in the block arena.
-    const rl_components = try block_arena.alloc(ResultInfo.Loc.DestructureComponent, lhs_nodes.len);
-    var any_non_const_lhs = false;
+    const rl_components = try block_arena.alloc(ResultInfo.Loc.DestructureComponent, full.ast.variables.len);
+    var any_non_const_variables = false;
     var any_lvalue_expr = false;
-    for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-        switch (node_tags[lhs_node]) {
+    for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+        switch (node_tags[variable_node]) {
             .identifier => {
                 // This intentionally does not support `@"_"` syntax.
-                const ident_name = tree.tokenSlice(main_tokens[lhs_node]);
+                const ident_name = tree.tokenSlice(main_tokens[variable_node]);
                 if (mem.eql(u8, ident_name, "_")) {
-                    any_non_const_lhs = true;
-                    lhs_rl.* = .discard;
+                    any_non_const_variables = true;
+                    variable_rl.* = .discard;
                     continue;
                 }
             },
             .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => {
-                const full = tree.fullVarDecl(lhs_node).?;
+                const full_var_decl = tree.fullVarDecl(variable_node).?;
 
-                const name_token = full.ast.mut_token + 1;
+                const name_token = full_var_decl.ast.mut_token + 1;
                 const ident_name_raw = tree.tokenSlice(name_token);
                 if (mem.eql(u8, ident_name_raw, "_")) {
                     return astgen.failTok(name_token, "'_' used as an identifier without @\"_\" syntax", .{});
@@ -3524,35 +3509,35 @@ fn assignDestructureMaybeDecls(
 
                 // We detect shadowing in the second pass over these, while we're creating scopes.
 
-                if (full.ast.addrspace_node != 0) {
-                    return astgen.failTok(main_tokens[full.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ident_name_raw});
+                if (full_var_decl.ast.addrspace_node != 0) {
+                    return astgen.failTok(main_tokens[full_var_decl.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ident_name_raw});
                 }
-                if (full.ast.section_node != 0) {
-                    return astgen.failTok(main_tokens[full.ast.section_node], "cannot set section of local variable '{s}'", .{ident_name_raw});
+                if (full_var_decl.ast.section_node != 0) {
+                    return astgen.failTok(main_tokens[full_var_decl.ast.section_node], "cannot set section of local variable '{s}'", .{ident_name_raw});
                 }
 
-                const is_const = switch (token_tags[full.ast.mut_token]) {
+                const is_const = switch (token_tags[full_var_decl.ast.mut_token]) {
                     .keyword_var => false,
                     .keyword_const => true,
                     else => unreachable,
                 };
-                if (!is_const) any_non_const_lhs = true;
+                if (!is_const) any_non_const_variables = true;
 
                 // We also mark `const`s as comptime if the RHS is definitely comptime-known.
-                const this_lhs_comptime = is_comptime or (is_const and rhs_is_comptime);
+                const this_variable_comptime = is_comptime or (is_const and value_is_comptime);
 
-                const align_inst: Zir.Inst.Ref = if (full.ast.align_node != 0)
-                    try expr(gz, scope, coerced_align_ri, full.ast.align_node)
+                const align_inst: Zir.Inst.Ref = if (full_var_decl.ast.align_node != 0)
+                    try expr(gz, scope, coerced_align_ri, full_var_decl.ast.align_node)
                 else
                     .none;
 
-                if (full.ast.type_node != 0) {
+                if (full_var_decl.ast.type_node != 0) {
                     // Typed alloc
-                    const type_inst = try typeExpr(gz, scope, full.ast.type_node);
+                    const type_inst = try typeExpr(gz, scope, full_var_decl.ast.type_node);
                     const ptr = if (align_inst == .none) ptr: {
                         const tag: Zir.Inst.Tag = if (is_const)
                             .alloc
-                        else if (this_lhs_comptime)
+                        else if (this_variable_comptime)
                             .alloc_comptime_mut
                         else
                             .alloc_mut;
@@ -3562,16 +3547,16 @@ fn assignDestructureMaybeDecls(
                         .type_inst = type_inst,
                         .align_inst = align_inst,
                         .is_const = is_const,
-                        .is_comptime = this_lhs_comptime,
+                        .is_comptime = this_variable_comptime,
                     });
-                    lhs_rl.* = .{ .typed_ptr = .{ .inst = ptr } };
+                    variable_rl.* = .{ .typed_ptr = .{ .inst = ptr } };
                 } else {
                     // Inferred alloc
                     const ptr = if (align_inst == .none) ptr: {
                         const tag: Zir.Inst.Tag = if (is_const) tag: {
-                            break :tag if (this_lhs_comptime) .alloc_inferred_comptime else .alloc_inferred;
+                            break :tag if (this_variable_comptime) .alloc_inferred_comptime else .alloc_inferred;
                         } else tag: {
-                            break :tag if (this_lhs_comptime) .alloc_inferred_comptime_mut else .alloc_inferred_mut;
+                            break :tag if (this_variable_comptime) .alloc_inferred_comptime_mut else .alloc_inferred_mut;
                         };
                         break :ptr try gz.addNode(tag, node);
                     } else try gz.addAllocExtended(.{
@@ -3579,48 +3564,48 @@ fn assignDestructureMaybeDecls(
                         .type_inst = .none,
                         .align_inst = align_inst,
                         .is_const = is_const,
-                        .is_comptime = this_lhs_comptime,
+                        .is_comptime = this_variable_comptime,
                     });
-                    lhs_rl.* = .{ .inferred_ptr = ptr };
+                    variable_rl.* = .{ .inferred_ptr = ptr };
                 }
 
                 continue;
             },
             else => {},
         }
-        // This LHS is just an lvalue expression.
+        // This variable is just an lvalue expression.
         // We will fill in its result pointer later, inside a comptime block.
-        any_non_const_lhs = true;
+        any_non_const_variables = true;
         any_lvalue_expr = true;
-        lhs_rl.* = .{ .typed_ptr = .{
+        variable_rl.* = .{ .typed_ptr = .{
             .inst = undefined,
-            .src_node = lhs_node,
+            .src_node = variable_node,
         } };
     }
 
-    if (declared_comptime and !any_non_const_lhs) {
-        try astgen.appendErrorTok(maybe_comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
+    if (full.comptime_token != null and !any_non_const_variables) {
+        try astgen.appendErrorTok(full.comptime_token.?, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
     }
 
     // If this expression is marked comptime, we must wrap it in a comptime block.
     var gz_buf: GenZir = undefined;
-    const inner_gz = if (declared_comptime) bs: {
+    const inner_gz = if (full.comptime_token) |_| bs: {
         gz_buf = gz.makeSubBlock(scope);
         gz_buf.is_comptime = true;
         break :bs &gz_buf;
     } else gz;
-    defer if (declared_comptime) inner_gz.unstack();
+    defer if (full.comptime_token) |_| inner_gz.unstack();
 
     if (any_lvalue_expr) {
-        // At least one LHS was an lvalue expr. Iterate again in order to
+        // At least one variable was an lvalue expr. Iterate again in order to
         // evaluate the lvalues from within the possible block_comptime.
-        for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-            if (lhs_rl.* != .typed_ptr) continue;
-            switch (node_tags[lhs_node]) {
+        for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+            if (variable_rl.* != .typed_ptr) continue;
+            switch (node_tags[variable_node]) {
                 .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => continue,
                 else => {},
             }
-            lhs_rl.typed_ptr.inst = try lvalExpr(inner_gz, scope, lhs_node);
+            variable_rl.typed_ptr.inst = try lvalExpr(inner_gz, scope, variable_node);
         }
     }
 
@@ -3629,9 +3614,9 @@ fn assignDestructureMaybeDecls(
     _ = try reachableExpr(inner_gz, scope, .{ .rl = .{ .destructure = .{
         .src_node = node,
         .components = rl_components,
-    } } }, rhs, node);
+    } } }, full.ast.value_expr, node);
 
-    if (declared_comptime) {
+    if (full.comptime_token) |_| {
         // Finish the block_comptime. Inferred alloc resolution etc will occur
         // in the parent block.
         const comptime_block_inst = try gz.makeBlockInst(.block_comptime, node);
@@ -3640,37 +3625,37 @@ fn assignDestructureMaybeDecls(
         try gz.instructions.append(gz.astgen.gpa, comptime_block_inst);
     }
 
-    // Now, iterate over the LHS exprs to construct any new scopes.
+    // Now, iterate over the variable exprs to construct any new scopes.
     // If there were any inferred allocations, resolve them.
     // If there were any `const` decls, make the pointer constant.
     var cur_scope = scope;
-    for (rl_components, lhs_nodes) |lhs_rl, lhs_node| {
-        switch (node_tags[lhs_node]) {
+    for (rl_components, full.ast.variables) |variable_rl, variable_node| {
+        switch (node_tags[variable_node]) {
             .local_var_decl, .simple_var_decl, .aligned_var_decl => {},
             else => continue, // We were mutating an existing lvalue - nothing to do
         }
-        const full = tree.fullVarDecl(lhs_node).?;
-        const raw_ptr = switch (lhs_rl) {
+        const full_var_decl = tree.fullVarDecl(variable_node).?;
+        const raw_ptr = switch (variable_rl) {
             .discard => unreachable,
             .typed_ptr => |typed_ptr| typed_ptr.inst,
             .inferred_ptr => |ptr_inst| ptr_inst,
         };
         // If the alloc was inferred, resolve it.
-        if (full.ast.type_node == 0) {
-            _ = try gz.addUnNode(.resolve_inferred_alloc, raw_ptr, lhs_node);
+        if (full_var_decl.ast.type_node == 0) {
+            _ = try gz.addUnNode(.resolve_inferred_alloc, raw_ptr, variable_node);
         }
-        const is_const = switch (token_tags[full.ast.mut_token]) {
+        const is_const = switch (token_tags[full_var_decl.ast.mut_token]) {
             .keyword_var => false,
             .keyword_const => true,
             else => unreachable,
         };
         // If the alloc was const, make it const.
-        const var_ptr = if (is_const and full.ast.type_node != 0) make_const: {
+        const var_ptr = if (is_const and full_var_decl.ast.type_node != 0) make_const: {
             // Note that we don't do this if type_node == 0 since `resolve_inferred_alloc`
             // handles it for us.
             break :make_const try gz.addUnNode(.make_ptr_const, raw_ptr, node);
         } else raw_ptr;
-        const name_token = full.ast.mut_token + 1;
+        const name_token = full_var_decl.ast.mut_token + 1;
         const ident_name_raw = tree.tokenSlice(name_token);
         const ident_name = try astgen.identAsString(name_token);
         try astgen.detectLocalShadowing(
@@ -8312,22 +8297,27 @@ fn localVarRef(
                     });
                 }
 
-                const ptr_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
-                    gz,
-                    ident,
-                    num_namespaces_out,
-                    .{ .ref = local_ptr.ptr },
-                    .{ .token = local_ptr.token_src },
-                ) else local_ptr.ptr;
-
                 switch (ri.rl) {
                     .ref, .ref_coerced_ty => {
+                        const ptr_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                            gz,
+                            ident,
+                            num_namespaces_out,
+                            .{ .ref = local_ptr.ptr },
+                            .{ .token = local_ptr.token_src },
+                        ) else local_ptr.ptr;
                         local_ptr.used_as_lvalue = true;
                         return ptr_inst;
                     },
                     else => {
-                        const loaded = try gz.addUnNode(.load, ptr_inst, ident);
-                        return rvalueNoCoercePreRef(gz, ri, loaded, ident);
+                        const val_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                            gz,
+                            ident,
+                            num_namespaces_out,
+                            .{ .ref_load = local_ptr.ptr },
+                            .{ .token = local_ptr.token_src },
+                        ) else try gz.addUnNode(.load, local_ptr.ptr, ident);
+                        return rvalueNoCoercePreRef(gz, ri, val_inst, ident);
                     },
                 }
             }
@@ -8406,6 +8396,7 @@ fn tunnelThroughClosure(
     /// The value being captured.
     value: union(enum) {
         ref: Zir.Inst.Ref,
+        ref_load: Zir.Inst.Ref,
         decl_val: Zir.NullTerminatedString,
         decl_ref: Zir.NullTerminatedString,
     },
@@ -8416,7 +8407,8 @@ fn tunnelThroughClosure(
     },
 ) !Zir.Inst.Ref {
     switch (value) {
-        .ref => |v| if (v.toIndex() == null) return v, // trivia value; do not need tunnel
+        .ref => |v| if (v.toIndex() == null) return v, // trivial value; do not need tunnel
+        .ref_load => |v| assert(v.toIndex() != null), // there are no constant pointer refs
         .decl_val, .decl_ref => {},
     }
 
@@ -8449,6 +8441,7 @@ fn tunnelThroughClosure(
     // captures as required, starting with the outermost namespace.
     const root_capture = Zir.Inst.Capture.wrap(switch (value) {
         .ref => |v| .{ .instruction = v.toIndex().? },
+        .ref_load => |v| .{ .instruction_load = v.toIndex().? },
         .decl_val => |str| .{ .decl_val = str },
         .decl_ref => |str| .{ .decl_ref = str },
     });
@@ -8861,6 +8854,7 @@ fn ptrCast(
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
 
+    const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
     var flags: Zir.Inst.FullPtrCastFlags = .{};
 
     // Note that all pointer cast builtins have one parameter, so we only need
@@ -8878,36 +8872,62 @@ fn ptrCast(
         }
 
         if (node_datas[node].lhs == 0) break; // 0 args
-        if (node_datas[node].rhs != 0) break; // 2 args
 
         const builtin_token = main_tokens[node];
         const builtin_name = tree.tokenSlice(builtin_token);
         const info = BuiltinFn.list.get(builtin_name) orelse break;
-        if (info.param_count != 1) break;
+        if (node_datas[node].rhs == 0) {
+            // 1 arg
+            if (info.param_count != 1) break;
 
-        switch (info.tag) {
-            else => break,
-            inline .ptr_cast,
-            .align_cast,
-            .addrspace_cast,
-            .const_cast,
-            .volatile_cast,
-            => |tag| {
-                if (@field(flags, @tagName(tag))) {
-                    return astgen.failNode(node, "redundant {s}", .{builtin_name});
-                }
-                @field(flags, @tagName(tag)) = true;
-            },
+            switch (info.tag) {
+                else => break,
+                inline .ptr_cast,
+                .align_cast,
+                .addrspace_cast,
+                .const_cast,
+                .volatile_cast,
+                => |tag| {
+                    if (@field(flags, @tagName(tag))) {
+                        return astgen.failNode(node, "redundant {s}", .{builtin_name});
+                    }
+                    @field(flags, @tagName(tag)) = true;
+                },
+            }
+
+            node = node_datas[node].lhs;
+        } else {
+            // 2 args
+            if (info.param_count != 2) break;
+
+            switch (info.tag) {
+                else => break,
+                .field_parent_ptr => {
+                    if (flags.ptr_cast) break;
+
+                    const flags_int: FlagsInt = @bitCast(flags);
+                    const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
+                    const parent_ptr_type = try ri.rl.resultTypeForCast(gz, root_node, "@alignCast");
+                    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, node_datas[node].lhs);
+                    const field_ptr = try expr(gz, scope, .{ .rl = .none }, node_datas[node].rhs);
+                    try emitDbgStmt(gz, cursor);
+                    const result = try gz.addExtendedPayloadSmall(.field_parent_ptr, flags_int, Zir.Inst.FieldParentPtr{
+                        .src_node = gz.nodeIndexToRelative(node),
+                        .parent_ptr_type = parent_ptr_type,
+                        .field_name = field_name,
+                        .field_ptr = field_ptr,
+                    });
+                    return rvalue(gz, ri, result, root_node);
+                },
+            }
         }
-
-        node = node_datas[node].lhs;
     }
 
-    const flags_i: u5 = @bitCast(flags);
-    assert(flags_i != 0);
+    const flags_int: FlagsInt = @bitCast(flags);
+    assert(flags_int != 0);
 
     const ptr_only: Zir.Inst.FullPtrCastFlags = .{ .ptr_cast = true };
-    if (flags_i == @as(u5, @bitCast(ptr_only))) {
+    if (flags_int == @as(FlagsInt, @bitCast(ptr_only))) {
         // Special case: simpler representation
         return typeCast(gz, scope, ri, root_node, node, .ptr_cast, "@ptrCast");
     }
@@ -8916,12 +8936,12 @@ fn ptrCast(
         .const_cast = true,
         .volatile_cast = true,
     };
-    if ((flags_i & ~@as(u5, @bitCast(no_result_ty_flags))) == 0) {
+    if ((flags_int & ~@as(FlagsInt, @bitCast(no_result_ty_flags))) == 0) {
         // Result type not needed
         const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
         const operand = try expr(gz, scope, .{ .rl = .none }, node);
         try emitDbgStmt(gz, cursor);
-        const result = try gz.addExtendedPayloadSmall(.ptr_cast_no_dest, flags_i, Zir.Inst.UnNode{
+        const result = try gz.addExtendedPayloadSmall(.ptr_cast_no_dest, flags_int, Zir.Inst.UnNode{
             .node = gz.nodeIndexToRelative(root_node),
             .operand = operand,
         });
@@ -8934,7 +8954,7 @@ fn ptrCast(
     const result_type = try ri.rl.resultTypeForCast(gz, root_node, flags.needResultTypeBuiltinName());
     const operand = try expr(gz, scope, .{ .rl = .none }, node);
     try emitDbgStmt(gz, cursor);
-    const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_i, Zir.Inst.BinNode{
+    const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_int, Zir.Inst.BinNode{
         .node = gz.nodeIndexToRelative(root_node),
         .lhs = result_type,
         .rhs = operand,
@@ -9387,7 +9407,7 @@ fn builtinCall(
             try emitDbgNode(gz, node);
 
             const result = try gz.addExtendedPayload(.error_cast, Zir.Inst.BinNode{
-                .lhs = try ri.rl.resultTypeForCast(gz, node, "@errorCast"),
+                .lhs = try ri.rl.resultTypeForCast(gz, node, builtin_name),
                 .rhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
                 .node = gz.nodeIndexToRelative(node),
             });
@@ -9460,7 +9480,7 @@ fn builtinCall(
         },
 
         .splat => {
-            const result_type = try ri.rl.resultTypeForCast(gz, node, "@splat");
+            const result_type = try ri.rl.resultTypeForCast(gz, node, builtin_name);
             const elem_type = try gz.addUnNode(.vector_elem_type, result_type, node);
             const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
@@ -9545,12 +9565,13 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .field_parent_ptr => {
-            const parent_type = try typeExpr(gz, scope, params[0]);
-            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1]);
-            const result = try gz.addPlNode(.field_parent_ptr, node, Zir.Inst.FieldParentPtr{
-                .parent_type = parent_type,
+            const parent_ptr_type = try ri.rl.resultTypeForCast(gz, node, builtin_name);
+            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0]);
+            const result = try gz.addExtendedPayloadSmall(.field_parent_ptr, 0, Zir.Inst.FieldParentPtr{
+                .src_node = gz.nodeIndexToRelative(node),
+                .parent_ptr_type = parent_ptr_type,
                 .field_name = field_name,
-                .field_ptr = try expr(gz, scope, .{ .rl = .none }, params[2]),
+                .field_ptr = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -11694,20 +11715,20 @@ const Scope = struct {
     fn cast(base: *Scope, comptime T: type) ?*T {
         if (T == Defer) {
             switch (base.tag) {
-                .defer_normal, .defer_error => return @fieldParentPtr(T, "base", base),
+                .defer_normal, .defer_error => return @alignCast(@fieldParentPtr("base", base)),
                 else => return null,
             }
         }
         if (T == Namespace) {
             switch (base.tag) {
-                .namespace => return @fieldParentPtr(T, "base", base),
+                .namespace => return @alignCast(@fieldParentPtr("base", base)),
                 else => return null,
             }
         }
         if (base.tag != T.base_tag)
             return null;
 
-        return @fieldParentPtr(T, "base", base);
+        return @alignCast(@fieldParentPtr("base", base));
     }
 
     fn parent(base: *Scope) ?*Scope {
@@ -13496,6 +13517,15 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
+
+    // We don't have shadowing for test names, so we just track those for duplicate reporting locally.
+    var named_tests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
+    var decltests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
+    defer {
+        named_tests.deinit(gpa);
+        decltests.deinit(gpa);
+    }
+
     var decl_count: u32 = 0;
     for (members) |member_node| {
         const name_token = switch (node_tags[member_node]) {
@@ -13525,8 +13555,47 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 break :blk ident;
             },
 
-            .@"comptime", .@"usingnamespace", .test_decl => {
+            .@"comptime", .@"usingnamespace" => {
                 decl_count += 1;
+                continue;
+            },
+
+            .test_decl => {
+                decl_count += 1;
+                // We don't want shadowing detection here, and test names work a bit differently, so
+                // we must do the redeclaration detection ourselves.
+                const test_name_token = main_tokens[member_node] + 1;
+                switch (token_tags[test_name_token]) {
+                    else => {}, // unnamed test
+                    .string_literal => {
+                        const name = try astgen.strLitAsString(test_name_token);
+                        const gop = try named_tests.getOrPut(gpa, name.index);
+                        if (gop.found_existing) {
+                            const name_slice = astgen.string_bytes.items[@intFromEnum(name.index)..][0..name.len];
+                            const name_duped = try gpa.dupe(u8, name_slice);
+                            defer gpa.free(name_duped);
+                            try astgen.appendErrorNodeNotes(member_node, "duplicate test name '{s}'", .{name_duped}, &.{
+                                try astgen.errNoteNode(gop.value_ptr.*, "other test here", .{}),
+                            });
+                        } else {
+                            gop.value_ptr.* = member_node;
+                        }
+                    },
+                    .identifier => {
+                        const name = try astgen.identAsString(test_name_token);
+                        const gop = try decltests.getOrPut(gpa, name);
+                        if (gop.found_existing) {
+                            const name_slice = mem.span(astgen.nullTerminatedString(name));
+                            const name_duped = try gpa.dupe(u8, name_slice);
+                            defer gpa.free(name_duped);
+                            try astgen.appendErrorNodeNotes(member_node, "duplicate decltest '{s}'", .{name_duped}, &.{
+                                try astgen.errNoteNode(gop.value_ptr.*, "other decltest here", .{}),
+                            });
+                        } else {
+                            gop.value_ptr.* = member_node;
+                        }
+                    },
+                }
                 continue;
             },
 

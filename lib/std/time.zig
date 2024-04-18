@@ -2,8 +2,9 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
-const os = std.os;
 const math = std.math;
+const windows = std.os.windows;
+const posix = std.posix;
 
 pub const epoch = @import("time/epoch.zig");
 
@@ -11,8 +12,8 @@ pub const epoch = @import("time/epoch.zig");
 pub fn sleep(nanoseconds: u64) void {
     if (builtin.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
-        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) orelse math.maxInt(os.windows.DWORD);
-        os.windows.kernel32.Sleep(ms);
+        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
+        windows.kernel32.Sleep(ms);
         return;
     }
 
@@ -40,7 +41,7 @@ pub fn sleep(nanoseconds: u64) void {
     }
 
     if (builtin.os.tag == .uefi) {
-        const boot_services = os.uefi.system_table.boot_services.?;
+        const boot_services = std.os.uefi.system_table.boot_services.?;
         const us_from_ns = nanoseconds / ns_per_us;
         const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
         _ = boot_services.stall(us);
@@ -49,10 +50,10 @@ pub fn sleep(nanoseconds: u64) void {
 
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
-    std.os.nanosleep(s, ns);
+    posix.nanosleep(s, ns);
 }
 
-test "sleep" {
+test sleep {
     sleep(1);
 }
 
@@ -60,7 +61,7 @@ test "sleep" {
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is
 /// before the epoch.
-/// See `std.os.clock_gettime` for a POSIX timestamp.
+/// See `posix.clock_gettime` for a POSIX timestamp.
 pub fn timestamp() i64 {
     return @divFloor(milliTimestamp(), ms_per_s);
 }
@@ -69,7 +70,7 @@ pub fn timestamp() i64 {
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is
 /// before the epoch.
-/// See `std.os.clock_gettime` for a POSIX timestamp.
+/// See `posix.clock_gettime` for a POSIX timestamp.
 pub fn milliTimestamp() i64 {
     return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_ms)));
 }
@@ -78,7 +79,7 @@ pub fn milliTimestamp() i64 {
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is
 /// before the epoch.
-/// See `std.os.clock_gettime` for a POSIX timestamp.
+/// See `posix.clock_gettime` for a POSIX timestamp.
 pub fn microTimestamp() i64 {
     return @as(i64, @intCast(@divFloor(nanoTimestamp(), ns_per_us)));
 }
@@ -88,21 +89,21 @@ pub fn microTimestamp() i64 {
 /// On Windows this has a maximum granularity of 100 nanoseconds.
 /// The return value is signed because it is possible to have a date that is
 /// before the epoch.
-/// See `std.os.clock_gettime` for a POSIX timestamp.
+/// See `posix.clock_gettime` for a POSIX timestamp.
 pub fn nanoTimestamp() i128 {
     switch (builtin.os.tag) {
         .windows => {
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
             // which is 1601-01-01.
             const epoch_adj = epoch.windows * (ns_per_s / 100);
-            var ft: os.windows.FILETIME = undefined;
-            os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
+            var ft: windows.FILETIME = undefined;
+            windows.kernel32.GetSystemTimeAsFileTime(&ft);
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
         },
         .wasi => {
-            var ns: os.wasi.timestamp_t = undefined;
-            const err = os.wasi.clock_time_get(.REALTIME, 1, &ns);
+            var ns: std.os.wasi.timestamp_t = undefined;
+            const err = std.os.wasi.clock_time_get(.REALTIME, 1, &ns);
             assert(err == .SUCCESS);
             return ns;
         },
@@ -113,8 +114,8 @@ pub fn nanoTimestamp() i128 {
             return value.toEpoch();
         },
         else => {
-            var ts: os.timespec = undefined;
-            os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
+            var ts: posix.timespec = undefined;
+            posix.clock_gettime(posix.CLOCK.REALTIME, &ts) catch |err| switch (err) {
                 error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
             };
             return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
@@ -122,7 +123,7 @@ pub fn nanoTimestamp() i128 {
     }
 }
 
-test "timestamp" {
+test milliTimestamp {
     const margin = ns_per_ms * 50;
 
     const time_0 = milliTimestamp();
@@ -172,7 +173,7 @@ pub const s_per_week = s_per_day * 7;
 /// It also tries to be monotonic, but this is not a guarantee due to OS/hardware bugs.
 /// If you need monotonic readings for elapsed time, consider `Timer` instead.
 pub const Instant = struct {
-    timestamp: if (is_posix) os.timespec else u64,
+    timestamp: if (is_posix) posix.timespec else u64,
 
     // true if we should use clock_gettime()
     const is_posix = switch (builtin.os.tag) {
@@ -188,11 +189,11 @@ pub const Instant = struct {
         const clock_id = switch (builtin.os.tag) {
             .windows => {
                 // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
-                return Instant{ .timestamp = os.windows.QueryPerformanceCounter() };
+                return Instant{ .timestamp = windows.QueryPerformanceCounter() };
             },
             .wasi => {
-                var ns: os.wasi.timestamp_t = undefined;
-                const rc = os.wasi.clock_time_get(.MONOTONIC, 1, &ns);
+                var ns: std.os.wasi.timestamp_t = undefined;
+                const rc = std.os.wasi.clock_time_get(.MONOTONIC, 1, &ns);
                 if (rc != .SUCCESS) return error.Unsupported;
                 return .{ .timestamp = ns };
             },
@@ -204,21 +205,21 @@ pub const Instant = struct {
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
-            .macos, .ios, .tvos, .watchos => os.CLOCK.UPTIME_RAW,
+            .macos, .ios, .tvos, .watchos => posix.CLOCK.UPTIME_RAW,
             // On freebsd derivatives, use MONOTONIC_FAST as currently there's
             // no precision tradeoff.
-            .freebsd, .dragonfly => os.CLOCK.MONOTONIC_FAST,
+            .freebsd, .dragonfly => posix.CLOCK.MONOTONIC_FAST,
             // On linux, use BOOTTIME instead of MONOTONIC as it ticks while
             // suspended.
-            .linux => os.CLOCK.BOOTTIME,
+            .linux => posix.CLOCK.BOOTTIME,
             // On other posix systems, MONOTONIC is generally the fastest and
             // ticks while suspended.
-            else => os.CLOCK.MONOTONIC,
+            else => posix.CLOCK.MONOTONIC,
         };
 
-        var ts: os.timespec = undefined;
-        os.clock_gettime(clock_id, &ts) catch return error.Unsupported;
-        return Instant{ .timestamp = ts };
+        var ts: posix.timespec = undefined;
+        posix.clock_gettime(clock_id, &ts) catch return error.Unsupported;
+        return .{ .timestamp = ts };
     }
 
     /// Quickly compares two instances between each other.
@@ -245,7 +246,7 @@ pub const Instant = struct {
             // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
             // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
             const qpc = self.timestamp - earlier.timestamp;
-            const qpf = os.windows.QueryPerformanceFrequency();
+            const qpf = windows.QueryPerformanceFrequency();
 
             // 10Mhz (1 qpc tick every 100ns) is a common enough QPF value that we can optimize on it.
             // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
@@ -326,7 +327,7 @@ pub const Timer = struct {
     }
 };
 
-test "Timer + Instant" {
+test Timer {
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();

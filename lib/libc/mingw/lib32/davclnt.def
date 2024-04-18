@@ -14,7 +14,6 @@ DavRegisterAuthCallback@8
 DavUnregisterAuthCallback@4
 DllCanUnloadNow@0
 DllGetClassObject@12
-DllMain@12
 NPAddConnection3@20
 NPAddConnection@12
 NPCancelConnection@8

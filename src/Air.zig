@@ -727,11 +727,11 @@ pub const Inst = struct {
         /// Result type is always `void`.
         /// Uses the `bin_op` field. LHS is pointer, RHS is element.
         atomic_store_unordered,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.Monotonic`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.monotonic`.
         atomic_store_monotonic,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.Release`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.release`.
         atomic_store_release,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.SeqCst`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.seq_cst`.
         atomic_store_seq_cst,
         /// Atomically read-modify-write via a pointer.
         /// Result type is the element type of the pointer.
@@ -1084,9 +1084,11 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: InternPool.DeclIndex,
             alignment: InternPool.Alignment,
             is_const: bool,
+            /// This is `undefined` until we encounter a `store_to_inferred_alloc`,
+            /// at which point the pointer is created and stored here.
+            ptr: InternPool.Index,
         };
 
         pub const InferredAlloc = struct {

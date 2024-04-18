@@ -18,7 +18,6 @@ ConvertPrintTicketToDevModeThunk
 ConvertPrintTicketToDevModeThunk2
 DllCanUnloadNow
 DllGetClassObject
-DllMain
 DllRegisterServer
 DllUnregisterServer
 GetDeviceDefaultPrintTicketThunk

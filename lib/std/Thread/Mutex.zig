@@ -23,7 +23,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Mutex = @This();
 
-const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Thread = std.Thread;
@@ -117,36 +116,40 @@ const SingleThreadedImpl = struct {
 // SRWLOCK on windows is almost always faster than Futex solution.
 // It also implements an efficient Condition with requeue support for us.
 const WindowsImpl = struct {
-    srwlock: os.windows.SRWLOCK = .{},
+    srwlock: windows.SRWLOCK = .{},
 
     fn tryLock(self: *@This()) bool {
-        return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
+        return windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
     }
 
     fn lock(self: *@This()) void {
-        os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+        windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
 
     fn unlock(self: *@This()) void {
-        os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
+        windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
     }
+
+    const windows = std.os.windows;
 };
 
 // os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
 const DarwinImpl = struct {
-    oul: os.darwin.os_unfair_lock = .{},
+    oul: c.os_unfair_lock = .{},
 
     fn tryLock(self: *@This()) bool {
-        return os.darwin.os_unfair_lock_trylock(&self.oul);
+        return c.os_unfair_lock_trylock(&self.oul);
     }
 
     fn lock(self: *@This()) void {
-        os.darwin.os_unfair_lock_lock(&self.oul);
+        c.os_unfair_lock_lock(&self.oul);
     }
 
     fn unlock(self: *@This()) void {
-        os.darwin.os_unfair_lock_unlock(&self.oul);
+        c.os_unfair_lock_unlock(&self.oul);
     }
+
+    const c = std.c;
 };
 
 const FutexImpl = struct {

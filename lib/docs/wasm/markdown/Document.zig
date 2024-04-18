@@ -51,6 +51,8 @@ pub const Node = struct {
         // Inlines
         /// Data is `link`.
         link,
+        /// Data is `text`.
+        autolink,
         /// Data is `link`.
         image,
         /// Data is `container`.
@@ -129,7 +131,7 @@ pub const Node = struct {
         }
     };
 
-    pub const TableCellAlignment = enum {
+    pub const TableCellAlignment = enum(u2) {
         unset,
         left,
         center,

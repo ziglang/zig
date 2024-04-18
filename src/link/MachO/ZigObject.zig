@@ -567,8 +567,6 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = Value.fromInterned(decl_val);
-    const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(decl_val),
@@ -576,7 +574,7 @@ pub fn lowerAnonDecl(
     const res = self.lowerConst(
         macho_file,
         name,
-        tv,
+        Value.fromInterned(decl_val),
         decl_alignment,
         macho_file.zig_const_sect_index.?,
         src_loc,
@@ -718,8 +716,8 @@ pub fn updateDecl(
     if (decl.isExtern(mod)) {
         // Extern variable gets a __got entry only
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const name = decl.name.toSlice(&mod.intern_pool);
+        const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         const index = try self.getGlobalSymbol(macho_file, name, lib_name);
         const actual_index = self.symbols.items[index];
         macho_file.getSymbol(actual_index).flags.needs_got = true;
@@ -738,11 +736,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
-    const res =
-        try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, dio, .{
+    const res = try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), decl_val, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
     });
 
@@ -792,9 +786,9 @@ fn updateDeclCode(
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
+    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
     const required_alignment = decl.getAlignment(mod);
 
@@ -806,7 +800,7 @@ fn updateDeclCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    sym.name = try self.strtab.insert(gpa, decl_name);
+    sym.name = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
@@ -825,7 +819,7 @@ fn updateDeclCode(
 
         if (need_realloc) {
             try atom.grow(macho_file);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom.value });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
@@ -876,23 +870,24 @@ fn updateTlv(
 ) !void {
     const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
+    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
 
+    const decl_name_slice = decl_name.toSlice(&mod.intern_pool);
     const required_alignment = decl.getAlignment(mod);
 
     // 1. Lower TLV initializer
     const init_sym_index = try self.createTlvInitializer(
         macho_file,
-        decl_name,
+        decl_name_slice,
         required_alignment,
         sect_index,
         code,
     );
 
     // 2. Create TLV descriptor
-    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name);
+    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name_slice);
 }
 
 fn createTlvInitializer(
@@ -1021,7 +1016,7 @@ fn getDeclOutputSection(
     _ = self;
     const mod = macho_file.base.comp.module.?;
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-    const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
+    const sect_id: u8 = switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => macho_file.zig_text_sect_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
@@ -1068,7 +1063,7 @@ fn getDeclOutputSection(
 pub fn lowerUnnamedConst(
     self: *ZigObject,
     macho_file: *MachO,
-    typed_value: TypedValue,
+    val: Value,
     decl_index: InternPool.DeclIndex,
 ) !u32 {
     const gpa = macho_file.base.comp.gpa;
@@ -1079,15 +1074,15 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
     const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
     const sym_index = switch (try self.lowerConst(
         macho_file,
         name,
-        typed_value,
-        typed_value.ty.abiAlignment(mod),
+        val,
+        val.typeOf(mod).abiAlignment(mod),
         macho_file.zig_const_sect_index.?,
         decl.srcLoc(mod),
     )) {
@@ -1113,7 +1108,7 @@ fn lowerConst(
     self: *ZigObject,
     macho_file: *MachO,
     name: []const u8,
-    tv: TypedValue,
+    val: Value,
     required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Module.SrcLoc,
@@ -1125,7 +1120,7 @@ fn lowerConst(
 
     const sym_index = try self.addAtom(macho_file);
 
-    const res = try codegen.generateSymbol(&macho_file.base, src_loc, tv, &code_buffer, .{
+    const res = try codegen.generateSymbol(&macho_file.base, src_loc, val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = sym_index,
@@ -1205,7 +1200,7 @@ pub fn updateExports(
 
     for (exports) |exp| {
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
+            if (!section_name.eqlSlice("__text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,
@@ -1226,7 +1221,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         const global_nlist_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {
@@ -1355,13 +1350,12 @@ pub fn deleteDeclExport(
     decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
 ) void {
-    const metadata = self.decls.getPtr(decl_index) orelse return;
-
     const mod = macho_file.base.comp.module.?;
-    const exp_name = mod.intern_pool.stringToSlice(name);
-    const nlist_index = metadata.@"export"(self, exp_name) orelse return;
 
-    log.debug("deleting export '{s}'", .{exp_name});
+    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const nlist_index = metadata.@"export"(self, name.toSlice(&mod.intern_pool)) orelse return;
+
+    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
 
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;
@@ -1580,5 +1574,4 @@ const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
-const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();

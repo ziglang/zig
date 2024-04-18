@@ -430,7 +430,7 @@ pub fn binarySearch(
     return null;
 }
 
-test "binarySearch" {
+test binarySearch {
     const S = struct {
         fn order_u32(context: void, lhs: u32, rhs: u32) math.Order {
             _ = context;
@@ -537,7 +537,7 @@ pub fn lowerBound(
     return left;
 }
 
-test "lowerBound" {
+test lowerBound {
     const S = struct {
         fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
             _ = context;
@@ -627,7 +627,7 @@ pub fn upperBound(
     return left;
 }
 
-test "upperBound" {
+test upperBound {
     const S = struct {
         fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
             _ = context;
@@ -712,7 +712,7 @@ pub fn equalRange(
     };
 }
 
-test "equalRange" {
+test equalRange {
     const S = struct {
         fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
             _ = context;
@@ -792,7 +792,7 @@ pub fn argMin(
     return smallest_index;
 }
 
-test "argMin" {
+test argMin {
     try testing.expectEqual(@as(?usize, null), argMin(i32, &[_]i32{}, {}, asc_i32));
     try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{1}, {}, asc_i32));
     try testing.expectEqual(@as(?usize, 0), argMin(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
@@ -812,7 +812,7 @@ pub fn min(
     return items[i];
 }
 
-test "min" {
+test min {
     try testing.expectEqual(@as(?i32, null), min(i32, &[_]i32{}, {}, asc_i32));
     try testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{1}, {}, asc_i32));
     try testing.expectEqual(@as(?i32, 1), min(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
@@ -844,7 +844,7 @@ pub fn argMax(
     return biggest_index;
 }
 
-test "argMax" {
+test argMax {
     try testing.expectEqual(@as(?usize, null), argMax(i32, &[_]i32{}, {}, asc_i32));
     try testing.expectEqual(@as(?usize, 0), argMax(i32, &[_]i32{1}, {}, asc_i32));
     try testing.expectEqual(@as(?usize, 4), argMax(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
@@ -864,7 +864,7 @@ pub fn max(
     return items[i];
 }
 
-test "max" {
+test max {
     try testing.expectEqual(@as(?i32, null), max(i32, &[_]i32{}, {}, asc_i32));
     try testing.expectEqual(@as(?i32, 1), max(i32, &[_]i32{1}, {}, asc_i32));
     try testing.expectEqual(@as(?i32, 5), max(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));
@@ -890,7 +890,7 @@ pub fn isSorted(
     return true;
 }
 
-test "isSorted" {
+test isSorted {
     try testing.expect(isSorted(i32, &[_]i32{}, {}, asc_i32));
     try testing.expect(isSorted(i32, &[_]i32{10}, {}, asc_i32));
     try testing.expect(isSorted(i32, &[_]i32{ 1, 2, 3, 4, 5 }, {}, asc_i32));

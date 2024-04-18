@@ -77,12 +77,10 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         },
         .h_dir = switch (options.h_dir) {
             .disabled => null,
-            // https://github.com/ziglang/zig/issues/9698
-            .default => null,
-            //.default => switch (artifact.kind) {
-            //    .lib => .header,
-            //    else => null,
-            //},
+            .default => switch (artifact.kind) {
+                .lib => .header,
+                else => null,
+            },
             .override => |o| o,
         },
         .implib_dir = switch (options.implib_dir) {
@@ -113,7 +111,8 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
 
     if (self.dest_dir != null) self.emitted_bin = artifact.getEmittedBin();
     if (self.pdb_dir != null) self.emitted_pdb = artifact.getEmittedPdb();
-    if (self.h_dir != null) self.emitted_h = artifact.getEmittedH();
+    // https://github.com/ziglang/zig/issues/9698
+    //if (self.h_dir != null) self.emitted_h = artifact.getEmittedH();
     if (self.implib_dir != null) self.emitted_implib = artifact.getEmittedImplib();
 
     return self;
@@ -121,15 +120,15 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
-    const self = @fieldParentPtr(InstallArtifact, "step", step);
-    const dest_builder = step.owner;
+    const self: *InstallArtifact = @fieldParentPtr("step", step);
+    const b = step.owner;
     const cwd = fs.cwd();
 
     var all_cached = true;
 
     if (self.dest_dir) |dest_dir| {
-        const full_dest_path = dest_builder.getInstallPath(dest_dir, self.dest_sub_path);
-        const full_src_path = self.emitted_bin.?.getPath2(step.owner, step);
+        const full_dest_path = b.getInstallPath(dest_dir, self.dest_sub_path);
+        const full_src_path = self.emitted_bin.?.getPath2(b, step);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_dest_path, @errorName(err),
@@ -145,8 +144,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     if (self.implib_dir) |implib_dir| {
-        const full_src_path = self.emitted_implib.?.getPath2(step.owner, step);
-        const full_implib_path = dest_builder.getInstallPath(implib_dir, fs.path.basename(full_src_path));
+        const full_src_path = self.emitted_implib.?.getPath2(b, step);
+        const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(full_src_path));
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_implib_path, @errorName(err),
@@ -156,8 +155,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     if (self.pdb_dir) |pdb_dir| {
-        const full_src_path = self.emitted_pdb.?.getPath2(step.owner, step);
-        const full_pdb_path = dest_builder.getInstallPath(pdb_dir, fs.path.basename(full_src_path));
+        const full_src_path = self.emitted_pdb.?.getPath2(b, step);
+        const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(full_src_path));
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_pdb_path, @errorName(err),
@@ -167,14 +166,68 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
 
     if (self.h_dir) |h_dir| {
-        const full_src_path = self.emitted_h.?.getPath2(step.owner, step);
-        const full_h_path = dest_builder.getInstallPath(h_dir, fs.path.basename(full_src_path));
-        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_h_path, @errorName(err),
-            });
+        if (self.emitted_h) |emitted_h| {
+            const full_src_path = emitted_h.getPath2(b, step);
+            const full_h_path = b.getInstallPath(h_dir, fs.path.basename(full_src_path));
+            const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
+                return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                    full_src_path, full_h_path, @errorName(err),
+                });
+            };
+            all_cached = all_cached and p == .fresh;
+        }
+
+        for (self.artifact.installed_headers.items) |installation| switch (installation) {
+            .file => |file| {
+                const full_src_path = file.source.getPath2(b, step);
+                const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
+                const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
+                    return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                        full_src_path, full_h_path, @errorName(err),
+                    });
+                };
+                all_cached = all_cached and p == .fresh;
+            },
+            .directory => |dir| {
+                const full_src_dir_path = dir.source.getPath2(b, step);
+                const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
+
+                var src_dir = b.build_root.handle.openDir(full_src_dir_path, .{ .iterate = true }) catch |err| {
+                    return step.fail("unable to open source directory '{s}': {s}", .{
+                        full_src_dir_path, @errorName(err),
+                    });
+                };
+                defer src_dir.close();
+
+                var it = try src_dir.walk(b.allocator);
+                next_entry: while (try it.next()) |entry| {
+                    for (dir.options.exclude_extensions) |ext| {
+                        if (std.mem.endsWith(u8, entry.path, ext)) continue :next_entry;
+                    }
+                    if (dir.options.include_extensions) |incs| {
+                        for (incs) |inc| {
+                            if (std.mem.endsWith(u8, entry.path, inc)) break;
+                        } else {
+                            continue :next_entry;
+                        }
+                    }
+                    const full_src_entry_path = b.pathJoin(&.{ full_src_dir_path, entry.path });
+                    const full_dest_path = b.pathJoin(&.{ full_h_prefix, entry.path });
+                    switch (entry.kind) {
+                        .directory => try cwd.makePath(full_dest_path),
+                        .file => {
+                            const p = fs.Dir.updateFile(cwd, full_src_entry_path, cwd, full_dest_path, .{}) catch |err| {
+                                return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
+                                    full_src_entry_path, full_dest_path, @errorName(err),
+                                });
+                            };
+                            all_cached = all_cached and p == .fresh;
+                        },
+                        else => continue,
+                    }
+                }
+            },
         };
-        all_cached = all_cached and p == .fresh;
     }
 
     step.result_cached = all_cached;

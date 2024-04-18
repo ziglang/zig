@@ -422,7 +422,7 @@ pub fn createEmpty(
             const index: File.Index = @intCast(try self.files.addOne(gpa));
             self.files.set(index, .{ .zig_object = .{
                 .index = index,
-                .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
+                .path = try std.fmt.allocPrint(arena, "{s}.o", .{fs.path.stem(
                     zcu.main_mod.root_src_path,
                 )}),
             } });
@@ -1517,7 +1517,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         if (self.base.isStatic()) {
             try argv.append("-static");
-        } else if (self.base.isDynLib()) {
+        } else if (self.isEffectivelyDynLib()) {
             try argv.append("-shared");
         }
 
@@ -1673,7 +1673,7 @@ pub const ParseError = error{
     NotSupported,
     InvalidCharacter,
     UnknownFileType,
-} || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+} || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
 pub fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
@@ -1703,7 +1703,7 @@ fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try fs.cwd().openFile(path, .{});
     const fh = try self.addFileHandle(handle);
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -1723,7 +1723,7 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try fs.cwd().openFile(path, .{});
     const fh = try self.addFileHandle(handle);
 
     var archive = Archive{};
@@ -1749,7 +1749,7 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(lib.path, .{});
+    const handle = try fs.cwd().openFile(lib.path, .{});
     defer handle.close();
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -1770,7 +1770,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    const in_file = try fs.cwd().openFile(lib.path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
@@ -1997,7 +1997,7 @@ fn markImportsExports(self: *Elf) void {
                 }
                 if (file_ptr.index() == file_index) {
                     global.flags.@"export" = true;
-                    if (elf_file.base.isDynLib() and vis != .PROTECTED) {
+                    if (elf_file.isEffectivelyDynLib() and vis != .PROTECTED) {
                         global.flags.import = true;
                     }
                 }
@@ -2005,7 +2005,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }.mark;
 
-    if (!self.base.isDynLib()) {
+    if (!self.isEffectivelyDynLib()) {
         for (self.shared_objects.items) |index| {
             for (self.file(index).?.globals()) |global_index| {
                 const global = self.symbol(global_index);
@@ -2469,7 +2469,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             } else {
                 try argv.append("-static");
             }
-        } else if (is_dyn_lib) {
+        } else if (switch (target.os.tag) {
+            else => is_dyn_lib,
+            .haiku => is_exe_or_dyn_lib,
+        }) {
             try argv.append("-shared");
         }
 
@@ -2925,7 +2928,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
     const elf_type: elf.ET = switch (output_mode) {
-        .Exe => if (comp.config.pie) .DYN else .EXEC,
+        .Exe => if (comp.config.pie or target.os.tag == .haiku) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (link_mode) {
             .static => @as(elf.ET, .REL),
@@ -3039,8 +3042,8 @@ pub fn updateDecl(
     return self.zigObjectPtr().?.updateDecl(self, mod, decl_index);
 }
 
-pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    return self.zigObjectPtr().?.lowerUnnamedConst(self, typed_value, decl_index);
+pub fn lowerUnnamedConst(self: *Elf, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return self.zigObjectPtr().?.lowerUnnamedConst(self, val, decl_index);
 }
 
 pub fn updateExports(
@@ -3114,7 +3117,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
-    if (self.getTarget().cpu.arch == .riscv64 and self.base.isDynLib()) {
+    if (self.getTarget().cpu.arch == .riscv64 and self.isEffectivelyDynLib()) {
         self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
     }
 
@@ -3420,7 +3423,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.base.isDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
+    if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
             .name = ".dynstr",
             .flags = elf.SHF_ALLOC,
@@ -3657,7 +3660,7 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
         try self.dynamic.addNeeded(shared_object, self);
     }
 
-    if (self.base.isDynLib()) {
+    if (self.isEffectivelyDynLib()) {
         if (self.soname) |soname| {
             try self.dynamic.setSoname(soname, self);
         }
@@ -4051,7 +4054,7 @@ fn updateSectionSizes(self: *Elf) !void {
             const padding = offset - shdr.sh_size;
             atom_ptr.value = offset;
             shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
         }
     }
 
@@ -4565,6 +4568,22 @@ fn writeAtoms(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
+    if (self.requiresThunks()) {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        for (self.thunks.items) |th| {
+            const thunk_size = th.size(self);
+            try buffer.ensureUnusedCapacity(thunk_size);
+            const shdr = self.shdrs.items[th.output_section_index];
+            const offset = th.value + shdr.sh_offset;
+            try th.write(self, buffer.writer());
+            assert(buffer.items.len == thunk_size);
+            try self.base.file.?.pwriteAll(buffer.items, offset);
+            buffer.clearRetainingCapacity();
+        }
+    }
+
     try self.reportUndefinedSymbols(&undefs);
 
     if (has_reloc_errors) return error.FlushFailure;
@@ -4593,12 +4612,12 @@ pub fn updateSymtabSize(self: *Elf) !void {
         nlocals += 1;
     }
 
-    for (self.thunks.items) |*th| {
+    if (self.requiresThunks()) for (self.thunks.items) |*th| {
         th.output_symtab_ctx.ilocal = nlocals + 1;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
         strsize += th.output_symtab_ctx.strsize;
-    }
+    };
 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
@@ -4830,9 +4849,9 @@ pub fn writeSymtab(self: *Elf) !void {
 
     self.writeSectionSymbols();
 
-    for (self.thunks.items) |th| {
+    if (self.requiresThunks()) for (self.thunks.items) |th| {
         th.writeSymtab(self);
-    }
+    };
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5230,6 +5249,16 @@ const CsuObjects = struct {
     }
 };
 
+/// If a target compiles other output modes as dynamic libraries,
+/// this function returns true for those too.
+pub fn isEffectivelyDynLib(self: Elf) bool {
+    if (self.base.isDynLib()) return true;
+    return switch (self.getTarget().os.tag) {
+        .haiku => self.base.isExe(),
+        else => false,
+    };
+}
+
 pub fn isZigSection(self: Elf, shndx: u32) bool {
     inline for (&[_]?u32{
         self.zig_text_section_index,
@@ -5452,7 +5481,7 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     };
 }
 
-pub fn addFileHandle(self: *Elf, handle: std.fs.File) !File.HandleIndex {
+pub fn addFileHandle(self: *Elf, handle: fs.File) !File.HandleIndex {
     const gpa = self.base.comp.gpa;
     const index: File.HandleIndex = @intCast(self.file_handles.items.len);
     const fh = try self.file_handles.addOne(gpa);
@@ -5997,10 +6026,14 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
-    try writer.writeAll("thunks\n");
-    for (self.thunks.items, 0..) |th, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+
+    if (self.requiresThunks()) {
+        try writer.writeAll("thunks\n");
+        for (self.thunks.items, 0..) |th, index| {
+            try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+        }
     }
+
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
@@ -6025,7 +6058,7 @@ fn fmtDumpState(
 }
 
 /// Caller owns the memory.
-pub fn preadAllAlloc(allocator: Allocator, handle: std.fs.File, offset: u64, size: u64) ![]u8 {
+pub fn preadAllAlloc(allocator: Allocator, handle: fs.File, offset: u64, size: u64) ![]u8 {
     const buffer = try allocator.alloc(u8, math.cast(usize, size) orelse return error.Overflow);
     errdefer allocator.free(buffer);
     const amt = try handle.preadAll(buffer, offset);
@@ -6240,7 +6273,7 @@ const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("StringTable.zig");
 const Thunk = thunks.Thunk;
-const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;
 const ZigObject = @import("Elf/ZigObject.zig");

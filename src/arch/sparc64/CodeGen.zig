@@ -12,7 +12,7 @@ const builtin = @import("builtin");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
-const TypedValue = @import("../../TypedValue.zig");
+const Value = @import("../../Value.zig");
 const ErrorMsg = Module.ErrorMsg;
 const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
@@ -273,7 +273,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.ty;
+    const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
     const target = &namespace.file_scope.mod.resolved_target.result;
 
@@ -647,10 +647,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
 
-            .atomic_store_unordered => @panic("TODO try self.airAtomicStore(inst, .Unordered)"),
-            .atomic_store_monotonic => @panic("TODO try self.airAtomicStore(inst, .Monotonic)"),
-            .atomic_store_release   => @panic("TODO try self.airAtomicStore(inst, .Release)"),
-            .atomic_store_seq_cst   => @panic("TODO try self.airAtomicStore(inst, .SeqCst)"),
+            .atomic_store_unordered => @panic("TODO try self.airAtomicStore(inst, .unordered)"),
+            .atomic_store_monotonic => @panic("TODO try self.airAtomicStore(inst, .monotonic)"),
+            .atomic_store_release   => @panic("TODO try self.airAtomicStore(inst, .release)"),
+            .atomic_store_seq_cst   => @panic("TODO try self.airAtomicStore(inst, .seq_cst)"),
 
             .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
             .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4118,12 +4118,12 @@ fn genStoreASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Re
     }
 }
 
-fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mod = self.bin_file.comp.module.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
-        typed_value,
+        val,
         mod.funcOwnerDeclIndex(self.func_index),
     )) {
         .mcv => |mcv| switch (mcv) {
@@ -4546,10 +4546,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         return self.getResolvedInstValue(inst);
     }
 
-    return self.genTypedValue(.{
-        .ty = ty,
-        .val = (try self.air.value(ref, mod)).?,
-    });
+    return self.genTypedValue((try self.air.value(ref, mod)).?);
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {

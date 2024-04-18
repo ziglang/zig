@@ -2914,6 +2914,25 @@ test "zig fmt: test declaration" {
     );
 }
 
+test "zig fmt: destructure" {
+    try testCanonical(
+        \\comptime {
+        \\    var w: u8, var x: u8 = .{ 1, 2 };
+        \\    w, var y: u8 = .{ 3, 4 };
+        \\    var z: u8, x = .{ 5, 6 };
+        \\    y, z = .{ 7, 8 };
+        \\}
+        \\
+        \\comptime {
+        \\    comptime var w, var x = .{ 1, 2 };
+        \\    comptime w, var y = .{ 3, 4 };
+        \\    comptime var z, x = .{ 5, 6 };
+        \\    comptime y, z = .{ 7, 8 };
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: infix operators" {
     try testCanonical(
         \\test {

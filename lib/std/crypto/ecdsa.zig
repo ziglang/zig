@@ -4,6 +4,7 @@ const crypto = std.crypto;
 const fmt = std.fmt;
 const io = std.io;
 const mem = std.mem;
+const sha3 = crypto.hash.sha3;
 const testing = std.testing;
 
 const EncodingError = crypto.errors.EncodingError;
@@ -26,7 +27,11 @@ pub const EcdsaSecp256k1Sha256oSha256 = Ecdsa(crypto.ecc.Secp256k1, crypto.hash.
 
 /// Elliptic Curve Digital Signature Algorithm (ECDSA).
 pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
-    const Hmac = crypto.auth.hmac.Hmac(Hash);
+    const Prf = switch (Hash) {
+        sha3.Shake128 => sha3.KMac128,
+        sha3.Shake256 => sha3.KMac256,
+        else => crypto.auth.hmac.Hmac(Hash),
+    };
 
     return struct {
         /// Length (in bytes) of optional random bytes, for non-deterministic signatures.
@@ -350,22 +355,22 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             if (noise) |n| @memcpy(m_z, &n);
             @memcpy(m_x, &secret_key);
             @memcpy(m_h, &h);
-            Hmac.create(&k, &m, &k);
-            Hmac.create(m_v, m_v, &k);
+            Prf.create(&k, &m, &k);
+            Prf.create(m_v, m_v, &k);
             m_i.* = 0x01;
-            Hmac.create(&k, &m, &k);
-            Hmac.create(m_v, m_v, &k);
+            Prf.create(&k, &m, &k);
+            Prf.create(m_v, m_v, &k);
             while (true) {
                 var t_off: usize = 0;
                 while (t_off < t.len) : (t_off += m_v.len) {
                     const t_end = @min(t_off + m_v.len, t.len);
-                    Hmac.create(m_v, m_v, &k);
+                    Prf.create(m_v, m_v, &k);
                     @memcpy(t[t_off..t_end], m_v[0 .. t_end - t_off]);
                 }
                 if (Curve.scalar.Scalar.fromBytes(t, .big)) |s| return s else |_| {}
                 m_i.* = 0x00;
-                Hmac.create(&k, m[0 .. m_v.len + 1], &k);
-                Hmac.create(m_v, m_v, &k);
+                Prf.create(&k, m[0 .. m_v.len + 1], &k);
+                Prf.create(m_v, m_v, &k);
             }
         }
     };

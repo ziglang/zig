@@ -20,16 +20,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_tag = .linux,
         .abi = .gnu,
     });
-    // const aarch64_musl = b.resolveTargetQuery(.{
-    //     .cpu_arch = .aarch64,
-    //     .os_tag = .linux,
-    //     .abi = .musl,
-    // });
-    // const aarch64_gnu = b.resolveTargetQuery(.{
-    //     .cpu_arch = .aarch64,
-    //     .os_tag = .linux,
-    //     .abi = .gnu,
-    // });
+    const aarch64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
     const riscv64_musl = b.resolveTargetQuery(.{
         .cpu_arch = .riscv64,
         .os_tag = .linux,
@@ -152,6 +147,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     // x86_64 specific tests
     elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = x86_64_musl }));
     elf_step.dependOn(testZText(b, .{ .target = x86_64_gnu }));
+
+    // aarch64 specific tests
+    elf_step.dependOn(testThunks(b, .{ .target = aarch64_musl }));
 
     // x86_64 self-hosted backend
     elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = x86_64_musl }));
@@ -2665,6 +2663,51 @@ fn testStrip(b: *Build, opts: Options) *Step {
         check.checkExact("section headers");
         check.checkNotPresent("name .debug_info");
         test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testThunks(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "thunks", opts);
+
+    const src =
+        \\#include <stdio.h>
+        \\__attribute__((aligned(0x8000000))) int bar() {
+        \\  return 42;
+        \\}
+        \\int foobar();
+        \\int foo() {
+        \\  return bar() - foobar();
+        \\}
+        \\__attribute__((aligned(0x8000000))) int foobar() {
+        \\  return 42;
+        \\}
+        \\int main() {
+        \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
+        \\  return foo();
+        \\}
+    ;
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = src });
+        exe.link_function_sections = true;
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = src });
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
     }
 
     return test_step;

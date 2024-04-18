@@ -106,12 +106,8 @@ pub const NullTerminatedString = enum(u32) {
 
 /// Given an index into `string_bytes` returns the null-terminated string found there.
 pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
-    const start = @intFromEnum(index);
-    var end: u32 = start;
-    while (code.string_bytes[end] != 0) {
-        end += 1;
-    }
-    return code.string_bytes[start..end :0];
+    const slice = code.string_bytes[@intFromEnum(index)..];
+    return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
 }
 
 pub fn refSlice(code: Zir, start: usize, len: usize) []Inst.Ref {
@@ -940,9 +936,6 @@ pub const Inst = struct {
         /// The addend communicates the type of the builtin.
         /// The mulends need to be coerced to the same type.
         mul_add,
-        /// Implements the `@fieldParentPtr` builtin.
-        /// Uses the `pl_node` union field with payload `FieldParentPtr`.
-        field_parent_ptr,
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
@@ -1230,7 +1223,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .mul_add,
                 .builtin_call,
-                .field_parent_ptr,
                 .max,
                 .memcpy,
                 .memset,
@@ -1522,7 +1514,6 @@ pub const Inst = struct {
                 .atomic_rmw,
                 .mul_add,
                 .builtin_call,
-                .field_parent_ptr,
                 .max,
                 .min,
                 .c_import,
@@ -1794,7 +1785,6 @@ pub const Inst = struct {
                 .atomic_store = .pl_node,
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
-                .field_parent_ptr = .pl_node,
                 .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
@@ -2064,6 +2054,12 @@ pub const Inst = struct {
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
         value_placeholder,
+        /// Implements the `@fieldParentPtr` builtin.
+        /// `operand` is payload index to `FieldParentPtr`.
+        /// `small` contains `FullPtrCastFlags`.
+        /// Guaranteed to not have the `ptr_cast` flag.
+        /// Uses the `pl_node` union field with payload `FieldParentPtr`.
+        field_parent_ptr,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3058,20 +3054,23 @@ pub const Inst = struct {
 
     /// Represents a single value being captured in a type declaration's closure.
     pub const Capture = packed struct(u32) {
-        tag: enum(u2) {
+        tag: enum(u3) {
             /// `data` is a `u16` index into the parent closure.
             nested,
             /// `data` is a `Zir.Inst.Index` to an instruction whose value is being captured.
             instruction,
+            /// `data` is a `Zir.Inst.Index` to an instruction representing an alloc whose contents is being captured.
+            instruction_load,
             /// `data` is a `NullTerminatedString` to a decl name.
             decl_val,
             /// `data` is a `NullTerminatedString` to a decl name.
             decl_ref,
         },
-        data: u30,
+        data: u29,
         pub const Unwrapped = union(enum) {
             nested: u16,
             instruction: Zir.Inst.Index,
+            instruction_load: Zir.Inst.Index,
             decl_val: NullTerminatedString,
             decl_ref: NullTerminatedString,
         };
@@ -3083,6 +3082,10 @@ pub const Inst = struct {
                 },
                 .instruction => |inst| .{
                     .tag = .instruction,
+                    .data = @intCast(@intFromEnum(inst)),
+                },
+                .instruction_load => |inst| .{
+                    .tag = .instruction_load,
                     .data = @intCast(@intFromEnum(inst)),
                 },
                 .decl_val => |str| .{
@@ -3099,6 +3102,7 @@ pub const Inst = struct {
             return switch (cap.tag) {
                 .nested => .{ .nested = @intCast(cap.data) },
                 .instruction => .{ .instruction = @enumFromInt(cap.data) },
+                .instruction_load => .{ .instruction_load = @enumFromInt(cap.data) },
                 .decl_val => .{ .decl_val = @enumFromInt(cap.data) },
                 .decl_ref => .{ .decl_ref = @enumFromInt(cap.data) },
             };
@@ -3355,9 +3359,14 @@ pub const Inst = struct {
     };
 
     pub const FieldParentPtr = struct {
-        parent_type: Ref,
+        src_node: i32,
+        parent_ptr_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
+
+        pub fn src(self: FieldParentPtr) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
     };
 
     pub const Shuffle = struct {

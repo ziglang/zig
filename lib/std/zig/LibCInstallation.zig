@@ -67,34 +67,34 @@ pub fn parse(
     }
     inline for (fields, 0..) |field, i| {
         if (!found_keys[i].found) {
-            log.err("missing field: {s}\n", .{field.name});
+            log.err("missing field: {s}", .{field.name});
             return error.ParseError;
         }
     }
     if (self.include_dir == null) {
-        log.err("include_dir may not be empty\n", .{});
+        log.err("include_dir may not be empty", .{});
         return error.ParseError;
     }
     if (self.sys_include_dir == null) {
-        log.err("sys_include_dir may not be empty\n", .{});
+        log.err("sys_include_dir may not be empty", .{});
         return error.ParseError;
     }
 
     const os_tag = target.os.tag;
     if (self.crt_dir == null and !target.isDarwin()) {
-        log.err("crt_dir may not be empty for {s}\n", .{@tagName(os_tag)});
+        log.err("crt_dir may not be empty for {s}", .{@tagName(os_tag)});
         return error.ParseError;
     }
 
     if (self.msvc_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
-        log.err("msvc_lib_dir may not be empty for {s}-{s}\n", .{
+        log.err("msvc_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),
         });
         return error.ParseError;
     }
     if (self.kernel32_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
-        log.err("kernel32_lib_dir may not be empty for {s}-{s}\n", .{
+        log.err("kernel32_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),
         });
@@ -102,7 +102,7 @@ pub fn parse(
     }
 
     if (self.gcc_dir == null and os_tag == .haiku) {
-        log.err("gcc_dir may not be empty for {s}\n", .{@tagName(os_tag)});
+        log.err("gcc_dir may not be empty for {s}", .{@tagName(os_tag)});
         return error.ParseError;
     }
 
@@ -167,7 +167,7 @@ pub const FindNativeOptions = struct {
 pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
     var self: LibCInstallation = .{};
 
-    if (is_darwin) {
+    if (is_darwin and args.target.isDarwin()) {
         if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
             return error.DarwinSdkNotFound;
         const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
@@ -196,7 +196,7 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         try self.findNativeCrtDirWindows(args, &sdk);
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(args);
-        try self.findNativeCrtBeginDirHaiku(args);
+        try self.findNativeGccDirHaiku(args);
         self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
     } else if (builtin.target.os.tag.isSolarish()) {
         // There is only one libc, and its headers/libraries are always in the same spot.
@@ -443,13 +443,16 @@ fn findNativeCrtDirWindows(
 fn findNativeCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
     self.crt_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
-        .search_basename = "crt1.o",
+        .search_basename = switch (args.target.os.tag) {
+            .linux => if (args.target.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
+            else => "crt1.o",
+        },
         .want_dirname = .only_dir,
         .verbose = args.verbose,
     });
 }
 
-fn findNativeCrtBeginDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
+fn findNativeGccDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
     self.gcc_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
         .search_basename = "crtbeginS.o",

@@ -184,9 +184,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             const out_pdb = self.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
                 full_out_path[0 .. full_out_path.len - out_ext.len],
             });
+            const out_pdb_basename = std.fs.path.basename(out_pdb);
 
             try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
-            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
+            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
@@ -408,7 +409,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                             try argv.append(try comp.get_libc_crt_file(arena, "crt2.obj"));
                         }
 
-                        try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
+                        try argv.append(try comp.get_libc_crt_file(arena, "mingw32.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
                             .dynamic => "",

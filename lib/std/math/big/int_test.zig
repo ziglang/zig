@@ -1487,6 +1487,19 @@ test "bitAnd #10932" {
     try testing.expect((try res.to(i32)) == 0);
 }
 
+test "bit And #19235" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffffffffffff);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0x10000000000000000);
+    defer b.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+
+    try r.bitAnd(&a, &b);
+
+    try testing.expect((try r.to(i128)) == 0x10000000000000000);
+}
+
 test "div floor single-single +/+" {
     const u: i32 = 5;
     const v: i32 = 3;
@@ -2006,6 +2019,19 @@ test "shift-right multi" {
     try a.shiftRight(&a, 63);
     try a.shiftRight(&a, 2);
     try testing.expect(a.eqlZero());
+
+    try a.set(0xffff0000eeee1111dddd2222cccc3333000000000000000000000);
+    try a.shiftRight(&a, 84);
+    const string = try a.toString(
+        testing.allocator,
+        16,
+        .lower,
+    );
+    defer testing.allocator.free(string);
+    try std.testing.expectEqualStrings(
+        string,
+        "ffff0000eeee1111dddd2222cccc3333",
+    );
 }
 
 test "shift-left single" {

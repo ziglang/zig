@@ -1,15 +1,15 @@
 const IoUring = @This();
-const std = @import("../../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const net = std.net;
-const os = std.os;
 const posix = std.posix;
-const linux = os.linux;
+const linux = std.os.linux;
 const testing = std.testing;
+const is_linux = builtin.os.tag == .linux;
 
-fd: os.fd_t = -1,
+fd: posix.fd_t = -1,
 sq: SubmissionQueue,
 cq: CompletionQueue,
 flags: u32,
@@ -45,7 +45,7 @@ pub fn init_params(entries: u16, p: *linux.io_uring_params) !IoUring {
     assert(p.resv[2] == 0);
 
     const res = linux.io_uring_setup(entries, p);
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
         .FAULT => return error.ParamsOutsideAccessibleAddressSpace,
         // The resv array contains non-zero data, p.flags contains an unsupported flag,
@@ -59,11 +59,11 @@ pub fn init_params(entries: u16, p: *linux.io_uring_params) !IoUring {
         // or a container seccomp policy prohibits io_uring syscalls:
         .PERM => return error.PermissionDenied,
         .NOSYS => return error.SystemOutdated,
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
-    const fd = @as(os.fd_t, @intCast(res));
+    const fd = @as(posix.fd_t, @intCast(res));
     assert(fd >= 0);
-    errdefer os.close(fd);
+    errdefer posix.close(fd);
 
     // Kernel versions 5.4 and up use only one mmap() for the submission and completion queues.
     // This is not an optional feature for us... if the kernel does it, we have to do it.
@@ -121,7 +121,7 @@ pub fn deinit(self: *IoUring) void {
     // The mmaps depend on the fd, so the order of these calls is important:
     self.cq.deinit();
     self.sq.deinit();
-    os.close(self.fd);
+    posix.close(self.fd);
     self.fd = -1;
 }
 
@@ -174,7 +174,7 @@ pub fn submit_and_wait(self: *IoUring, wait_nr: u32) !u32 {
 pub fn enter(self: *IoUring, to_submit: u32, min_complete: u32, flags: u32) !u32 {
     assert(self.fd >= 0);
     const res = linux.io_uring_enter(self.fd, to_submit, min_complete, flags, null);
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
         // The kernel was unable to allocate memory or ran out of resources for the request.
         // The application should wait for some completions and try again:
@@ -200,7 +200,7 @@ pub fn enter(self: *IoUring, to_submit: u32, min_complete: u32, flags: u32) !u32
         // The operation was interrupted by a delivery of a signal before it could complete.
         // This can happen while waiting for events with IORING_ENTER_GETEVENTS:
         .INTR => return error.SignalInterrupt,
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
     return @as(u32, @intCast(res));
 }
@@ -282,19 +282,15 @@ fn copy_cqes_ready(self: *IoUring, cqes: []linux.io_uring_cqe) u32 {
     const ready = self.cq_ready();
     const count = @min(cqes.len, ready);
     const head = self.cq.head.* & self.cq.mask;
-    const tail = (self.cq.head.* +% count) & self.cq.mask;
 
-    if (head <= tail) {
-        // head behind tail -> no wrapping
-        @memcpy(cqes[0..count], self.cq.cqes[head..tail]);
-    } else {
-        // head in front of tail -> buffer wraps
-        const two_copies_required: bool = self.cq.cqes.len - head < count;
-        const amount_to_copy_in_first = if (two_copies_required) self.cq.cqes.len - head else count;
-        @memcpy(cqes[0..amount_to_copy_in_first], self.cq.cqes[head .. head + amount_to_copy_in_first]);
-        if (two_copies_required) {
-            @memcpy(cqes[amount_to_copy_in_first..count], self.cq.cqes[0..tail]);
-        }
+    // before wrapping
+    const n = @min(self.cq.cqes.len - head, count);
+    @memcpy(cqes[0..n], self.cq.cqes[head..][0..n]);
+
+    if (count > n) {
+        // wrap self.cq.cqes
+        const w = count - n;
+        @memcpy(cqes[n..][0..w], self.cq.cqes[0..w]);
     }
 
     self.cq_advance(count);
@@ -344,7 +340,7 @@ pub fn cq_advance(self: *IoUring, count: u32) void {
 /// apply to the write, since the fsync may complete before the write is issued to the disk.
 /// You should preferably use `link_with_next_sqe()` on a write's SQE to link it with an fsync,
 /// or else insert a full write barrier using `drain_previous_sqes()` when queueing an fsync.
-pub fn fsync(self: *IoUring, user_data: u64, fd: os.fd_t, flags: u32) !*linux.io_uring_sqe {
+pub fn fsync(self: *IoUring, user_data: u64, fd: posix.fd_t, flags: u32) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_fsync(fd, flags);
     sqe.user_data = user_data;
@@ -369,7 +365,7 @@ pub const ReadBuffer = union(enum) {
     buffer: []u8,
 
     /// io_uring will read directly into these buffers using readv.
-    iovecs: []const os.iovec,
+    iovecs: []const posix.iovec,
 
     /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
     /// The buffer group reference by `group_id` must contain at least one buffer for the read to work.
@@ -389,7 +385,7 @@ pub const ReadBuffer = union(enum) {
 pub fn read(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: ReadBuffer,
     offset: u64,
 ) !*linux.io_uring_sqe {
@@ -412,7 +408,7 @@ pub fn read(
 pub fn write(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: []const u8,
     offset: u64,
 ) !*linux.io_uring_sqe {
@@ -436,7 +432,7 @@ pub fn write(
 /// See https://github.com/axboe/liburing/issues/291
 ///
 /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-pub fn splice(self: *IoUring, user_data: u64, fd_in: os.fd_t, off_in: u64, fd_out: os.fd_t, off_out: u64, len: usize) !*linux.io_uring_sqe {
+pub fn splice(self: *IoUring, user_data: u64, fd_in: posix.fd_t, off_in: u64, fd_out: posix.fd_t, off_out: u64, len: usize) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_splice(fd_in, off_in, fd_out, off_out, len);
     sqe.user_data = user_data;
@@ -451,8 +447,8 @@ pub fn splice(self: *IoUring, user_data: u64, fd_in: os.fd_t, off_in: u64, fd_ou
 pub fn read_fixed(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    buffer: *os.iovec,
+    fd: posix.fd_t,
+    buffer: *posix.iovec,
     offset: u64,
     buffer_index: u16,
 ) !*linux.io_uring_sqe {
@@ -469,8 +465,8 @@ pub fn read_fixed(
 pub fn writev(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    iovecs: []const os.iovec_const,
+    fd: posix.fd_t,
+    iovecs: []const posix.iovec_const,
     offset: u64,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -487,8 +483,8 @@ pub fn writev(
 pub fn write_fixed(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    buffer: *os.iovec,
+    fd: posix.fd_t,
+    buffer: *posix.iovec,
     offset: u64,
     buffer_index: u16,
 ) !*linux.io_uring_sqe {
@@ -504,9 +500,9 @@ pub fn write_fixed(
 pub fn accept(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    addr: ?*os.sockaddr,
-    addrlen: ?*os.socklen_t,
+    fd: posix.fd_t,
+    addr: ?*posix.sockaddr,
+    addrlen: ?*posix.socklen_t,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -526,9 +522,9 @@ pub fn accept(
 pub fn accept_multishot(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    addr: ?*os.sockaddr,
-    addrlen: ?*os.socklen_t,
+    fd: posix.fd_t,
+    addr: ?*posix.sockaddr,
+    addrlen: ?*posix.socklen_t,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -551,9 +547,9 @@ pub fn accept_multishot(
 pub fn accept_direct(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    addr: ?*os.sockaddr,
-    addrlen: ?*os.socklen_t,
+    fd: posix.fd_t,
+    addr: ?*posix.sockaddr,
+    addrlen: ?*posix.socklen_t,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -567,9 +563,9 @@ pub fn accept_direct(
 pub fn accept_multishot_direct(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    addr: ?*os.sockaddr,
-    addrlen: ?*os.socklen_t,
+    fd: posix.fd_t,
+    addr: ?*posix.sockaddr,
+    addrlen: ?*posix.socklen_t,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -583,9 +579,9 @@ pub fn accept_multishot_direct(
 pub fn connect(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    addr: *const os.sockaddr,
-    addrlen: os.socklen_t,
+    fd: posix.fd_t,
+    addr: *const posix.sockaddr,
+    addrlen: posix.socklen_t,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_connect(fd, addr, addrlen);
@@ -598,8 +594,8 @@ pub fn connect(
 pub fn epoll_ctl(
     self: *IoUring,
     user_data: u64,
-    epfd: os.fd_t,
-    fd: os.fd_t,
+    epfd: posix.fd_t,
+    fd: posix.fd_t,
     op: u32,
     ev: ?*linux.epoll_event,
 ) !*linux.io_uring_sqe {
@@ -629,7 +625,7 @@ pub const RecvBuffer = union(enum) {
 pub fn recv(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: RecvBuffer,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -653,7 +649,7 @@ pub fn recv(
 pub fn send(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: []const u8,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -681,7 +677,7 @@ pub fn send(
 pub fn send_zc(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: []const u8,
     send_flags: u32,
     zc_flags: u16,
@@ -698,7 +694,7 @@ pub fn send_zc(
 pub fn send_zc_fixed(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     buffer: []const u8,
     send_flags: u32,
     zc_flags: u16,
@@ -716,8 +712,8 @@ pub fn send_zc_fixed(
 pub fn recvmsg(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    msg: *os.msghdr,
+    fd: posix.fd_t,
+    msg: *posix.msghdr,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -732,8 +728,8 @@ pub fn recvmsg(
 pub fn sendmsg(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    msg: *const os.msghdr_const,
+    fd: posix.fd_t,
+    msg: *const posix.msghdr_const,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -748,8 +744,8 @@ pub fn sendmsg(
 pub fn sendmsg_zc(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
-    msg: *const os.msghdr_const,
+    fd: posix.fd_t,
+    msg: *const posix.msghdr_const,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -764,10 +760,10 @@ pub fn sendmsg_zc(
 pub fn openat(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     path: [*:0]const u8,
     flags: linux.O,
-    mode: os.mode_t,
+    mode: posix.mode_t,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_openat(fd, path, flags, mode);
@@ -789,10 +785,10 @@ pub fn openat(
 pub fn openat_direct(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     path: [*:0]const u8,
     flags: linux.O,
-    mode: os.mode_t,
+    mode: posix.mode_t,
     file_index: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -804,7 +800,7 @@ pub fn openat_direct(
 /// Queues (but does not submit) an SQE to perform a `close(2)`.
 /// Returns a pointer to the SQE.
 /// Available since 5.6.
-pub fn close(self: *IoUring, user_data: u64, fd: os.fd_t) !*linux.io_uring_sqe {
+pub fn close(self: *IoUring, user_data: u64, fd: posix.fd_t) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_close(fd);
     sqe.user_data = user_data;
@@ -836,7 +832,7 @@ pub fn close_direct(self: *IoUring, user_data: u64, file_index: u32) !*linux.io_
 pub fn timeout(
     self: *IoUring,
     user_data: u64,
-    ts: *const os.linux.kernel_timespec,
+    ts: *const linux.kernel_timespec,
     count: u32,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -885,7 +881,7 @@ pub fn timeout_remove(
 pub fn link_timeout(
     self: *IoUring,
     user_data: u64,
-    ts: *const os.linux.kernel_timespec,
+    ts: *const linux.kernel_timespec,
     flags: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -899,7 +895,7 @@ pub fn link_timeout(
 pub fn poll_add(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     poll_mask: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -942,7 +938,7 @@ pub fn poll_update(
 pub fn fallocate(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     mode: i32,
     offset: u64,
     len: u64,
@@ -958,7 +954,7 @@ pub fn fallocate(
 pub fn statx(
     self: *IoUring,
     user_data: u64,
-    fd: os.fd_t,
+    fd: posix.fd_t,
     path: [:0]const u8,
     flags: u32,
     mask: u32,
@@ -997,7 +993,7 @@ pub fn cancel(
 pub fn shutdown(
     self: *IoUring,
     user_data: u64,
-    sockfd: os.socket_t,
+    sockfd: posix.socket_t,
     how: u32,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -1011,9 +1007,9 @@ pub fn shutdown(
 pub fn renameat(
     self: *IoUring,
     user_data: u64,
-    old_dir_fd: os.fd_t,
+    old_dir_fd: posix.fd_t,
     old_path: [*:0]const u8,
-    new_dir_fd: os.fd_t,
+    new_dir_fd: posix.fd_t,
     new_path: [*:0]const u8,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -1028,7 +1024,7 @@ pub fn renameat(
 pub fn unlinkat(
     self: *IoUring,
     user_data: u64,
-    dir_fd: os.fd_t,
+    dir_fd: posix.fd_t,
     path: [*:0]const u8,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -1043,9 +1039,9 @@ pub fn unlinkat(
 pub fn mkdirat(
     self: *IoUring,
     user_data: u64,
-    dir_fd: os.fd_t,
+    dir_fd: posix.fd_t,
     path: [*:0]const u8,
-    mode: os.mode_t,
+    mode: posix.mode_t,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
     sqe.prep_mkdirat(dir_fd, path, mode);
@@ -1059,7 +1055,7 @@ pub fn symlinkat(
     self: *IoUring,
     user_data: u64,
     target: [*:0]const u8,
-    new_dir_fd: os.fd_t,
+    new_dir_fd: posix.fd_t,
     link_path: [*:0]const u8,
 ) !*linux.io_uring_sqe {
     const sqe = try self.get_sqe();
@@ -1073,9 +1069,9 @@ pub fn symlinkat(
 pub fn linkat(
     self: *IoUring,
     user_data: u64,
-    old_dir_fd: os.fd_t,
+    old_dir_fd: posix.fd_t,
     old_path: [*:0]const u8,
-    new_dir_fd: os.fd_t,
+    new_dir_fd: posix.fd_t,
     new_path: [*:0]const u8,
     flags: u32,
 ) !*linux.io_uring_sqe {
@@ -1147,7 +1143,7 @@ pub fn waitid(
 /// Registering file descriptors will wait for the ring to idle.
 /// Files are automatically unregistered by the kernel when the ring is torn down.
 /// An application need unregister only if it wants to register a new array of file descriptors.
-pub fn register_files(self: *IoUring, fds: []const os.fd_t) !void {
+pub fn register_files(self: *IoUring, fds: []const posix.fd_t) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
         self.fd,
@@ -1166,7 +1162,7 @@ pub fn register_files(self: *IoUring, fds: []const os.fd_t) !void {
 /// * removing an existing entry (set the fd to -1)
 /// * replacing an existing entry with a new fd
 /// Adding new file descriptors must be done with `register_files`.
-pub fn register_files_update(self: *IoUring, offset: u32, fds: []const os.fd_t) !void {
+pub fn register_files_update(self: *IoUring, offset: u32, fds: []const posix.fd_t) !void {
     assert(self.fd >= 0);
 
     const FilesUpdate = extern struct {
@@ -1192,7 +1188,7 @@ pub fn register_files_update(self: *IoUring, offset: u32, fds: []const os.fd_t) 
 /// Registers the file descriptor for an eventfd that will be notified of completion events on
 ///  an io_uring instance.
 /// Only a single a eventfd can be registered at any given point in time.
-pub fn register_eventfd(self: *IoUring, fd: os.fd_t) !void {
+pub fn register_eventfd(self: *IoUring, fd: posix.fd_t) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
         self.fd,
@@ -1207,7 +1203,7 @@ pub fn register_eventfd(self: *IoUring, fd: os.fd_t) !void {
 /// an io_uring instance. Notifications are only posted for events that complete in an async manner.
 /// This means that events that complete inline while being submitted do not trigger a notification event.
 /// Only a single eventfd can be registered at any given point in time.
-pub fn register_eventfd_async(self: *IoUring, fd: os.fd_t) !void {
+pub fn register_eventfd_async(self: *IoUring, fd: posix.fd_t) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
         self.fd,
@@ -1231,7 +1227,7 @@ pub fn unregister_eventfd(self: *IoUring) !void {
 }
 
 /// Registers an array of buffers for use with `read_fixed` and `write_fixed`.
-pub fn register_buffers(self: *IoUring, buffers: []const os.iovec) !void {
+pub fn register_buffers(self: *IoUring, buffers: []const posix.iovec) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
         self.fd,
@@ -1246,15 +1242,15 @@ pub fn register_buffers(self: *IoUring, buffers: []const os.iovec) !void {
 pub fn unregister_buffers(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .UNREGISTER_BUFFERS, null, 0);
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
         .NXIO => return error.BuffersNotRegistered,
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
 }
 
 fn handle_registration_result(res: usize) !void {
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
         // One or more fds in the array are invalid, or the kernel does not support sparse sets:
         .BADF => return error.FileDescriptorInvalid,
@@ -1271,7 +1267,7 @@ fn handle_registration_result(res: usize) !void {
         .NOMEM => return error.SystemResources,
         // Attempt to register files on a ring already registering files or being torn down:
         .NXIO => return error.RingShuttingDownOrAlreadyRegisteringFiles,
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
 }
 
@@ -1279,10 +1275,10 @@ fn handle_registration_result(res: usize) !void {
 pub fn unregister_files(self: *IoUring) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(self.fd, .UNREGISTER_FILES, null, 0);
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
         .NXIO => return error.FilesNotRegistered,
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
 }
 
@@ -1355,36 +1351,36 @@ pub const SubmissionQueue = struct {
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
 
-    pub fn init(fd: os.fd_t, p: linux.io_uring_params) !SubmissionQueue {
+    pub fn init(fd: posix.fd_t, p: linux.io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const size = @max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
             p.cq_off.cqes + p.cq_entries * @sizeOf(linux.io_uring_cqe),
         );
-        const mmap = try os.mmap(
+        const mmap = try posix.mmap(
             null,
             size,
-            os.PROT.READ | os.PROT.WRITE,
+            posix.PROT.READ | posix.PROT.WRITE,
             .{ .TYPE = .SHARED, .POPULATE = true },
             fd,
             linux.IORING_OFF_SQ_RING,
         );
-        errdefer os.munmap(mmap);
+        errdefer posix.munmap(mmap);
         assert(mmap.len == size);
 
         // The motivation for the `sqes` and `array` indirection is to make it possible for the
         // application to preallocate static linux.io_uring_sqe entries and then replay them when needed.
         const size_sqes = p.sq_entries * @sizeOf(linux.io_uring_sqe);
-        const mmap_sqes = try os.mmap(
+        const mmap_sqes = try posix.mmap(
             null,
             size_sqes,
-            os.PROT.READ | os.PROT.WRITE,
+            posix.PROT.READ | posix.PROT.WRITE,
             .{ .TYPE = .SHARED, .POPULATE = true },
             fd,
             linux.IORING_OFF_SQES,
         );
-        errdefer os.munmap(mmap_sqes);
+        errdefer posix.munmap(mmap_sqes);
         assert(mmap_sqes.len == size_sqes);
 
         const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
@@ -1406,8 +1402,8 @@ pub const SubmissionQueue = struct {
     }
 
     pub fn deinit(self: *SubmissionQueue) void {
-        os.munmap(self.mmap_sqes);
-        os.munmap(self.mmap);
+        posix.munmap(self.mmap_sqes);
+        posix.munmap(self.mmap);
     }
 };
 
@@ -1418,7 +1414,7 @@ pub const CompletionQueue = struct {
     overflow: *u32,
     cqes: []linux.io_uring_cqe,
 
-    pub fn init(fd: os.fd_t, p: linux.io_uring_params, sq: SubmissionQueue) !CompletionQueue {
+    pub fn init(fd: posix.fd_t, p: linux.io_uring_params, sq: SubmissionQueue) !CompletionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
@@ -1440,8 +1436,231 @@ pub const CompletionQueue = struct {
     }
 };
 
+/// Group of application provided buffers. Uses newer type, called ring mapped
+/// buffers, supported since kernel 5.19. Buffers are identified by a buffer
+/// group ID, and within that group, a buffer ID. IO_Uring can have multiple
+/// buffer groups, each with unique group ID.
+///
+/// In `init` application provides contiguous block of memory `buffers` for
+/// `buffers_count` buffers of size `buffers_size`. Application can then submit
+/// `recv` operation without providing buffer upfront. Once the operation is
+/// ready to receive data, a buffer is picked automatically and the resulting
+/// CQE will contain the buffer ID in `cqe.buffer_id()`. Use `get` method to get
+/// buffer for buffer ID identified by CQE. Once the application has processed
+/// the buffer, it may hand ownership back to the kernel, by calling `put`
+/// allowing the cycle to repeat.
+///
+/// Depending on the rate of arrival of data, it is possible that a given buffer
+/// group will run out of buffers before those in CQEs can be put back to the
+/// kernel. If this happens, a `cqe.err()` will have ENOBUFS as the error value.
+///
+pub const BufferGroup = struct {
+    /// Parent ring for which this group is registered.
+    ring: *IoUring,
+    /// Pointer to the memory shared by the kernel.
+    /// `buffers_count` of `io_uring_buf` structures are shared by the kernel.
+    /// First `io_uring_buf` is overlaid by `io_uring_buf_ring` struct.
+    br: *align(mem.page_size) linux.io_uring_buf_ring,
+    /// Contiguous block of memory of size (buffers_count * buffer_size).
+    buffers: []u8,
+    /// Size of each buffer in buffers.
+    buffer_size: u32,
+    // Number of buffers in `buffers`, number of `io_uring_buf structures` in br.
+    buffers_count: u16,
+    /// ID of this group, must be unique in ring.
+    group_id: u16,
+
+    pub fn init(
+        ring: *IoUring,
+        group_id: u16,
+        buffers: []u8,
+        buffer_size: u32,
+        buffers_count: u16,
+    ) !BufferGroup {
+        assert(buffers.len == buffers_count * buffer_size);
+
+        const br = try setup_buf_ring(ring.fd, buffers_count, group_id);
+        buf_ring_init(br);
+
+        const mask = buf_ring_mask(buffers_count);
+        var i: u16 = 0;
+        while (i < buffers_count) : (i += 1) {
+            const start = buffer_size * i;
+            const buf = buffers[start .. start + buffer_size];
+            buf_ring_add(br, buf, i, mask, i);
+        }
+        buf_ring_advance(br, buffers_count);
+
+        return BufferGroup{
+            .ring = ring,
+            .group_id = group_id,
+            .br = br,
+            .buffers = buffers,
+            .buffer_size = buffer_size,
+            .buffers_count = buffers_count,
+        };
+    }
+
+    // Prepare recv operation which will select buffer from this group.
+    pub fn recv(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*linux.io_uring_sqe {
+        var sqe = try self.ring.get_sqe();
+        sqe.prep_rw(.RECV, fd, 0, 0, 0);
+        sqe.rw_flags = flags;
+        sqe.flags |= linux.IOSQE_BUFFER_SELECT;
+        sqe.buf_index = self.group_id;
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
+    // Prepare multishot recv operation which will select buffer from this group.
+    pub fn recv_multishot(self: *BufferGroup, user_data: u64, fd: posix.fd_t, flags: u32) !*linux.io_uring_sqe {
+        var sqe = try self.recv(user_data, fd, flags);
+        sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
+        return sqe;
+    }
+
+    // Get buffer by id.
+    pub fn get(self: *BufferGroup, buffer_id: u16) []u8 {
+        const head = self.buffer_size * buffer_id;
+        return self.buffers[head .. head + self.buffer_size];
+    }
+
+    // Get buffer by CQE.
+    pub fn get_cqe(self: *BufferGroup, cqe: linux.io_uring_cqe) ![]u8 {
+        const buffer_id = try cqe.buffer_id();
+        const used_len = @as(usize, @intCast(cqe.res));
+        return self.get(buffer_id)[0..used_len];
+    }
+
+    // Release buffer to the kernel.
+    pub fn put(self: *BufferGroup, buffer_id: u16) void {
+        const mask = buf_ring_mask(self.buffers_count);
+        const buffer = self.get(buffer_id);
+        buf_ring_add(self.br, buffer, buffer_id, mask, 0);
+        buf_ring_advance(self.br, 1);
+    }
+
+    // Release buffer from CQE to the kernel.
+    pub fn put_cqe(self: *BufferGroup, cqe: linux.io_uring_cqe) !void {
+        self.put(try cqe.buffer_id());
+    }
+
+    pub fn deinit(self: *BufferGroup) void {
+        free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
+    }
+};
+
+/// Registers a shared buffer ring to be used with provided buffers.
+/// `entries` number of `io_uring_buf` structures is mem mapped and shared by kernel.
+/// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
+/// `entries` is the number of entries requested in the buffer ring, must be power of 2.
+/// `group_id` is the chosen buffer group ID, unique in IO_Uring.
+pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
+    if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
+    if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
+
+    const mmap_size = entries * @sizeOf(linux.io_uring_buf);
+    const mmap = try posix.mmap(
+        null,
+        mmap_size,
+        posix.PROT.READ | posix.PROT.WRITE,
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        -1,
+        0,
+    );
+    errdefer posix.munmap(mmap);
+    assert(mmap.len == mmap_size);
+
+    const br: *align(mem.page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
+    try register_buf_ring(fd, @intFromPtr(br), entries, group_id);
+    return br;
+}
+
+fn register_buf_ring(fd: posix.fd_t, addr: u64, entries: u32, group_id: u16) !void {
+    var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
+        .ring_addr = addr,
+        .ring_entries = entries,
+        .bgid = group_id,
+    });
+    const res = linux.io_uring_register(
+        fd,
+        .REGISTER_PBUF_RING,
+        @as(*const anyopaque, @ptrCast(&reg)),
+        1,
+    );
+    try handle_register_buf_ring_result(res);
+}
+
+fn unregister_buf_ring(fd: posix.fd_t, group_id: u16) !void {
+    var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
+        .bgid = group_id,
+    });
+    const res = linux.io_uring_register(
+        fd,
+        .UNREGISTER_PBUF_RING,
+        @as(*const anyopaque, @ptrCast(&reg)),
+        1,
+    );
+    try handle_register_buf_ring_result(res);
+}
+
+fn handle_register_buf_ring_result(res: usize) !void {
+    switch (linux.E.init(res)) {
+        .SUCCESS => {},
+        .INVAL => return error.ArgumentsInvalid,
+        else => |errno| return posix.unexpectedErrno(errno),
+    }
+}
+
+// Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
+pub fn free_buf_ring(fd: posix.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
+    unregister_buf_ring(fd, group_id) catch {};
+    var mmap: []align(mem.page_size) u8 = undefined;
+    mmap.ptr = @ptrCast(br);
+    mmap.len = entries * @sizeOf(linux.io_uring_buf);
+    posix.munmap(mmap);
+}
+
+/// Initialises `br` so that it is ready to be used.
+pub fn buf_ring_init(br: *linux.io_uring_buf_ring) void {
+    br.tail = 0;
+}
+
+/// Calculates the appropriate size mask for a buffer ring.
+/// `entries` is the ring entries as specified in io_uring_register_buf_ring.
+pub fn buf_ring_mask(entries: u16) u16 {
+    return entries - 1;
+}
+
+/// Assigns `buffer` with the `br` buffer ring.
+/// `buffer_id` is identifier which will be returned in the CQE.
+/// `buffer_offset` is the offset to insert at from the current tail.
+/// If just one buffer is provided before the ring tail is committed with advance then offset should be 0.
+/// If buffers are provided in a loop before being committed, the offset must be incremented by one for each buffer added.
+pub fn buf_ring_add(
+    br: *linux.io_uring_buf_ring,
+    buffer: []u8,
+    buffer_id: u16,
+    mask: u16,
+    buffer_offset: u16,
+) void {
+    const bufs: [*]linux.io_uring_buf = @ptrCast(br);
+    const buf: *linux.io_uring_buf = &bufs[(br.tail +% buffer_offset) & mask];
+
+    buf.addr = @intFromPtr(buffer.ptr);
+    buf.len = @intCast(buffer.len);
+    buf.bid = buffer_id;
+}
+
+/// Make `count` new buffers visible to the kernel. Called after
+/// `io_uring_buf_ring_add` has been called `count` times to fill in new buffers.
+pub fn buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
+    const tail: u16 = br.tail +% count;
+    @atomicStore(u16, &br.tail, tail, .release);
+}
+
 test "structs/offsets/entries" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     try testing.expectEqual(@as(usize, 120), @sizeOf(linux.io_uring_params));
     try testing.expectEqual(@as(usize, 64), @sizeOf(linux.io_uring_sqe));
@@ -1456,7 +1675,7 @@ test "structs/offsets/entries" {
 }
 
 test "nop" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1465,7 +1684,7 @@ test "nop" {
     };
     defer {
         ring.deinit();
-        testing.expectEqual(@as(os.fd_t, -1), ring.fd) catch @panic("test failed");
+        testing.expectEqual(@as(posix.fd_t, -1), ring.fd) catch @panic("test failed");
     }
 
     const sqe = try ring.nop(0xaaaaaaaa);
@@ -1523,7 +1742,7 @@ test "nop" {
 }
 
 test "readv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1532,8 +1751,8 @@ test "readv" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    defer os.close(fd);
+    const fd = try posix.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    defer posix.close(fd);
 
     // Linux Kernel 5.4 supports IORING_REGISTER_FILES but not sparse fd sets (i.e. an fd of -1).
     // Linux Kernel 5.5 adds support for sparse fd sets.
@@ -1541,13 +1760,13 @@ test "readv" {
     // https://github.com/torvalds/linux/blob/v5.4/fs/io_uring.c#L3119-L3124 vs
     // https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L6687-L6691
     // We therefore avoid stressing sparse fd sets here:
-    var registered_fds = [_]os.fd_t{0} ** 1;
+    var registered_fds = [_]posix.fd_t{0} ** 1;
     const fd_index = 0;
     registered_fds[fd_index] = fd;
     try ring.register_files(registered_fds[0..]);
 
     var buffer = [_]u8{42} ** 128;
-    var iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
+    var iovecs = [_]posix.iovec{posix.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
     const sqe = try ring.read(0xcccccccc, fd_index, .{ .iovecs = iovecs[0..] }, 0);
     try testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
@@ -1565,7 +1784,7 @@ test "readv" {
 }
 
 test "writev/fsync/readv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1583,12 +1802,12 @@ test "writev/fsync/readv" {
     const fd = file.handle;
 
     const buffer_write = [_]u8{42} ** 128;
-    const iovecs_write = [_]os.iovec_const{
-        os.iovec_const{ .iov_base = &buffer_write, .iov_len = buffer_write.len },
+    const iovecs_write = [_]posix.iovec_const{
+        posix.iovec_const{ .iov_base = &buffer_write, .iov_len = buffer_write.len },
     };
     var buffer_read = [_]u8{0} ** 128;
-    var iovecs_read = [_]os.iovec{
-        os.iovec{ .iov_base = &buffer_read, .iov_len = buffer_read.len },
+    var iovecs_read = [_]posix.iovec{
+        posix.iovec{ .iov_base = &buffer_read, .iov_len = buffer_read.len },
     };
 
     const sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
@@ -1635,7 +1854,7 @@ test "writev/fsync/readv" {
 }
 
 test "write/read" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1682,7 +1901,7 @@ test "write/read" {
 }
 
 test "splice/read" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1706,7 +1925,7 @@ test "splice/read" {
     var buffer_read = [_]u8{98} ** 20;
     _ = try file_src.write(&buffer_write);
 
-    const fds = try os.pipe();
+    const fds = try posix.pipe();
     const pipe_offset: u64 = std.math.maxInt(u64);
 
     const sqe_splice_to_pipe = try ring.splice(0x11111111, fd_src, 0, fds[1], pipe_offset, buffer_write.len);
@@ -1753,7 +1972,7 @@ test "splice/read" {
 }
 
 test "write_fixed/read_fixed" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1775,7 +1994,7 @@ test "write_fixed/read_fixed" {
     @memset(&raw_buffers[0], 'z');
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
-    var buffers = [2]os.iovec{
+    var buffers = [2]posix.iovec{
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
         .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
     };
@@ -1818,7 +2037,7 @@ test "write_fixed/read_fixed" {
 }
 
 test "openat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1840,7 +2059,7 @@ test "openat" {
     } else @intFromPtr(path);
 
     const flags: linux.O = .{ .CLOEXEC = true, .ACCMODE = .RDWR, .CREAT = true };
-    const mode: os.mode_t = 0o666;
+    const mode: posix.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, tmp.dir.fd, path, flags, mode);
     try testing.expectEqual(linux.io_uring_sqe{
         .opcode = .OPENAT,
@@ -1868,11 +2087,11 @@ test "openat" {
     try testing.expect(cqe_openat.res > 0);
     try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
 
-    os.close(cqe_openat.res);
+    posix.close(cqe_openat.res);
 }
 
 test "close" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1903,7 +2122,7 @@ test "close" {
 }
 
 test "accept/connect/send/recv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1944,7 +2163,7 @@ test "accept/connect/send/recv" {
 }
 
 test "sendmsg/recvmsg" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -1955,24 +2174,24 @@ test "sendmsg/recvmsg" {
 
     var address_server = try net.Address.parseIp4("127.0.0.1", 0);
 
-    const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
-    defer os.close(server);
-    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
-    try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try os.bind(server, &address_server.any, address_server.getOsSockLen());
+    const server = try posix.socket(address_server.any.family, posix.SOCK.DGRAM, 0);
+    defer posix.close(server);
+    try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEPORT, &mem.toBytes(@as(c_int, 1)));
+    try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try posix.bind(server, &address_server.any, address_server.getOsSockLen());
 
     // set address_server to the OS-chosen IP/port.
-    var slen: os.socklen_t = address_server.getOsSockLen();
-    try os.getsockname(server, &address_server.any, &slen);
+    var slen: posix.socklen_t = address_server.getOsSockLen();
+    try posix.getsockname(server, &address_server.any, &slen);
 
-    const client = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
-    defer os.close(client);
+    const client = try posix.socket(address_server.any.family, posix.SOCK.DGRAM, 0);
+    defer posix.close(client);
 
     const buffer_send = [_]u8{42} ** 128;
-    const iovecs_send = [_]os.iovec_const{
-        os.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
+    const iovecs_send = [_]posix.iovec_const{
+        posix.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
     };
-    const msg_send = os.msghdr_const{
+    const msg_send: posix.msghdr_const = .{
         .name = &address_server.any,
         .namelen = address_server.getOsSockLen(),
         .iov = &iovecs_send,
@@ -1987,12 +2206,12 @@ test "sendmsg/recvmsg" {
     try testing.expectEqual(client, sqe_sendmsg.fd);
 
     var buffer_recv = [_]u8{0} ** 128;
-    var iovecs_recv = [_]os.iovec{
-        os.iovec{ .iov_base = &buffer_recv, .iov_len = buffer_recv.len },
+    var iovecs_recv = [_]posix.iovec{
+        posix.iovec{ .iov_base = &buffer_recv, .iov_len = buffer_recv.len },
     };
     const addr = [_]u8{0} ** 4;
     var address_recv = net.Address.initIp4(addr, 0);
-    var msg_recv: os.msghdr = os.msghdr{
+    var msg_recv: posix.msghdr = .{
         .name = &address_recv.any,
         .namelen = address_recv.getOsSockLen(),
         .iov = &iovecs_recv,
@@ -2031,7 +2250,7 @@ test "sendmsg/recvmsg" {
 }
 
 test "timeout (after a relative time)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2042,7 +2261,7 @@ test "timeout (after a relative time)" {
 
     const ms = 10;
     const margin = 5;
-    const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
+    const ts: linux.kernel_timespec = .{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
@@ -2062,7 +2281,7 @@ test "timeout (after a relative time)" {
 }
 
 test "timeout (after a number of completions)" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2071,7 +2290,7 @@ test "timeout (after a number of completions)" {
     };
     defer ring.deinit();
 
-    const ts = os.linux.kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
@@ -2095,7 +2314,7 @@ test "timeout (after a number of completions)" {
 }
 
 test "timeout_remove" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2104,7 +2323,7 @@ test "timeout_remove" {
     };
     defer ring.deinit();
 
-    const ts = os.linux.kernel_timespec{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
@@ -2120,7 +2339,7 @@ test "timeout_remove" {
     // * kernel 5.10 gives user data 0x88888888 first, 0x99999999 second
     // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
-    var cqes: [2]os.linux.io_uring_cqe = undefined;
+    var cqes: [2]linux.io_uring_cqe = undefined;
     cqes[0] = try ring.copy_cqe();
     cqes[1] = try ring.copy_cqe();
 
@@ -2155,7 +2374,7 @@ test "timeout_remove" {
 }
 
 test "accept/connect/recv/link_timeout" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2172,7 +2391,7 @@ test "accept/connect/recv/link_timeout" {
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
-    const ts = os.linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
+    const ts = linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
     _ = try ring.link_timeout(0x22222222, &ts, 0);
 
     const nr_wait = try ring.submit();
@@ -2204,7 +2423,7 @@ test "accept/connect/recv/link_timeout" {
 }
 
 test "fallocate" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2250,7 +2469,7 @@ test "fallocate" {
 }
 
 test "statx" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2302,12 +2521,12 @@ test "statx" {
         .flags = 0,
     }, cqe);
 
-    try testing.expect(buf.mask & os.linux.STATX_SIZE == os.linux.STATX_SIZE);
+    try testing.expect(buf.mask & linux.STATX_SIZE == linux.STATX_SIZE);
     try testing.expectEqual(@as(u64, 6), buf.size);
 }
 
 test "accept/connect/recv/cancel" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2357,7 +2576,7 @@ test "accept/connect/recv/cancel" {
 }
 
 test "register_files_update" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2366,10 +2585,10 @@ test "register_files_update" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    defer os.close(fd);
+    const fd = try posix.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    defer posix.close(fd);
 
-    var registered_fds = [_]os.fd_t{0} ** 2;
+    var registered_fds = [_]posix.fd_t{0} ** 2;
     const fd_index = 0;
     const fd_index2 = 1;
     registered_fds[fd_index] = fd;
@@ -2384,8 +2603,8 @@ test "register_files_update" {
     // Test IORING_REGISTER_FILES_UPDATE
     // Only available since Linux 5.5
 
-    const fd2 = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    defer os.close(fd2);
+    const fd2 = try posix.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    defer posix.close(fd2);
 
     registered_fds[fd_index] = fd2;
     registered_fds[fd_index2] = -1;
@@ -2437,14 +2656,14 @@ test "register_files_update" {
 
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         const cqe = try ring.copy_cqe();
-        try testing.expectEqual(os.linux.E.BADF, cqe.err());
+        try testing.expectEqual(linux.E.BADF, cqe.err());
     }
 
     try ring.unregister_files();
 }
 
 test "shutdown" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2457,17 +2676,17 @@ test "shutdown" {
 
     // Socket bound, expect shutdown to work
     {
-        const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-        defer os.close(server);
-        try os.setsockopt(server, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-        try os.bind(server, &address.any, address.getOsSockLen());
-        try os.listen(server, 1);
+        const server = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        defer posix.close(server);
+        try posix.setsockopt(server, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+        try posix.bind(server, &address.any, address.getOsSockLen());
+        try posix.listen(server, 1);
 
         // set address to the OS-chosen IP/port.
-        var slen: os.socklen_t = address.getOsSockLen();
-        try os.getsockname(server, &address.any, &slen);
+        var slen: posix.socklen_t = address.getOsSockLen();
+        try posix.getsockname(server, &address.any, &slen);
 
-        const shutdown_sqe = try ring.shutdown(0x445445445, server, os.linux.SHUT.RD);
+        const shutdown_sqe = try ring.shutdown(0x445445445, server, linux.SHUT.RD);
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
         try testing.expectEqual(@as(i32, server), shutdown_sqe.fd);
 
@@ -2490,10 +2709,10 @@ test "shutdown" {
 
     // Socket not bound, expect to fail with ENOTCONN
     {
-        const server = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-        defer os.close(server);
+        const server = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+        defer posix.close(server);
 
-        const shutdown_sqe = ring.shutdown(0x445445445, server, os.linux.SHUT.RD) catch |err| switch (err) {
+        const shutdown_sqe = ring.shutdown(0x445445445, server, linux.SHUT.RD) catch |err| switch (err) {
             else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
         };
         try testing.expectEqual(linux.IORING_OP.SHUTDOWN, shutdown_sqe.opcode);
@@ -2503,12 +2722,12 @@ test "shutdown" {
 
         const cqe = try ring.copy_cqe();
         try testing.expectEqual(@as(u64, 0x445445445), cqe.user_data);
-        try testing.expectEqual(os.linux.E.NOTCONN, cqe.err());
+        try testing.expectEqual(linux.E.NOTCONN, cqe.err());
     }
 }
 
 test "renameat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2577,7 +2796,7 @@ test "renameat" {
 }
 
 test "unlinkat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2629,7 +2848,7 @@ test "unlinkat" {
 }
 
 test "mkdirat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2673,7 +2892,7 @@ test "mkdirat" {
 }
 
 test "symlinkat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2721,7 +2940,7 @@ test "symlinkat" {
 }
 
 test "linkat" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2780,7 +2999,7 @@ test "linkat" {
 }
 
 test "provide_buffers: read" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2789,8 +3008,8 @@ test "provide_buffers: read" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    defer os.close(fd);
+    const fd = try posix.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    defer posix.close(fd);
 
     const group_id = 1337;
     const buffer_id = 0;
@@ -2912,7 +3131,7 @@ test "provide_buffers: read" {
 }
 
 test "remove_buffers" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(1, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2921,8 +3140,8 @@ test "remove_buffers" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    defer os.close(fd);
+    const fd = try posix.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+    defer posix.close(fd);
 
     const group_id = 1337;
     const buffer_id = 0;
@@ -3001,7 +3220,7 @@ test "remove_buffers" {
 }
 
 test "provide_buffers: accept/connect/send/recv" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -3168,9 +3387,9 @@ test "provide_buffers: accept/connect/send/recv" {
 
 /// Used for testing server/client interactions.
 const SocketTestHarness = struct {
-    listener: os.socket_t,
-    server: os.socket_t,
-    client: os.socket_t,
+    listener: posix.socket_t,
+    server: posix.socket_t,
+    client: posix.socket_t,
 
     fn close(self: SocketTestHarness) void {
         posix.close(self.client);
@@ -3185,12 +3404,12 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     errdefer posix.close(listener_socket);
 
     // Submit 1 accept
-    var accept_addr: os.sockaddr = undefined;
-    var accept_addr_len: os.socklen_t = @sizeOf(@TypeOf(accept_addr));
+    var accept_addr: posix.sockaddr = undefined;
+    var accept_addr_len: posix.socklen_t = @sizeOf(@TypeOf(accept_addr));
     _ = try ring.accept(0xaaaaaaaa, listener_socket, &accept_addr, &accept_addr_len, 0);
 
     // Create a TCP client socket
-    const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
     errdefer posix.close(client);
     _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
 
@@ -3228,24 +3447,24 @@ fn createSocketTestHarness(ring: *IoUring) !SocketTestHarness {
     };
 }
 
-fn createListenerSocket(address: *net.Address) !os.socket_t {
+fn createListenerSocket(address: *net.Address) !posix.socket_t {
     const kernel_backlog = 1;
-    const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+    const listener_socket = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
     errdefer posix.close(listener_socket);
 
-    try os.setsockopt(listener_socket, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
-    try os.bind(listener_socket, &address.any, address.getOsSockLen());
-    try os.listen(listener_socket, kernel_backlog);
+    try posix.setsockopt(listener_socket, posix.SOL.SOCKET, posix.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
+    try posix.bind(listener_socket, &address.any, address.getOsSockLen());
+    try posix.listen(listener_socket, kernel_backlog);
 
     // set address to the OS-chosen IP/port.
-    var slen: os.socklen_t = address.getOsSockLen();
-    try os.getsockname(listener_socket, &address.any, &slen);
+    var slen: posix.socklen_t = address.getOsSockLen();
+    try posix.getsockname(listener_socket, &address.any, &slen);
 
     return listener_socket;
 }
 
 test "accept multishot" {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -3259,8 +3478,8 @@ test "accept multishot" {
     defer posix.close(listener_socket);
 
     // submit multishot accept operation
-    var addr: os.sockaddr = undefined;
-    var addr_len: os.socklen_t = @sizeOf(@TypeOf(addr));
+    var addr: posix.sockaddr = undefined;
+    var addr_len: posix.socklen_t = @sizeOf(@TypeOf(addr));
     const userdata: u64 = 0xaaaaaaaa;
     _ = try ring.accept_multishot(userdata, listener_socket, &addr, &addr_len, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
@@ -3268,9 +3487,9 @@ test "accept multishot" {
     var nr: usize = 4; // number of clients to connect
     while (nr > 0) : (nr -= 1) {
         // connect client
-        const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
+        const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
         errdefer posix.close(client);
-        try os.connect(client, &address.any, address.getOsSockLen());
+        try posix.connect(client, &address.any, address.getOsSockLen());
 
         // test accept completion
         var cqe = try ring.copy_cqe();
@@ -3348,7 +3567,7 @@ test "accept_direct" {
     var address = try net.Address.parseIp4("127.0.0.1", 0);
 
     // register direct file descriptors
-    var registered_fds = [_]os.fd_t{-1} ** 2;
+    var registered_fds = [_]posix.fd_t{-1} ** 2;
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
@@ -3368,19 +3587,19 @@ test "accept_direct" {
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
             // connect
-            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-            try os.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, &address.any, address.getOsSockLen());
             defer posix.close(client);
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
-            try testing.expectEqual(os.E.SUCCESS, cqe_accept.err());
+            try testing.expectEqual(posix.E.SUCCESS, cqe_accept.err());
             const fd_index = cqe_accept.res;
             try testing.expect(fd_index < registered_fds.len);
             try testing.expect(cqe_accept.user_data == accept_userdata);
 
             // send data
-            _ = try os.send(client, buffer_send, 0);
+            _ = try posix.send(client, buffer_send, 0);
 
             // Example of how to use registered fd:
             // Submit receive to fixed file returned by accept (fd_index).
@@ -3402,13 +3621,13 @@ test "accept_direct" {
             _ = try ring.accept_direct(accept_userdata, listener_socket, null, null, 0);
             try testing.expectEqual(@as(u32, 1), try ring.submit());
             // connect
-            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-            try os.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, &address.any, address.getOsSockLen());
             defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
-            try testing.expectEqual(os.E.NFILE, cqe_accept.err());
+            try testing.expectEqual(posix.E.NFILE, cqe_accept.err());
         }
         // return file descriptors to kernel
         try ring.register_files_update(0, registered_fds[0..]);
@@ -3428,7 +3647,7 @@ test "accept_multishot_direct" {
 
     var address = try net.Address.parseIp4("127.0.0.1", 0);
 
-    var registered_fds = [_]os.fd_t{-1} ** 2;
+    var registered_fds = [_]posix.fd_t{-1} ** 2;
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
@@ -3444,8 +3663,8 @@ test "accept_multishot_direct" {
 
         for (registered_fds) |_| {
             // connect
-            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-            try os.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, &address.any, address.getOsSockLen());
             defer posix.close(client);
 
             // accept completion
@@ -3459,13 +3678,13 @@ test "accept_multishot_direct" {
         // Multishot is terminated (more flag is not set).
         {
             // connect
-            const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-            try os.connect(client, &address.any, address.getOsSockLen());
+            const client = try posix.socket(address.any.family, posix.SOCK.STREAM | posix.SOCK.CLOEXEC, 0);
+            try posix.connect(client, &address.any, address.getOsSockLen());
             defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
-            try testing.expectEqual(os.E.NFILE, cqe_accept.err());
+            try testing.expectEqual(posix.E.NFILE, cqe_accept.err());
             try testing.expect(cqe_accept.flags & linux.IORING_CQE_F_MORE == 0); // has more is not set
         }
         // return file descriptors to kernel
@@ -3485,16 +3704,16 @@ test "socket" {
     defer ring.deinit();
 
     // prepare, submit socket operation
-    _ = try ring.socket(0, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    _ = try ring.socket(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     // test completion
     var cqe = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe.err());
-    const fd: os.fd_t = @intCast(cqe.res);
+    try testing.expectEqual(posix.E.SUCCESS, cqe.err());
+    const fd: posix.fd_t = @intCast(cqe.res);
     try testing.expect(fd > 2);
 
-    os.close(fd);
+    posix.close(fd);
 }
 
 test "socket_direct/socket_direct_alloc/close_direct" {
@@ -3507,29 +3726,29 @@ test "socket_direct/socket_direct_alloc/close_direct" {
     };
     defer ring.deinit();
 
-    var registered_fds = [_]os.fd_t{-1} ** 3;
+    var registered_fds = [_]posix.fd_t{-1} ** 3;
     try ring.register_files(registered_fds[0..]);
 
     // create socket in registered file descriptor at index 0 (last param)
-    _ = try ring.socket_direct(0, linux.AF.INET, os.SOCK.STREAM, 0, 0, 0);
+    _ = try ring.socket_direct(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     var cqe_socket = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
     try testing.expect(cqe_socket.res == 0);
 
     // create socket in registered file descriptor at index 1 (last param)
-    _ = try ring.socket_direct(0, linux.AF.INET, os.SOCK.STREAM, 0, 0, 1);
+    _ = try ring.socket_direct(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0, 1);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe_socket = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
     try testing.expect(cqe_socket.res == 0); // res is 0 when index is specified
 
     // create socket in kernel chosen file descriptor index (_alloc version)
     // completion res has index from registered files
-    _ = try ring.socket_direct_alloc(0, linux.AF.INET, os.SOCK.STREAM, 0, 0);
+    _ = try ring.socket_direct_alloc(0, linux.AF.INET, posix.SOCK.STREAM, 0, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe_socket = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe_socket.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe_socket.err());
     try testing.expect(cqe_socket.res == 2); // returns registered file index
 
     // use sockets from registered_fds in connect operation
@@ -3559,17 +3778,17 @@ test "socket_direct/socket_direct_alloc/close_direct" {
         }
         // test connect completion
         try testing.expect(cqe_connect.user_data == connect_userdata);
-        try testing.expectEqual(os.E.SUCCESS, cqe_connect.err());
+        try testing.expectEqual(posix.E.SUCCESS, cqe_connect.err());
         // test accept completion
         try testing.expect(cqe_accept.user_data == accept_userdata);
-        try testing.expectEqual(os.E.SUCCESS, cqe_accept.err());
+        try testing.expectEqual(posix.E.SUCCESS, cqe_accept.err());
 
         //  submit and test close_direct
         _ = try ring.close_direct(close_userdata, @intCast(fd_index));
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         var cqe_close = try ring.copy_cqe();
         try testing.expect(cqe_close.user_data == close_userdata);
-        try testing.expectEqual(os.E.SUCCESS, cqe_close.err());
+        try testing.expectEqual(posix.E.SUCCESS, cqe_close.err());
     }
 
     try ring.unregister_files();
@@ -3585,35 +3804,35 @@ test "openat_direct/close_direct" {
     };
     defer ring.deinit();
 
-    var registered_fds = [_]os.fd_t{-1} ** 3;
+    var registered_fds = [_]posix.fd_t{-1} ** 3;
     try ring.register_files(registered_fds[0..]);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const path = "test_io_uring_close_direct";
     const flags: linux.O = .{ .ACCMODE = .RDWR, .CREAT = true };
-    const mode: os.mode_t = 0o666;
+    const mode: posix.mode_t = 0o666;
     const user_data: u64 = 0;
 
     // use registered file at index 0 (last param)
     _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, 0);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     var cqe = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe.err());
     try testing.expect(cqe.res == 0);
 
     // use registered file at index 1
     _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, 1);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe.err());
     try testing.expect(cqe.res == 0); // res is 0 when we specify index
 
     // let kernel choose registered file index
     _ = try ring.openat_direct(user_data, tmp.dir.fd, path, flags, mode, linux.IORING_FILE_INDEX_ALLOC);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
     cqe = try ring.copy_cqe();
-    try testing.expectEqual(os.E.SUCCESS, cqe.err());
+    try testing.expectEqual(posix.E.SUCCESS, cqe.err());
     try testing.expect(cqe.res == 2); // chosen index is in res
 
     // close all open file descriptors
@@ -3621,7 +3840,7 @@ test "openat_direct/close_direct" {
         _ = try ring.close_direct(user_data, @intCast(fd_index));
         try testing.expectEqual(@as(u32, 1), try ring.submit());
         var cqe_close = try ring.copy_cqe();
-        try testing.expectEqual(os.E.SUCCESS, cqe_close.err());
+        try testing.expectEqual(posix.E.SUCCESS, cqe_close.err());
     }
     try ring.unregister_files();
 }
@@ -3636,13 +3855,13 @@ test "waitid" {
     };
     defer ring.deinit();
 
-    const pid = try os.fork();
+    const pid = try posix.fork();
     if (pid == 0) {
-        os.exit(7);
+        posix.exit(7);
     }
 
-    var siginfo: os.siginfo_t = undefined;
-    _ = try ring.waitid(0, .PID, pid, &siginfo, os.W.EXITED, 0);
+    var siginfo: posix.siginfo_t = undefined;
+    _ = try ring.waitid(0, .PID, pid, &siginfo, posix.W.EXITED, 0);
 
     try testing.expectEqual(1, try ring.submit());
 
@@ -3652,19 +3871,405 @@ test "waitid" {
     try testing.expectEqual(7, siginfo.fields.common.second.sigchld.status);
 }
 
-/// For use in tests. Returns SkipZigTest is kernel version is less than required.
+/// For use in tests. Returns SkipZigTest if kernel version is less than required.
 inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
-    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    if (!is_linux) return error.SkipZigTest;
 
     var uts: linux.utsname = undefined;
     const res = linux.uname(&uts);
-    switch (linux.getErrno(res)) {
+    switch (linux.E.init(res)) {
         .SUCCESS => {},
-        else => |errno| return os.unexpectedErrno(errno),
+        else => |errno| return posix.unexpectedErrno(errno),
     }
 
     const release = mem.sliceTo(&uts.release, 0);
     var current = try std.SemanticVersion.parse(release);
     current.pre = null; // don't check pre field
     if (required.order(current) == .gt) return error.SkipZigTest;
+}
+
+test BufferGroup {
+    if (!is_linux) return error.SkipZigTest;
+
+    // Init IoUring
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    // Init buffer group for ring
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 1; // number of buffers in buffer group
+    const buffer_size: usize = 128; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // Create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+    const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+
+    // Client sends data
+    {
+        _ = try ring.send(1, fds.client, data[0..], 0);
+        const submitted = try ring.submit();
+        try testing.expectEqual(1, submitted);
+        const cqe_send = try ring.copy_cqe();
+        if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+        try testing.expectEqual(linux.io_uring_cqe{ .user_data = 1, .res = data.len, .flags = 0 }, cqe_send);
+    }
+
+    // Server uses buffer group receive
+    {
+        // Submit recv operation, buffer will be choosen from buffer group
+        _ = try buf_grp.recv(2, fds.server, 0);
+        const submitted = try ring.submit();
+        try testing.expectEqual(1, submitted);
+
+        // ... when we have completion for recv operation
+        const cqe = try ring.copy_cqe();
+        try testing.expectEqual(2, cqe.user_data); // matches submitted user_data
+        try testing.expect(cqe.res >= 0); // success
+        try testing.expectEqual(posix.E.SUCCESS, cqe.err());
+        try testing.expectEqual(data.len, @as(usize, @intCast(cqe.res))); // cqe.res holds received data len
+
+        // Read buffer_id and used buffer len from cqe
+        const buffer_id = try cqe.buffer_id();
+        const len: usize = @intCast(cqe.res);
+        // Get buffer from pool
+        const buf = buf_grp.get(buffer_id)[0..len];
+        try testing.expectEqualSlices(u8, &data, buf);
+        // Releaase buffer to the kernel when application is done with it
+        buf_grp.put(buffer_id);
+    }
+}
+
+test "ring mapped buffers recv" {
+    if (!is_linux) return error.SkipZigTest;
+
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    // init buffer group
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 2; // number of buffers in buffer group
+    const buffer_size: usize = 4; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+
+    // for random user_data in sqe/cqe
+    var Rnd = std.rand.DefaultPrng.init(0);
+    var rnd = Rnd.random();
+
+    var round: usize = 4; // repeat send/recv cycle round times
+    while (round > 0) : (round -= 1) {
+        // client sends data
+        const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+        {
+            const user_data = rnd.int(u64);
+            _ = try ring.send(user_data, fds.client, data[0..], 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe_send = try ring.copy_cqe();
+            if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+            try testing.expectEqual(linux.io_uring_cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+        }
+
+        // server reads data into provided buffers
+        // there are 2 buffers of size 4, so each read gets only chunk of data
+        // we read four chunks of 4, 4, 4, 3 bytes each
+        var chunk: []const u8 = data[0..buffer_size]; // first chunk
+        const id1 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        chunk = data[buffer_size .. buffer_size * 2]; // second chunk
+        const id2 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+
+        // both buffers provided to the kernel are used so we get error
+        // 'no more buffers', until we put buffers to the kernel
+        {
+            const user_data = rnd.int(u64);
+            _ = try buf_grp.recv(user_data, fds.server, 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe = try ring.copy_cqe();
+            try testing.expectEqual(user_data, cqe.user_data);
+            try testing.expect(cqe.res < 0); // fail
+            try testing.expectEqual(posix.E.NOBUFS, cqe.err());
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == 0); // IORING_CQE_F_BUFFER flags is set on success only
+            try testing.expectError(error.NoBufferSelected, cqe.buffer_id());
+        }
+
+        // put buffers back to the kernel
+        buf_grp.put(id1);
+        buf_grp.put(id2);
+
+        chunk = data[buffer_size * 2 .. buffer_size * 3]; // third chunk
+        const id3 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        buf_grp.put(id3);
+
+        chunk = data[buffer_size * 3 ..]; // last chunk
+        const id4 = try expect_buf_grp_recv(&ring, &buf_grp, fds.server, rnd.int(u64), chunk);
+        buf_grp.put(id4);
+    }
+}
+
+test "ring mapped buffers multishot recv" {
+    if (!is_linux) return error.SkipZigTest;
+
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    // init buffer group
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 2; // number of buffers in buffer group
+    const buffer_size: usize = 4; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+
+    // for random user_data in sqe/cqe
+    var Rnd = std.rand.DefaultPrng.init(0);
+    var rnd = Rnd.random();
+
+    var round: usize = 4; // repeat send/recv cycle round times
+    while (round > 0) : (round -= 1) {
+        // client sends data
+        const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+        {
+            const user_data = rnd.int(u64);
+            _ = try ring.send(user_data, fds.client, data[0..], 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+            const cqe_send = try ring.copy_cqe();
+            if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+            try testing.expectEqual(linux.io_uring_cqe{ .user_data = user_data, .res = data.len, .flags = 0 }, cqe_send);
+        }
+
+        // start multishot recv
+        var recv_user_data = rnd.int(u64);
+        _ = try buf_grp.recv_multishot(recv_user_data, fds.server, 0);
+        try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+        // server reads data into provided buffers
+        // there are 2 buffers of size 4, so each read gets only chunk of data
+        // we read four chunks of 4, 4, 4, 3 bytes each
+        var chunk: []const u8 = data[0..buffer_size]; // first chunk
+        const cqe1 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe1.flags & linux.IORING_CQE_F_MORE > 0);
+
+        chunk = data[buffer_size .. buffer_size * 2]; // second chunk
+        const cqe2 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe2.flags & linux.IORING_CQE_F_MORE > 0);
+
+        // both buffers provided to the kernel are used so we get error
+        // 'no more buffers', until we put buffers to the kernel
+        {
+            const cqe = try ring.copy_cqe();
+            try testing.expectEqual(recv_user_data, cqe.user_data);
+            try testing.expect(cqe.res < 0); // fail
+            try testing.expectEqual(posix.E.NOBUFS, cqe.err());
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == 0); // IORING_CQE_F_BUFFER flags is set on success only
+            // has more is not set
+            // indicates that multishot is finished
+            try testing.expect(cqe.flags & linux.IORING_CQE_F_MORE == 0);
+            try testing.expectError(error.NoBufferSelected, cqe.buffer_id());
+        }
+
+        // put buffers back to the kernel
+        buf_grp.put(try cqe1.buffer_id());
+        buf_grp.put(try cqe2.buffer_id());
+
+        // restart multishot
+        recv_user_data = rnd.int(u64);
+        _ = try buf_grp.recv_multishot(recv_user_data, fds.server, 0);
+        try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+        chunk = data[buffer_size * 2 .. buffer_size * 3]; // third chunk
+        const cqe3 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe3.flags & linux.IORING_CQE_F_MORE > 0);
+        buf_grp.put(try cqe3.buffer_id());
+
+        chunk = data[buffer_size * 3 ..]; // last chunk
+        const cqe4 = try expect_buf_grp_cqe(&ring, &buf_grp, recv_user_data, chunk);
+        try testing.expect(cqe4.flags & linux.IORING_CQE_F_MORE > 0);
+        buf_grp.put(try cqe4.buffer_id());
+
+        // cancel pending multishot recv operation
+        {
+            const cancel_user_data = rnd.int(u64);
+            _ = try ring.cancel(cancel_user_data, recv_user_data, 0);
+            try testing.expectEqual(@as(u32, 1), try ring.submit());
+
+            // expect completion of cancel operation and completion of recv operation
+            var cqe_cancel = try ring.copy_cqe();
+            if (cqe_cancel.err() == .INVAL) return error.SkipZigTest;
+            var cqe_recv = try ring.copy_cqe();
+            if (cqe_recv.err() == .INVAL) return error.SkipZigTest;
+
+            // don't depend on order of completions
+            if (cqe_cancel.user_data == recv_user_data and cqe_recv.user_data == cancel_user_data) {
+                const a = cqe_cancel;
+                const b = cqe_recv;
+                cqe_cancel = b;
+                cqe_recv = a;
+            }
+
+            // Note on different kernel results:
+            // on older kernel (tested with v6.0.16, v6.1.57, v6.2.12, v6.4.16)
+            //   cqe_cancel.err() == .NOENT
+            //   cqe_recv.err() == .NOBUFS
+            // on kernel (tested with v6.5.0, v6.5.7)
+            //   cqe_cancel.err() == .SUCCESS
+            //   cqe_recv.err() == .CANCELED
+            // Upstream reference: https://github.com/axboe/liburing/issues/984
+
+            // cancel operation is success (or NOENT on older kernels)
+            try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
+            try testing.expect(cqe_cancel.err() == .NOENT or cqe_cancel.err() == .SUCCESS);
+
+            // recv operation is failed with err CANCELED (or NOBUFS on older kernels)
+            try testing.expectEqual(recv_user_data, cqe_recv.user_data);
+            try testing.expect(cqe_recv.res < 0);
+            try testing.expect(cqe_recv.err() == .NOBUFS or cqe_recv.err() == .CANCELED);
+            try testing.expect(cqe_recv.flags & linux.IORING_CQE_F_MORE == 0);
+        }
+    }
+}
+
+// Prepare and submit recv using buffer group.
+// Test that buffer from group, pointed by cqe, matches expected.
+fn expect_buf_grp_recv(
+    ring: *IoUring,
+    buf_grp: *BufferGroup,
+    fd: posix.fd_t,
+    user_data: u64,
+    expected: []const u8,
+) !u16 {
+    // prepare and submit read
+    const sqe = try buf_grp.recv(user_data, fd, 0);
+    try testing.expect(sqe.flags & linux.IOSQE_BUFFER_SELECT == linux.IOSQE_BUFFER_SELECT);
+    try testing.expect(sqe.buf_index == buf_grp.group_id);
+    try testing.expectEqual(@as(u32, 1), try ring.submit()); // submit
+
+    const cqe = try expect_buf_grp_cqe(ring, buf_grp, user_data, expected);
+    return try cqe.buffer_id();
+}
+
+fn expect_buf_grp_cqe(
+    ring: *IoUring,
+    buf_grp: *BufferGroup,
+    user_data: u64,
+    expected: []const u8,
+) !linux.io_uring_cqe {
+    // get cqe
+    const cqe = try ring.copy_cqe();
+    try testing.expectEqual(user_data, cqe.user_data);
+    try testing.expect(cqe.res >= 0); // success
+    try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER); // IORING_CQE_F_BUFFER flag is set
+    try testing.expectEqual(expected.len, @as(usize, @intCast(cqe.res)));
+    try testing.expectEqual(posix.E.SUCCESS, cqe.err());
+
+    // get buffer from pool
+    const buffer_id = try cqe.buffer_id();
+    const len = @as(usize, @intCast(cqe.res));
+    const buf = buf_grp.get(buffer_id)[0..len];
+    try testing.expectEqualSlices(u8, expected, buf);
+
+    return cqe;
+}
+
+test "copy_cqes with wrapping sq.cqes buffer" {
+    if (!is_linux) return error.SkipZigTest;
+
+    var ring = IoUring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    try testing.expectEqual(2, ring.sq.sqes.len);
+    try testing.expectEqual(4, ring.cq.cqes.len);
+
+    // submit 2 entries, receive 2 completions
+    var cqes: [8]linux.io_uring_cqe = undefined;
+    {
+        for (0..2) |_| {
+            const sqe = try ring.get_sqe();
+            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            try testing.expect(try ring.submit() == 1);
+        }
+        var cqe_count: u32 = 0;
+        while (cqe_count < 2) {
+            cqe_count += try ring.copy_cqes(&cqes, 2 - cqe_count);
+        }
+    }
+
+    try testing.expectEqual(2, ring.cq.head.*);
+
+    // sq.sqes len is 4, starting at position 2
+    // every 4 entries submit wraps completion buffer
+    // we are reading ring.cq.cqes at indexes 2,3,0,1
+    for (1..1024) |i| {
+        for (0..4) |_| {
+            const sqe = try ring.get_sqe();
+            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            try testing.expect(try ring.submit() == 1);
+        }
+        var cqe_count: u32 = 0;
+        while (cqe_count < 4) {
+            cqe_count += try ring.copy_cqes(&cqes, 4 - cqe_count);
+        }
+        try testing.expectEqual(4, cqe_count);
+        try testing.expectEqual(2 + 4 * i, ring.cq.head.*);
+    }
 }

@@ -1,0 +1,11 @@
+LIBRARY api-ms-win-security-base-l1-2-0
+
+EXPORTS
+
+AddResourceAttributeAce@28
+AddScopedPolicyIDAce@20
+CheckTokenCapability@12
+CheckTokenMembershipEx@16
+GetAppContainerAce@16
+GetCachedSigningLevel@24
+SetCachedSigningLevel@16

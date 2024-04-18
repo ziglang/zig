@@ -1,10 +1,12 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
-const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
+const native_os = builtin.os.tag;
+const windows = std.os.windows;
+const posix = std.posix;
 
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;
@@ -25,7 +27,7 @@ const PathType = enum {
         };
     }
 
-    pub const TransformError = std.os.RealPathError || error{OutOfMemory};
+    pub const TransformError = posix.RealPathError || error{OutOfMemory};
     pub const TransformFn = fn (allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8;
 
     pub fn getTransformFn(comptime path_type: PathType) TransformFn {
@@ -42,7 +44,7 @@ const PathType = enum {
                     // The final path may not actually exist which would cause realpath to fail.
                     // So instead, we get the path of the dir and join it with the relative path.
                     var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                    const dir_path = try os.getFdPath(dir.fd, &fd_path_buf);
+                    const dir_path = try std.os.getFdPath(dir.fd, &fd_path_buf);
                     return fs.path.joinZ(allocator, &.{ dir_path, relative_path });
                 }
             }.transform,
@@ -51,8 +53,8 @@ const PathType = enum {
                     // Any drive absolute path (C:\foo) can be converted into a UNC path by
                     // using '127.0.0.1' as the server name and '<drive letter>$' as the share name.
                     var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                    const dir_path = try os.getFdPath(dir.fd, &fd_path_buf);
-                    const windows_path_type = std.os.windows.getUnprefixedPathType(u8, dir_path);
+                    const dir_path = try std.os.getFdPath(dir.fd, &fd_path_buf);
+                    const windows_path_type = windows.getUnprefixedPathType(u8, dir_path);
                     switch (windows_path_type) {
                         .unc_absolute => return fs.path.joinZ(allocator, &.{ dir_path, relative_path }),
                         .drive_absolute => {
@@ -102,7 +104,7 @@ const TestContext = struct {
     pub fn transformPath(self: *TestContext, relative_path: [:0]const u8) ![:0]const u8 {
         const allocator = self.arena.allocator();
         const transformed_path = try self.transform_fn(allocator, self.dir, relative_path);
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             const transformed_sep_path = try allocator.dupeZ(u8, transformed_path);
             std.mem.replaceScalar(u8, transformed_sep_path, switch (self.path_sep) {
                 '/' => '\\',
@@ -119,7 +121,7 @@ const TestContext = struct {
     /// If path separators are replaced, then the result is allocated by the
     /// TestContext's arena and will be free'd during `TestContext.deinit`.
     pub fn toCanonicalPathSep(self: *TestContext, path: [:0]const u8) ![:0]const u8 {
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             const allocator = self.arena.allocator();
             const transformed_sep_path = try allocator.dupeZ(u8, path);
             std.mem.replaceScalar(u8, transformed_sep_path, '/', '\\');
@@ -157,7 +159,7 @@ fn testWithPathTypeIfSupported(comptime path_type: PathType, comptime path_sep: 
 fn setupSymlink(dir: Dir, target: []const u8, link: []const u8, flags: SymLinkFlags) !void {
     return dir.symLink(target, link, flags) catch |err| switch (err) {
         // Symlink requires admin privileges on windows, so this test can legitimately fail.
-        error.AccessDenied => if (builtin.os.tag == .windows) return error.SkipZigTest else return err,
+        error.AccessDenied => if (native_os == .windows) return error.SkipZigTest else return err,
         else => return err,
     };
 }
@@ -166,7 +168,7 @@ fn setupSymlink(dir: Dir, target: []const u8, link: []const u8, flags: SymLinkFl
 // AccessDenied, then make the test failure silent (it is not a Zig failure).
 fn setupSymlinkAbsolute(target: []const u8, link: []const u8, flags: SymLinkFlags) !void {
     return fs.symLinkAbsolute(target, link, flags) catch |err| switch (err) {
-        error.AccessDenied => if (builtin.os.tag == .windows) return error.SkipZigTest else return err,
+        error.AccessDenied => if (native_os == .windows) return error.SkipZigTest else return err,
         else => return err,
     };
 }
@@ -232,60 +234,58 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
 
             var symlink = switch (builtin.target.os.tag) {
                 .windows => windows_symlink: {
-                    const w = std.os.windows;
-
-                    const sub_path_w = try std.os.windows.cStrToPrefixedFileW(ctx.dir.fd, "symlink");
+                    const sub_path_w = try windows.cStrToPrefixedFileW(ctx.dir.fd, "symlink");
 
                     var result = Dir{
                         .fd = undefined,
                     };
 
                     const path_len_bytes = @as(u16, @intCast(sub_path_w.span().len * 2));
-                    var nt_name = w.UNICODE_STRING{
+                    var nt_name = windows.UNICODE_STRING{
                         .Length = path_len_bytes,
                         .MaximumLength = path_len_bytes,
                         .Buffer = @constCast(&sub_path_w.data),
                     };
-                    var attr = w.OBJECT_ATTRIBUTES{
-                        .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+                    var attr = windows.OBJECT_ATTRIBUTES{
+                        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
                         .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w.span())) null else ctx.dir.fd,
                         .Attributes = 0,
                         .ObjectName = &nt_name,
                         .SecurityDescriptor = null,
                         .SecurityQualityOfService = null,
                     };
-                    var io: w.IO_STATUS_BLOCK = undefined;
-                    const rc = w.ntdll.NtCreateFile(
+                    var io: windows.IO_STATUS_BLOCK = undefined;
+                    const rc = windows.ntdll.NtCreateFile(
                         &result.fd,
-                        w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA | w.SYNCHRONIZE | w.FILE_TRAVERSE,
+                        windows.STANDARD_RIGHTS_READ | windows.FILE_READ_ATTRIBUTES | windows.FILE_READ_EA | windows.SYNCHRONIZE | windows.FILE_TRAVERSE,
                         &attr,
                         &io,
                         null,
-                        w.FILE_ATTRIBUTE_NORMAL,
-                        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
-                        w.FILE_OPEN,
+                        windows.FILE_ATTRIBUTE_NORMAL,
+                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                        windows.FILE_OPEN,
                         // FILE_OPEN_REPARSE_POINT is the important thing here
-                        w.FILE_OPEN_REPARSE_POINT | w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT,
+                        windows.FILE_OPEN_REPARSE_POINT | windows.FILE_DIRECTORY_FILE | windows.FILE_SYNCHRONOUS_IO_NONALERT | windows.FILE_OPEN_FOR_BACKUP_INTENT,
                         null,
                         0,
                     );
 
                     switch (rc) {
                         .SUCCESS => break :windows_symlink result,
-                        else => return w.unexpectedStatus(rc),
+                        else => return windows.unexpectedStatus(rc),
                     }
                 },
                 .linux => linux_symlink: {
-                    const sub_path_c = try os.toPosixPath("symlink");
+                    const sub_path_c = try posix.toPosixPath("symlink");
                     // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
                     // note that if O_DIRECTORY is set, then this will error with ENOTDIR
-                    const flags: os.O = .{
+                    const flags: posix.O = .{
                         .NOFOLLOW = true,
                         .PATH = true,
                         .ACCMODE = .RDONLY,
                         .CLOEXEC = true,
                     };
-                    const fd = try os.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
+                    const fd = try posix.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
                     break :linux_symlink Dir{ .fd = fd };
                 },
                 else => unreachable,
@@ -315,7 +315,7 @@ test "openDir" {
 }
 
 test "accessAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -333,7 +333,7 @@ test "accessAbsolute" {
 }
 
 test "openDirAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -361,14 +361,14 @@ test "openDirAbsolute" {
 }
 
 test "openDir cwd parent '..'" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var dir = try fs.cwd().openDir("..", .{});
     defer dir.close();
 }
 
 test "openDir non-cwd parent '..'" {
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .wasi, .netbsd, .openbsd => return error.SkipZigTest,
         else => {},
     }
@@ -392,7 +392,7 @@ test "openDir non-cwd parent '..'" {
 }
 
 test "readLinkAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -587,7 +587,7 @@ test "Dir.Iterator but dir is deleted during iteration" {
     try std.testing.expect(entry == null);
 
     // On Linux, we can opt-in to receiving a more specific error by calling `nextLinux`
-    if (builtin.os.tag == .linux) {
+    if (native_os == .linux) {
         try std.testing.expectError(error.DirNotFound, iterator.nextLinux());
     }
 }
@@ -744,7 +744,7 @@ test "directory operations on files" {
 
 test "file operations on directories" {
     // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
-    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
+    if (native_os == .freebsd) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -754,7 +754,7 @@ test "file operations on directories" {
 
             try testing.expectError(error.IsDir, ctx.dir.createFile(test_dir_name, .{}));
             try testing.expectError(error.IsDir, ctx.dir.deleteFile(test_dir_name));
-            switch (builtin.os.tag) {
+            switch (native_os) {
                 // no error when reading a directory.
                 .dragonfly, .netbsd => {},
                 // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
@@ -895,7 +895,7 @@ test "Dir.rename directories" {
 
 test "Dir.rename directory onto empty dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -916,7 +916,7 @@ test "Dir.rename directory onto empty dir" {
 
 test "Dir.rename directory onto non-empty dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -942,7 +942,7 @@ test "Dir.rename directory onto non-empty dir" {
 
 test "Dir.rename file <-> dir" {
     // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -979,7 +979,7 @@ test "rename" {
 }
 
 test "renameAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -1032,14 +1032,14 @@ test "renameAbsolute" {
 }
 
 test "openSelfExe" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const self_exe_file = try std.fs.openSelfExe(.{});
     self_exe_file.close();
 }
 
 test "selfExePath" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
     const buf_self_exe_path = try std.fs.selfExePath(&buf);
@@ -1120,7 +1120,7 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
 }
 
 test "makePath in a directory that no longer exists" {
-    if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
+    if (native_os == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1182,7 +1182,7 @@ test "makepath relative walks" {
     try tmp.dir.makePath(relPath);
 
     // How .. is handled is different on Windows than non-Windows
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .windows => {
             // On Windows, .. is resolved before passing the path to NtCreateFile,
             // meaning everything except `first/C` drops out.
@@ -1248,12 +1248,12 @@ test "max file name component lengths" {
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
         // UTF-16 code unit, so Windows allows for NAME_MAX of them.
-        const maxed_windows_filename = ("\u{FFFF}".*) ** std.os.windows.NAME_MAX;
+        const maxed_windows_filename = ("\u{FFFF}".*) ** windows.NAME_MAX;
         try testFilenameLimits(tmp.dir, &maxed_windows_filename);
-    } else if (builtin.os.tag == .wasi) {
+    } else if (native_os == .wasi) {
         // On WASI, the maxed filename depends on the host OS, so in order for this test to
         // work on any host, we need to use a length that will work for all platforms
         // (i.e. the minimum MAX_NAME_BYTES of all supported platforms).
@@ -1274,7 +1274,7 @@ test "writev, readv" {
 
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]std.os.iovec_const{
+    var write_vecs = [_]posix.iovec_const{
         .{
             .iov_base = line1,
             .iov_len = line1.len,
@@ -1284,7 +1284,7 @@ test "writev, readv" {
             .iov_len = line2.len,
         },
     };
-    var read_vecs = [_]std.os.iovec{
+    var read_vecs = [_]posix.iovec{
         .{
             .iov_base = &buf2,
             .iov_len = buf2.len,
@@ -1316,7 +1316,7 @@ test "pwritev, preadv" {
 
     var buf1: [line1.len]u8 = undefined;
     var buf2: [line2.len]u8 = undefined;
-    var write_vecs = [_]std.os.iovec_const{
+    var write_vecs = [_]posix.iovec_const{
         .{
             .iov_base = line1,
             .iov_len = line1.len,
@@ -1326,7 +1326,7 @@ test "pwritev, preadv" {
             .iov_len = line2.len,
         },
     };
-    var read_vecs = [_]std.os.iovec{
+    var read_vecs = [_]posix.iovec{
         .{
             .iov_base = &buf2,
             .iov_len = buf2.len,
@@ -1376,7 +1376,7 @@ test "sendfile" {
 
     const line1 = "line1\n";
     const line2 = "second line\n";
-    var vecs = [_]std.os.iovec_const{
+    var vecs = [_]posix.iovec_const{
         .{
             .iov_base = line1,
             .iov_len = line1.len,
@@ -1399,7 +1399,7 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]std.os.iovec_const{
+    var hdtr = [_]posix.iovec_const{
         .{
             .iov_base = header1,
             .iov_len = header1.len,
@@ -1510,7 +1510,7 @@ test "AtomicFile" {
 }
 
 test "open file with exclusive nonblocking lock twice" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1526,7 +1526,7 @@ test "open file with exclusive nonblocking lock twice" {
 }
 
 test "open file with shared and exclusive nonblocking lock" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1542,7 +1542,7 @@ test "open file with shared and exclusive nonblocking lock" {
 }
 
 test "open file with exclusive and shared nonblocking lock" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1601,7 +1601,7 @@ test "open file with exclusive lock twice, make sure second lock waits" {
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var random_bytes: [12]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
@@ -1634,7 +1634,7 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 }
 
 test "walker" {
-    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1687,7 +1687,7 @@ test "walker" {
 }
 
 test "walker without fully iterating" {
-    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -1710,9 +1710,9 @@ test "walker without fully iterating" {
 }
 
 test "'.' and '..' in fs.Dir functions" {
-    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+    if (native_os == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;
     }
@@ -1750,7 +1750,7 @@ test "'.' and '..' in fs.Dir functions" {
 }
 
 test "'.' and '..' in absolute functions" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1794,7 +1794,7 @@ test "'.' and '..' in absolute functions" {
 }
 
 test "chmod" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1816,7 +1816,7 @@ test "chmod" {
 }
 
 test "chown" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1849,7 +1849,7 @@ test "File.Metadata" {
 }
 
 test "File.Permissions" {
-    if (builtin.os.tag == .wasi)
+    if (native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1875,7 +1875,7 @@ test "File.Permissions" {
 }
 
 test "File.PermissionsUnix" {
-    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+    if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1910,7 +1910,7 @@ test "File.PermissionsUnix" {
 }
 
 test "delete a read-only file on windows" {
-    if (builtin.os.tag != .windows)
+    if (native_os != .windows)
         return error.SkipZigTest;
 
     var tmp = testing.tmpDir(.{});
@@ -1941,7 +1941,7 @@ test "delete a read-only file on windows" {
 }
 
 test "delete a setAsCwd directory on Windows" {
-    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    if (native_os != .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     // Set tmp dir as current working directory.
@@ -1956,7 +1956,7 @@ test "delete a setAsCwd directory on Windows" {
 }
 
 test "invalid UTF-8/WTF-8 paths" {
-    const expected_err = switch (builtin.os.tag) {
+    const expected_err = switch (native_os) {
         .wasi => error.InvalidUtf8,
         .windows => error.InvalidWtf8,
         else => return error.SkipZigTest,
@@ -1993,13 +1993,13 @@ test "invalid UTF-8/WTF-8 paths" {
 
             try testing.expectError(expected_err, ctx.dir.symLink(invalid_path, invalid_path, .{}));
             try testing.expectError(expected_err, ctx.dir.symLinkZ(invalid_path, invalid_path, .{}));
-            if (builtin.os.tag == .wasi) {
+            if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.symLinkWasi(invalid_path, invalid_path, .{}));
             }
 
             try testing.expectError(expected_err, ctx.dir.readLink(invalid_path, &[_]u8{}));
             try testing.expectError(expected_err, ctx.dir.readLinkZ(invalid_path, &[_]u8{}));
-            if (builtin.os.tag == .wasi) {
+            if (native_os == .wasi) {
                 try testing.expectError(expected_err, ctx.dir.readLinkWasi(invalid_path, &[_]u8{}));
             }
 
@@ -2023,7 +2023,7 @@ test "invalid UTF-8/WTF-8 paths" {
 
             try testing.expectError(expected_err, ctx.dir.statFile(invalid_path));
 
-            if (builtin.os.tag != .wasi) {
+            if (native_os != .wasi) {
                 try testing.expectError(expected_err, ctx.dir.realpath(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathZ(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathAlloc(testing.allocator, invalid_path));
@@ -2032,7 +2032,7 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, fs.rename(ctx.dir, invalid_path, ctx.dir, invalid_path));
             try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
 
-            if (builtin.os.tag != .wasi and ctx.path_type != .relative) {
+            if (native_os != .wasi and ctx.path_type != .relative) {
                 try testing.expectError(expected_err, fs.updateFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));

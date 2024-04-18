@@ -6,7 +6,6 @@
 ;
 LIBRARY pscript5.dll
 EXPORTS
-DllMain
 DrvDisableDriver
 DrvEnableDriver
 DrvQueryDriverInfo

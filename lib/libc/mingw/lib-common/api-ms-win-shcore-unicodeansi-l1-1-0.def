@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-shcore-unicodeansi-l1-1-0
+
+EXPORTS
+
+SHAnsiToAnsi
+SHAnsiToUnicode
+SHUnicodeToAnsi
+SHUnicodeToUnicode

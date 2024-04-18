@@ -106,8 +106,8 @@ const State128L = struct {
     fn mac(state: *State128L, comptime tag_bits: u9, adlen: usize, mlen: usize) [tag_bits / 8]u8 {
         const blocks = &state.blocks;
         var sizes: [16]u8 = undefined;
-        mem.writeInt(u64, sizes[0..8], adlen * 8, .little);
-        mem.writeInt(u64, sizes[8..16], mlen * 8, .little);
+        mem.writeInt(u64, sizes[0..8], @as(u64, adlen) * 8, .little);
+        mem.writeInt(u64, sizes[8..16], @as(u64, mlen) * 8, .little);
         const tmp = AesBlock.fromBytes(&sizes).xorBlocks(blocks[2]);
         var i: usize = 0;
         while (i < 7) : (i += 1) {
@@ -284,8 +284,8 @@ const State256 = struct {
     fn mac(state: *State256, comptime tag_bits: u9, adlen: usize, mlen: usize) [tag_bits / 8]u8 {
         const blocks = &state.blocks;
         var sizes: [16]u8 = undefined;
-        mem.writeInt(u64, sizes[0..8], adlen * 8, .little);
-        mem.writeInt(u64, sizes[8..16], mlen * 8, .little);
+        mem.writeInt(u64, sizes[0..8], @as(u64, adlen) * 8, .little);
+        mem.writeInt(u64, sizes[8..16], @as(u64, mlen) * 8, .little);
         const tmp = AesBlock.fromBytes(&sizes).xorBlocks(blocks[3]);
         var i: usize = 0;
         while (i < 7) : (i += 1) {

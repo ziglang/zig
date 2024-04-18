@@ -89,7 +89,7 @@ pub const DynamicSection = struct {
         if (elf_file.verneed_section_index != null) nentries += 2; // VERNEED
         if (dt.getFlags(elf_file) != null) nentries += 1; // FLAGS
         if (dt.getFlags1(elf_file) != null) nentries += 1; // FLAGS_1
-        if (!elf_file.base.isDynLib()) nentries += 1; // DEBUG
+        if (!elf_file.isEffectivelyDynLib()) nentries += 1; // DEBUG
         nentries += 1; // NULL
         return nentries * @sizeOf(elf.Elf64_Dyn);
     }
@@ -216,7 +216,7 @@ pub const DynamicSection = struct {
         }
 
         // DEBUG
-        if (!elf_file.base.isDynLib()) try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_DEBUG, .d_val = 0 });
+        if (!elf_file.isEffectivelyDynLib()) try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_DEBUG, .d_val = 0 });
 
         // NULL
         try writer.writeStruct(elf.Elf64_Dyn{ .d_tag = elf.DT_NULL, .d_val = 0 });
@@ -256,7 +256,7 @@ pub const ZigGotSection = struct {
         entry.* = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_zig_got = true;
-        if (elf_file.base.isDynLib() or (elf_file.base.isExe() and comp.config.pie)) {
+        if (elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) {
             zig_got.flags.needs_rela = true;
         }
         if (symbol.extra(elf_file)) |extra| {
@@ -317,16 +317,16 @@ pub const ZigGotSection = struct {
                 if (elf_file.base.child_pid) |pid| {
                     switch (builtin.os.tag) {
                         .linux => {
-                            var local_vec: [1]std.os.iovec_const = .{.{
+                            var local_vec: [1]std.posix.iovec_const = .{.{
                                 .iov_base = &buf,
                                 .iov_len = buf.len,
                             }};
-                            var remote_vec: [1]std.os.iovec_const = .{.{
+                            var remote_vec: [1]std.posix.iovec_const = .{.{
                                 .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
                                 .iov_len = buf.len,
                             }};
                             const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                            switch (std.os.errno(rc)) {
+                            switch (std.os.linux.E.init(rc)) {
                                 .SUCCESS => assert(rc == buf.len),
                                 else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
                             }
@@ -495,7 +495,7 @@ pub const GotSection = struct {
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_got = true;
         if (symbol.flags.import or symbol.isIFunc(elf_file) or
-            ((elf_file.base.isDynLib() or (elf_file.base.isExe() and comp.config.pie)) and !symbol.isAbs(elf_file)))
+            ((elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) and !symbol.isAbs(elf_file)))
         {
             got.flags.needs_rela = true;
         }
@@ -528,7 +528,7 @@ pub const GotSection = struct {
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_tlsgd = true;
-        if (symbol.flags.import or elf_file.base.isDynLib()) got.flags.needs_rela = true;
+        if (symbol.flags.import or elf_file.isEffectivelyDynLib()) got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.tlsgd = index;
@@ -545,7 +545,7 @@ pub const GotSection = struct {
         entry.symbol_index = sym_index;
         const symbol = elf_file.symbol(sym_index);
         symbol.flags.has_gottp = true;
-        if (symbol.flags.import or elf_file.base.isDynLib()) got.flags.needs_rela = true;
+        if (symbol.flags.import or elf_file.isEffectivelyDynLib()) got.flags.needs_rela = true;
         if (symbol.extra(elf_file)) |extra| {
             var new_extra = extra;
             new_extra.gottp = index;
@@ -580,7 +580,7 @@ pub const GotSection = struct {
 
     pub fn write(got: GotSection, elf_file: *Elf, writer: anytype) !void {
         const comp = elf_file.base.comp;
-        const is_dyn_lib = elf_file.base.isDynLib();
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
         const apply_relocs = true; // TODO add user option for this
 
         for (got.entries.items) |entry| {
@@ -595,7 +595,7 @@ pub const GotSection = struct {
                         if (symbol.?.flags.import) break :blk 0;
                         if (symbol.?.isIFunc(elf_file))
                             break :blk if (apply_relocs) value else 0;
-                        if ((elf_file.base.isDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
+                        if ((elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
                             !symbol.?.isAbs(elf_file))
                         {
                             break :blk if (apply_relocs) value else 0;
@@ -653,7 +653,7 @@ pub const GotSection = struct {
     pub fn addRela(got: GotSection, elf_file: *Elf) !void {
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        const is_dyn_lib = elf_file.base.isDynLib();
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
         const cpu_arch = elf_file.getTarget().cpu.arch;
         try elf_file.rela_dyn.ensureUnusedCapacity(gpa, got.numRela(elf_file));
 
@@ -683,7 +683,7 @@ pub const GotSection = struct {
                         });
                         continue;
                     }
-                    if ((elf_file.base.isDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
+                    if ((elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
                         !symbol.?.isAbs(elf_file))
                     {
                         elf_file.addRelaDynAssumeCapacity(.{
@@ -758,7 +758,7 @@ pub const GotSection = struct {
 
     pub fn numRela(got: GotSection, elf_file: *Elf) usize {
         const comp = elf_file.base.comp;
-        const is_dyn_lib = elf_file.base.isDynLib();
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
         var num: usize = 0;
         for (got.entries.items) |entry| {
             const symbol = switch (entry.tag) {
@@ -767,7 +767,7 @@ pub const GotSection = struct {
             };
             switch (entry.tag) {
                 .got => if (symbol.?.flags.import or symbol.?.isIFunc(elf_file) or
-                    ((elf_file.base.isDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
+                    ((elf_file.isEffectivelyDynLib() or (elf_file.base.isExe() and comp.config.pie)) and
                     !symbol.?.isAbs(elf_file)))
                 {
                     num += 1;

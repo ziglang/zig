@@ -7,6 +7,5 @@
 LIBRARY imjputyc.dll
 EXPORTS
 AutoCorrLbSubWndProc
-DllMain
 OpenImeTool
 OpenUty

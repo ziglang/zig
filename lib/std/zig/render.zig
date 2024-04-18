@@ -569,39 +569,33 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         },
 
         .assign_destructure => {
-            const lhs_count = tree.extra_data[datas[node].lhs];
-            assert(lhs_count > 1);
-            const lhs_exprs = tree.extra_data[datas[node].lhs + 1 ..][0..lhs_count];
-            const rhs = datas[node].rhs;
-
-            const maybe_comptime_token = tree.firstToken(node) - 1;
-            if (token_tags[maybe_comptime_token] == .keyword_comptime) {
-                try renderToken(r, maybe_comptime_token, .space);
+            const full = tree.assignDestructure(node);
+            if (full.comptime_token) |comptime_token| {
+                try renderToken(r, comptime_token, .space);
             }
 
-            for (lhs_exprs, 0..) |lhs_node, i| {
-                const lhs_space: Space = if (i == lhs_exprs.len - 1) .space else .comma_space;
-                switch (node_tags[lhs_node]) {
+            for (full.ast.variables, 0..) |variable_node, i| {
+                const variable_space: Space = if (i == full.ast.variables.len - 1) .space else .comma_space;
+                switch (node_tags[variable_node]) {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
                     .aligned_var_decl,
                     => {
-                        try renderVarDecl(r, tree.fullVarDecl(lhs_node).?, true, lhs_space);
+                        try renderVarDecl(r, tree.fullVarDecl(variable_node).?, true, variable_space);
                     },
-                    else => try renderExpression(r, lhs_node, lhs_space),
+                    else => try renderExpression(r, variable_node, variable_space),
                 }
             }
-            const equal_token = main_tokens[node];
-            if (tree.tokensOnSameLine(equal_token, equal_token + 1)) {
-                try renderToken(r, equal_token, .space);
+            if (tree.tokensOnSameLine(full.ast.equal_token, full.ast.equal_token + 1)) {
+                try renderToken(r, full.ast.equal_token, .space);
             } else {
                 ais.pushIndent();
-                try renderToken(r, equal_token, .newline);
+                try renderToken(r, full.ast.equal_token, .newline);
                 ais.popIndent();
             }
             ais.pushIndentOneShot();
-            return renderExpression(r, rhs, space);
+            return renderExpression(r, full.ast.value_expr, space);
         },
 
         .bit_not,
@@ -2853,8 +2847,8 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
         return renderQuotedIdentifier(r, token_index, space, false);
     }
 
-    // Special case for _ which would incorrectly be rejected by isValidId below.
-    if (contents.len == 1 and contents[0] == '_') switch (quote) {
+    // Special case for _.
+    if (std.zig.isUnderscore(contents)) switch (quote) {
         .eagerly_unquote => return renderQuotedIdentifier(r, token_index, space, true),
         .eagerly_unquote_except_underscore,
         .preserve_when_shadowing,

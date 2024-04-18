@@ -767,7 +767,7 @@ fn unpack_inner(tar_bytes: []u8) !void {
     });
     while (try it.next()) |tar_file| {
         switch (tar_file.kind) {
-            .normal => {
+            .file => {
                 if (tar_file.size == 0 and tar_file.name.len == 0) break;
                 if (std.mem.endsWith(u8, tar_file.name, ".zig")) {
                     log.debug("found file: '{s}'", .{tar_file.name});
@@ -790,7 +790,6 @@ fn unpack_inner(tar_bytes: []u8) !void {
                         tar_file.name,
                     });
                 }
-                try tar_file.skip();
             },
             else => continue,
         }
@@ -939,6 +938,17 @@ fn file_source_html(
 
     var cursor: usize = token_starts[start_token];
 
+    var indent: usize = 0;
+    if (std.mem.lastIndexOf(u8, ast.source[0..cursor], "\n")) |newline_index| {
+        for (ast.source[newline_index + 1 .. cursor]) |c| {
+            if (c == ' ') {
+                indent += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
     for (
         token_tags[start_token..end_token],
         token_starts[start_token..end_token],
@@ -948,7 +958,7 @@ fn file_source_html(
         if (std.mem.trim(u8, between, " \t\r\n").len > 0) {
             if (!options.skip_comments) {
                 try out.appendSlice(gpa, "<span class=\"tok-comment\">");
-                try appendEscaped(out, between);
+                try appendUnindented(out, between, indent);
                 try out.appendSlice(gpa, "</span>");
             }
         } else if (between.len > 0) {
@@ -956,7 +966,7 @@ fn file_source_html(
                 if (out.items.len > 0 and out.items[out.items.len - 1] != ' ')
                     try out.append(gpa, ' ');
             } else {
-                try out.appendSlice(gpa, between);
+                try appendUnindented(out, between, indent);
             }
         }
         if (tag == .eof) break;
@@ -1185,6 +1195,32 @@ fn file_source_html(
             => try appendEscaped(out, slice),
 
             .invalid, .invalid_periodasterisks => return error.InvalidToken,
+        }
+    }
+}
+
+fn unindent(s: []const u8, indent: usize) []const u8 {
+    var indent_idx: usize = 0;
+    for (s) |c| {
+        if (c == ' ' and indent_idx < indent) {
+            indent_idx += 1;
+        } else {
+            break;
+        }
+    }
+    return s[indent_idx..];
+}
+
+fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usize) !void {
+    var it = std.mem.split(u8, s, "\n");
+    var is_first_line = true;
+    while (it.next()) |line| {
+        if (is_first_line) {
+            try appendEscaped(out, line);
+            is_first_line = false;
+        } else {
+            try out.appendSlice(gpa, "\n");
+            try appendEscaped(out, unindent(line, indent));
         }
     }
 }

@@ -532,7 +532,7 @@ pub const TlvPtrSection = struct {
     pub fn getAddress(tlv: TlvPtrSection, index: Index, macho_file: *MachO) u64 {
         assert(index < tlv.symbols.items.len);
         const header = macho_file.sections.items(.header)[macho_file.tlv_ptr_sect_index.?];
-        return header.addr + index * @sizeOf(u64) * 3;
+        return header.addr + index * @sizeOf(u64);
     }
 
     pub fn size(tlv: TlvPtrSection) usize {

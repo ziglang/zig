@@ -1,0 +1,57 @@
+LIBRARY api-ms-win-crt-process-l1-1-0
+
+EXPORTS
+
+_beep
+_cwait
+cwait == _cwait
+_execl
+execl == _execl
+_execle
+execle == _execle
+_execlp
+execlp == _execlp
+_execlpe
+execlpe == _execlpe
+_execv
+execv == _execv
+_execve
+execve == _execve
+_execvp
+execvp == _execvp
+_execvpe
+execvpe == _execvpe
+_loaddll
+_spawnl
+spawnl == _spawnl
+_spawnle
+spawnle == _spawnle
+_spawnlp
+spawnlp == _spawnlp
+_spawnlpe
+spawnlpe == _spawnlpe
+_spawnv
+spawnv == _spawnv
+_spawnve
+spawnve == _spawnve
+_spawnvp
+spawnvp == _spawnvp
+_spawnvpe
+spawnvpe == _spawnvpe
+_unloaddll
+_wexecl
+_wexecle
+_wexeclp
+_wexeclpe
+_wexecv
+_wexecve
+_wexecvp
+_wexecvpe
+_wspawnl
+_wspawnle
+_wspawnlp
+_wspawnlpe
+_wspawnv
+_wspawnve
+_wspawnvp
+_wspawnvpe

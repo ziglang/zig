@@ -51,7 +51,7 @@ fn testBasicWriteStream(w: anytype, slice_stream: anytype) !void {
     defer arena_allocator.deinit();
     try w.write(try getJsonObject(arena_allocator.allocator()));
 
-    try w.objectField("string");
+    try w.objectFieldRaw("\"string\"");
     try w.write("This is a string");
 
     try w.objectField("array");
@@ -74,16 +74,16 @@ fn testBasicWriteStream(w: anytype, slice_stream: anytype) !void {
         \\{
         \\  "object": {
         \\    "one": 1,
-        \\    "two": 2.0e+00
+        \\    "two": 2e0
         \\  },
         \\  "string": "This is a string",
         \\  "array": [
         \\    "Another string",
         \\    1,
-        \\    3.5e+00
+        \\    3.5e0
         \\  ],
         \\  "int": 10,
-        \\  "float": 3.5e+00
+        \\  "float": 3.5e0
         \\}
     ;
     try std.testing.expectEqualStrings(expected, result);
@@ -123,12 +123,12 @@ test "stringify basic types" {
     try testStringify("null", @as(?u8, null), .{});
     try testStringify("null", @as(?*u32, null), .{});
     try testStringify("42", 42, .{});
-    try testStringify("4.2e+01", 42.0, .{});
+    try testStringify("4.2e1", 42.0, .{});
     try testStringify("42", @as(u8, 42), .{});
     try testStringify("42", @as(u128, 42), .{});
     try testStringify("9999999999999999", 9999999999999999, .{});
-    try testStringify("4.2e+01", @as(f32, 42), .{});
-    try testStringify("4.2e+01", @as(f64, 42), .{});
+    try testStringify("4.2e1", @as(f32, 42), .{});
+    try testStringify("4.2e1", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
     try testStringify("\"ItBroke\"", error.ItBroke, .{});
 }

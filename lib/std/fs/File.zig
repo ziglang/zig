@@ -193,6 +193,58 @@ pub fn isTty(self: File) bool {
     return posix.isatty(self.handle);
 }
 
+pub fn isCygwinPty(file: File) bool {
+    if (builtin.os.tag != .windows) return false;
+
+    const handle = file.handle;
+
+    // If this is a MSYS2/cygwin pty, then it will be a named pipe with a name in one of these formats:
+    //   msys-[...]-ptyN-[...]
+    //   cygwin-[...]-ptyN-[...]
+    //
+    // Example: msys-1888ae32e00d56aa-pty0-to-master
+
+    // First, just check that the handle is a named pipe.
+    // This allows us to avoid the more costly NtQueryInformationFile call
+    // for handles that aren't named pipes.
+    {
+        var io_status: windows.IO_STATUS_BLOCK = undefined;
+        var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+        const rc = windows.ntdll.NtQueryVolumeInformationFile(handle, &io_status, &device_info, @sizeOf(windows.FILE_FS_DEVICE_INFORMATION), .FileFsDeviceInformation);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return false,
+        }
+        if (device_info.DeviceType != windows.FILE_DEVICE_NAMED_PIPE) return false;
+    }
+
+    const name_bytes_offset = @offsetOf(windows.FILE_NAME_INFO, "FileName");
+    // `NAME_MAX` UTF-16 code units (2 bytes each)
+    // This buffer may not be long enough to handle *all* possible paths
+    // (PATH_MAX_WIDE would be necessary for that), but because we only care
+    // about certain paths and we know they must be within a reasonable length,
+    // we can use this smaller buffer and just return false on any error from
+    // NtQueryInformationFile.
+    const num_name_bytes = windows.MAX_PATH * 2;
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(name_info_bytes.len), .FileNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return false,
+    }
+
+    const name_info: *const windows.FILE_NAME_INFO = @ptrCast(&name_info_bytes);
+    const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + name_info.FileNameLength];
+    const name_wide = std.mem.bytesAsSlice(u16, name_bytes);
+    // The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
+    return (std.mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'm', 's', 'y', 's', '-' }) or
+        std.mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'c', 'y', 'g', 'w', 'i', 'n', '-' })) and
+        std.mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
+}
+
 /// Test whether ANSI escape codes will be treated as such.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
@@ -201,7 +253,7 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
             if (console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
         }
 
-        return posix.isCygwinPty(self.handle);
+        return self.isCygwinPty();
     }
     if (builtin.os.tag == .wasi) {
         // WASI sanitizes stdout when fd is a tty so ANSI escape codes
@@ -405,7 +457,7 @@ pub fn stat(self: File) StatError!Stat {
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try posix.fstat_wasi(self.handle);
+        const st = try std.os.fstat_wasi(self.handle);
         return Stat.fromWasi(st);
     }
 
@@ -952,7 +1004,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     .statx = stx,
                 };
             },
-            .wasi => .{ .stat = try posix.fstat_wasi(self.handle) },
+            .wasi => .{ .stat = try std.os.fstat_wasi(self.handle) },
             else => .{ .stat = try posix.fstat(self.handle) },
         },
     };
@@ -1634,8 +1686,7 @@ const File = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-// https://github.com/ziglang/zig/issues/5019
-const posix = std.os;
+const posix = std.posix;
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;

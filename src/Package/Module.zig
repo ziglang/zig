@@ -3,7 +3,7 @@
 //! to Zcu. https://github.com/ziglang/zig/issues/14307
 
 /// Only files inside this directory can be imported.
-root: Package.Path,
+root: Cache.Path,
 /// Relative to `root`. May contain path separators.
 root_src_path: []const u8,
 /// Name used in compile errors. Looks like "root.foo.bar".
@@ -69,7 +69,7 @@ pub const CreateOptions = struct {
     builtin_modules: ?*std.StringHashMapUnmanaged(*Module),
 
     pub const Paths = struct {
-        root: Package.Path,
+        root: Cache.Path,
         /// Relative to `root`. May contain path separators.
         root_src_path: []const u8,
     };
@@ -464,7 +464,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
 /// All fields correspond to `CreateOptions`.
 pub const LimitedOptions = struct {
-    root: Package.Path,
+    root: Cache.Path,
     root_src_path: []const u8,
     fully_qualified_name: []const u8,
 };

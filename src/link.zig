@@ -17,7 +17,7 @@ const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
+const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
@@ -188,15 +188,10 @@ pub const File = struct {
         emit: Compilation.Emit,
         options: OpenOptions,
     ) !*File {
-        const tag = Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt);
-        switch (tag) {
-            .c => {
-                const ptr = try C.open(arena, comp, emit, options);
-                return &ptr.base;
-            },
-            inline else => |t| {
-                if (build_options.only_c) unreachable;
-                const ptr = try t.Type().open(arena, comp, emit, options);
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+            inline else => |tag| {
+                if (tag != .c and build_options.only_c) unreachable;
+                const ptr = try tag.Type().open(arena, comp, emit, options);
                 return &ptr.base;
             },
         }
@@ -208,25 +203,17 @@ pub const File = struct {
         emit: Compilation.Emit,
         options: OpenOptions,
     ) !*File {
-        const tag = Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt);
-        switch (tag) {
-            .c => {
-                const ptr = try C.createEmpty(arena, comp, emit, options);
-                return &ptr.base;
-            },
-            inline else => |t| {
-                if (build_options.only_c) unreachable;
-                const ptr = try t.Type().createEmpty(arena, comp, emit, options);
+        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+            inline else => |tag| {
+                if (tag != .c and build_options.only_c) unreachable;
+                const ptr = try tag.Type().createEmpty(arena, comp, emit, options);
                 return &ptr.base;
             },
         }
     }
 
     pub fn cast(base: *File, comptime T: type) ?*T {
-        if (base.tag != T.base_tag)
-            return null;
-
-        return @fieldParentPtr(T, "base", base);
+        return if (base.tag == T.base_tag) @fieldParentPtr("base", base) else null;
     }
 
     pub fn makeWritable(base: *File) !void {
@@ -254,7 +241,7 @@ pub const File = struct {
                         try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
                         try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
                         switch (builtin.os.tag) {
-                            .linux => std.os.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
+                            .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
                             .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
@@ -305,7 +292,7 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .linux => std.os.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
+                        .linux => std.posix.ptrace(std.os.linux.PTRACE.DETACH, pid, 0, 0) catch |err| {
                             log.warn("ptrace failure: {s}", .{@errorName(err)});
                         },
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
@@ -376,14 +363,14 @@ pub const File = struct {
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
+    pub fn lowerUnnamedConst(base: *File, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .spirv => unreachable,
             .c => unreachable,
             .nvptx => unreachable,
             inline else => |t| {
-                return @fieldParentPtr(t.Type(), "base", base).lowerUnnamedConst(tv, decl_index);
+                return @as(*t.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(val, decl_index);
             },
         }
     }
@@ -402,7 +389,7 @@ pub const File = struct {
             .c => unreachable,
             .nvptx => unreachable,
             inline else => |t| {
-                return @fieldParentPtr(t.Type(), "base", base).getGlobalSymbol(name, lib_name);
+                return @as(*t.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
             },
         }
     }
@@ -412,12 +399,9 @@ pub const File = struct {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
-            .c => {
-                return @fieldParentPtr(C, "base", base).updateDecl(module, decl_index);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateDecl(module, decl_index);
+                if (tag != .c and build_options.only_c) unreachable;
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDecl(module, decl_index);
             },
         }
     }
@@ -431,12 +415,9 @@ pub const File = struct {
         liveness: Liveness,
     ) UpdateDeclError!void {
         switch (base.tag) {
-            .c => {
-                return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateFunc(module, func_index, air, liveness);
+                if (tag != .c and build_options.only_c) unreachable;
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(module, func_index, air, liveness);
             },
         }
     }
@@ -446,12 +427,9 @@ pub const File = struct {
         assert(decl.has_tv);
         switch (base.tag) {
             .spirv, .nvptx => {},
-            .c => {
-                return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl_index);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateDeclLineNumber(module, decl_index);
+                if (tag != .c and build_options.only_c) unreachable;
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDeclLineNumber(module, decl_index);
             },
         }
     }
@@ -473,11 +451,9 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         switch (base.tag) {
-            .c => @fieldParentPtr(C, "base", base).deinit(),
-
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                @fieldParentPtr(tag.Type(), "base", base).deinit();
+                if (tag != .c and build_options.only_c) unreachable;
+                @as(*tag.Type(), @fieldParentPtr("base", base)).deinit();
             },
         }
     }
@@ -560,7 +536,7 @@ pub const File = struct {
     pub fn flush(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).flush(arena, prog_node);
+            return @as(*C, @fieldParentPtr("base", base)).flush(arena, prog_node);
         }
         const comp = base.comp;
         if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
@@ -587,7 +563,7 @@ pub const File = struct {
         }
         switch (base.tag) {
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).flush(arena, prog_node);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).flush(arena, prog_node);
             },
         }
     }
@@ -596,12 +572,9 @@ pub const File = struct {
     /// rather than final output mode.
     pub fn flushModule(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
         switch (base.tag) {
-            .c => {
-                return @fieldParentPtr(C, "base", base).flushModule(arena, prog_node);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).flushModule(arena, prog_node);
+                if (tag != .c and build_options.only_c) unreachable;
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, prog_node);
             },
         }
     }
@@ -609,12 +582,9 @@ pub const File = struct {
     /// Called when a Decl is deleted from the Module.
     pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
         switch (base.tag) {
-            .c => {
-                @fieldParentPtr(C, "base", base).freeDecl(decl_index);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                @fieldParentPtr(tag.Type(), "base", base).freeDecl(decl_index);
+                if (tag != .c and build_options.only_c) unreachable;
+                @as(*tag.Type(), @fieldParentPtr("base", base)).freeDecl(decl_index);
             },
         }
     }
@@ -635,12 +605,9 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) UpdateExportsError!void {
         switch (base.tag) {
-            .c => {
-                return @fieldParentPtr(C, "base", base).updateExports(module, exported, exports);
-            },
             inline else => |tag| {
-                if (build_options.only_c) unreachable;
-                return @fieldParentPtr(tag.Type(), "base", base).updateExports(module, exported, exports);
+                if (tag != .c and build_options.only_c) unreachable;
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, exports);
             },
         }
     }
@@ -664,7 +631,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).getDeclVAddr(decl_index, reloc_info);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getDeclVAddr(decl_index, reloc_info);
             },
         }
     }
@@ -683,7 +650,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).lowerAnonDecl(decl_val, decl_align, src_loc);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerAnonDecl(decl_val, decl_align, src_loc);
             },
         }
     }
@@ -695,7 +662,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).getAnonDeclVAddr(decl_val, reloc_info);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getAnonDeclVAddr(decl_val, reloc_info);
             },
         }
     }
@@ -714,7 +681,7 @@ pub const File = struct {
             => {},
 
             inline else => |tag| {
-                return @fieldParentPtr(tag.Type(), "base", base).deleteDeclExport(decl_index, name);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteDeclExport(decl_index, name);
             },
         }
     }

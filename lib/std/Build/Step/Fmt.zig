@@ -29,8 +29,8 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
             .owner = owner,
             .makeFn = make,
         }),
-        .paths = options.paths,
-        .exclude_paths = options.exclude_paths,
+        .paths = owner.dupeStrings(options.paths),
+        .exclude_paths = owner.dupeStrings(options.exclude_paths),
         .check = options.check,
     };
     return self;
@@ -47,7 +47,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const b = step.owner;
     const arena = b.allocator;
-    const self = @fieldParentPtr(Fmt, "step", step);
+    const self: *Fmt = @fieldParentPtr("step", step);
 
     var argv: std.ArrayListUnmanaged([]const u8) = .{};
     try argv.ensureUnusedCapacity(arena, 2 + 1 + self.paths.len + 2 * self.exclude_paths.len);

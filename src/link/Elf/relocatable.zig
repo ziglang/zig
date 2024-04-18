@@ -330,7 +330,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
             const padding = offset - shdr.sh_size;
             atom_ptr.value = offset;
             shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
         }
     }
 

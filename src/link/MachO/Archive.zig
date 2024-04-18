@@ -23,11 +23,11 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
 
     const handle = macho_file.getFileHandle(handle_index);
     const offset = if (fat_arch) |ar| ar.offset else 0;
-    const size = if (fat_arch) |ar| ar.size else (try handle.stat()).size;
+    const end_pos = if (fat_arch) |ar| offset + ar.size else (try handle.stat()).size;
 
     var pos: usize = offset + SARMAG;
     while (true) {
-        if (pos >= size) break;
+        if (pos >= end_pos) break;
         if (!mem.isAligned(pos, 2)) pos += 1;
 
         var hdr_buffer: [@sizeOf(ar_hdr)]u8 = undefined;

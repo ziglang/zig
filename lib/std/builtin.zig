@@ -394,7 +394,6 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
         calling_convention: CallingConvention,
-        alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.

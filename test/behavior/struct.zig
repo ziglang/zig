@@ -1392,13 +1392,13 @@ test "fieldParentPtr of a zero-bit field" {
             {
                 const a = A{ .u = 0 };
                 const b_ptr = &a.b;
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const b_ptr = &a.b;
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
         }
@@ -1406,17 +1406,17 @@ test "fieldParentPtr of a zero-bit field" {
             {
                 const a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
-                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
                 try std.testing.expectEqual(&a.b, b_ptr);
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
-                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
                 try std.testing.expectEqual(&a.b, b_ptr);
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
         }

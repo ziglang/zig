@@ -7,12 +7,10 @@ const Step = std.Build.Step;
 
 // Cases
 const compare_output = @import("compare_output.zig");
-const standalone = @import("standalone.zig");
 const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
-const link = @import("link.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/TranslateC.zig");
@@ -643,7 +641,7 @@ pub fn addStackTraceTests(
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
-        .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
+        .root_source_file = b.path("test/src/check-stack-trace.zig"),
         .target = b.host,
         .optimize = .Debug,
     });
@@ -663,79 +661,35 @@ pub fn addStackTraceTests(
     return cases.step;
 }
 
+fn compilerHasPackageManager(b: *std.Build) bool {
+    // We can only use dependencies if the compiler was built with support for package management.
+    // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
+    return b.available_deps.len != 0;
+}
+
 pub fn addStandaloneTests(
     b: *std.Build,
     optimize_modes: []const OptimizeMode,
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
-    omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
-    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
-
-    for (standalone.simple_cases) |case| {
-        for (optimize_modes) |optimize| {
-            if (!case.all_modes and optimize != .Debug) continue;
-            if (case.os_filter) |os_tag| {
-                if (os_tag != builtin.os.tag) continue;
-            }
-
-            const resolved_target = b.resolveTargetQuery(case.target);
-
-            if (case.is_exe) {
-                const exe = b.addExecutable(.{
-                    .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
-                });
-                if (case.link_libc) exe.linkLibC();
-
-                _ = exe.getEmittedBin();
-
-                step.dependOn(&exe.step);
-            }
-
-            if (case.is_test) {
-                const exe = b.addTest(.{
-                    .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
-                });
-                if (case.link_libc) exe.linkLibC();
-
-                const run = b.addRunArtifact(exe);
-                step.dependOn(&run.step);
-            }
-        }
+    if (compilerHasPackageManager(b)) {
+        const test_cases_dep_name = "standalone_test_cases";
+        const test_cases_dep = b.dependency(test_cases_dep_name, .{
+            .enable_ios_sdk = enable_ios_sdk,
+            .enable_macos_sdk = enable_macos_sdk,
+            .enable_symlinks_windows = enable_symlinks_windows,
+            .simple_skip_debug = mem.indexOfScalar(OptimizeMode, optimize_modes, .Debug) == null,
+            .simple_skip_release_safe = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSafe) == null,
+            .simple_skip_release_fast = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseFast) == null,
+            .simple_skip_release_small = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSmall) == null,
+        });
+        const test_cases_dep_step = test_cases_dep.builder.default_step;
+        test_cases_dep_step.name = b.dupe(test_cases_dep_name);
+        step.dependOn(test_cases_dep.builder.default_step);
     }
-
-    inline for (standalone.build_cases) |case| {
-        const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
-            case.import.requires_stage2;
-        const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
-            case.import.requires_symlinks;
-        const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
-            case.import.requires_macos_sdk;
-        const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
-            case.import.requires_ios_sdk;
-        const bad =
-            (requires_stage2 and omit_stage2) or
-            (requires_symlinks and omit_symlinks) or
-            (requires_macos_sdk and !enable_macos_sdk) or
-            (requires_ios_sdk and !enable_ios_sdk);
-        if (!bad) {
-            const dep = b.anonymousDependency(case.build_root, case.import, .{});
-            const dep_step = dep.builder.default_step;
-            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-            step.dependOn(dep_step);
-        }
-    }
-
     return step;
 }
 
@@ -743,49 +697,20 @@ pub fn addLinkTests(
     b: *std.Build,
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
-    omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-link", "Run the linker tests");
-    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
-
-    inline for (link.cases) |case| {
-        if (mem.eql(u8, @typeName(case.import), "test.link.link")) {
-            const dep = b.anonymousDependency(case.build_root, case.import, .{
-                .has_macos_sdk = enable_macos_sdk,
-                .has_ios_sdk = enable_ios_sdk,
-                .has_symlinks_windows = !omit_symlinks,
-            });
-            const dep_step = dep.builder.default_step;
-            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-            step.dependOn(dep_step);
-        } else {
-            const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
-                case.import.requires_stage2;
-            const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
-                case.import.requires_symlinks;
-            const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
-                case.import.requires_macos_sdk;
-            const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
-                case.import.requires_ios_sdk;
-            const bad =
-                (requires_stage2 and omit_stage2) or
-                (requires_symlinks and omit_symlinks) or
-                (requires_macos_sdk and !enable_macos_sdk) or
-                (requires_ios_sdk and !enable_ios_sdk);
-            if (!bad) {
-                const dep = b.anonymousDependency(case.build_root, case.import, .{});
-                const dep_step = dep.builder.default_step;
-                assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-                const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-                dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-                step.dependOn(dep_step);
-            }
-        }
+    if (compilerHasPackageManager(b)) {
+        const test_cases_dep_name = "link_test_cases";
+        const test_cases_dep = b.dependency(test_cases_dep_name, .{
+            .enable_ios_sdk = enable_ios_sdk,
+            .enable_macos_sdk = enable_macos_sdk,
+            .enable_symlinks_windows = enable_symlinks_windows,
+        });
+        const test_cases_dep_step = test_cases_dep.builder.default_step;
+        test_cases_dep_step.name = b.dupe(test_cases_dep_name);
+        step.dependOn(test_cases_dep.builder.default_step);
     }
-
     return step;
 }
 
@@ -961,7 +886,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run6.step.dependOn(&write6.step);
 
         // TODO change this to an exact match
-        const check6 = b.addCheckFile(.{ .path = fmt6_path }, .{
+        const check6 = b.addCheckFile(.{ .cwd_relative = fmt6_path }, .{
             .expected_matches = &.{
                 "// no reason",
             },
@@ -1119,7 +1044,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             options.max_rss;
 
         const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = options.root_src },
+            .root_source_file = b.path(options.root_src),
             .optimize = test_target.optimize_mode,
             .target = resolved_target,
             .max_rss = max_rss,
@@ -1128,7 +1053,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
-            .zig_lib_dir = .{ .path = "lib" },
+            .zig_lib_dir = b.path("lib"),
             .pic = test_target.pic,
             .strip = test_target.strip,
         });
@@ -1144,7 +1069,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        for (options.include_paths) |include_path| these_tests.addIncludePath(.{ .path = include_path });
+        for (options.include_paths) |include_path| these_tests.addIncludePath(b.path(include_path));
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
@@ -1166,29 +1091,44 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = b.resolveTargetQuery(altered_query),
-                .zig_lib_dir = .{ .path = "lib" },
+                .zig_lib_dir = b.path("lib"),
             });
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
                 .flags = &.{
-                    // TODO output -std=c89 compatible C code
+                    // Tracking issue for making the C backend generate C89 compatible code:
+                    // https://github.com/ziglang/zig/issues/19468
                     "-std=c99",
-                    "-pedantic",
                     "-Werror",
-                    // TODO stop violating these pedantic errors. spotted everywhere
+
+                    "-Wall",
+                    "-Wembedded-directive",
+                    "-Wempty-translation-unit",
+                    "-Wextra",
+                    "-Wgnu",
+                    "-Winvalid-utf8",
+                    "-Wkeyword-macro",
+                    "-Woverlength-strings",
+
+                    // Tracking issue for making the C backend generate code
+                    // that does not trigger warnings:
+                    // https://github.com/ziglang/zig/issues/19467
+
+                    // spotted everywhere
                     "-Wno-builtin-requires-header",
-                    // TODO stop violating these pedantic errors. spotted on linux
-                    "-Wno-address-of-packed-member",
-                    "-Wno-gnu-folding-constant",
-                    "-Wno-incompatible-function-pointer-types",
+
+                    // spotted on linux
+                    "-Wno-braced-scalar-init",
+                    "-Wno-excess-initializers",
+                    "-Wno-incompatible-pointer-types-discards-qualifiers",
+                    "-Wno-unused",
+                    "-Wno-unused-parameter",
+
+                    // spotted on darwin
                     "-Wno-incompatible-pointer-types",
-                    "-Wno-overlength-strings",
-                    // TODO stop violating these pedantic errors. spotted on darwin
-                    "-Wno-dollar-in-identifier-extension",
-                    "-Wno-absolute-value",
                 },
             });
-            compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
+            compile_c.addIncludePath(b.path("lib")); // for zig.h
             if (target.os.tag == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
@@ -1264,7 +1204,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
                     if (c_abi_target.pic == true) "-pic" else "",
                 }),
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .root_source_file = b.path("test/c_abi/main.zig"),
                 .target = resolved_target,
                 .optimize = optimize_mode,
                 .link_libc = true,
@@ -1274,7 +1214,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .strip = c_abi_target.strip,
             });
             test_step.addCSourceFile(.{
-                .file = .{ .path = "test/c_abi/cfuncs.c" },
+                .file = b.path("test/c_abi/cfuncs.c"),
                 .flags = &.{"-std=c99"},
             });
             for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);

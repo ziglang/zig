@@ -159,7 +159,7 @@ test Value {
                 // acquire ensures count decrement and code before
                 // previous unrefs()s happens-before we call dropFn
                 // below.
-                // Another alternative is to use .AcqRel on the
+                // Another alternative is to use .acq_rel on the
                 // fetchSub count decrement but it's extra barrier in
                 // possibly hot path.
                 rc.count.fence(.acquire);

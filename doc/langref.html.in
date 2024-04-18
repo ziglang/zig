@@ -2780,10 +2780,16 @@ fn noop4() align(4) void {}
 
 test "function alignment" {
     try expect(derp() == 1234);
-    try expect(@TypeOf(noop1) == fn () align(1) void);
-    try expect(@TypeOf(noop4) == fn () align(4) void);
+    try expect(@TypeOf(derp) == fn () i32);
+    try expect(@TypeOf(&derp) == *align(@sizeOf(usize) * 2) const fn () i32);
+
     noop1();
+    try expect(@TypeOf(noop1) == fn () void);
+    try expect(@TypeOf(&noop1) == *align(1) const fn () void);
+
     noop4();
+    try expect(@TypeOf(noop4) == fn () void);
+    try expect(@TypeOf(&noop4) == *align(4) const fn () void);
 }
       {#code_end#}
       <p>
@@ -3101,7 +3107,7 @@ test "struct namespaced variable" {
 // struct field order is determined by the compiler for optimal performance.
 // however, you can still calculate a struct base pointer given a field pointer:
 fn setYBasedOnX(x: *f32, y: f32) void {
-    const point = @fieldParentPtr(Point, "x", x);
+    const point: *Point = @fieldParentPtr("x", x);
     point.y = y;
 }
 test "field parent pointer" {
@@ -3167,24 +3173,81 @@ test "linked list" {
 
       {#header_open|Default Field Values#}
       <p>
-      Each struct field may have an expression indicating the default field value. Such expressions
-      are executed at {#link|comptime#}, and allow the field to be omitted in a struct literal expression:
+      Each struct field may have an expression indicating the default field
+      value. Such expressions are executed at {#link|comptime#}, and allow the
+      field to be omitted in a struct literal expression:
       </p>
-      {#code_begin|test|test_struct_default_field_values#}
+      {#code_begin|test|struct_default_field_values#}
 const Foo = struct {
     a: i32 = 1234,
     b: i32,
 };
 
 test "default struct initialization fields" {
-    const x = Foo{
+    const x: Foo = .{
         .b = 5,
     };
     if (x.a + x.b != 1239) {
-        @compileError("it's even comptime-known!");
+        comptime unreachable;
     }
 }
       {#code_end#}
+      <p>
+      Default field values are only appropriate when the data invariants of a struct
+      cannot be violated by omitting that field from an initialization.
+      </p>
+      <p>
+      For example, here is an inappropriate use of default struct field initialization:
+      </p>
+      {#code_begin|exe_err|bad_default_value#}
+const Threshold = struct {
+    minimum: f32 = 0.25,
+    maximum: f32 = 0.75,
+
+    const Category = enum { low, medium, high };
+
+    fn categorize(t: Threshold, value: f32) Category {
+        assert(t.maximum >= t.minimum);
+        if (value < t.minimum) return .low;
+        if (value > t.maximum) return .high;
+        return .medium;
+    }
+};
+
+pub fn main() !void {
+    var threshold: Threshold = .{
+        .maximum = 0.20,
+    };
+    const category = threshold.categorize(0.90);
+    try std.io.getStdOut().writeAll(@tagName(category));
+}
+
+const std = @import("std");
+const assert = std.debug.assert;
+      {#code_end#}
+      <p>
+      Above you can see the danger of ignoring this principle. The default
+      field values caused the data invariant to be violated, causing illegal
+      behavior.
+      </p>
+      <p>
+      To fix this, remove the default values from all the struct fields, and provide
+      a named default value:
+      </p>
+      {#code_begin|syntax|struct_default_value#}
+const Threshold = struct {
+    minimum: f32,
+    maximum: f32,
+
+    const default: Threshold = .{
+        .minimum = 0.25,
+        .maximum = 0.75,
+    };
+};
+      {#code_end#}
+      <p>If a struct value requires a runtime-known value in order to be initialized
+      without violating data invariants, then use an initialization method that accepts
+      those runtime values, and populates the remaining fields.</p>
       {#header_close#}
 
       {#header_open|extern struct#}
@@ -3260,6 +3323,16 @@ fn doTheTest() !void {
 }
       {#code_end#}
       <p>
+      The backing integer is inferred from the fields' total bit width.
+      Optionally, it can be explicitly provided and enforced at compile time:
+      </p>
+      {#code_begin|test_err|test_missized_packed_struct|backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 24#}
+test "missized packed struct" {
+    const S = packed struct(u32) { a: u16, b: u8 };
+    _ = S{ .a = 4, .b = 2 };
+}
+      {#code_end#}
+      <p>
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
       {#code_begin|test|test_pointer_to_non-byte_aligned_field#}
@@ -3303,7 +3376,7 @@ var bit_field = BitField{
     .c = 3,
 };
 
-test "pointer to non-bit-aligned field" {
+test "pointer to non-byte-aligned field" {
     try expect(bar(&bit_field.b) == 2);
 }
 
@@ -3352,7 +3425,7 @@ const BitField = packed struct {
     c: u2,
 };
 
-test "pointer to non-bit-aligned field" {
+test "offsets of non-byte-aligned fields" {
     comptime {
         try expect(@bitOffsetOf(BitField, "a") == 0);
         try expect(@bitOffsetOf(BitField, "b") == 3);
@@ -5514,7 +5587,7 @@ fn doAThing(str: []u8) void {
       errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
       </p>
       {#syntax_block|zig|handle_some_error_scenarios.zig#}
- fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+ fn doAnotherThing(str: []u8) error{InvalidChar}!void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
     } else |err| switch (err) {
@@ -6806,8 +6879,269 @@ fn foo() i32 {
 
       {#header_open|Result Location Semantics#}
       <p>
-      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
+      During compilation, every Zig expression and sub-expression is assigned optional result location
+      information. This information dictates what type the expression should have (its result type), and
+      where the resulting value should be placed in memory (its result location). The information is
+      optional in the sense that not every expression has this information: assignment to
+      {#syntax#}_{#endsyntax#}, for instance, does not provide any information about the type of an
+      expression, nor does it provide a concrete memory location to place it in.
       </p>
+      <p>
+      As a motivating example, consider the statement {#syntax#}const x: u32 = 42;{#endsyntax#}. The type
+      annotation here provides a result type of {#syntax#}u32{#endsyntax#} to the initialization expression
+      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initally of type
+      {#syntax#}comptime_int{#endsyntax#}) to this type. We will see more examples shortly.
+      </p>
+      <p>
+      This is not an implementation detail: the logic outlined above is codified into the Zig language
+      specification, and is the primary mechanism of type inference in the language. This system is
+      collectively referred to as "Result Location Semantics".
+      </p>
+      {#header_open|Result Types#}
+      <p>
+      Result types are propagated recursively through expressions where possible. For instance, if the
+      expression {#syntax#}&e{#endsyntax#} has result type {#syntax#}*u32{#endsyntax#}, then
+      {#syntax#}e{#endsyntax#} is given a result type of {#syntax#}u32{#endsyntax#}, allowing the
+      language to perform this coercion before taking a reference.
+      </p>
+      <p>
+      The result type mechanism is utilized by casting builtins such as {#syntax#}@intCast{#endsyntax#}.
+      Rather than taking as an argument the type to cast to, these builtins use their result type to
+      determine this information. The result type is often known from context; where it is not, the
+      {#syntax#}@as{#endsyntax#} builtin can be used to explicitly provide a result type.
+      </p>
+      <p>
+      We can break down the result types for each component of a simple expression as follows:
+      </p>
+      {#code_begin|test|result_type_propagation#}
+const expectEqual = @import("std").testing.expectEqual;
+test "result type propagates through struct initializer" {
+    const S = struct { x: u32 };
+    const val: u64 = 123;
+    const s: S = .{ .x = @intCast(val) };
+    // .{ .x = @intCast(val) }   has result type `S` due to the type annotation
+    //         @intCast(val)     has result type `u32` due to the type of the field `S.x`
+    //                  val      has no result type, as it is permitted to be any integer type
+    try expectEqual(@as(u32, 123), s.x);
+}
+      {#code_end#}
+      <p>
+      This result type information is useful for the aforementioned cast builtins, as well as to avoid
+      the construction of pre-coercion values, and to avoid the need for explicit type coercions in some
+      cases. The following table details how some common expressions propagate result types, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Parent Result Type</th>
+            <th scope="col">Sub-expression Result Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@TypeOf(val){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}*T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}[]T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is some array of {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has the type of the first parameter of {#syntax#}f{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}y{#endsyntax#} is a {#syntax#}std.math.Log2IntCeil(@TypeOf(x)){#endsyntax#}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
+      {#header_open|Result Locations#}
+      <p>
+      In addition to result type information, every expression may be optionally assigned a result
+      location: a pointer to which the value must be directly written. This system can be used to prevent
+      intermediate copies when initializing data structures, which can be important for types which must
+      have a fixed memory address ("pinned" types).
+      </p>
+      <p>
+      When compiling the simple assignment expression {#syntax#}x = e{#endsyntax#}, many languages would
+      create the temporary value {#syntax#}e{#endsyntax#} on the stack, and then assign it to
+      {#syntax#}x{#endsyntax#}, potentially performing a type coercion in the process. Zig approaches this
+      differently. The expression {#syntax#}e{#endsyntax#} is given a result type matching the type of
+      {#syntax#}x{#endsyntax#}, and a result location of {#syntax#}&x{#endsyntax#}. For many syntactic
+      forms of {#syntax#}e{#endsyntax#}, this has no practical impact. However, it can have important
+      semantic effects when working with more complex syntax forms.
+      </p>
+      <p>
+      For instance, if the expression {#syntax#}.{ .a = x, .b = y }{#endsyntax#} has a result location of
+      {#syntax#}ptr{#endsyntax#}, then {#syntax#}x{#endsyntax#} is given a result location of
+      {#syntax#}&ptr.a{#endsyntax#}, and {#syntax#}y{#endsyntax#} a result location of {#syntax#}&ptr.b{#endsyntax#}.
+      Without this system, this expression would construct a temporary struct value entirely on the stack, and
+      only then copy it to the destination address. In essence, Zig desugars the assignment
+      {#syntax#}foo = .{ .a = x, .b = y }{#endsyntax#} to the two statements {#syntax#}foo.a = x; foo.b = y;{#endsyntax#}.
+      </p>
+      <p>
+      This can sometimes be important when assigning an aggregate value where the initialization
+      expression depends on the previous value of the aggregate. The easiest way to demonstrate this is by
+      attempting to swap fields of a struct or array - the following logic looks sound, but in fact is not:
+      </p>
+      {#code_begin|test_err|result_location_interfering_with_swap#}
+const expect = @import("std").testing.expect;
+test "attempt to swap array elements with array initializer" {
+    var arr: [2]u32 = .{ 1, 2 };
+    arr = .{ arr[1], arr[0] };
+    // The previous line is equivalent to the following two lines:
+    //   arr[0] = arr[1];
+    //   arr[1] = arr[0];
+    // So this fails!
+    try expect(arr[0] == 2); // succeeds
+    try expect(arr[1] == 1); // fails
+}
+      {#code_end#}
+      <p>
+      The following table details how some common expressions propagate result locations, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions. Note that
+      some expressions cannot provide meaningful result locations to sub-expressions, even if they
+      themselves have a result location.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Result Location</th>
+            <th scope="col">Sub-expression Result Locations</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr[0]{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr.a{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} do not have result locations</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|usingnamespace#}
@@ -7690,10 +8024,16 @@ test "global assembly" {
       {#header_close#}
 
       {#header_open|Async Functions#}
-      <p>Async functions are being temporarily regressed and will be
-      <a href="https://github.com/ziglang/zig/issues/6025">restored before Zig
-        0.11.0 is tagged</a>. I apologize for the instability. Please use Zig 0.10.0 with
-      the <code>-fstage1</code> flag for now if you need this feature.</p>
+      <p>Async functions regressed with the release of 0.11.0. Their future in
+      the Zig language is unclear due to multiple unsolved problems:</p>
+      <ul>
+        <li>LLVM's lack of ability to optimize them.</li>
+        <li>Third-party debuggers' lack of ability to debug them.</li>
+        <li><a href="https://github.com/ziglang/zig/issues/5913">The cancellation problem</a>.</li>
+        <li>Async function pointers preventing the stack size from being known.</li>
+      </ul>
+      <p>These problems are surmountable, but it will take time. The Zig team
+      is currently focused on other priorities.</p>
       {#header_close#}
 
       {#header_open|Builtin Functions|2col#}
@@ -8433,8 +8773,7 @@ test "decl access by string" {
       {#header_close#}
 
       {#header_open|@fieldParentPtr#}
-      <pre>{#syntax#}@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
-    field_ptr: *T) *ParentType{#endsyntax#}</pre>
+      <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
       </p>
@@ -11147,7 +11486,7 @@ pub fn main() !void {
 1: 123
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
-      This is now supported in the standard library via {#syntax#}std.fs.wasi.PreopenList{#endsyntax#}:</p>
+      This is now supported in the standard library via {#syntax#}std.fs.wasi.Preopens{#endsyntax#}:</p>
       {#code_begin|exe|wasi_preopens#}
       {#target_wasi#}
 const std = @import("std");
@@ -11212,6 +11551,51 @@ this documentation along with the compiler in order to provide a point of
 reference, should anyone wish to point to an authority on agreed upon Zig
 coding style.
       </p>
+      {#header_open|Avoid Redundancy in Names#}
+      <p>Avoid these words in type names:</p>
+      <ul>
+        <li>Value</li>
+        <li>Data</li>
+        <li>Context</li>
+        <li>Manager</li>
+        <li>utils, misc, or somebody's initials</li>
+      </ul>
+      <p>Everything is a value, all types are data, everything is context, all logic manages state.
+      Nothing is communicated by using a word that applies to all types.</p> 
+      <p>Temptation to use "utilities", "miscellaneous", or somebody's initials
+      is a failure to categorize, or more commonly, overcategorization. Such
+      declarations can live at the root of a module that needs them with no
+      namespace needed.</p>
+      {#header_close#}
+
+      {#header_open|Avoid Redundant Names in Fully-Qualified Namespaces#}
+      <p>Every declaration is assigned a <strong>fully qualified
+      namespace</strong> by the compiler, creating a tree structure. Choose names based
+      on the fully-qualified namespace, and avoid redundant name segments.</p>
+      {#code_begin|exe|redundant_fqn#}
+const std = @import("std");
+
+pub const json = struct {
+    pub const JsonValue = union(enum) {
+        number: f64,
+        boolean: bool,
+        // ...
+    };
+};
+
+pub fn main() void {
+    std.debug.print("{s}\n", .{@typeName(json.JsonValue)});
+}
+      {#code_end#}
+      <p>In this example, "json" is repeated in the fully-qualified namespace. The solution
+      is to delete <code>Json</code> from <code>JsonValue</code>. In this example we have
+      an empty struct named <code>json</code> but remember that files also act
+      as part of the fully-qualified namespace.</p>
+      <p>This example is an exception to the rule specified in {#link|Avoid Redundancy in Names#}.
+      The meaning of the type has been reduced to its core: it is a json value. The name
+      cannot be any more specific without being incorrect.</p>
+      {#header_close#}
+
       {#header_open|Whitespace#}
       <ul>
         <li>
@@ -12378,7 +12762,7 @@ mb_utf8_literal <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
-ascii_char_not_nl_slash_squote <- [\000-\011\013-\046-\050-\133\135-\177]
+ascii_char_not_nl_slash_squote <- [\000-\011\013-\046\050-\133\135-\177]
 
 char_escape
     <- "\\x" hex hex

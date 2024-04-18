@@ -9,6 +9,5 @@ EXPORTS
 HomeNetWizardRunDll
 DllCanUnloadNow
 DllGetClassObject
-DllMain
 DllRegisterServer
 DllUnregisterServer
