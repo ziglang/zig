@@ -181,7 +181,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     elf_file.markEhFrameAtomsDead();
     try elf_file.resolveMergeSections();
     try elf_file.addCommentString();
-    try elf_file.sortMergeSections();
+    try elf_file.finalizeMergeSections();
     claimUnresolved(elf_file);
 
     try initSections(elf_file);

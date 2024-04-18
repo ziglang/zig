@@ -1340,7 +1340,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     };
 
     try self.addCommentString();
-    try self.sortMergeSections();
+    try self.finalizeMergeSections();
     try self.initOutputSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
@@ -3369,9 +3369,9 @@ pub fn resolveMergeSections(self: *Elf) !void {
     if (has_errors) return error.FlushFailure;
 }
 
-pub fn sortMergeSections(self: *Elf) !void {
+pub fn finalizeMergeSections(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
-        try msec.sort(self);
+        try msec.finalize(self);
     }
 }
 

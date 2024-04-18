@@ -56,9 +56,9 @@ pub const MergeSection = struct {
         return msec.insert(allocator, with_null);
     }
 
+    /// Finalizes the merge section and clears hash table.
     /// Sorts all owned subsections.
-    /// Clears string table.
-    pub fn sort(msec: *MergeSection, elf_file: *Elf) !void {
+    pub fn finalize(msec: *MergeSection, elf_file: *Elf) !void {
         const gpa = elf_file.base.comp.gpa;
         try msec.subsections.ensureTotalCapacityPrecise(gpa, msec.table.count());
 
@@ -268,14 +268,6 @@ pub const InputMergeSection = struct {
         const index: u32 = @intCast(imsec.bytes.items.len);
         try imsec.bytes.appendSlice(allocator, string);
         try imsec.strings.append(allocator, .{ .pos = index, .len = @intCast(string.len) });
-    }
-
-    pub fn insertZ(imsec: *InputMergeSection, allocator: Allocator, string: []const u8) !void {
-        const index: u32 = @intCast(imsec.bytes.items.len);
-        try imsec.bytes.ensureUnusedCapacity(allocator, string.len + 1);
-        imsec.bytes.appendSliceAssumeCapacity(string);
-        imsec.bytes.appendAssumeCapacity(0);
-        try imsec.strings.append(allocator, .{ .pos = index, .len = @intCast(string.len + 1) });
     }
 
     pub const Index = u32;
