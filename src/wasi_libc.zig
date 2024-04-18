@@ -10,6 +10,7 @@ pub const CrtFile = enum {
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
+    libdl_a,
     libwasi_emulated_process_clocks_a,
     libwasi_emulated_getpid_a,
     libwasi_emulated_mman_a,
@@ -17,6 +18,9 @@ pub const CrtFile = enum {
 };
 
 pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
+    if (mem.eql(u8, lib_name, "dl")) {
+        return .libdl_a;
+    }
     if (mem.eql(u8, lib_name, "wasi-emulated-process-clocks")) {
         return .libwasi_emulated_process_clocks_a;
     }
@@ -34,6 +38,7 @@ pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
 
 pub fn emulatedLibCRFileLibName(crt_file: CrtFile) []const u8 {
     return switch (crt_file) {
+        .libdl_a => "libdl.a",
         .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
         .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
         .libwasi_emulated_mman_a => "libwasi-emulated-mman.a",
@@ -154,6 +159,25 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items, .{});
         },
+
+        .libdl_a => {
+            var args = std.ArrayList([]const u8).init(arena);
+            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+            try addLibcBottomHalfIncludes(comp, arena, &args);
+
+            var emu_dl_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+            for (emulated_dl_src_files) |file_path| {
+                try emu_dl_sources.append(.{
+                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        "libc", try sanitize(arena, file_path),
+                    }),
+                    .extra_flags = args.items,
+                    .owner = undefined,
+                });
+            }
+            try comp.build_crt_file("dl", .Lib, .@"wasi libdl.a", prog_node, emu_dl_sources.items, .{});
+        },
+
         .libwasi_emulated_process_clocks_a => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
@@ -1172,6 +1196,10 @@ const libc_top_half_src_files = [_][]const u8{
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
 const crt1_reactor_src_file = "wasi/libc-bottom-half/crt/crt1-reactor.c";
+
+const emulated_dl_src_files = &[_][]const u8{
+    "wasi/libc-top-half/musl/src/misc/dl.c",
+};
 
 const emulated_process_clocks_src_files = &[_][]const u8{
     "wasi/libc-bottom-half/clocks/clock.c",
