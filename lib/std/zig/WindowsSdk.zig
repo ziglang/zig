@@ -1,5 +1,5 @@
-windows10sdk: ?Windows10Sdk,
-windows81sdk: ?Windows81Sdk,
+windows10sdk: ?Installation,
+windows81sdk: ?Installation,
 msvc_lib_dir: ?[]const u8,
 
 const WindowsSdk = @This();
@@ -9,7 +9,7 @@ const builtin = @import("builtin");
 const windows = std.os.windows;
 const RRF = windows.advapi32.RRF;
 
-const WINDOWS_KIT_REG_KEY = "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots";
+const windows_kits_reg_key = "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots";
 
 // https://learn.microsoft.com/en-us/windows/win32/msi/productversion
 const version_major_minor_max_length = "255.255".len;
@@ -23,34 +23,24 @@ pub fn find(allocator: std.mem.Allocator) error{ OutOfMemory, NotFound, PathTooL
     if (builtin.os.tag != .windows) return error.NotFound;
 
     //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
-    const roots_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
+    const roots_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, windows_kits_reg_key) catch |err| switch (err) {
         error.KeyNotFound => return error.NotFound,
     };
     defer roots_key.closeKey();
 
-    const windows10sdk: ?Windows10Sdk = blk: {
-        const windows10sdk = Windows10Sdk.find(allocator) catch |err| switch (err) {
-            error.Windows10SdkNotFound,
-            error.PathTooLong,
-            error.VersionTooLong,
-            => break :blk null,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-        const is_valid_version = windows10sdk.isValidVersion();
-        if (!is_valid_version) break :blk null;
-        break :blk windows10sdk;
+    const windows10sdk = Installation.find(allocator, roots_key, "KitsRoot10", "", "v10.0") catch |err| switch (err) {
+        error.InstallationNotFound => null,
+        error.PathTooLong => null,
+        error.VersionTooLong => null,
+        error.OutOfMemory => return error.OutOfMemory,
     };
     errdefer if (windows10sdk) |*w| w.free(allocator);
 
-    const windows81sdk: ?Windows81Sdk = blk: {
-        const windows81sdk = Windows81Sdk.find(allocator, &roots_key) catch |err| switch (err) {
-            error.Windows81SdkNotFound => break :blk null,
-            error.PathTooLong => break :blk null,
-            error.VersionTooLong => break :blk null,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-        // no check
-        break :blk windows81sdk;
+    const windows81sdk = Installation.find(allocator, roots_key, "KitsRoot81", "winver", "v8.1") catch |err| switch (err) {
+        error.InstallationNotFound => null,
+        error.PathTooLong => null,
+        error.VersionTooLong => null,
+        error.OutOfMemory => return error.OutOfMemory,
     };
     errdefer if (windows81sdk) |*w| w.free(allocator);
 
@@ -60,96 +50,91 @@ pub fn find(allocator: std.mem.Allocator) error{ OutOfMemory, NotFound, PathTooL
     };
     errdefer allocator.free(msvc_lib_dir);
 
-    return WindowsSdk{
+    return .{
         .windows10sdk = windows10sdk,
         .windows81sdk = windows81sdk,
         .msvc_lib_dir = msvc_lib_dir,
     };
 }
 
-pub fn free(self: *const WindowsSdk, allocator: std.mem.Allocator) void {
-    if (self.windows10sdk) |*w10sdk| {
+pub fn free(sdk: WindowsSdk, allocator: std.mem.Allocator) void {
+    if (sdk.windows10sdk) |*w10sdk| {
         w10sdk.free(allocator);
     }
-    if (self.windows81sdk) |*w81sdk| {
+    if (sdk.windows81sdk) |*w81sdk| {
         w81sdk.free(allocator);
     }
-    if (self.msvc_lib_dir) |msvc_lib_dir| {
+    if (sdk.msvc_lib_dir) |msvc_lib_dir| {
         allocator.free(msvc_lib_dir);
     }
 }
 
-/// Iterates via `iterator` and collects all folders with names starting with `optional_prefix`
-/// and similar to SemVer. Returns slice of folder names sorted in descending order.
+/// Iterates via `iterator` and collects all folders with names starting with `strip_prefix`
+/// and a version. Returns slice of version strings sorted in descending order.
 /// Caller owns result.
-fn iterateAndFilterBySemVer(
+fn iterateAndFilterByVersion(
     iterator: *std.fs.Dir.Iterator,
     allocator: std.mem.Allocator,
-    comptime optional_prefix: ?[]const u8,
-) error{ OutOfMemory, VersionNotFound }![][]const u8 {
-    var dirs_filtered_list = std.ArrayList([]const u8).init(allocator);
-    errdefer {
-        for (dirs_filtered_list.items) |filtered_dir| allocator.free(filtered_dir);
-        dirs_filtered_list.deinit();
+    prefix: []const u8,
+) error{OutOfMemory}![][]const u8 {
+    const Version = struct {
+        nums: [4]u32,
+        build: []const u8,
+
+        fn parseNum(num: []const u8) ?u32 {
+            if (num[0] == '0' and num.len > 1) return null;
+            return std.fmt.parseInt(u32, num, 10) catch null;
+        }
+
+        fn order(lhs: @This(), rhs: @This()) std.math.Order {
+            return std.mem.order(u32, &lhs.nums, &rhs.nums).differ() orelse
+                std.mem.order(u8, lhs.build, rhs.build);
+        }
+    };
+    var versions = std.ArrayList(Version).init(allocator);
+    var dirs = std.ArrayList([]const u8).init(allocator);
+    defer {
+        versions.deinit();
+        for (dirs.items) |filtered_dir| allocator.free(filtered_dir);
+        dirs.deinit();
     }
 
-    var normalized_name_buf: [std.fs.MAX_NAME_BYTES + ".0+build.0".len]u8 = undefined;
-    var normalized_name_fbs = std.io.fixedBufferStream(&normalized_name_buf);
-    const normalized_name_w = normalized_name_fbs.writer();
-    iterate_folder: while (true) : (normalized_name_fbs.reset()) {
-        const maybe_entry = iterator.next() catch continue :iterate_folder;
-        const entry = maybe_entry orelse break :iterate_folder;
+    iterate: while (iterator.next() catch null) |entry| {
+        if (entry.kind != .directory) continue;
+        if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
 
-        if (entry.kind != .directory)
-            continue :iterate_folder;
-
-        // invalidated on next iteration
-        const subfolder_name = blk: {
-            if (comptime optional_prefix) |prefix| {
-                if (!std.mem.startsWith(u8, entry.name, prefix)) continue :iterate_folder;
-                break :blk entry.name[prefix.len..];
-            } else break :blk entry.name;
+        var version: Version = .{
+            .nums = .{0} ** 4,
+            .build = "",
         };
+        const suffix = entry.name[prefix.len..];
+        const underscore = std.mem.indexOfScalar(u8, entry.name, '_');
+        var num_it = std.mem.splitScalar(u8, suffix[0 .. underscore orelse suffix.len], '.');
+        version.nums[0] = Version.parseNum(num_it.first()) orelse continue;
+        for (version.nums[1..]) |*num|
+            num.* = Version.parseNum(num_it.next() orelse break) orelse continue :iterate
+        else if (num_it.next()) |_| continue;
 
-        { // check if subfolder name looks similar to SemVer
-            switch (std.mem.count(u8, subfolder_name, ".")) {
-                0 => normalized_name_w.print("{s}.0.0+build.0", .{subfolder_name}) catch unreachable, // 17 => 17.0.0+build.0
-                1 => if (std.mem.indexOfScalar(u8, subfolder_name, '_')) |underscore_pos| blk: { // 17.0_9e9cbb98 => 17.0.1+build.9e9cbb98
-                    var subfolder_name_tmp_copy_buf: [std.fs.MAX_NAME_BYTES]u8 = undefined;
-                    const subfolder_name_tmp_copy = subfolder_name_tmp_copy_buf[0..subfolder_name.len];
-                    @memcpy(subfolder_name_tmp_copy, subfolder_name);
+        const name = try allocator.dupe(u8, suffix);
+        errdefer allocator.free(name);
+        if (underscore) |pos| version.build = name[pos + 1 ..];
 
-                    subfolder_name_tmp_copy[underscore_pos] = '.'; // 17.0_9e9cbb98 => 17.0.9e9cbb98
-                    var subfolder_name_parts = std.mem.splitScalar(u8, subfolder_name_tmp_copy, '.'); // [ 17, 0, 9e9cbb98 ]
-
-                    const first = subfolder_name_parts.first(); // 17
-                    const second = subfolder_name_parts.next().?; // 0
-                    const third = subfolder_name_parts.rest(); // 9e9cbb98
-
-                    break :blk normalized_name_w.print("{s}.{s}.1+build.{s}", .{ first, second, third }) catch unreachable; // [ 17, 0, 9e9cbb98 ] => 17.0.1+build.9e9cbb98
-                } else normalized_name_w.print("{s}.0+build.0", .{subfolder_name}) catch unreachable, // 17.0 => 17.0.0+build.0
-                else => normalized_name_w.print("{s}+build.0", .{subfolder_name}) catch unreachable, // 17.0.0 => 17.0.0+build.0
-            }
-            const subfolder_name_normalized: []const u8 = normalized_name_fbs.getWritten();
-            const sem_ver = std.SemanticVersion.parse(subfolder_name_normalized);
-            _ = sem_ver catch continue :iterate_folder;
-        }
-        // entry.name passed check
-
-        const subfolder_name_allocated = try allocator.dupe(u8, subfolder_name);
-        errdefer allocator.free(subfolder_name_allocated);
-        try dirs_filtered_list.append(subfolder_name_allocated);
+        try versions.append(version);
+        try dirs.append(name);
     }
 
-    const dirs_filtered_slice = try dirs_filtered_list.toOwnedSlice();
-    // Keep in mind that order of these names is not guaranteed by Windows,
-    // so we cannot just reverse or "while (popOrNull())" this ArrayList.
-    std.mem.sortUnstable([]const u8, dirs_filtered_slice, {}, struct {
-        fn desc(_: void, lhs: []const u8, rhs: []const u8) bool {
-            return std.mem.order(u8, lhs, rhs) == .gt;
+    std.mem.sortUnstableContext(0, dirs.items.len, struct {
+        versions: []Version,
+        dirs: [][]const u8,
+        pub fn lessThan(context: @This(), lhs: usize, rhs: usize) bool {
+            return context.versions[lhs].order(context.versions[rhs]).compare(.gt);
         }
-    }.desc);
-    return dirs_filtered_slice;
+        pub fn swap(context: @This(), lhs: usize, rhs: usize) void {
+            std.mem.swap(Version, &context.versions[lhs], &context.versions[rhs]);
+            std.mem.swap([]const u8, &context.dirs[lhs], &context.dirs[rhs]);
+        }
+    }{ .versions = versions.items, .dirs = dirs.items });
+    return dirs.toOwnedSlice();
 }
 
 const RegistryWtf8 = struct {
@@ -167,12 +152,12 @@ const RegistryWtf8 = struct {
         };
 
         const registry_wtf16le = try RegistryWtf16Le.openKey(hkey, key_wtf16le);
-        return RegistryWtf8{ .key = registry_wtf16le.key };
+        return .{ .key = registry_wtf16le.key };
     }
 
     /// Closes key, after that usage is invalid
-    pub fn closeKey(self: *const RegistryWtf8) void {
-        const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(self.key);
+    pub fn closeKey(reg: RegistryWtf8) void {
+        const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(reg.key);
         const return_code: windows.Win32Error = @enumFromInt(return_code_int);
         switch (return_code) {
             .SUCCESS => {},
@@ -182,7 +167,7 @@ const RegistryWtf8 = struct {
 
     /// Get string from registry.
     /// Caller owns result.
-    pub fn getString(self: *const RegistryWtf8, allocator: std.mem.Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
+    pub fn getString(reg: RegistryWtf8, allocator: std.mem.Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
         const subkey_wtf16le: [:0]const u16 = subkey_wtf16le: {
             var subkey_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
             const subkey_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(subkey_wtf16le_buf[0..], subkey) catch unreachable;
@@ -197,7 +182,7 @@ const RegistryWtf8 = struct {
             break :value_name_wtf16le value_name_wtf16le_buf[0..value_name_wtf16le_len :0];
         };
 
-        const registry_wtf16le = RegistryWtf16Le{ .key = self.key };
+        const registry_wtf16le: RegistryWtf16Le = .{ .key = reg.key };
         const value_wtf16le = try registry_wtf16le.getString(allocator, subkey_wtf16le, value_name_wtf16le);
         defer allocator.free(value_wtf16le);
 
@@ -208,7 +193,7 @@ const RegistryWtf8 = struct {
     }
 
     /// Get DWORD (u32) from registry.
-    pub fn getDword(self: *const RegistryWtf8, subkey: []const u8, value_name: []const u8) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
+    pub fn getDword(reg: RegistryWtf8, subkey: []const u8, value_name: []const u8) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
         const subkey_wtf16le: [:0]const u16 = subkey_wtf16le: {
             var subkey_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
             const subkey_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(subkey_wtf16le_buf[0..], subkey) catch unreachable;
@@ -223,8 +208,8 @@ const RegistryWtf8 = struct {
             break :value_name_wtf16le value_name_wtf16le_buf[0..value_name_wtf16le_len :0];
         };
 
-        const registry_wtf16le = RegistryWtf16Le{ .key = self.key };
-        return try registry_wtf16le.getDword(subkey_wtf16le, value_name_wtf16le);
+        const registry_wtf16le: RegistryWtf16Le = .{ .key = reg.key };
+        return registry_wtf16le.getDword(subkey_wtf16le, value_name_wtf16le);
     }
 
     /// Under private space with flags:
@@ -239,7 +224,7 @@ const RegistryWtf8 = struct {
         };
 
         const registry_wtf16le = try RegistryWtf16Le.loadFromPath(absolute_path_wtf16le);
-        return RegistryWtf8{ .key = registry_wtf16le.key };
+        return .{ .key = registry_wtf16le.key };
     }
 };
 
@@ -272,12 +257,12 @@ const RegistryWtf16Le = struct {
 
             else => return error.KeyNotFound,
         }
-        return RegistryWtf16Le{ .key = key };
+        return .{ .key = key };
     }
 
     /// Closes key, after that usage is invalid
-    fn closeKey(self: *const RegistryWtf16Le) void {
-        const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(self.key);
+    fn closeKey(reg: RegistryWtf16Le) void {
+        const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(reg.key);
         const return_code: windows.Win32Error = @enumFromInt(return_code_int);
         switch (return_code) {
             .SUCCESS => {},
@@ -286,13 +271,13 @@ const RegistryWtf16Le = struct {
     }
 
     /// Get string ([:0]const u16) from registry.
-    fn getString(self: *const RegistryWtf16Le, allocator: std.mem.Allocator, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
+    fn getString(reg: RegistryWtf16Le, allocator: std.mem.Allocator, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
         var actual_type: windows.ULONG = undefined;
 
         // Calculating length to allocate
         var value_wtf16le_buf_size: u32 = 0; // in bytes, including any terminating NUL character or characters.
         var return_code_int: windows.HRESULT = windows.advapi32.RegGetValueW(
-            self.key,
+            reg.key,
             subkey_wtf16le,
             value_name_wtf16le,
             RRF.RT_REG_SZ,
@@ -319,7 +304,7 @@ const RegistryWtf16Le = struct {
         errdefer allocator.free(value_wtf16le_buf);
 
         return_code_int = windows.advapi32.RegGetValueW(
-            self.key,
+            reg.key,
             subkey_wtf16le,
             value_name_wtf16le,
             RRF.RT_REG_SZ,
@@ -355,13 +340,13 @@ const RegistryWtf16Le = struct {
     }
 
     /// Get DWORD (u32) from registry.
-    fn getDword(self: *const RegistryWtf16Le, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
+    fn getDword(reg: RegistryWtf16Le, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
         var actual_type: windows.ULONG = undefined;
         var reg_size: u32 = @sizeOf(u32);
         var reg_value: u32 = 0;
 
         const return_code_int: windows.HRESULT = windows.advapi32.RegGetValueW(
-            self.key,
+            reg.key,
             subkey_wtf16le,
             value_name_wtf16le,
             RRF.RT_REG_DWORD,
@@ -405,28 +390,118 @@ const RegistryWtf16Le = struct {
             else => return error.KeyNotFound,
         }
 
-        return RegistryWtf16Le{ .key = key };
+        return .{ .key = key };
     }
 };
 
-pub const Windows10Sdk = struct {
+pub const Installation = struct {
     path: []const u8,
     version: []const u8,
 
-    /// Find path and version of Windows 10 SDK.
+    /// Find path and version of Windows SDK.
     /// Caller owns the result's fields.
     /// After finishing work, call `free(allocator)`.
-    fn find(allocator: std.mem.Allocator) error{ OutOfMemory, Windows10SdkNotFound, PathTooLong, VersionTooLong }!Windows10Sdk {
-        const v10_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0") catch |err| switch (err) {
-            error.KeyNotFound => return error.Windows10SdkNotFound,
-        };
-        defer v10_key.closeKey();
+    fn find(
+        allocator: std.mem.Allocator,
+        roots_key: RegistryWtf8,
+        roots_subkey: []const u8,
+        prefix: []const u8,
+        version_key_name: []const u8,
+    ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
+        roots: {
+            const installation = findFromRoot(allocator, roots_key, roots_subkey, prefix) catch
+                break :roots;
+            if (installation.isValidVersion()) return installation;
+            installation.free(allocator);
+        }
+        {
+            const installation = try findFromInstallationFolder(allocator, version_key_name);
+            if (installation.isValidVersion()) return installation;
+            installation.free(allocator);
+        }
+        return error.InstallationNotFound;
+    }
 
-        const path: []const u8 = path10: {
-            const path_maybe_with_trailing_slash = v10_key.getString(allocator, "", "InstallationFolder") catch |err| switch (err) {
-                error.NotAString => return error.Windows10SdkNotFound,
-                error.ValueNameNotFound => return error.Windows10SdkNotFound,
-                error.StringNotFound => return error.Windows10SdkNotFound,
+    fn findFromRoot(
+        allocator: std.mem.Allocator,
+        roots_key: RegistryWtf8,
+        roots_subkey: []const u8,
+        prefix: []const u8,
+    ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
+        const path = path: {
+            const path_maybe_with_trailing_slash = roots_key.getString(allocator, "", roots_subkey) catch |err| switch (err) {
+                error.NotAString => return error.InstallationNotFound,
+                error.ValueNameNotFound => return error.InstallationNotFound,
+                error.StringNotFound => return error.InstallationNotFound,
+
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            if (path_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
+                allocator.free(path_maybe_with_trailing_slash);
+                return error.PathTooLong;
+            }
+
+            var path = std.ArrayList(u8).fromOwnedSlice(allocator, path_maybe_with_trailing_slash);
+            errdefer path.deinit();
+
+            // String might contain trailing slash, so trim it here
+            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
+            break :path try path.toOwnedSlice();
+        };
+        errdefer allocator.free(path);
+
+        const version = version: {
+            var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            const sdk_lib_dir_path = std.fmt.bufPrint(buf[0..], "{s}\\Lib\\", .{path}) catch |err| switch (err) {
+                error.NoSpaceLeft => return error.PathTooLong,
+            };
+            if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.InstallationNotFound;
+
+            // enumerate files in sdk path looking for latest version
+            var sdk_lib_dir = std.fs.openDirAbsolute(sdk_lib_dir_path, .{
+                .iterate = true,
+            }) catch |err| switch (err) {
+                error.NameTooLong => return error.PathTooLong,
+                else => return error.InstallationNotFound,
+            };
+            defer sdk_lib_dir.close();
+
+            var iterator = sdk_lib_dir.iterate();
+            const versions = try iterateAndFilterByVersion(&iterator, allocator, prefix);
+            defer {
+                for (versions[1..]) |version| allocator.free(version);
+                allocator.free(versions);
+            }
+            break :version versions[0];
+        };
+        errdefer allocator.free(version);
+
+        return .{ .path = path, .version = version };
+    }
+
+    fn findFromInstallationFolder(
+        allocator: std.mem.Allocator,
+        version_key_name: []const u8,
+    ) error{ OutOfMemory, InstallationNotFound, PathTooLong, VersionTooLong }!Installation {
+        var key_name_buf: [RegistryWtf16Le.key_name_max_len]u8 = undefined;
+        const key = key: for ([_][]const u8{ "\\Wow6432Node", "" }) |wow6432node| {
+            for ([_]windows.HKEY{ windows.HKEY_LOCAL_MACHINE, windows.HKEY_CURRENT_USER }) |hkey| {
+                break :key RegistryWtf8.openKey(hkey, std.fmt.bufPrint(
+                    &key_name_buf,
+                    "SOFTWARE{s}\\Microsoft\\Microsoft SDKs\\Windows\\{s}",
+                    .{ wow6432node, version_key_name },
+                ) catch unreachable) catch |err| switch (err) {
+                    error.KeyNotFound => return error.InstallationNotFound,
+                };
+            }
+        } else return error.InstallationNotFound;
+        defer key.closeKey();
+
+        const path: []const u8 = path: {
+            const path_maybe_with_trailing_slash = key.getString(allocator, "", "InstallationFolder") catch |err| switch (err) {
+                error.NotAString => return error.InstallationNotFound,
+                error.ValueNameNotFound => return error.InstallationNotFound,
+                error.StringNotFound => return error.InstallationNotFound,
 
                 error.OutOfMemory => return error.OutOfMemory,
             };
@@ -443,17 +518,17 @@ pub const Windows10Sdk = struct {
             if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
 
             const path_without_trailing_slash = try path.toOwnedSlice();
-            break :path10 path_without_trailing_slash;
+            break :path path_without_trailing_slash;
         };
         errdefer allocator.free(path);
 
-        const version: []const u8 = version10: {
+        const version: []const u8 = version: {
 
             // note(dimenus): Microsoft doesn't include the .0 in the ProductVersion key....
-            const version_without_0 = v10_key.getString(allocator, "", "ProductVersion") catch |err| switch (err) {
-                error.NotAString => return error.Windows10SdkNotFound,
-                error.ValueNameNotFound => return error.Windows10SdkNotFound,
-                error.StringNotFound => return error.Windows10SdkNotFound,
+            const version_without_0 = key.getString(allocator, "", "ProductVersion") catch |err| switch (err) {
+                error.NotAString => return error.InstallationNotFound,
+                error.ValueNameNotFound => return error.InstallationNotFound,
+                error.StringNotFound => return error.InstallationNotFound,
 
                 error.OutOfMemory => return error.OutOfMemory,
             };
@@ -468,21 +543,27 @@ pub const Windows10Sdk = struct {
             try version.appendSlice(".0");
 
             const version_with_0 = try version.toOwnedSlice();
-            break :version10 version_with_0;
+            break :version version_with_0;
         };
         errdefer allocator.free(version);
 
-        return Windows10Sdk{ .path = path, .version = version };
+        return .{ .path = path, .version = version };
     }
 
     /// Check whether this version is enumerated in registry.
-    fn isValidVersion(windows10sdk: *const Windows10Sdk) bool {
+    fn isValidVersion(installation: Installation) bool {
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const reg_query_as_wtf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{ WINDOWS_KIT_REG_KEY, windows10sdk.version }) catch |err| switch (err) {
+        const reg_query_as_wtf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{
+            windows_kits_reg_key,
+            installation.version,
+        }) catch |err| switch (err) {
             error.NoSpaceLeft => return false,
         };
 
-        const options_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, reg_query_as_wtf8) catch |err| switch (err) {
+        const options_key = RegistryWtf8.openKey(
+            windows.HKEY_LOCAL_MACHINE,
+            reg_query_as_wtf8,
+        ) catch |err| switch (err) {
             error.KeyNotFound => return false,
         };
         defer options_key.closeKey();
@@ -492,87 +573,16 @@ pub const Windows10Sdk = struct {
             .aarch64 => "OptionId.DesktopCPParm64",
             .x86_64 => "OptionId.DesktopCPPx64",
             .x86 => "OptionId.DesktopCPPx86",
-            else => |tag| @compileError("Windows 10 SDK cannot be detected on architecture " ++ tag),
+            else => |tag| @compileError("Windows SDK cannot be detected on architecture " ++ tag),
         };
 
         const reg_value = options_key.getDword("", option_name) catch return false;
         return (reg_value == 1);
     }
 
-    fn free(self: *const Windows10Sdk, allocator: std.mem.Allocator) void {
-        allocator.free(self.path);
-        allocator.free(self.version);
-    }
-};
-
-pub const Windows81Sdk = struct {
-    path: []const u8,
-    version: []const u8,
-
-    /// Find path and version of Windows 8.1 SDK.
-    /// Caller owns the result's fields.
-    /// After finishing work, call `free(allocator)`.
-    fn find(allocator: std.mem.Allocator, roots_key: *const RegistryWtf8) error{ OutOfMemory, Windows81SdkNotFound, PathTooLong, VersionTooLong }!Windows81Sdk {
-        const path: []const u8 = path81: {
-            const path_maybe_with_trailing_slash = roots_key.getString(allocator, "", "KitsRoot81") catch |err| switch (err) {
-                error.NotAString => return error.Windows81SdkNotFound,
-                error.ValueNameNotFound => return error.Windows81SdkNotFound,
-                error.StringNotFound => return error.Windows81SdkNotFound,
-
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            if (path_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
-                allocator.free(path_maybe_with_trailing_slash);
-                return error.PathTooLong;
-            }
-
-            var path = std.ArrayList(u8).fromOwnedSlice(allocator, path_maybe_with_trailing_slash);
-            errdefer path.deinit();
-
-            // String might contain trailing slash, so trim it here
-            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
-
-            const path_without_trailing_slash = try path.toOwnedSlice();
-            break :path81 path_without_trailing_slash;
-        };
-        errdefer allocator.free(path);
-
-        const version: []const u8 = version81: {
-            var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-            const sdk_lib_dir_path = std.fmt.bufPrint(buf[0..], "{s}\\Lib\\", .{path}) catch |err| switch (err) {
-                error.NoSpaceLeft => return error.PathTooLong,
-            };
-            if (!std.fs.path.isAbsolute(sdk_lib_dir_path)) return error.Windows81SdkNotFound;
-
-            // enumerate files in sdk path looking for latest version
-            var sdk_lib_dir = std.fs.openDirAbsolute(sdk_lib_dir_path, .{
-                .iterate = true,
-            }) catch |err| switch (err) {
-                error.NameTooLong => return error.PathTooLong,
-                else => return error.Windows81SdkNotFound,
-            };
-            defer sdk_lib_dir.close();
-
-            var iterator = sdk_lib_dir.iterate();
-            const versions = iterateAndFilterBySemVer(&iterator, allocator, "winv") catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.VersionNotFound => return error.Windows81SdkNotFound,
-            };
-            defer {
-                for (versions) |version| allocator.free(version);
-                allocator.free(versions);
-            }
-            const latest_version = try allocator.dupe(u8, versions[0]);
-            break :version81 latest_version;
-        };
-        errdefer allocator.free(version);
-
-        return Windows81Sdk{ .path = path, .version = version };
-    }
-
-    fn free(self: *const Windows81Sdk, allocator: std.mem.Allocator) void {
-        allocator.free(self.path);
-        allocator.free(self.version);
+    fn free(install: Installation, allocator: std.mem.Allocator) void {
+        allocator.free(install.path);
+        allocator.free(install.version);
     }
 };
 
@@ -634,7 +644,7 @@ const MsvcLibDir = struct {
     /// Example: 17.4.33205.214 -> 0x0011000481b500d6
     fn parseVersionQuad(version: []const u8) error{InvalidVersion}!u64 {
         var it = std.mem.splitScalar(u8, version, '.');
-        const a = it.next() orelse return error.InvalidVersion;
+        const a = it.first();
         const b = it.next() orelse return error.InvalidVersion;
         const c = it.next() orelse return error.InvalidVersion;
         const d = it.next() orelse return error.InvalidVersion;
@@ -791,11 +801,7 @@ const MsvcLibDir = struct {
             defer visualstudio_folder.close();
 
             var iterator = visualstudio_folder.iterate();
-            const versions = iterateAndFilterBySemVer(&iterator, allocator, null) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.VersionNotFound => return error.PathNotFound,
-            };
-            break :vs_versions versions;
+            break :vs_versions try iterateAndFilterByVersion(&iterator, allocator, "");
         };
         defer {
             for (vs_versions) |vs_version| allocator.free(vs_version);
