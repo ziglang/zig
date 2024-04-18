@@ -6334,7 +6334,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const operand = try self.resolveInst(bin_op.lhs);
-        const epxected = try self.resolveInst(bin_op.rhs);
+        const expected = try self.resolveInst(bin_op.rhs);
 
         return try self.wip.callIntrinsic(
             .normal,
@@ -6343,7 +6343,7 @@ pub const FuncGen = struct {
             &.{operand.typeOfWip(&self.wip)},
             &.{
                 operand,
-                epxected,
+                expected,
             },
             "",
         );
