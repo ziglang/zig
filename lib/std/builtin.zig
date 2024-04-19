@@ -922,7 +922,7 @@ pub fn PanicData(comptime cause: PanicCause) type {
             return PanicCause.OrderedBoundsExtra;
         },
         .accessed_inactive_field => |tag_type| {
-            return packed struct { expected: tag_type, found: tag_type };
+            return struct { expected: tag_type, found: tag_type };
         },
         .memcpy_argument_aliasing => {
             return PanicCause.AddressRanges;
