@@ -38985,7 +38985,8 @@ pub const RuntimeSafety = struct {
                     // This panic cause is generic on pointer (operand) alignment.
                     .cast_to_ptr_from_invalid => |alignment| ptr_align: {
                         if (wantPanicCause(sema, cause) != .none) {
-                            const ptr_align_val: Value = try sema.mod.intValue(Type.usize, Alignment.toByteUnits(alignment, 0));
+                            const alignment_int: u64 = Alignment.toByteUnits(alignment) orelse 0;
+                            const ptr_align_val: Value = try sema.mod.intValue(Type.comptime_int, alignment_int);
                             break :ptr_align Value.toIntern(ptr_align_val);
                         } else {
                             break :ptr_align InternPool.Index.zero_usize;
@@ -39707,19 +39708,19 @@ pub const RuntimeSafety = struct {
         src_ptr_val: Value,
     ) !?usize {
         const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(src_ptr_val)).ptr;
-        switch (ptr_key.addr) {
+        switch (ptr_key.base_addr) {
             .decl => |decl| {
                 const decl_ptr: *Decl = sema.mod.declPtr(decl);
-                const decl_ty: Type = decl_ptr.ty;
+                const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
                 try sema.resolveTypeFully(decl_ty);
                 return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
             },
-            .mut_decl => |mut_decl| {
-                const decl_ptr: *Decl = sema.mod.declPtr(mut_decl.decl);
-                const decl_ty: Type = decl_ptr.ty;
-                try sema.resolveTypeFully(decl_ty);
-                return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
-            },
+            //.mut_decl => |mut_decl| {
+            //    const decl_ptr: *Decl = sema.mod.declPtr(mut_decl.decl);
+            //    const decl_ty: Type = decl_ptr.ty;
+            //    try sema.resolveTypeFully(decl_ty);
+            //    return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
+            //},
             .anon_decl => |anon_decl| {
                 const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
                 try sema.resolveTypeFully(decl_ty);
@@ -39731,7 +39732,7 @@ pub const RuntimeSafety = struct {
                 const field_offset: usize = try sema.usizeCast(block, src, container_ty.structFieldOffset(index, sema.mod));
                 return memsz - field_offset;
             },
-            .elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
+            .arr_elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
                 const index: usize = try sema.usizeCast(block, src, elem.index);
                 const elem_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
                 try sema.resolveTypeFully(elem_ty);
@@ -39742,6 +39743,11 @@ pub const RuntimeSafety = struct {
                 const field_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(comptime_field));
                 try sema.resolveTypeFully(field_ty);
                 return try sema.usizeCast(block, src, field_ty.abiSize(sema.mod));
+            },
+            .comptime_alloc => |comptime_alloc| {
+                const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
+                try sema.resolveTypeFully(val_ty);
+                return try sema.usizeCast(block, src, val_ty.abiSize(sema.mod));
             },
             .eu_payload, .opt_payload => {
                 return sema.fail(block, src, "TODO: comptime slice manyptr from [eu|opt]_payload", .{});
@@ -39992,7 +39998,7 @@ pub const RuntimeSafety = struct {
             if (sa.dest_len == .known) {
                 if (try sema.compareAll(dest_len_val, .neq, Value.zero_comptime_int, Type.comptime_int)) {
                     return sema.fail(block, src, "non-zero ({}) length slice of undefined pointer", .{
-                        dest_len_val.fmtValue(Type.comptime_int, sema.mod),
+                        dest_len_val.fmtValue(sema.mod, sema),
                     });
                 }
             } else {
@@ -40095,7 +40101,7 @@ pub const RuntimeSafety = struct {
                 if (try sema.resolveValue(ptr_inst)) |ptr_val| {
                     const many_ptr_val: Value = try sema.mod.getCoerced(ptr_val, many_ptr_ty);
                     const idx: usize = try sema.usizeCast(block, src, idx_val.toUnsignedInt(sema.mod));
-                    break :blk try many_ptr_val.elemPtr(elem_ptr_ty, idx, sema.mod);
+                    break :blk try many_ptr_val.ptrElem(idx, sema);
                 }
             }
             break :blk Value.undef;
@@ -40137,25 +40143,25 @@ pub const RuntimeSafety = struct {
             {
                 if (!src_ptr_explicit_len) {
                     return sema.fail(block, dest_end_src, "slice end or sentinel out of bounds of reinterpreted memory: end {}(+1), length {}", .{
-                        dest_end_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_end_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 } else {
                     return sema.fail(block, dest_end_src, "slice end or sentinel out of bounds: end {}(+1), length {}", .{
-                        dest_end_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_end_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 }
             } else if (!try sema.compareScalar(dest_end_val, .lte, src_len2_val, Type.usize)) {
                 if (!src_ptr_explicit_len) {
                     return sema.fail(block, dest_end_src, "slice end out of bounds of reinterpreted memory: end {}, length {}", .{
-                        dest_end_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_end_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 } else {
                     return sema.fail(block, dest_end_src, "slice end out of bounds: end {}, length {}", .{
-                        dest_end_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_end_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 }
             }
@@ -40163,8 +40169,8 @@ pub const RuntimeSafety = struct {
         if (sa.start_le_end == .known) {
             if (!try sema.compareScalar(dest_start_val, .lte, dest_end_val, Type.usize)) {
                 return sema.fail(block, dest_start_src, "bounds out of order: start {}, end {}", .{
-                    dest_start_val.fmtValue(Type.usize, sema.mod),
-                    dest_end_val.fmtValue(Type.usize, sema.mod),
+                    dest_start_val.fmtValue(sema.mod, sema),
+                    dest_end_val.fmtValue(sema.mod, sema),
                 });
             }
         }
@@ -40174,25 +40180,25 @@ pub const RuntimeSafety = struct {
             {
                 if (!src_ptr_explicit_len) {
                     return sema.fail(block, dest_start_src, "slice start or sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_start_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 } else {
                     return sema.fail(block, dest_start_src, "slice start or sentinel out of bounds: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_start_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 }
             } else if (!try sema.compareScalar(dest_start_val, .lte, src_len2_val, Type.usize)) {
                 if (!src_ptr_explicit_len) {
                     return sema.fail(block, dest_start_src, "slice start out of bounds of reinterpreted memory: start {}, length {}", .{
-                        dest_start_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_start_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 } else {
                     return sema.fail(block, dest_start_src, "slice start out of bounds: start {}, length {}", .{
-                        dest_start_val.fmtValue(Type.usize, sema.mod),
-                        src_len2_val.fmtValue(Type.usize, sema.mod),
+                        dest_start_val.fmtValue(sema.mod, sema),
+                        src_len2_val.fmtValue(sema.mod, sema),
                     });
                 }
             }
@@ -40208,8 +40214,8 @@ pub const RuntimeSafety = struct {
             if (try sema.pointerDeref(block, src, actual_sent_ptr_val, elem_ptr_ty)) |actual_sent_val| {
                 if (!dest_sent_val.eql(actual_sent_val, elem_ty, sema.mod)) {
                     return sema.fail(block, dest_sent_src, "mismatched sentinel: expected {}, found {}", .{
-                        dest_sent_val.fmtValue(elem_ty, sema.mod),
-                        actual_sent_val.fmtValue(elem_ty, sema.mod),
+                        dest_sent_val.fmtValue(sema.mod, sema),
+                        actual_sent_val.fmtValue(sema.mod, sema),
                     });
                 }
             } else {
@@ -40224,8 +40230,8 @@ pub const RuntimeSafety = struct {
         {
             if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
                 return sema.fail(block, dest_sent_src, "sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                    dest_start_val.fmtValue(Type.usize, sema.mod),
-                    src_len2_val.fmtValue(Type.usize, sema.mod),
+                    dest_start_val.fmtValue(sema.mod, sema),
+                    src_len2_val.fmtValue(sema.mod, sema),
                 });
             }
         }
@@ -40370,8 +40376,8 @@ pub const RuntimeSafety = struct {
         if (dest_ptr_size != .Slice) {
             // Returning a new constant pointer:
             if (sa.dest_ptr == .known) {
-                const interned_val: Value = Value.fromInterned((try dest_ptr_val.intern(dest_ptr_ty, sema.mod)));
-                const casted_val: Value = try sema.mod.getCoerced(interned_val, return_ty);
+                // const interned_val: Value = Value.fromInterned((try dest_ptr_val.intern(dest_ptr_ty, sema.mod)));
+                const casted_val: Value = try sema.mod.getCoerced(dest_ptr_val, return_ty);
                 return Air.internedToRef(Value.toIntern(casted_val));
             }
             // Returning a regular pointer:
