@@ -326,7 +326,7 @@ pub fn getcwd(out_buffer: []u8) std.posix.GetCwdError![]u8 {
     if (path.len > out_buffer.len)
         return error.NameTooLong;
 
-    @memcpy(out_buffer[0..path.len], out_buffer);
+    @memcpy(out_buffer[0..path.len], path);
     return out_buffer[0..path.len];
 }
 
@@ -516,7 +516,7 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) std.posi
     if (path.len > out_buffer.len)
         return error.NameTooLong;
 
-    @memcpy(out_buffer[0..path.len], out_buffer);
+    @memcpy(out_buffer[0..path.len], path);
     return path;
 }
 
