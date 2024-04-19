@@ -14,6 +14,7 @@ const pdb = std.pdb;
 const root = @import("root");
 const File = std.fs.File;
 const windows = std.os.windows;
+const uefi = std.os.uefi;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
@@ -687,6 +688,22 @@ pub const StackIterator = struct {
             }
 
             return true;
+        } else if (native_os == .uefi) {
+            if (uefi.system_table.boot_services) |boot_services| {
+                var map = boot_services.getMemoryMap(std.heap.page_allocator) catch return true;
+                defer map.deinit(std.heap.page_allocator);
+
+                var it = map.iterator();
+                while (it.next()) |entry| {
+                    if (entry.physical_start <= address and address < entry.physical_start + entry.number_of_pages * mem.page_size) {
+                        return true;
+                    }
+                }
+
+                return false;
+            } else {
+                return true;
+            }
         } else if (@hasDecl(posix.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
                 switch (err) {
@@ -792,7 +809,11 @@ pub fn writeCurrentStackTrace(
     } else null) orelse StackIterator.init(start_addr, null);
     defer it.deinit();
 
+    // When true, the stack unwinder failed completely to produce a single frame.
+    var stack_unwind_missing = true;
     while (it.next()) |return_address| {
+        stack_unwind_missing = false;
+
         printLastUnwindError(&it, debug_info, out_stream, tty_config);
 
         // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
@@ -803,6 +824,11 @@ pub fn writeCurrentStackTrace(
         const address = if (return_address == 0) return_address else return_address - 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
     } else printLastUnwindError(&it, debug_info, out_stream, tty_config);
+
+    // If the stack unwinder failed, print the top level frame via the given start_addr if available. This is not ideal, but it is better than nothing.
+    if (stack_unwind_missing and start_addr != null) {
+        try printSourceAtAddress(debug_info, out_stream, start_addr.?, tty_config);
+    }
 }
 
 pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const windows.CONTEXT) usize {
@@ -1051,6 +1077,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
             .solaris,
             .illumos,
             .windows,
+            .uefi,
             => return try DebugInfo.init(allocator),
             else => return error.UnsupportedOperatingSystem,
         }
@@ -1090,7 +1117,11 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const raw_path = if (native_os == .uefi) // this is a workaround because pdb paths are never UEFI paths
+            std.fs.path.basenameWindows(try coff_obj.getPdbPath() orelse return di)
+        else
+            try coff_obj.getPdbPath() orelse return di;
+
         const path = blk: {
             if (fs.path.isAbsolute(raw_path)) {
                 break :blk raw_path;
@@ -1758,6 +1789,8 @@ pub const DebugInfo = struct {
             return self.lookupModuleHaiku(address);
         } else if (comptime builtin.target.isWasm()) {
             return self.lookupModuleWasm(address);
+        } else if (native_os == .uefi) {
+            return self.lookupModuleUefi(address);
         } else {
             return self.lookupModuleDl(address);
         }
@@ -1774,6 +1807,8 @@ pub const DebugInfo = struct {
         } else if (native_os == .haiku) {
             return null;
         } else if (comptime builtin.target.isWasm()) {
+            return null;
+        } else if (native_os == .uefi) {
             return null;
         } else {
             return self.lookupModuleNameDl(address);
@@ -1981,6 +2016,37 @@ pub const DebugInfo = struct {
             }
         }
         return null;
+    }
+
+    fn lookupModuleUefi(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+        if (uefi.system_table.boot_services) |boot_services| {
+            const handles = try boot_services.locateHandleBuffer(.{ .by_protocol = &uefi.protocol.LoadedImage.guid });
+            defer boot_services.freePool(mem.sliceAsBytes(handles));
+
+            for (handles) |handle| {
+                const loaded_image: *const uefi.protocol.LoadedImage = try boot_services.openProtocol(handle, uefi.protocol.LoadedImage, .{});
+
+                if (address >= @intFromPtr(loaded_image.image_base) and address < @intFromPtr(loaded_image.image_base) + loaded_image.image_size) {
+                    if (self.address_map.get(@intFromPtr(loaded_image.image_base))) |obj_di| {
+                        return obj_di;
+                    }
+
+                    const obj_di = try self.allocator.create(ModuleDebugInfo);
+                    errdefer self.allocator.destroy(obj_di);
+
+                    const mapped_module = @as([*]const u8, @ptrFromInt(@intFromPtr(loaded_image.image_base)))[0..loaded_image.image_size];
+                    var coff_obj = try coff.Coff.init(mapped_module, true);
+
+                    obj_di.* = try readCoffDebugInfo(self.allocator, &coff_obj);
+                    obj_di.base_address = @intFromPtr(loaded_image.image_base);
+
+                    try self.address_map.putNoClobber(@intFromPtr(loaded_image.image_base), obj_di);
+                    return obj_di;
+                }
+            }
+        }
+
+        return error.MissingDebugInfo;
     }
 
     fn lookupModuleNameDl(self: *DebugInfo, address: usize) ?[]const u8 {
@@ -2416,10 +2482,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             _ = allocator;
             _ = address;
 
-            return switch (self.debug_data) {
-                .dwarf => |*dwarf| dwarf,
-                else => null,
-            };
+            if (self.dwarf) |*dwarf| {
+                return dwarf;
+            }
+
+            return null;
         }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {

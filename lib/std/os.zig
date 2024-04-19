@@ -80,6 +80,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .solaris,
         .illumos,
         .freebsd,
+        .uefi,
         => true,
 
         .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
@@ -230,6 +231,52 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
             }
             const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse MAX_PATH_BYTES;
             return out_buffer[0..len];
+        },
+        .uefi => {
+            if (fd != .file)
+                return error.FileNotFound;
+
+            var file: *const uefi.protocol.File = fd.file;
+
+            var pool_allocator = uefi.PoolAllocator{};
+            var segments = std.ArrayList([]const u16).init(pool_allocator.allocator());
+            defer segments.deinit();
+
+            var buffer: []align(@alignOf(uefi.bits.FileInfo)) u8 = &.{};
+            defer pool_allocator.allocator().free(buffer);
+
+            while (true) {
+                const buffer_size = file.getInfoSize(uefi.bits.FileInfo) catch return error.FileNotFound;
+                buffer = pool_allocator.allocator().realloc(buffer, buffer_size) catch return error.NameTooLong;
+
+                const info = file.getInfo(uefi.bits.FileInfo, buffer) catch return error.NameTooLong;
+                segments.insert(
+                    0,
+                    pool_allocator.allocator().dupe(u16, info.getFileName()) catch return error.NameTooLong,
+                ) catch return error.NameTooLong;
+
+                const new_file = file.open(&.{ '.', '.' }, .{}, .{}) catch break;
+
+                if (file != fd.file) {
+                    file.close();
+                }
+
+                file = new_file;
+            }
+
+            var index: usize = 0;
+            for (segments.items) |segment| {
+                const len = std.unicode.wtf16LeToWtf8(out_buffer[index..], segment);
+                index += len;
+                out_buffer[index] = '\\';
+                index += 1;
+
+                pool_allocator.allocator().free(segment);
+            }
+
+            if (segments.items.len > 0) index -= 1; // strip final backslash
+
+            return out_buffer[0..index];
         },
         else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above
     }

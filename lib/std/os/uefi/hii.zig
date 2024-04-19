@@ -1,7 +1,6 @@
-const uefi = @import("std").os.uefi;
-const Guid = uefi.Guid;
+const bits = @import("bits.zig");
 
-pub const Handle = *opaque {};
+const Guid = bits.Guid;
 
 /// The header found at the start of each package.
 pub const PackageHeader = packed struct(u32) {

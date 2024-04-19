@@ -40,14 +40,6 @@ pub fn sleep(nanoseconds: u64) void {
         return;
     }
 
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
-        return;
-    }
-
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
     posix.nanosleep(s, ns);
@@ -106,12 +98,6 @@ pub fn nanoTimestamp() i128 {
             const err = std.os.wasi.clock_time_get(.REALTIME, 1, &ns);
             assert(err == .SUCCESS);
             return ns;
-        },
-        .uefi => {
-            var value: std.os.uefi.Time = undefined;
-            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .Success);
-            return value.toEpoch();
         },
         else => {
             var ts: posix.timespec = undefined;
@@ -177,7 +163,7 @@ pub const Instant = struct {
 
     // true if we should use clock_gettime()
     const is_posix = switch (builtin.os.tag) {
-        .windows, .uefi, .wasi => false,
+        .windows, .wasi => false,
         else => true,
     };
 
@@ -197,12 +183,8 @@ pub const Instant = struct {
                 if (rc != .SUCCESS) return error.Unsupported;
                 return .{ .timestamp = ns };
             },
-            .uefi => {
-                var value: std.os.uefi.Time = undefined;
-                const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .Success) return error.Unsupported;
-                return Instant{ .timestamp = value.toEpoch() };
-            },
+            // On uefi, use REALTIME because it's the only clock implemented right now.
+            .uefi => posix.CLOCK.REALTIME,
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
             .macos, .ios, .tvos, .watchos => posix.CLOCK.UPTIME_RAW,
@@ -262,7 +244,7 @@ pub const Instant = struct {
         }
 
         // WASI timestamps are directly in nanoseconds
-        if (builtin.os.tag == .wasi) {
+        if (!is_posix) {
             return self.timestamp - earlier.timestamp;
         }
 

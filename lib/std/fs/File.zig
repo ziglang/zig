@@ -255,6 +255,10 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
 
         return self.isCygwinPty();
     }
+    if (builtin.os.tag == .uefi) {
+        // The UEFI console only supports a tiny subset of ANSI escape codes, primarily for color.
+        return false;
+    }
     if (builtin.os.tag == .wasi) {
         // WASI sanitizes stdout when fd is a tty so ANSI escape codes
         // will not be interpreted as actual cursor commands, and
@@ -455,7 +459,6 @@ pub fn stat(self: File) StatError!Stat {
             .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
     }
-
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const st = try std.os.fstat_wasi(self.handle);
         return Stat.fromWasi(st);

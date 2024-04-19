@@ -729,7 +729,7 @@ pub const Pdb = struct {
                     const frag_vaddr_start = line_hdr.RelocOffset;
                     const frag_vaddr_end = frag_vaddr_start + line_hdr.CodeSize;
 
-                    if (address >= frag_vaddr_start and address < frag_vaddr_end) {
+                    if (address >= frag_vaddr_start and address <= frag_vaddr_end) {
                         // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
                         // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
                         // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.

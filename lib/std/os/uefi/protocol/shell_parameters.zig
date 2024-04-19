@@ -1,13 +1,16 @@
-const uefi = @import("std").os.uefi;
-const Guid = uefi.Guid;
-const FileHandle = uefi.FileHandle;
+const bits = @import("../bits.zig");
 
+const Guid = bits.Guid;
+
+/// An instance of this protocol is installed on each shell application’s image handle prior to calling StartImage().
+/// It describes all of the command-line parameters passed on the command line, as well as the standard file handles
+/// for standard input, output and error output.
 pub const ShellParameters = extern struct {
     argv: [*][*:0]const u16,
     argc: usize,
-    stdin: FileHandle,
-    stdout: FileHandle,
-    stderr: FileHandle,
+    stdin: bits.FileHandle,
+    stdout: bits.FileHandle,
+    stderr: bits.FileHandle,
 
     pub const guid align(8) = Guid{
         .time_low = 0x752f3136,

@@ -20,7 +20,7 @@ pub const File = @import("fs/File.zig");
 pub const path = @import("fs/path.zig");
 
 pub const has_executable_bit = switch (native_os) {
-    .windows, .wasi => false,
+    .windows, .wasi, .uefi => false,
     else => true,
 };
 
@@ -53,7 +53,7 @@ pub const MAX_PATH_BYTES = max_path_bytes;
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .uefi => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
@@ -74,7 +74,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const MAX_NAME_BYTES = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos, .uefi => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
     // Each WTF-16LE character may be expanded to 3 WTF-8 bytes.
@@ -681,6 +681,31 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,
             };
+        },
+        .uefi => {
+            const uefi = std.os.uefi;
+
+            if (uefi.system_table.boot_services) |boot_services| {
+                const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, .{}) catch return error.FileNotFound;
+
+                const file_path = if (loaded_image.file_path.node()) |node| file_path: {
+                    if (node == .media and node.media == .file_path)
+                        break :file_path node.media.file_path.path();
+
+                    return error.FileNotFound;
+                } else return error.FileNotFound;
+
+                if (file_path.len > uefi.PATH_MAX_WIDE) return error.NameTooLong;
+
+                // required because device paths are not aligned
+                var alignment_buffer: [uefi.PATH_MAX_WIDE]u16 = undefined;
+                @memcpy(alignment_buffer[0..file_path.len], file_path);
+
+                const len = std.unicode.wtf16LeToWtf8(out_buffer, alignment_buffer[0..file_path.len]);
+                return out_buffer[0..len];
+            }
+
+            return error.FileNotFound;
         },
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }

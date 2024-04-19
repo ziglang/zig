@@ -56,7 +56,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
 }
 
 test getAppDataDir {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     // We can't actually validate the result
     const dir = getAppDataDir(std.testing.allocator, "zig") catch return;

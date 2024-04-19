@@ -1,9 +1,11 @@
-const std = @import("std");
-const uefi = std.os.uefi;
-const Event = uefi.Event;
-const Guid = uefi.Guid;
-const Status = uefi.Status;
-const cc = uefi.cc;
+const std = @import("../../../std.zig");
+const bits = @import("../bits.zig");
+
+const cc = bits.cc;
+const Status = @import("../status.zig").Status;
+
+const Guid = bits.Guid;
+const Event = bits.Event;
 
 pub const SimpleNetwork = extern struct {
     revision: u64,
@@ -12,35 +14,35 @@ pub const SimpleNetwork = extern struct {
     _initialize: *const fn (*const SimpleNetwork, usize, usize) callconv(cc) Status,
     _reset: *const fn (*const SimpleNetwork, bool) callconv(cc) Status,
     _shutdown: *const fn (*const SimpleNetwork) callconv(cc) Status,
-    _receive_filters: *const fn (*const SimpleNetwork, ReceiveFilter, ReceiveFilter, bool, usize, ?[*]const MacAddress) callconv(cc) Status,
-    _station_address: *const fn (*const SimpleNetwork, bool, ?*const MacAddress) callconv(cc) Status,
+    _receive_filters: *const fn (*const SimpleNetwork, ReceiveFilter, ReceiveFilter, bool, usize, ?[*]const bits.MacAddress) callconv(cc) Status,
+    _station_address: *const fn (*const SimpleNetwork, bool, ?*const bits.MacAddress) callconv(cc) Status,
     _statistics: *const fn (*const SimpleNetwork, bool, ?*usize, ?*Statistics) callconv(cc) Status,
-    _mcast_ip_to_mac: *const fn (*const SimpleNetwork, bool, *const anyopaque, *MacAddress) callconv(cc) Status,
+    _mcast_ip_to_mac: *const fn (*const SimpleNetwork, bool, *const anyopaque, *bits.MacAddress) callconv(cc) Status,
     _nvdata: *const fn (*const SimpleNetwork, bool, usize, usize, [*]u8) callconv(cc) Status,
     _get_status: *const fn (*const SimpleNetwork, *InterruptStatus, ?*?[*]u8) callconv(cc) Status,
-    _transmit: *const fn (*const SimpleNetwork, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) callconv(cc) Status,
-    _receive: *const fn (*const SimpleNetwork, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) callconv(cc) Status,
+    _transmit: *const fn (*const SimpleNetwork, usize, usize, [*]const u8, ?*const bits.MacAddress, ?*const bits.MacAddress, ?*const u16) callconv(cc) Status,
+    _receive: *const fn (*const SimpleNetwork, ?*usize, *usize, [*]u8, ?*bits.MacAddress, ?*bits.MacAddress, ?*u16) callconv(cc) Status,
     wait_for_packet: Event,
     mode: *Mode,
 
     /// Changes the state of a network interface from "stopped" to "started".
-    pub fn start(self: *const SimpleNetwork) Status {
-        return self._start(self);
+    pub fn start(self: *const SimpleNetwork) !void {
+        try self._start(self).err();
     }
 
     /// Changes the state of a network interface from "started" to "stopped".
-    pub fn stop(self: *const SimpleNetwork) Status {
-        return self._stop(self);
+    pub fn stop(self: *const SimpleNetwork) !void {
+        try self._stop(self).err();
     }
 
     /// Resets a network adapter and allocates the transmit and receive buffers required by the network interface.
-    pub fn initialize(self: *const SimpleNetwork, extra_rx_buffer_size: usize, extra_tx_buffer_size: usize) Status {
-        return self._initialize(self, extra_rx_buffer_size, extra_tx_buffer_size);
+    pub fn initialize(self: *const SimpleNetwork, extra_rx_buffer_size: usize, extra_tx_buffer_size: usize) !void {
+        try self._initialize(self, extra_rx_buffer_size, extra_tx_buffer_size).err();
     }
 
     /// Resets a network adapter and reinitializes it with the parameters that were provided in the previous call to initialize().
-    pub fn reset(self: *const SimpleNetwork, extended_verification: bool) Status {
-        return self._reset(self, extended_verification);
+    pub fn reset(self: *const SimpleNetwork, extended_verification: bool) !void {
+        try self._reset(self, extended_verification).err();
     }
 
     /// Resets a network adapter and leaves it in a state that is safe for another driver to initialize.
@@ -49,28 +51,41 @@ pub const SimpleNetwork = extern struct {
     }
 
     /// Manages the multicast receive filters of a network interface.
-    pub fn receiveFilters(self: *const SimpleNetwork, enable: ReceiveFilter, disable: ReceiveFilter, reset_mcast_filter: bool, mcast_filter_cnt: usize, mcast_filter: ?[*]const MacAddress) Status {
-        return self._receive_filters(self, enable, disable, reset_mcast_filter, mcast_filter_cnt, mcast_filter);
+    ///
+    /// If mcast_filter is null, the receive filters are reset to their default values.
+    pub fn receiveFilters(self: *const SimpleNetwork, enable: ReceiveFilter, disable: ReceiveFilter, mcast_filter: ?[]const bits.MacAddress) !void {
+        if (mcast_filter) |filter| {
+            try self._receive_filters(self, enable, disable, false, filter.len, filter.ptr).err();
+        } else {
+            try self._receive_filters(self, enable, disable, true, 0, null).err();
+        }
     }
 
     /// Modifies or resets the current station address, if supported.
-    pub fn stationAddress(self: *const SimpleNetwork, reset_flag: bool, new: ?*const MacAddress) Status {
-        return self._station_address(self, reset_flag, new);
+    pub fn stationAddress(self: *const SimpleNetwork, new_addr: ?*const bits.MacAddress) !void {
+        try self._station_address(self, new_addr == null, new_addr).err();
     }
 
-    /// Resets or collects the statistics on a network interface.
-    pub fn statistics(self: *const SimpleNetwork, reset_flag: bool, statistics_size: ?*usize, statistics_table: ?*Statistics) Status {
-        return self._statistics(self, reset_flag, statistics_size, statistics_table);
+    /// Resets or collects the statistics on a network interface. The number of bytes written to statistics_table
+    /// is returned, any fields farther than this value are not touched.
+    ///
+    /// If statistics_table is null, the statistics are reset.
+    pub fn statistics(self: *const SimpleNetwork, statistics_table: ?*Statistics) !usize {
+        var statistics_size: usize = @sizeOf(Statistics);
+        try self._statistics(self, statistics_table == null, &statistics_size, statistics_table).err();
+        return statistics_size;
     }
 
     /// Converts a multicast IP address to a multicast HW MAC address.
-    pub fn mcastIpToMac(self: *const SimpleNetwork, ipv6: bool, ip: *const anyopaque, mac: *MacAddress) Status {
-        return self._mcast_ip_to_mac(self, ipv6, ip, mac);
+    pub fn mcastIpToMac(self: *const SimpleNetwork, ipv6: bool, ip: *const bits.IpAddress) !bits.MacAddress {
+        var mac: bits.MacAddress = undefined;
+        try self._mcast_ip_to_mac(self, ipv6, ip, &mac).err();
+        return mac;
     }
 
     /// Performs read and write operations on the NVRAM device attached to a network interface.
-    pub fn nvdata(self: *const SimpleNetwork, read_write: bool, offset: usize, buffer_size: usize, buffer: [*]u8) Status {
-        return self._nvdata(self, read_write, offset, buffer_size, buffer);
+    pub fn nvdata(self: *const SimpleNetwork, is_read: bool, offset: usize, buffer: []u8) !void {
+        try self._nvdata(self, is_read, offset, buffer.len, buffer.ptr).err();
     }
 
     /// Reads the current interrupt status and recycled transmit buffer status from a network interface.
@@ -79,12 +94,12 @@ pub const SimpleNetwork = extern struct {
     }
 
     /// Places a packet in the transmit queue of a network interface.
-    pub fn transmit(self: *const SimpleNetwork, header_size: usize, buffer_size: usize, buffer: [*]const u8, src_addr: ?*const MacAddress, dest_addr: ?*const MacAddress, protocol: ?*const u16) Status {
+    pub fn transmit(self: *const SimpleNetwork, header_size: usize, buffer_size: usize, buffer: [*]const u8, src_addr: ?*const bits.MacAddress, dest_addr: ?*const bits.MacAddress, protocol: ?*const u16) Status {
         return self._transmit(self, header_size, buffer_size, buffer, src_addr, dest_addr, protocol);
     }
 
     /// Receives a packet from a network interface.
-    pub fn receive(self: *const SimpleNetwork, header_size: ?*usize, buffer_size: *usize, buffer: [*]u8, src_addr: ?*MacAddress, dest_addr: ?*MacAddress, protocol: ?*u16) Status {
+    pub fn receive(self: *const SimpleNetwork, header_size: ?*usize, buffer_size: *usize, buffer: [*]u8, src_addr: ?*bits.MacAddress, dest_addr: ?*bits.MacAddress, protocol: ?*u16) Status {
         return self._receive(self, header_size, buffer_size, buffer, src_addr, dest_addr, protocol);
     }
 
@@ -97,8 +112,6 @@ pub const SimpleNetwork = extern struct {
         .node = [_]u8{ 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d },
     };
 
-    pub const MacAddress = [32]u8;
-
     pub const Mode = extern struct {
         state: State,
         hw_address_size: u32,
@@ -110,10 +123,10 @@ pub const SimpleNetwork = extern struct {
         receive_filter_setting: ReceiveFilter,
         max_mcast_filter_count: u32,
         mcast_filter_count: u32,
-        mcast_filter: [16]MacAddress,
-        current_address: MacAddress,
-        broadcast_address: MacAddress,
-        permanent_address: MacAddress,
+        mcast_filter: [16]bits.MacAddress,
+        current_address: bits.MacAddress,
+        broadcast_address: bits.MacAddress,
+        permanent_address: bits.MacAddress,
         if_type: u8,
         mac_address_changeable: bool,
         multiple_tx_supported: bool,

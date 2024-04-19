@@ -9,7 +9,7 @@ const native_os = builtin.os.tag;
 /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
 /// respecting the `NO_COLOR` and `YES_COLOR` environment variables to override the default.
 pub fn detectConfig(file: File) Config {
-    const force_color: ?bool = if (builtin.os.tag == .wasi)
+    const force_color: ?bool = if (builtin.os.tag == .wasi or builtin.os.tag == .uefi)
         null // wasi does not support environment variables
     else if (process.hasEnvVarConstant("NO_COLOR"))
         false

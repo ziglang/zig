@@ -1,13 +1,17 @@
-const std = @import("std");
-const uefi = std.os.uefi;
-const Guid = uefi.Guid;
-const Event = uefi.Event;
-const Handle = uefi.Handle;
-const Status = uefi.Status;
-const Time = uefi.Time;
-const SimpleNetwork = uefi.protocol.SimpleNetwork;
-const MacAddress = uefi.MacAddress;
-const cc = uefi.cc;
+const bits = @import("../bits.zig");
+const table = @import("../table.zig");
+const protocol = @import("../protocol.zig");
+
+const cc = bits.cc;
+const Status = @import("../status.zig").Status;
+
+const SimpleNetwork = protocol.SimpleNetwork;
+
+const Guid = bits.Guid;
+const Handle = bits.Handle;
+const Event = bits.Event;
+const Time = bits.Time;
+const MacAddress = bits.MacAddress;
 
 pub const ManagedNetwork = extern struct {
     _get_mode_data: *const fn (*const ManagedNetwork, ?*Config, ?*SimpleNetwork) callconv(cc) Status,
