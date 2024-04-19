@@ -533,7 +533,7 @@ const Sha512Params = Sha2Params64{
     .digest_bits = 512,
 };
 
-const Sha512256Params = Sha2Params64{
+const Sha512224Params = Sha2Params64{
     .iv0 = 0x8C3D37C819544DA2,
     .iv1 = 0x73E1996689DCD4D6,
     .iv2 = 0x1DFAB7AE32FF9C82,
