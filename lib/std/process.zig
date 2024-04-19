@@ -876,6 +876,52 @@ pub const ArgIteratorWindows = struct {
     }
 };
 
+/// Iterator which uses the UEFI shell parameters protocol.
+pub const ArgIteratorUefi = struct {
+    allocator: Allocator,
+    argv: []const [:0]const u8,
+    index: usize = 0,
+
+    pub const InitError = std.os.uefi.Status.EfiError || Allocator.Error || std.unicode.Utf16LeToUtf8AllocError || error{MissingProtocol};
+
+    pub fn init(allocator: Allocator) InitError!ArgIteratorUefi {
+        if (std.os.uefi.system_table.boot_services) |boot_services| {
+            const proto = try boot_services.openProtocol(std.os.uefi.handle, std.os.uefi.protocol.ShellParameters, .{});
+
+            var argv = try std.ArrayList([:0]const u8).initCapacity(allocator, proto.argc);
+            errdefer for (argv.items) |arg| allocator.free(arg);
+            defer argv.deinit();
+
+            for (proto.argv[0..proto.argc]) |arg| {
+                const utf8_arg = try std.unicode.utf16LeToUtf8AllocZ(allocator, arg[0..std.mem.len(arg)]);
+                errdefer allocator.free(utf8_arg);
+                argv.appendAssumeCapacity(utf8_arg);
+            }
+
+            return .{ .allocator = allocator, .argv = try argv.toOwnedSlice() };
+        }
+        return error.ProtocolError;
+    }
+
+    pub fn next(self: *ArgIteratorUefi) ?[:0]const u8 {
+        if (self.index >= self.argv.len) return null;
+        const arg = self.argv[self.index];
+        self.index += 1;
+        return arg;
+    }
+
+    pub fn skip(self: *ArgIteratorUefi) bool {
+        if (self.index >= self.argv.len) return false;
+        self.index += 1;
+        return true;
+    }
+
+    pub fn deinit(self: *ArgIteratorUefi) void {
+        for (self.argv) |arg| self.allocator.free(arg);
+        self.allocator.free(self.argv);
+    }
+};
+
 /// Optional parameters for `ArgIteratorGeneral`
 pub const ArgIteratorGeneralOptions = struct {
     comments: bool = false,
@@ -1084,6 +1130,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 pub const ArgIterator = struct {
     const InnerType = switch (native_os) {
         .windows => ArgIteratorWindows,
+        .uefi => ArgIteratorUefi,
         .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
@@ -1099,6 +1146,9 @@ pub const ArgIterator = struct {
         if (native_os == .windows) {
             @compileError("In Windows, use initWithAllocator instead.");
         }
+        if (native_os == .uefi) {
+            @compileError("In UEFI, use initWithAllocator instead.");
+        }
 
         return ArgIterator{ .inner = InnerType.init() };
     }
@@ -1107,7 +1157,7 @@ pub const ArgIterator = struct {
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
     pub fn initWithAllocator(allocator: Allocator) InitError!ArgIterator {
-        if (native_os == .wasi and !builtin.link_libc) {
+        if ((native_os == .wasi and !builtin.link_libc) or native_os == .uefi) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
         if (native_os == .windows) {
@@ -1140,7 +1190,7 @@ pub const ArgIterator = struct {
             self.inner.deinit();
         }
 
-        if (native_os == .windows) {
+        if (native_os == .windows or native_os == .uefi) {
             self.inner.deinit();
         }
     }
@@ -1593,13 +1643,13 @@ pub fn getBaseAddress() usize {
 
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
 pub const can_execv = switch (native_os) {
-    .windows, .haiku, .wasi => false,
+    .windows, .haiku, .wasi, .uefi => false,
     else => true,
 };
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
 pub const can_spawn = switch (native_os) {
-    .wasi, .watchos, .tvos => false,
+    .wasi, .watchos, .tvos, .uefi => false,
     else => true,
 };
 
@@ -1710,6 +1760,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             }
             return @as(u64, sbi.NumberOfPhysicalPages) * sbi.PageSize;
         },
+        .uefi => return totalSystemMemoryUefi(),
         else => return error.UnknownTotalSystemMemory,
     }
 }
@@ -1728,6 +1779,24 @@ fn totalSystemMemoryLinux() !u64 {
     if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
     const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
     return kilobytes * 1024;
+}
+
+fn totalSystemMemoryUefi() !u64 {
+    if (std.os.uefi.system_table.boot_services) |boot_services| {
+        const alloc = std.os.uefi.global_pool_allocator.allocator();
+        const map = try boot_services.getMemoryMap(alloc);
+        defer map.deinit(alloc);
+
+        var pages: u64 = 0;
+        var it = map.iterator();
+        while (it.next()) |entry| {
+            if (entry.type == .ConventionalMemory) {
+                pages += entry.number_of_pages;
+            }
+        }
+        return pages * std.mem.page_size;
+    }
+    return error.UnknownTotalSystemMemory;
 }
 
 /// Indicate that we are now terminating with a successful exit code.

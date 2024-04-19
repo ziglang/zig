@@ -16,6 +16,7 @@ pub const PoolAllocator = allocator.PoolAllocator;
 pub const RawPoolAllocator = allocator.RawPoolAllocator;
 
 pub var global_page_allocator = PageAllocator{};
+pub var global_pool_allocator = PoolAllocator{};
 
 /// The EFI image's handle that is passed to its entry point.
 pub var handle: bits.Handle = undefined;
@@ -77,6 +78,16 @@ pub fn cwd() fd_t {
 
     return .none;
 }
+
+pub const ListEntry = struct {
+    forward_link: ?*ListEntry,
+    backward_link: ?*ListEntry,
+};
+
+const uctx = @import("uefi/ucontext.zig");
+pub const getcontext = uctx.getcontext;
+pub const ucontext_t = uctx.ucontext_t;
+pub const REG = uctx.REG;
 
 test {
     _ = table;

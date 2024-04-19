@@ -19,7 +19,7 @@ const native_os = builtin.os.tag;
 pub const ChildProcess = struct {
     pub const Id = switch (native_os) {
         .windows => windows.HANDLE,
-        .wasi => void,
+        .wasi, .uefi => void,
         else => posix.pid_t,
     };
 
@@ -47,10 +47,16 @@ pub const ChildProcess = struct {
     stderr_behavior: StdIo,
 
     /// Set to change the user id when spawning the child process.
-    uid: if (native_os == .windows or native_os == .wasi) void else ?posix.uid_t,
+    uid: switch (native_os) {
+        .windows, .wasi, .uefi => void,
+        else => ?posix.uid_t,
+    },
 
     /// Set to change the group id when spawning the child process.
-    gid: if (native_os == .windows or native_os == .wasi) void else ?posix.gid_t,
+    gid: switch (native_os) {
+        .windows, .wasi, .uefi => void,
+        else => ?posix.gid_t,
+    },
 
     /// Set to change the current working directory when spawning the child process.
     cwd: ?[]const u8,
@@ -169,8 +175,14 @@ pub const ChildProcess = struct {
             .term = null,
             .env_map = null,
             .cwd = null,
-            .uid = if (native_os == .windows or native_os == .wasi) {} else null,
-            .gid = if (native_os == .windows or native_os == .wasi) {} else null,
+            .uid = switch (native_os) {
+                .windows, .wasi, .uefi => {},
+                else => null,
+            },
+            .gid = switch (native_os) {
+                .windows, .wasi, .uefi => {},
+                else => null,
+            },
             .stdin = null,
             .stdout = null,
             .stderr = null,

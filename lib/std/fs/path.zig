@@ -505,6 +505,8 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
 pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
     if (native_os == .windows) {
         return resolveWindows(allocator, paths);
+    } else if (native_os == .uefi) {
+        return resolveUefi(allocator, paths);
     } else {
         return resolvePosix(allocator, paths);
     }
@@ -916,7 +918,7 @@ test resolveUefi {
     // Keep relative paths relative.
     try testResolveUefi(&[_][]const u8{"a\\b"}, "a\\b");
     try testResolveUefi(&[_][]const u8{"."}, ".");
-    try testResolveUefi(&[_][]const u8{".", "src\\test.zig", "..", "..\\test\\cases.zig"}, "test\\cases.zig");
+    try testResolveUefi(&[_][]const u8{ ".", "src\\test.zig", "..", "..\\test\\cases.zig" }, "test\\cases.zig");
 }
 
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
@@ -1487,7 +1489,7 @@ test relative {
     try testRelativePosix("/baz", "/baz-quux", "../baz-quux");
 
     try testRelativeUefi("\\var\\lib", "\\var", "..");
-    try testRelativeUefi("\\var\\lib", "\\bin", "..\\..\\bin"); 
+    try testRelativeUefi("\\var\\lib", "\\bin", "..\\..\\bin");
     try testRelativeUefi("\\var\\lib", "\\var\\lib", "");
     try testRelativeUefi("\\var\\lib", "\\var\\apache", "..\\apache");
     try testRelativeUefi("\\var\\", "\\var\\lib", "lib");

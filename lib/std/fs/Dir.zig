@@ -579,6 +579,22 @@ pub const Iterator = switch (native_os) {
             self.cookie = std.os.wasi.DIRCOOKIE_START;
         }
     },
+    .uefi => struct {
+        dir: Dir,
+
+        const Self = @This();
+
+        pub const Error = IteratorError;
+
+        pub fn next(self: *Self) Error!?Entry {
+            _ = self;
+            return null;
+        }
+
+        pub fn reset(self: *Self) void {
+            _ = self;
+        }
+    },
     else => @compileError("unimplemented"),
 };
 
@@ -640,6 +656,9 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
             .index = 0,
             .end_index = 0,
             .buf = undefined,
+        },
+        .uefi => return Iterator{
+            .dir = self,
         },
         else => @compileError("unimplemented"),
     }

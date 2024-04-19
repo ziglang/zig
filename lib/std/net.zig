@@ -16,6 +16,7 @@ const windows = std.os.windows;
 // first release to support them.
 pub const has_unix_sockets = switch (native_os) {
     .windows => builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false,
+    .uefi => true,
     else => true,
 };
 

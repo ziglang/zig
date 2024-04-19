@@ -5842,7 +5842,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
 pub fn uname() utsname {
     if (native_os == .uefi)
         return uefi.posix.uname();
-    
+
     var uts: utsname = undefined;
     switch (errno(system.uname(&uts))) {
         .SUCCESS => return uts,

@@ -310,7 +310,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .cmd_name = "objcopy",
             .root_src_path = "objcopy.zig",
         });
-    } else if (mem.eql(u8, cmd, "fetch")) {
+    } else if (mem.eql(u8, cmd, "fetch") and native_os != .uefi) {
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
         return jitCmd(gpa, arena, cmd_args, .{
@@ -719,7 +719,7 @@ const ArgMode = union(enum) {
 
 /// Avoid dragging networking into zig2.c because it adds dependencies on some
 /// linker symbols that are annoying to satisfy while bootstrapping.
-const Ip4Address = if (build_options.only_core_functionality) void else std.net.Ip4Address;
+const Ip4Address = if (build_options.only_core_functionality or native_os == .uefi) void else std.net.Ip4Address;
 
 const Listen = union(enum) {
     none,
@@ -1314,7 +1314,7 @@ fn buildOutputType(
                         if (mem.eql(u8, next_arg, "-")) {
                             listen = .stdio;
                         } else {
-                            if (build_options.only_core_functionality) unreachable;
+                            if (build_options.only_core_functionality or native_os == .uefi) unreachable;
                             // example: --listen 127.0.0.1:9000
                             var it = std.mem.splitScalar(u8, next_arg, ':');
                             const host = it.next().?;
@@ -3358,7 +3358,8 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
-            if (build_options.only_c) unreachable;
+            // TODO: use UEFI shell to run child processes
+            if (build_options.only_c or native_os == .uefi) unreachable;
             try serve(
                 comp,
                 std.io.getStdIn(),
@@ -3372,7 +3373,7 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            if (build_options.only_core_functionality) unreachable;
+            if (build_options.only_core_functionality or native_os == .uefi) unreachable;
 
             const addr: std.net.Address = .{ .in = ip4_addr };
 
@@ -3459,7 +3460,7 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path.?,
+            self_exe_path orelse @panic("Cannot locate Zig"),
             arg_mode,
             &target,
             &comp_destroyed,
@@ -4961,7 +4962,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     // Dummy http client that is not actually used when only_core_functionality is enabled.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
-    const HttpClient = if (build_options.only_core_functionality) struct {
+    const HttpClient = if (build_options.only_core_functionality or native_os == .uefi) struct {
         allocator: Allocator,
         fn deinit(self: *@This()) void {
             _ = self;
@@ -5035,7 +5036,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             var cleanup_build_dir: ?fs.Dir = null;
             defer if (cleanup_build_dir) |*dir| dir.close();
 
-            if (build_options.only_core_functionality) {
+            if (build_options.only_core_functionality or native_os == .uefi) {
                 try createEmptyDependenciesModule(
                     arena,
                     root_mod,
@@ -5251,7 +5252,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     if (code == 2) process.exit(2);
 
                     if (code == 3) {
-                        if (build_options.only_core_functionality) process.exit(3);
+                        if (build_options.only_core_functionality or native_os == .uefi) process.exit(3);
                         // Indicates the configure phase failed due to missing lazy
                         // dependencies and stdout contains the hashes of the ones
                         // that are missing.
@@ -5980,7 +5981,7 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
     const have_rlimit = switch (native_os) {
-        .windows, .wasi => false,
+        .windows, .wasi, .uefi => false,
         else => true,
     };
     if (!have_rlimit) return;

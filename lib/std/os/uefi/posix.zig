@@ -693,7 +693,7 @@ pub fn write(fd: fd_t, buf: []const u8) std.posix.WriteError!usize {
             var index: usize = 0;
             var utf16: [256]u16 = undefined;
             while (iter.nextCodepoint()) |rune| {
-                if (index + 1 >= utf16.len) {
+                if (index + 2 >= utf16.len) {
                     utf16[index] = 0;
                     p.outputString(utf16[0..index :0]) catch |err| switch (err) {
                         error.DeviceError => return error.InputOutput,

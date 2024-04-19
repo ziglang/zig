@@ -88,7 +88,7 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
 
     const appname = "zig";
 
-    if (builtin.os.tag != .windows) {
+    if (builtin.os.tag != .windows and builtin.os.tag != .uefi) {
         if (std.zig.EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
             return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
         } else if (std.zig.EnvVar.HOME.getPosix()) |home| {

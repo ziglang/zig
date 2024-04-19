@@ -208,7 +208,7 @@ pub const Rng = @import("protocol/rng.zig").Rng;
 
 // ** EFI Shell Specification Version 2.2, January 26, 2016
 
-// Shell
+pub const Shell = @import("protocol/shell.zig").Shell;
 pub const ShellParameters = @import("protocol/shell_parameters.zig").ShellParameters;
 // ShellDynamicCommand
 

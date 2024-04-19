@@ -76,7 +76,7 @@ pub const File = extern struct {
     }
 
     /// Closes and deletes a file. This can fail, but the descriptor will still be closed.
-    /// 
+    ///
     /// Returns `true` if the file was successfully deleted, `false` otherwise.
     pub fn delete(self: *const File) bool {
         return self._delete(self) == .success;

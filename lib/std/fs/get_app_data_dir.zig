@@ -51,6 +51,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
                 else => return error.AppDataDirUnavailable,
             }
         },
+        .uefi => return std.process.getCwdAlloc(allocator) catch error.AppDataDirUnavailable,
         else => @compileError("Unsupported OS"),
     }
 }
