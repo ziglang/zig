@@ -1088,7 +1088,6 @@ test "comptime break operand passing through runtime condition converted to runt
 test "comptime break operand passing through runtime switch converted to runtime break" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(runtime: u8) !void {
@@ -1631,8 +1630,6 @@ test "struct in comptime false branch is not evaluated" {
 }
 
 test "result of nested switch assigned to variable" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var zds: u32 = 0;
     zds = switch (zds) {
         0 => switch (zds) {
@@ -1667,8 +1664,6 @@ test "inline for loop of functions returning error unions" {
 }
 
 test "if inside a switch" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var condition = true;
     var wave_type: u32 = 0;
     _ = .{ &condition, &wave_type };

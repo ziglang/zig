@@ -80,9 +80,6 @@ pub const Inst = struct {
         /// Branch if not equal, Uses b_type
         bne,
 
-        /// Boolean NOT, Uses rr payload
-        not,
-
         /// Generates a NO-OP, uses nop payload
         nop,
 

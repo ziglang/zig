@@ -38,6 +38,7 @@ pub const Mnemonic = enum {
     // R Type
     add,
     @"and",
+    @"or",
     sub,
     slt,
     mul,
@@ -55,6 +56,7 @@ pub const Mnemonic = enum {
             .add    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0000000 },
             .sltu   => .{ .opcode = 0b0110011, .funct3 = 0b011, .funct7 = 0b0000000 },
             .@"and" => .{ .opcode = 0b0110011, .funct3 = 0b111, .funct7 = 0b0000000 },
+            .@"or"  => .{ .opcode = 0b0110011, .funct3 = 0b110, .funct7 = 0b0000000 },
             .sub    => .{ .opcode = 0b0110011, .funct3 = 0b000, .funct7 = 0b0100000 }, 
 
             .ld     => .{ .opcode = 0b0000011, .funct3 = 0b011, .funct7 = null      },
@@ -152,6 +154,7 @@ pub const InstEnc = enum {
             .add,
             .sub,
             .@"and",
+            .@"or",
             => .R,
 
             .ecall,

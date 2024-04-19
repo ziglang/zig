@@ -1223,7 +1223,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .field_parent_ptr => try self.airFieldParentPtr(inst),
 
-            .switch_br       => try self.airSwitch(inst),
+            .switch_br       => try self.airSwitchBr(inst),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
@@ -1960,7 +1960,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
+                .Int, .Enum => {
                     assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -3682,7 +3682,6 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     switch (self.ret_mcv.short) {
         .none => {},
         .register, .register_pair => try self.load(self.ret_mcv.short, ptr, ptr_ty),
-        .indirect => |reg_off| try self.genSetReg(ptr_ty, reg_off.reg, ptr),
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
@@ -4160,12 +4159,97 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
     self.finishAirBookkeeping();
 }
 
-fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
+fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = pl_op.operand;
-    _ = condition;
-    return self.fail("TODO airSwitch for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, .dead, .{ condition, .none, .none });
+    const condition = try self.resolveInst(pl_op.operand);
+    const condition_ty = self.typeOf(pl_op.operand);
+    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    var extra_index: usize = switch_br.end;
+    var case_i: u32 = 0;
+    const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.data.cases_len + 1);
+    defer self.gpa.free(liveness.deaths);
+
+    // If the condition dies here in this switch instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        if (pl_op.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+    }
+
+    self.scope_generation += 1;
+    const state = try self.saveState();
+
+    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+        const items: []const Air.Inst.Ref =
+            @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
+        const case_body: []const Air.Inst.Index =
+            @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
+        extra_index = case.end + items.len + case_body.len;
+
+        var relocs = try self.gpa.alloc(Mir.Inst.Index, items.len);
+        defer self.gpa.free(relocs);
+
+        for (items, relocs, 0..) |item, *reloc, i| {
+            // switch branches must be comptime-known, so this is stored in an immediate
+            const item_mcv = try self.resolveInst(item);
+
+            const cmp_mcv: MCValue = try self.binOp(
+                .cmp_neq,
+                condition,
+                condition_ty,
+                item_mcv,
+                condition_ty,
+            );
+
+            const cmp_reg = try self.copyToTmpRegister(Type.bool, cmp_mcv);
+
+            if (!(i < relocs.len - 1)) {
+                _ = try self.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_not,
+                    .data = .{ .rr = .{
+                        .rd = cmp_reg,
+                        .rs = cmp_reg,
+                    } },
+                });
+            }
+
+            reloc.* = try self.condBr(condition_ty, .{ .register = cmp_reg });
+        }
+
+        for (liveness.deaths[case_i]) |operand| try self.processDeath(operand);
+
+        for (relocs[0 .. relocs.len - 1]) |reloc| self.performReloc(reloc);
+        try self.genBody(case_body);
+        try self.restoreState(state, &.{}, .{
+            .emit_instructions = false,
+            .update_tracking = true,
+            .resurrect = true,
+            .close_scope = true,
+        });
+
+        self.performReloc(relocs[relocs.len - 1]);
+    }
+
+    if (switch_br.data.else_body_len > 0) {
+        const else_body: []const Air.Inst.Index =
+            @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+
+        const else_deaths = liveness.deaths.len - 1;
+        for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
+
+        try self.genBody(else_body);
+        try self.restoreState(state, &.{}, .{
+            .emit_instructions = false,
+            .update_tracking = true,
+            .resurrect = true,
+            .close_scope = true,
+        });
+    }
+
+    // We already took care of pl_op.operand earlier, so there's nothing left to do
+    self.finishAirBookkeeping();
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) void {
@@ -4249,9 +4333,60 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const air_tags = self.air.instructions.items(.tag);
-    _ = air_tags;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement boolean operations for {}", .{self.target.cpu.arch});
+    const tag: Air.Inst.Tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = Type.bool;
+        const rhs_ty = Type.bool;
+
+        const lhs_reg, const lhs_lock = blk: {
+            if (lhs == .register) break :blk .{ lhs.register, null };
+
+            const lhs_reg, const lhs_lock = try self.allocReg();
+            try self.genSetReg(lhs_ty, lhs_reg, lhs);
+            break :blk .{ lhs_reg, lhs_lock };
+        };
+        defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const rhs_reg, const rhs_lock = blk: {
+            if (rhs == .register) break :blk .{ rhs.register, null };
+
+            const rhs_reg, const rhs_lock = try self.allocReg();
+            try self.genSetReg(rhs_ty, rhs_reg, rhs);
+            break :blk .{ rhs_reg, rhs_lock };
+        };
+        defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const result_reg, const result_lock = try self.allocReg();
+        defer self.register_manager.unlockReg(result_lock);
+
+        _ = try self.addInst(.{
+            .tag = if (tag == .bool_or) .@"or" else .@"and",
+            .ops = .rrr,
+            .data = .{ .r_type = .{
+                .rd = result_reg,
+                .rs1 = lhs_reg,
+                .rs2 = rhs_reg,
+            } },
+        });
+
+        // safety truncate
+        if (self.wantSafety()) {
+            _ = try self.addInst(.{
+                .tag = .andi,
+                .ops = .rri,
+                .data = .{ .i_type = .{
+                    .rd = result_reg,
+                    .rs1 = result_reg,
+                    .imm12 = Immediate.s(1),
+                } },
+            });
+        }
+
+        break :result .{ .register = result_reg };
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -5265,7 +5400,9 @@ fn resolveCallingConventionValues(
                     },
                     .memory => {
                         const param_int_regs = abi.function_arg_regs;
+
                         const param_int_reg = param_int_regs[param_int_reg_i];
+                        param_int_reg_i += 1;
 
                         arg_mcv[arg_mcv_i] = .{ .indirect = .{ .reg = param_int_reg } };
                         arg_mcv_i += 1;
