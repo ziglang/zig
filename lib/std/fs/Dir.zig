@@ -800,7 +800,7 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.openFileW(path_w.span(), flags);
     }
-    if (native_os == .wasi) {
+    if (native_os == .wasi and !builtin.link_libc) {
         var base: std.os.wasi.rights_t = .{};
         if (flags.isRead()) {
             base.FD_READ = true;
@@ -834,17 +834,25 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
             const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
             return self.openFileW(path_w.span(), flags);
         },
-        .wasi => {
+        // Use the libc API when libc is linked because it implements things
+        // such as opening absolute file paths.
+        .wasi => if (!builtin.link_libc) {
             return openFile(self, mem.sliceTo(sub_path, 0), flags);
         },
         else => {},
     }
 
-    var os_flags: posix.O = .{
-        .ACCMODE = switch (flags.mode) {
-            .read_only => .RDONLY,
-            .write_only => .WRONLY,
-            .read_write => .RDWR,
+    var os_flags: posix.O = switch (native_os) {
+        .wasi => .{
+            .read = flags.mode != .write_only,
+            .write = flags.mode != .read_only,
+        },
+        else => .{
+            .ACCMODE = switch (flags.mode) {
+                .read_only => .RDONLY,
+                .write_only => .WRONLY,
+                .read_write => .RDWR,
+            },
         },
     };
     if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;

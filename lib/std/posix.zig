@@ -1602,6 +1602,10 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .PERM => return error.AccessDenied,
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
+            .ILSEQ => |err| if (native_os == .wasi)
+                return error.InvalidUtf8
+            else
+                return unexpectedErrno(err),
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1771,6 +1775,10 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .OPNOTSUPP => return error.FileLocksNotSupported,
             .AGAIN => return error.WouldBlock,
             .TXTBSY => return error.FileBusy,
+            .ILSEQ => |err| if (native_os == .wasi)
+                return error.InvalidUtf8
+            else
+                return unexpectedErrno(err),
             else => |err| return unexpectedErrno(err),
         }
     }

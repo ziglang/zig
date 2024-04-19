@@ -158,6 +158,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .dependencyFromBuildZig = .{
+            .path = "dependencyFromBuildZig",
+        },
     },
     .paths = .{
         "build.zig",

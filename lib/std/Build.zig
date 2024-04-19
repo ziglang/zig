@@ -1975,7 +1975,7 @@ pub fn dependencyFromBuildZig(
         const dep_name = for (b.available_deps) |dep| {
             if (mem.eql(u8, dep[1], pkg_hash)) break dep[1];
         } else break :find_dep;
-        return dependencyInner(b, dep_name, pkg.build_root, pkg.build_zig, pkg.deps, args);
+        return dependencyInner(b, dep_name, pkg.build_root, pkg.build_zig, pkg_hash, pkg.deps, args);
     }
 
     const full_path = b.pathFromRoot("build.zig.zon");
