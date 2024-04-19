@@ -534,6 +534,18 @@ const Sha512Params = Sha2Params64{
 };
 
 const Sha512256Params = Sha2Params64{
+    .iv0 = 0x8C3D37C819544DA2,
+    .iv1 = 0x73E1996689DCD4D6,
+    .iv2 = 0x1DFAB7AE32FF9C82,
+    .iv3 = 0x679DD514582F9FCF,
+    .iv4 = 0x0F6D2B697BD44DA8,
+    .iv5 = 0x77E36F7304C48942,
+    .iv6 = 0x3F9D85A86A1D36C8,
+    .iv7 = 0x1112E6AD91D692A1,
+    .digest_bits = 224,
+};
+
+const Sha512256Params = Sha2Params64{
     .iv0 = 0x22312194FC2BF72C,
     .iv1 = 0x9F555FA3C84C64C2,
     .iv2 = 0x2393B86B6F53B151,
@@ -562,6 +574,9 @@ pub const Sha384 = Sha2x64(Sha384Params);
 
 /// SHA-512
 pub const Sha512 = Sha2x64(Sha512Params);
+
+/// SHA-512/224
+pub const Sha512224 = Sha2x64(Sha512224Params);
 
 /// SHA-512/256
 pub const Sha512256 = Sha2x64(Sha512256Params);
