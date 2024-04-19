@@ -533,6 +533,18 @@ const Sha512Params = Sha2Params64{
     .digest_bits = 512,
 };
 
+const Sha512224Params = Sha2Params64{
+    .iv0 = 0x8C3D37C819544DA2,
+    .iv1 = 0x73E1996689DCD4D6,
+    .iv2 = 0x1DFAB7AE32FF9C82,
+    .iv3 = 0x679DD514582F9FCF,
+    .iv4 = 0x0F6D2B697BD44DA8,
+    .iv5 = 0x77E36F7304C48942,
+    .iv6 = 0x3F9D85A86A1D36C8,
+    .iv7 = 0x1112E6AD91D692A1,
+    .digest_bits = 224,
+};
+
 const Sha512256Params = Sha2Params64{
     .iv0 = 0x22312194FC2BF72C,
     .iv1 = 0x9F555FA3C84C64C2,
@@ -562,6 +574,9 @@ pub const Sha384 = Sha2x64(Sha384Params);
 
 /// SHA-512
 pub const Sha512 = Sha2x64(Sha512Params);
+
+/// SHA-512/224
+pub const Sha512224 = Sha2x64(Sha512224Params);
 
 /// SHA-512/256
 pub const Sha512256 = Sha2x64(Sha512256Params);
@@ -664,6 +679,14 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
             for (rr, 0..) |s, j| {
                 mem.writeInt(u64, out[8 * j ..][0..8], s, .big);
+            }
+
+            const bytes_left = params.digest_bits / 8 % 8;
+            if (bytes_left > 0) {
+                const rest = d.s[(params.digest_bits / 64)];
+                var buf: [8]u8 = undefined;
+                std.mem.writeInt(u64, &buf, rest, .big);
+                @memcpy(out[params.digest_bits / 64 * 8 ..], buf[0..bytes_left]);
             }
         }
 
@@ -874,4 +897,26 @@ test "sha512 aligned final" {
     var h = Sha512.init(.{});
     h.update(&block);
     h.final(out[0..]);
+}
+
+test "sha512-224 single" {
+    const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
+    try htest.assertEqualHash(Sha512224, h1, "");
+
+    const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
+    try htest.assertEqualHash(Sha512224, h2, "abc");
+
+    const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
+    try htest.assertEqualHash(Sha512224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test "sha512-256 single" {
+    const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
+    try htest.assertEqualHash(Sha512256, h1, "");
+
+    const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
+    try htest.assertEqualHash(Sha512256, h2, "abc");
+
+    const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
+    try htest.assertEqualHash(Sha512256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
