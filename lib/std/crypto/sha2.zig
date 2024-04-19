@@ -680,6 +680,14 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             for (rr, 0..) |s, j| {
                 mem.writeInt(u64, out[8 * j ..][0..8], s, .big);
             }
+
+            const bytes_left = params.digest_bits / 8 % 8;
+            if (bytes_left > 0) {
+                const rest = d.s[(params.digest_bits / 64)];
+                var buf: [8]u8 = undefined;
+                std.mem.writeInt(u64, &buf, rest, .big);
+                @memcpy(out[params.digest_bits / 64 * 8 ..], buf[0..bytes_left]);
+            }
         }
 
         pub fn finalResult(d: *Self) [digest_length]u8 {
