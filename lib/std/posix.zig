@@ -542,7 +542,7 @@ pub fn reboot(cmd: RebootCommand) RebootError!void {
             ))) {
                 .SUCCESS => {},
                 .PERM => return error.PermissionDenied,
-                else => |err| return std.os.unexpectedErrno(err),
+                else => |err| return std.posix.unexpectedErrno(err),
             }
             switch (cmd) {
                 .CAD_OFF => {},
