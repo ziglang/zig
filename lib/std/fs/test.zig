@@ -1712,7 +1712,7 @@ test "walker without fully iterating" {
 test "'.' and '..' in fs.Dir functions" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    if (native_os == .windows and builtin.cpu.arch == .aarch64) {
+    if (native_os == .windows) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;
     }
