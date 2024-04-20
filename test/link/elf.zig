@@ -2649,6 +2649,33 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+// Adapted from https://github.com/rui314/mold/blob/main/test/elf/relocatable-mergeable-sections.sh
+fn testRelocatableMergeStrings(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-merge-strings", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val1:
+    \\.ascii "Hello \0"
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val5:
+    \\.ascii "World \0"
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val7:
+    \\.ascii "Hello \0"
+    });
+
+    const obj2 = addObject(b, opts, .{ .name = "b" });
+    obj2.addObject(obj1);
+
+    const check = obj2.checkObject();
+    check.dumpSection(".rodata.str1.1");
+    check.checkExact("Hello \x00World \x00");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn testRelocatableNoEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-no-eh-frame", opts);
 
