@@ -433,6 +433,7 @@ fn openBrowserTab(gpa: Allocator, url: []const u8) !void {
 fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
     const main_exe = switch (builtin.os.tag) {
         .windows => "explorer",
+        .macos => "open",
         else => "xdg-open",
     };
     var child = std.ChildProcess.init(&.{ main_exe, url }, gpa);
