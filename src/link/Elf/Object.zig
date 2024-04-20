@@ -759,6 +759,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
                 msub.string_index = res.key.pos;
                 msub.alignment = atom_ptr.alignment;
                 msub.size = res.key.len;
+                msub.entsize = math.cast(u32, isec.sh_entsize) orelse return error.Overflow;
                 msub.alive = !elf_file.base.gc_sections or isec.sh_flags & elf.SHF_ALLOC == 0;
                 res.sub.* = msub_index;
             }

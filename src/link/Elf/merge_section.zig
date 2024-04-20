@@ -168,6 +168,7 @@ pub const MergeSubsection = struct {
     string_index: u32 = 0,
     size: u32 = 0,
     alignment: Atom.Alignment = .@"1",
+    entsize: u32 = 0,
     alive: bool = false,
 
     pub fn address(msub: MergeSubsection, elf_file: *Elf) i64 {

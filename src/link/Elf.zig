@@ -3337,6 +3337,7 @@ pub fn addCommentString(self: *Elf) !void {
     msub.string_index = res.key.pos;
     msub.alignment = .@"1";
     msub.size = res.key.len;
+    msub.entsize = 1;
     msub.alive = true;
     res.sub.* = msub_index;
 }
@@ -3428,6 +3429,14 @@ fn initOutputSections(self: *Elf) !void {
             .flags = msec.flags,
         });
         msec.output_section_index = shndx;
+
+        var entsize = self.mergeSubsection(msec.subsections.items[0]).entsize;
+        for (msec.subsections.items) |index| {
+            const msub = self.mergeSubsection(index);
+            entsize = @min(entsize, msub.entsize);
+        }
+        const shdr = &self.shdrs.items[shndx];
+        shdr.sh_entsize = entsize;
     }
 }
 
