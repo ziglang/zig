@@ -844,19 +844,19 @@ const WasiThreadImpl = struct {
                 const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
                 switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
                     .NoReturn, .Void => {
-                        @call(.auto, w, args);
+                        @call(.auto, f, w.args);
                     },
                     .Int => |info| {
                         if (info.bits != 8) {
                             @compileError(bad_fn_ret);
                         }
-                        _ = @call(.auto, w, args); // WASI threads don't support exit status, ignore value
+                        _ = @call(.auto, f, w.args); // WASI threads don't support exit status, ignore value
                     },
                     .ErrorUnion => |info| {
                         if (info.payload != void) {
                             @compileError(bad_fn_ret);
                         }
-                        @call(.auto, f, args) catch |err| {
+                        @call(.auto, f, w.args) catch |err| {
                             std.debug.print("error: {s}\n", .{@errorName(err)});
                             if (@errorReturnTrace()) |trace| {
                                 std.debug.dumpStackTrace(trace.*);
