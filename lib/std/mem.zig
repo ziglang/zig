@@ -2008,7 +2008,12 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
         .Struct => {
             inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
-                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Struct => |struct_info| if (struct_info.backing_integer) |Int| {
+                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(Int, @bitCast(@field(ptr, f.name)))));
+                    } else {
+                        byteSwapAllFields(f.type, &@field(ptr, f.name));
+                    },
+                    .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .Enum => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
