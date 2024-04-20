@@ -840,6 +840,7 @@ const FileType = enum {
     @"tar.xz",
     @"tar.zst",
     git_pack,
+    zip,
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
@@ -849,6 +850,7 @@ const FileType = enum {
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
         if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
+        if (ascii.endsWithIgnoreCase(file_path, ".zip")) return .zip;
         return null;
     }
 
@@ -1077,6 +1079,9 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
 
+            if (ascii.eqlIgnoreCase(mime_type, "application/zip"))
+                break :ft .zip;
+
             if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
                 !ascii.eqlIgnoreCase(mime_type, "application/x-compressed"))
             {
@@ -1157,6 +1162,7 @@ fn unpackResource(
                 .{@errorName(e)},
             )),
         },
+        .zip => return try unzip(f, tmp_directory.handle, resource.reader()),
     }
 }
 
@@ -1187,6 +1193,98 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
             }
         }
     }
+    return res;
+}
+
+fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
+    // We write the entire contents to a file first because zip files
+    // must be processed back to front and they could be too large to
+    // load into memory.
+
+    const cache_root = f.job_queue.global_cache;
+
+    // TODO: the downside of this solution is if we get a failure/crash/oom/power out
+    //       during this process, we leave behind a zip file that would be
+    //       difficult to know if/when it can be cleaned up.
+    //       Might be worth it to use a mechanism that enables other processes
+    //       to see if the owning process of a file is still alive (on linux this
+    //       can be done with file locks).
+    //       Coupled with this mechansism, we could also use slots (i.e. zig-cache/tmp/0,
+    //       zig-cache/tmp/1, etc) which would mean that subsequent runs would
+    //       automatically clean up old dead files.
+    //       This could all be done with a simple TmpFile abstraction.
+    const prefix = "tmp/";
+    const suffix = ".zip";
+
+    const random_bytes_count = 20;
+    const random_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);
+    var zip_path: [prefix.len + random_path_len + suffix.len]u8 = undefined;
+    @memcpy(zip_path[0..prefix.len], prefix);
+    @memcpy(zip_path[prefix.len + random_path_len ..], suffix);
+    {
+        var random_bytes: [random_bytes_count]u8 = undefined;
+        std.crypto.random.bytes(&random_bytes);
+        _ = std.fs.base64_encoder.encode(
+            zip_path[prefix.len..][0..random_path_len],
+            &random_bytes,
+        );
+    }
+
+    defer cache_root.handle.deleteFile(&zip_path) catch {};
+
+    const eb = &f.error_bundle;
+
+    {
+        var zip_file = cache_root.handle.createFile(
+            &zip_path,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to create tmp zip file: {s}",
+            .{@errorName(err)},
+        ));
+        defer zip_file.close();
+        var buf: [std.mem.page_size]u8 = undefined;
+        while (true) {
+            const len = reader.readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "read zip stream failed: {s}",
+                .{@errorName(err)},
+            ));
+            if (len == 0) break;
+            zip_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "write temporary zip file failed: {s}",
+                .{@errorName(err)},
+            ));
+        }
+    }
+
+    var diagnostics: std.zip.Diagnostics = .{ .allocator = f.arena.allocator() };
+    // no need to deinit since we are using an arena allocator
+
+    {
+        var zip_file = cache_root.handle.openFile(
+            &zip_path,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to open temporary zip file: {s}",
+            .{@errorName(err)},
+        ));
+        defer zip_file.close();
+
+        std.zip.extract(out_dir, zip_file.seekableStream(), .{
+            .allow_backslashes = true,
+            .diagnostics = &diagnostics,
+        }) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "zip extract failed: {s}",
+            .{@errorName(err)},
+        ));
+    }
+
+    cache_root.handle.deleteFile(&zip_path) catch |err| return f.fail(f.location_tok, try eb.printString(
+        "delete temporary zip failed: {s}",
+        .{@errorName(err)},
+    ));
+
+    const res: UnpackResult = .{ .root_dir = diagnostics.root_dir };
     return res;
 }
 
@@ -1894,6 +1992,72 @@ const UnpackResult = struct {
         , out.items);
     }
 };
+
+test "zip" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_files = [_]std.zip.testutil.File{
+        .{ .name = "foo", .content = "this is just foo\n", .compression = .store },
+        .{ .name = "bar", .content = "another file\n", .compression = .deflate },
+    };
+    {
+        var zip_file = try tmp.dir.createFile("test.zip", .{});
+        defer zip_file.close();
+        var bw = std.io.bufferedWriter(zip_file.writer());
+        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
+        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
+        try bw.flush();
+    }
+
+    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    defer gpa.free(zip_path);
+
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    defer fb.deinit();
+
+    try fetch.run();
+
+    var out = try fb.packageDir();
+    defer out.close();
+
+    try std.zip.testutil.expectFiles(&test_files, out, .{});
+}
+
+test "zip with one root folder" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_files = [_]std.zip.testutil.File{
+        .{ .name = "the_root_folder/foo.zig", .content = "// this is foo.zig\n", .compression = .store },
+        .{ .name = "the_root_folder/README.md", .content = "# The foo.zig README\n", .compression = .store },
+    };
+    {
+        var zip_file = try tmp.dir.createFile("test.zip", .{});
+        defer zip_file.close();
+        var bw = std.io.bufferedWriter(zip_file.writer());
+        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
+        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
+        try bw.flush();
+    }
+
+    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    defer gpa.free(zip_path);
+
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    defer fb.deinit();
+
+    try fetch.run();
+
+    var out = try fb.packageDir();
+    defer out.close();
+
+    try std.zip.testutil.expectFiles(&test_files, out, .{ .strip_prefix = "the_root_folder/" });
+}
 
 test "tarball with duplicate paths" {
     // This tarball has duplicate path 'dir1/file1' to simulate case sensitve
