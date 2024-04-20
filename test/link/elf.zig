@@ -72,6 +72,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+        elf_step.dependOn(testMergeStrings(b, .{ .target = musl_target }));
+        elf_step.dependOn(testMergeStrings2(b, .{ .target = musl_target }));
         // https://github.com/ziglang/zig/issues/17451
         // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
         elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
@@ -2262,6 +2264,100 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     check.checkInHeaders();
     check.checkExact("section headers");
     check.checkNotPresent("name .dynamic");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+// Adapted from https://github.com/rui314/mold/blob/main/test/elf/mergeable-strings.sh
+fn testMergeStrings(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-strings", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a.o" });
+    addCSourceBytes(obj1,
+        \\#include <uchar.h>
+        \\#include <wchar.h>
+        \\char *cstr1 = "foo";
+        \\wchar_t *wide1 = L"foo";
+        \\char16_t *utf16_1 = u"foo";
+        \\char32_t *utf32_1 = U"foo";
+    , &.{"-O2"});
+    obj1.linkLibC();
+
+    const obj2 = addObject(b, opts, .{ .name = "b.o" });
+    addCSourceBytes(obj2,
+        \\#include <stdio.h>
+        \\#include <assert.h>
+        \\#include <uchar.h>
+        \\#include <wchar.h>
+        \\extern char *cstr1;
+        \\extern wchar_t *wide1;
+        \\extern char16_t *utf16_1;
+        \\extern char32_t *utf32_1;
+        \\char *cstr2 = "foo";
+        \\wchar_t *wide2 = L"foo";
+        \\char16_t *utf16_2 = u"foo";
+        \\char32_t *utf32_2 = U"foo";
+        \\int main() {
+        \\ printf("%p %p %p %p %p %p %p %p\n",
+        \\ cstr1, cstr2, wide1, wide2, utf16_1, utf16_2, utf32_1, utf32_2);
+        \\  assert((void*)cstr1 ==   (void*)cstr2);
+        \\  assert((void*)wide1 ==   (void*)wide2);
+        \\  assert((void*)utf16_1 == (void*)utf16_2);
+        \\  assert((void*)utf32_1 == (void*)utf32_2);
+        \\  assert((void*)wide1 ==   (void*)utf32_1);
+        \\  assert((void*)cstr1 !=   (void*)wide1);
+        \\  assert((void*)cstr1 !=   (void*)utf32_1);
+        \\  assert((void*)wide1 !=   (void*)utf16_1);
+        \\}
+    , &.{"-O2"});
+    obj2.linkLibC();
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(obj1);
+    exe.addObject(obj2);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testMergeStrings2(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-strings2", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a.o", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\export fn foo() void {
+    \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+    \\    const slice = std.mem.sliceTo(&arr, 3);
+    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn foo() void;
+    \\pub fn main() void {
+    \\    foo();
+    \\    var arr: [5:0]u16 = [_:0]u16{ 5, 4, 3, 2, 1 };
+    \\    const slice = std.mem.sliceTo(&arr, 3);
+    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+    \\}
+    });
+    exe.addObject(obj1);
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.dumpSection(".rodata.str");
+    check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
+    check.dumpSection(".rodata.str");
+    check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
     test_step.dependOn(&check.step);
 
     return test_step;
