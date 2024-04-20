@@ -412,22 +412,28 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = true,
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //    .use_llvm = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/3340
         //.{
