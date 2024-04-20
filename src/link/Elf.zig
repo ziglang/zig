@@ -3399,15 +3399,15 @@ pub fn writeMergeSections(self: *Elf) !void {
 
     for (self.merge_sections.items) |msec| {
         const shdr = self.shdrs.items[msec.output_section_index];
-
-        try buffer.ensureTotalCapacity(shdr.sh_size);
-        buffer.appendNTimesAssumeCapacity(0, shdr.sh_size);
+        const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        try buffer.ensureTotalCapacity(size);
+        buffer.appendNTimesAssumeCapacity(0, size);
 
         for (msec.subsections.items) |msub_index| {
             const msub = self.mergeSubsection(msub_index);
             assert(msub.alive);
             const string = msub.getString(self);
-            const off: u64 = @intCast(msub.value);
+            const off = math.cast(usize, msub.value) orelse return error.Overflow;
             @memcpy(buffer.items[off..][0..string.len], string);
         }
 
