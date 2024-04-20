@@ -438,47 +438,29 @@ pub const Request = struct {
         }
 
         var chunk_header_buffer: [18]u8 = undefined;
-        var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
+        var iovecs: [max_extra_headers * 4 + 3]std.net.IoSliceConst = undefined;
         var iovecs_len: usize = 0;
 
-        iovecs[iovecs_len] = .{
-            .base = h.items.ptr,
-            .len = h.items.len,
-        };
+        iovecs[iovecs_len].set(h.items);
         iovecs_len += 1;
 
         for (options.extra_headers) |header| {
-            iovecs[iovecs_len] = .{
-                .base = header.name.ptr,
-                .len = header.name.len,
-            };
+            iovecs[iovecs_len].set(header.name);
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = ": ",
-                .len = 2,
-            };
+            iovecs[iovecs_len].set(": ");
             iovecs_len += 1;
 
             if (header.value.len != 0) {
-                iovecs[iovecs_len] = .{
-                    .base = header.value.ptr,
-                    .len = header.value.len,
-                };
+                iovecs[iovecs_len].set(header.value);
                 iovecs_len += 1;
             }
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len].set("\r\n");
             iovecs_len += 1;
         }
 
-        iovecs[iovecs_len] = .{
-            .base = "\r\n",
-            .len = 2,
-        };
+        iovecs[iovecs_len].set("\r\n");
         iovecs_len += 1;
 
         if (request.head.method != .HEAD) {
@@ -491,35 +473,20 @@ pub const Request = struct {
                         .{content.len},
                     ) catch unreachable;
 
-                    iovecs[iovecs_len] = .{
-                        .base = chunk_header.ptr,
-                        .len = chunk_header.len,
-                    };
+                    iovecs[iovecs_len].set(chunk_header);
                     iovecs_len += 1;
 
-                    iovecs[iovecs_len] = .{
-                        .base = content.ptr,
-                        .len = content.len,
-                    };
+                    iovecs[iovecs_len].set(content);
                     iovecs_len += 1;
 
-                    iovecs[iovecs_len] = .{
-                        .base = "\r\n",
-                        .len = 2,
-                    };
+                    iovecs[iovecs_len].set("\r\n");
                     iovecs_len += 1;
                 }
 
-                iovecs[iovecs_len] = .{
-                    .base = "0\r\n\r\n",
-                    .len = 5,
-                };
+                iovecs[iovecs_len].set("0\r\n\r\n");
                 iovecs_len += 1;
             } else if (content.len > 0) {
-                iovecs[iovecs_len] = .{
-                    .base = content.ptr,
-                    .len = content.len,
-                };
+                iovecs[iovecs_len].set(content);
                 iovecs_len += 1;
             }
         }
@@ -910,16 +877,9 @@ pub const Response = struct {
 
         if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
             const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            var iovecs: [2]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
-            };
+            var iovecs: [2]std.net.IoSliceConst = undefined;
+            iovecs[0].set(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
+            iovecs[1].set(bytes);
             const n = try r.stream.writev(&iovecs);
 
             if (n >= send_buffer_len) {
@@ -957,28 +917,12 @@ pub const Response = struct {
             var header_buf: [18]u8 = undefined;
             const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{chunk_len}) catch unreachable;
 
-            var iovecs: [5]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len - r.chunk_len,
-                },
-                .{
-                    .base = chunk_header.ptr,
-                    .len = chunk_header.len,
-                },
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                    .len = r.chunk_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
-                .{
-                    .base = "\r\n",
-                    .len = 2,
-                },
-            };
+            var iovecs: [5]std.net.IoSliceConst = undefined;
+            iovecs[0].set(r.send_buffer[r.send_buffer_start..][0 .. send_buffer_len - r.chunk_len]);
+            iovecs[1].set(chunk_header);
+            iovecs[2].set(r.send_buffer[r.send_buffer_end - r.chunk_len ..][0..r.chunk_len]);
+            iovecs[3].set(bytes);
+            iovecs[4].set("\r\n");
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
             try r.stream.writevAll(&iovecs);
@@ -1038,74 +982,44 @@ pub const Response = struct {
         var header_buf: [18]u8 = undefined;
         const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{r.chunk_len}) catch unreachable;
 
-        var iovecs: [max_trailers * 4 + 5]std.posix.iovec_const = undefined;
+        var iovecs: [max_trailers * 4 + 5]std.net.IoSliceConst = undefined;
         var iovecs_len: usize = 0;
 
-        iovecs[iovecs_len] = .{
-            .base = http_headers.ptr,
-            .len = http_headers.len,
-        };
+        iovecs[iovecs_len].set(http_headers);
         iovecs_len += 1;
 
         if (r.chunk_len > 0) {
-            iovecs[iovecs_len] = .{
-                .base = chunk_header.ptr,
-                .len = chunk_header.len,
-            };
+            iovecs[iovecs_len].set(chunk_header);
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                .len = r.chunk_len,
-            };
+            iovecs[iovecs_len].set(r.send_buffer[r.send_buffer_end - r.chunk_len ..][0..r.chunk_len]);
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len].set("\r\n");
             iovecs_len += 1;
         }
 
         if (end_trailers) |trailers| {
-            iovecs[iovecs_len] = .{
-                .base = "0\r\n",
-                .len = 3,
-            };
+            iovecs[iovecs_len].set("0\r\n");
             iovecs_len += 1;
 
             for (trailers) |trailer| {
-                iovecs[iovecs_len] = .{
-                    .base = trailer.name.ptr,
-                    .len = trailer.name.len,
-                };
+                iovecs[iovecs_len].set(trailer.name);
                 iovecs_len += 1;
 
-                iovecs[iovecs_len] = .{
-                    .base = ": ",
-                    .len = 2,
-                };
+                iovecs[iovecs_len].set(": ");
                 iovecs_len += 1;
 
                 if (trailer.value.len != 0) {
-                    iovecs[iovecs_len] = .{
-                        .base = trailer.value.ptr,
-                        .len = trailer.value.len,
-                    };
+                    iovecs[iovecs_len].set(trailer.value);
                     iovecs_len += 1;
                 }
 
-                iovecs[iovecs_len] = .{
-                    .base = "\r\n",
-                    .len = 2,
-                };
+                iovecs[iovecs_len].set("\r\n");
                 iovecs_len += 1;
             }
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len].set("\r\n");
             iovecs_len += 1;
         }
 

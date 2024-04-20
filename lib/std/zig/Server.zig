@@ -175,10 +175,8 @@ pub fn serveMessage(
 ) !void {
     var iovecs: [10]std.posix.iovec_const = undefined;
     const header_le = bswap(header);
-    iovecs[0] = .{
-        .base = @as([*]const u8, @ptrCast(&header_le)),
-        .len = @sizeOf(OutMessage.Header),
-    };
+    const header_le_bytes = std.mem.asBytes(&header_le);
+    iovecs[0] = .{ .base = header_le_bytes.ptr, .len = header_le_bytes.len };
     for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
         iovec.* = .{
             .base = buf.ptr,

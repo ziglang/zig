@@ -220,7 +220,7 @@ pub const Connection = struct {
 
     pub const Protocol = enum { plain, tls };
 
-    pub fn readvDirectTls(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
+    pub fn readvDirectTls(conn: *Connection, buffers: []std.net.IoSlice) ReadError!usize {
         return conn.tls_client.readv(conn.stream, buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
@@ -228,13 +228,13 @@ pub const Connection = struct {
             switch (err) {
                 error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
                 error.ConnectionTimedOut => return error.ConnectionTimedOut,
-                error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+                error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
                 else => return error.UnexpectedReadFailure,
             }
         };
     }
 
-    pub fn readvDirect(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
+    pub fn readvDirect(conn: *Connection, buffers: []std.net.IoSlice) ReadError!usize {
         if (conn.protocol == .tls) {
             if (disable_tls) unreachable;
 
@@ -243,7 +243,7 @@ pub const Connection = struct {
 
         return conn.stream.readv(buffers) catch |err| switch (err) {
             error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+            error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
             else => return error.UnexpectedReadFailure,
         };
     }
@@ -252,9 +252,8 @@ pub const Connection = struct {
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
-        var iovecs = [1]std.posix.iovec{
-            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
-        };
+        var iovecs: [1]std.net.IoSlice = undefined;
+        iovecs[0].set(&conn.read_buf);
         const nread = try conn.readvDirect(&iovecs);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
@@ -288,10 +287,9 @@ pub const Connection = struct {
             return available_read;
         }
 
-        var iovecs = [2]std.posix.iovec{
-            .{ .base = buffer.ptr, .len = buffer.len },
-            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
-        };
+        var iovecs: [2]std.net.IoSlice = undefined;
+        iovecs[0].set(buffer);
+        iovecs[1].set(&conn.read_buf);
         const nread = try conn.readvDirect(&iovecs);
 
         if (nread > buffer.len) {
