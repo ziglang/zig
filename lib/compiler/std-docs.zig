@@ -117,9 +117,7 @@ const Context = struct {
 
 fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
     const target = std.mem.trimRight(u8, request.head.target, "/");
-    if (std.mem.eql(u8, target, "") or
-        std.mem.eql(u8, target, "/debug"))
-    {
+    if (target.len == 0 or std.mem.eql(u8, target, "/debug")) {
         try serveDocsFile(request, context, "docs/index.html", "text/html");
     } else if (std.mem.eql(u8, target, "/main.js") or
         std.mem.eql(u8, target, "/debug/main.js"))
