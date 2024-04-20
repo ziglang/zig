@@ -1069,8 +1069,8 @@ pub fn panicNew_default(comptime cause: PanicCause, data: PanicData(cause)) nore
             var buf: [256]u8 = undefined;
             buf[0..6].* = "index ".*;
             var ptr: [*]u8 = fmt.formatIntDec(buf[6..], data.index);
-            ptr[0..15].* = " above maximum ".*;
-            ptr = fmt.formatIntDec(ptr[15..][0..32], data.length -% 1);
+            ptr[0..9].* = ", length ".*;
+            ptr = fmt.formatIntDec(ptr[9..][0..32], data.length);
             std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
         },
         .accessed_out_of_order => {
@@ -1093,8 +1093,8 @@ pub fn panicNew_default(comptime cause: PanicCause, data: PanicData(cause)) nore
             } else {
                 ptr[0..10].* = "end index ".*;
                 ptr = fmt.formatIntDec(buf[10..], data.start);
-                ptr[0..15].* = " above maximum ".*;
-                ptr = fmt.formatIntDec(ptr[15..][0..32], data.length -% 1);
+                ptr[0..9].* = ", length ".*;
+                ptr = fmt.formatIntDec(ptr[9..][0..32], data.length);
             }
             std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
         },
