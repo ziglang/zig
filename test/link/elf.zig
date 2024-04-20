@@ -2328,7 +2328,7 @@ fn testMergeStrings(b: *Build, opts: Options) *Step {
 fn testMergeStrings2(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings2", opts);
 
-    const obj1 = addObject(b, opts, .{ .name = "a.o", .zig_source_bytes = 
+    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
     \\const std = @import("std");
     \\export fn foo() void {
     \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
@@ -2337,7 +2337,7 @@ fn testMergeStrings2(b: *Build, opts: Options) *Step {
     \\}
     });
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
     \\const std = @import("std");
     \\extern fn foo() void;
     \\pub fn main() void {
@@ -2347,18 +2347,43 @@ fn testMergeStrings2(b: *Build, opts: Options) *Step {
     \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
     \\}
     });
-    exe.addObject(obj1);
 
-    const run = addRunArtifact(exe);
-    run.expectExitCode(0);
-    test_step.dependOn(&run.step);
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(obj1);
+        exe.addObject(obj2);
 
-    const check = exe.checkObject();
-    check.dumpSection(".rodata.str");
-    check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
-    check.dumpSection(".rodata.str");
-    check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
-    test_step.dependOn(&check.step);
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const obj3 = addObject(b, opts, .{ .name = "c" });
+        obj3.addObject(obj1);
+        obj3.addObject(obj2);
+
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(obj3);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
