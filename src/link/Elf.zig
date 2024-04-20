@@ -3329,7 +3329,7 @@ fn checkDuplicates(self: *Elf) !void {
 pub fn addCommentString(self: *Elf) !void {
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
-    const res = try msec.insertZ(self.base.comp.gpa, "zig version x.x.x"); // TODO get actual version
+    const res = try msec.insertZ(self.base.comp.gpa, "zig " ++ builtin.zig_version_string);
     if (res.found_existing) return;
     const msub_index = try self.addMergeSubsection();
     const msub = self.mergeSubsection(msub_index);

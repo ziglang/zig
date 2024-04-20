@@ -61,6 +61,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
+        elf_step.dependOn(testCommentString(b, .{ .target = musl_target }));
         elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
         elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
         elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
@@ -83,6 +84,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testAsNeeded(b, .{ .target = gnu_target }));
         // https://github.com/ziglang/zig/issues/17430
         // elf_step.dependOn(testCanonicalPlt(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testCommentString(b, .{ .target = gnu_target }));
         elf_step.dependOn(testCopyrel(b, .{ .target = gnu_target }));
         // https://github.com/ziglang/zig/issues/17430
         // elf_step.dependOn(testCopyrelAlias(b, .{ .target = gnu_target }));
@@ -154,6 +156,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     elf_step.dependOn(testThunks(b, .{ .target = aarch64_musl }));
 
     // x86_64 self-hosted backend
+    elf_step.dependOn(testCommentString(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testCommentStringStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = x86_64_musl }));
     elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = x86_64_musl }));
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
@@ -360,6 +364,36 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testCommentString(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comment-string", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\pub fn main() void {}
+    });
+
+    const check = exe.checkObject();
+    check.dumpSection(".comment");
+    check.checkContains("zig");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testCommentStringStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comment-string-static-lib", opts);
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes = 
+    \\export fn foo() void {}
+    });
+
+    const check = lib.checkObject();
+    check.dumpSection(".comment");
+    check.checkContains("zig");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
