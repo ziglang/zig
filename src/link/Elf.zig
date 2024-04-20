@@ -1342,6 +1342,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.addCommentString();
     try self.finalizeMergeSections();
     try self.initOutputSections();
+    try self.initMergeSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
 
@@ -3419,7 +3420,9 @@ fn initOutputSections(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
     }
+}
 
+pub fn initMergeSections(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
         if (msec.subsections.items.len == 0) continue;
         const name = msec.name(self);

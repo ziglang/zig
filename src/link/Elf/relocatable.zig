@@ -34,12 +34,16 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
         zig_object.resolveSymbols(elf_file);
+        try elf_file.addCommentString();
+        try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedObject(elf_file);
 
+        try elf_file.initMergeSections();
         try elf_file.initSymtab();
         try elf_file.initShStrtab();
         try elf_file.sortShdrs();
         try zig_object.addAtomsToRelaSections(elf_file);
+        try elf_file.updateMergeSectionSizes();
         try updateSectionSizes(elf_file);
 
         try allocateAllocSections(elf_file);
@@ -49,6 +53,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
             state_log.debug("{}", .{elf_file.dumpState()});
         }
 
+        try elf_file.writeMergeSections();
         try writeSyntheticSections(elf_file);
         try elf_file.writeShdrTable();
         try elf_file.writeElfHeader();
@@ -185,6 +190,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     claimUnresolved(elf_file);
 
     try initSections(elf_file);
+    try elf_file.initMergeSections();
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
@@ -278,25 +284,6 @@ fn initSections(elf_file: *Elf) !void {
         const object = elf_file.file(index).?.object;
         try object.initOutputSections(elf_file);
         try object.initRelaSections(elf_file);
-    }
-
-    for (elf_file.merge_sections.items) |*msec| {
-        if (msec.subsections.items.len == 0) continue;
-        const name = msec.name(elf_file);
-        const shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
-            .name = name,
-            .type = msec.type,
-            .flags = msec.flags,
-        });
-        msec.output_section_index = shndx;
-
-        var entsize = elf_file.mergeSubsection(msec.subsections.items[0]).entsize;
-        for (msec.subsections.items) |index| {
-            const msub = elf_file.mergeSubsection(index);
-            entsize = @min(entsize, msub.entsize);
-        }
-        const shdr = &elf_file.shdrs.items[shndx];
-        shdr.sh_entsize = entsize;
     }
 
     const needs_eh_frame = for (elf_file.objects.items) |index| {
