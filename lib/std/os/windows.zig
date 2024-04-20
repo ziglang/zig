@@ -1675,27 +1675,6 @@ pub fn sendmsg(
     }
 }
 
-pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = @constCast(buf) };
-    var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendTo(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_send, flags, to, @as(i32, @intCast(to_len)), null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_send)));
-    }
-}
-
-pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws2_32.sockaddr, from_len: ?*ws2_32.socklen_t) i32 {
-    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = buf };
-    var bytes_received: DWORD = undefined;
-    var flags_inout = flags;
-    if (ws2_32.WSARecvFrom(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_received, &flags_inout, from, @as(?*i32, @ptrCast(from_len)), null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_received)));
-    }
-}
-
 pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
     return ws2_32.WSAPoll(fds, n, timeout);
 }

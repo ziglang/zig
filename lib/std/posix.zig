@@ -6017,8 +6017,13 @@ pub fn sendto(
     addrlen: socklen_t,
 ) SendToError!usize {
     if (native_os == .windows) {
-        switch (windows.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
-            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+        const len: u32 = @min(buf.len, maxInt(u32));
+        var buf_iovec = [1]windows.ws2_32.WSABUF{.{ .buf = @constCast(buf.ptr), .len = @intCast(len) }};
+        var bytes_sent: u32 = 0;
+
+        const rc = windows.ws2_32.WSASendTo(sockfd, &buf_iovec, 1, &bytes_sent, flags, dest_addr, @bitCast(addrlen), null, null);
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
                 .WSAEACCES => return error.AccessDenied,
                 .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
                 .WSAECONNRESET => return error.ConnectionResetByPeer,
@@ -6039,10 +6044,12 @@ pub fn sendto(
                 .WSAEWOULDBLOCK => return error.WouldBlock,
                 .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
                 else => |err| return windows.unexpectedWSAError(err),
-            },
-            else => |rc| return @intCast(rc),
+            }
+        } else {
+            return bytes_sent;
         }
     }
+
     while (true) {
         const rc = system.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen);
         switch (errno(rc)) {
@@ -6603,8 +6610,23 @@ pub fn recvfrom(
     addrlen: ?*socklen_t,
 ) RecvFromError!usize {
     while (true) {
-        const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
         if (native_os == .windows) {
+            const len: u32 = @min(buf.len, maxInt(u32));
+            var buf_iovec = [_]windows.ws2_32.WSABUF{.{ .buf = buf.ptr, .len = @intCast(len) }};
+            var bytes_received: u32 = 0;
+            var flags_inout: u32 = flags;
+
+            const rc = windows.ws2_32.WSARecvFrom(
+                sockfd,
+                &buf_iovec,
+                1,
+                &bytes_received,
+                &flags_inout,
+                src_addr,
+                @ptrCast(addrlen),
+                null,
+                null,
+            );
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
                     .WSANOTINITIALISED => unreachable,
@@ -6619,9 +6641,10 @@ pub fn recvfrom(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                return @intCast(rc);
+                return bytes_received;
             }
         } else {
+            const rc = system.recvfrom(sockfd, buf.ptr, buf.len, flags, src_addr, addrlen);
             switch (errno(rc)) {
                 .SUCCESS => return @intCast(rc),
                 .BADF => unreachable, // always a race condition

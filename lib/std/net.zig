@@ -1797,8 +1797,8 @@ pub const Stream = struct {
         }
     }
 
-    pub const ReadError = posix.ReadError;
-    pub const WriteError = posix.WriteError;
+    pub const ReadError = posix.RecvFromError || posix.ReadError;
+    pub const WriteError = posix.SendToError || posix.WriteError;
 
     pub const Reader = io.Reader(Stream, ReadError, read);
     pub const Writer = io.Writer(Stream, WriteError, write);
@@ -1811,23 +1811,45 @@ pub const Stream = struct {
         return .{ .context = self };
     }
 
-    pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (native_os == .windows) {
-            return windows.ReadFile(self.handle, buffer, null);
-        }
-
-        return posix.read(self.handle, buffer);
+    pub fn read(s: Stream, buffer: []u8) ReadError!usize {
+        return posix.recv(s.handle, buffer, 0);
     }
 
-    pub fn readv(s: Stream, iovecs: []const posix.iovec) ReadError!usize {
+    pub fn readv(s: Stream, iovecs: []IoSlice) ReadError!usize {
         if (native_os == .windows) {
-            // TODO improve this to use ReadFileScatter
-            if (iovecs.len == 0) return @as(usize, 0);
-            const first = iovecs[0];
-            return windows.ReadFile(s.handle, first.base[0..first.len], null);
+            var bytes_received: u32 = 0;
+            var flags_inout: u32 = 0;
+
+            const rc = windows.ws2_32.WSARecv(
+                s.handle,
+                @ptrCast(@constCast(iovecs.ptr)),
+                @intCast(iovecs.len),
+                &bytes_received,
+                &flags_inout,
+                null,
+                null,
+            );
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSANOTINITIALISED => unreachable,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEFAULT => unreachable,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => unreachable,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSAETIMEDOUT => return error.ConnectionTimedOut,
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable,
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return bytes_received;
+            }
         }
 
-        return posix.readv(s.handle, iovecs);
+        return posix.readv(s.handle, @ptrCast(iovecs));
     }
 
     /// Returns the number of bytes read. If the number read is smaller than
@@ -1856,44 +1878,79 @@ pub const Stream = struct {
     /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
-    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (native_os == .windows) {
-            return windows.WriteFile(self.handle, buffer, null);
-        }
-
-        return posix.write(self.handle, buffer);
+    pub fn write(s: Stream, buffer: []const u8) WriteError!usize {
+        return posix.send(s.handle, buffer, 0);
     }
 
-    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
+    pub fn writeAll(s: Stream, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
-            index += try self.write(bytes[index..]);
+            index += try s.write(bytes[index..]);
         }
     }
 
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writev`.
-    pub fn writev(self: Stream, iovecs: []const posix.iovec_const) WriteError!usize {
-        return posix.writev(self.handle, iovecs);
+    pub fn writev(s: Stream, iovecs: []const IoSliceConst) WriteError!usize {
+        if (native_os == .windows) {
+            var bytes_sent: u32 = 0;
+
+            const rc = windows.ws2_32.WSASend(
+                s.handle,
+                @ptrCast(@constCast(iovecs.ptr)),
+                @intCast(iovecs.len),
+                &bytes_sent,
+                0,
+                null,
+                null,
+            );
+            if (rc == windows.ws2_32.SOCKET_ERROR) {
+                switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAEACCES => return error.AccessDenied,
+                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
+                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
+                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
+                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable,
+                    .WSAEINVAL => unreachable,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    else => |err| return windows.unexpectedWSAError(err),
+                }
+            } else {
+                return @intCast(bytes_sent);
+            }
+        }
+
+        return posix.writev(s.handle, @ptrCast(iovecs));
     }
 
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
     /// order to handle partial writes from the underlying OS layer.
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writevAll`.
-    pub fn writevAll(self: Stream, iovecs: []posix.iovec_const) WriteError!void {
+    pub fn writevAll(s: Stream, iovecs: []IoSliceConst) WriteError!void {
         if (iovecs.len == 0) return;
 
         var i: usize = 0;
         while (true) {
-            var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].len) {
-                amt -= iovecs[i].len;
+            var amt = try s.writev(iovecs[i..]);
+            while (amt >= iovecs[i].len()) {
+                amt -= iovecs[i].len();
                 i += 1;
                 if (i >= iovecs.len) return;
             }
-            iovecs[i].base += amt;
-            iovecs[i].len -= amt;
+            iovecs[i].adjust(amt);
         }
     }
 };
@@ -1924,6 +1981,105 @@ pub const Server = struct {
             .stream = .{ .handle = fd },
             .address = accepted_addr,
         };
+    }
+};
+
+pub const IoSlice = extern struct {
+    data: switch (native_os) {
+        .windows => windows.ws2_32.WSABUF,
+        else => posix.iovec,
+    },
+
+    pub fn set(slice: *IoSlice, data: []u8) void {
+        if (native_os == .windows) {
+            if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
+                slice.data.buf = @ptrCast(slice);
+            } else {
+                slice.data.buf = data.ptr;
+            }
+        } else {
+            if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
+                slice.data.base = @ptrCast(slice);
+            } else {
+                slice.data.base = data.ptr;
+            }
+        }
+        slice.data.len = @intCast(data.len);
+    }
+
+    pub fn base(slice: IoSlice) [*]u8 {
+        if (native_os == .windows) {
+            return slice.data.buf;
+        } else {
+            return slice.data.base;
+        }
+    }
+
+    pub fn len(slice: IoSlice) usize {
+        return slice.data.len;
+    }
+
+    pub fn setLen(slice: *IoSlice, new_len: usize) void {
+        slice.data.len = @intCast(new_len);
+    }
+
+    pub fn adjust(slice: *IoSlice, amount: usize) void {
+        assert(slice.data.len >= amount);
+
+        slice.data.len -= @intCast(amount);
+        if (native_os == .windows) {
+            slice.data.buf = slice.data.buf + amount;
+        } else {
+            slice.data.base = slice.data.base + amount;
+        }
+    }
+};
+
+pub const IoSliceConst = extern struct {
+    data: switch (native_os) {
+        .windows => windows.ws2_32.WSABUF,
+        else => posix.iovec_const,
+    },
+
+    pub fn set(slice: *IoSliceConst, data: []const u8) void {
+        if (native_os == .windows) {
+            if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
+                slice.data.buf = @ptrCast(slice);
+            } else {
+                slice.data.buf = @constCast(data.ptr);
+            }
+            slice.data.len = @intCast(data.len);
+        } else {
+            if (data.len == 0) { // a zero length zig slice may have an undefined ptr, and the kernel requires a valid address.
+                slice.data.base = @ptrCast(slice);
+            } else {
+                slice.data.base = data.ptr;
+            }
+            slice.data.len = data.len;
+        }
+    }
+
+    pub fn base(slice: IoSliceConst) [*]const u8 {
+        if (native_os == .windows) {
+            return slice.data.buf;
+        } else {
+            return slice.data.base;
+        }
+    }
+
+    pub fn len(slice: IoSliceConst) usize {
+        return slice.data.len;
+    }
+
+    pub fn adjust(slice: *IoSliceConst, amount: usize) void {
+        assert(slice.data.len >= amount);
+
+        slice.data.len -= @intCast(amount);
+        if (native_os == .windows) {
+            slice.data.buf = slice.data.buf + amount;
+        } else {
+            slice.data.base = slice.data.base + amount;
+        }
     }
 };
 
