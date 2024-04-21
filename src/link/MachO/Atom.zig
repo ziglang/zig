@@ -770,7 +770,7 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
+            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target))));
             aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
         },
 
