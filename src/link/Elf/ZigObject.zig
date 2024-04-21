@@ -343,7 +343,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
                 atom.outputShndx().?
             else
                 elf.SHN_UNDEF;
-            global.value = esym.st_value;
+            global.value = @intCast(esym.st_value);
             global.atom_index = atom_index;
             global.esym_index = esym_index;
             global.file_index = self.index;
@@ -566,7 +566,7 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
             else => {},
         }
         local.flags.output_symtab = true;
-        try local.setOutputSymtabIndex(self.output_symtab_ctx.nlocals, elf_file);
+        try local.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, elf_file);
         self.output_symtab_ctx.nlocals += 1;
         self.output_symtab_ctx.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
     }
@@ -578,10 +578,10 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
         if (global.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
         global.flags.output_symtab = true;
         if (global.isLocal(elf_file)) {
-            try global.setOutputSymtabIndex(self.output_symtab_ctx.nlocals, elf_file);
+            try global.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, elf_file);
             self.output_symtab_ctx.nlocals += 1;
         } else {
-            try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+            try global.addExtra(.{ .symtab = self.output_symtab_ctx.nglobals }, elf_file);
             self.output_symtab_ctx.nglobals += 1;
         }
         self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
@@ -631,7 +631,7 @@ pub fn codeAlloc(self: ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8 
         return code;
     }
 
-    const file_offset = shdr.sh_offset + atom.value;
+    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom.value));
     const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
     const code = try gpa.alloc(u8, size);
     errdefer gpa.free(code);
@@ -659,7 +659,7 @@ pub fn getDeclVAddr(
         .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
-    return vaddr;
+    return @intCast(vaddr);
 }
 
 pub fn getAnonDeclVAddr(
@@ -678,7 +678,7 @@ pub fn getAnonDeclVAddr(
         .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
-    return vaddr;
+    return @intCast(vaddr);
 }
 
 pub fn lowerAnonDecl(
@@ -929,7 +929,7 @@ fn updateDeclCode(
 
     if (old_size > 0 and elf_file.base.child_pid == null) {
         const capacity = atom_ptr.capacity(elf_file);
-        const need_realloc = code.len > capacity or !required_alignment.check(atom_ptr.value);
+        const need_realloc = code.len > capacity or !required_alignment.check(@intCast(atom_ptr.value));
         if (need_realloc) {
             try atom_ptr.grow(elf_file);
             log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom_ptr.value });
@@ -984,7 +984,7 @@ fn updateDeclCode(
 
     const shdr = elf_file.shdrs.items[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
-        const file_offset = shdr.sh_offset + atom_ptr.value;
+        const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
         try elf_file.base.file.?.pwriteAll(code, file_offset);
     }
 }
@@ -1107,7 +1107,7 @@ pub fn updateFunc(
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            sym.address(.{}, elf_file),
+            @intCast(sym.address(.{}, elf_file)),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1186,7 +1186,7 @@ pub fn updateDecl(
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            sym.address(.{}, elf_file),
+            @intCast(sym.address(.{}, elf_file)),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1275,7 +1275,7 @@ fn updateLazySymbol(
     }
 
     const shdr = elf_file.shdrs.items[output_section_index];
-    const file_offset = shdr.sh_offset + atom_ptr.value;
+    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -1373,7 +1373,7 @@ fn lowerConst(
     local_esym.st_value = 0;
 
     const shdr = elf_file.shdrs.items[output_section_index];
-    const file_offset = shdr.sh_offset + atom_ptr.value;
+    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 
     return .{ .ok = sym_index };
@@ -1457,7 +1457,7 @@ pub fn updateExports(
 
         const actual_esym_index = global_esym_index & symbol_mask;
         const global_esym = &self.global_esyms.items(.elf_sym)[actual_esym_index];
-        global_esym.st_value = elf_file.symbol(sym_index).value;
+        global_esym.st_value = @intCast(elf_file.symbol(sym_index).value);
         global_esym.st_shndx = esym.st_shndx;
         global_esym.st_info = (stb_bits << 4) | stt_bits;
         global_esym.st_name = name_off;
