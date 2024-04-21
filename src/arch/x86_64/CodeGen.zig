@@ -14316,7 +14316,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
         .mmx => {},
         .sse => switch (ty.zigTypeTag(mod)) {
             else => {
-                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
                 assert(std.mem.indexOfNone(abi.Class, classes, &.{
                     .integer, .sse, .memory, .float, .float_combine,
                 }) == null);
@@ -18450,7 +18450,7 @@ fn airVaArg(self: *Self, inst: Air.Inst.Index) !void {
             const overflow_arg_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 8 } };
             const reg_save_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 16 } };
 
-            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, .arg), .none);
+            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, self.target.*, .arg), .none);
             switch (classes[0]) {
                 .integer => {
                     assert(classes.len == 1);
@@ -18800,7 +18800,7 @@ fn resolveCallingConventionValues(
                 var ret_tracking_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, self.target.*, .ret), .none),
                     .Win64 => &.{abi.classifyWindows(ret_ty, mod)},
                     else => unreachable,
                 };
@@ -18875,7 +18875,7 @@ fn resolveCallingConventionValues(
                 var arg_mcv_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .arg), .none),
                     .Win64 => &.{abi.classifyWindows(ty, mod)},
                     else => unreachable,
                 };
@@ -19090,7 +19090,7 @@ fn memSize(self: *Self, ty: Type) Memory.Size {
 
 fn splitType(self: *Self, ty: Type) ![2]Type {
     const mod = self.bin_file.comp.module.?;
-    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
     var parts: [2]Type = undefined;
     if (classes.len == 2) for (&parts, classes, 0..) |*part, class, part_i| {
         part.* = switch (class) {
