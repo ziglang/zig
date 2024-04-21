@@ -116,7 +116,7 @@ const ValueRenderLocation = enum {
 
 const BuiltinInfo = enum { none, bits };
 
-const reserved_idents = std.ComptimeStringMap(void, .{
+const reserved_idents = std.StaticStringMap(void).initComptime(.{
     // C language
     .{ "alignas", {
         @setEvalBranchQuota(4000);

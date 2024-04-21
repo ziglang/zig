@@ -19,7 +19,7 @@ pub const isTag = @compileError("deprecated; use 'tagged_value == @field(E, tag_
 
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    // Using ComptimeStringMap here is more performant, but it will start to take too
+    // Using StaticStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
     // performance when doing things like constructing lookup maps at comptime.
     // TODO The '100' here is arbitrary and should be increased when possible:
@@ -34,7 +34,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
             }
             break :build_kvs kvs_array[0..];
         };
-        const map = std.ComptimeStringMap(T, kvs);
+        const map = std.StaticStringMap(T).initComptime(kvs);
         return map.get(str);
     } else {
         inline for (@typeInfo(T).Enum.fields) |enumField| {
