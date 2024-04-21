@@ -162,6 +162,7 @@ const Writer = struct {
             .memcpy,
             .memset,
             .memset_safe,
+            .expect,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -198,7 +199,6 @@ const Writer = struct {
             .cmp_lt_errors_len,
             .set_err_return_trace,
             .c_va_end,
-            .expect,
             => try w.writeUnOp(s, inst),
 
             .trap,
