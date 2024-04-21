@@ -690,11 +690,13 @@ fn initRelocs(self: *Object, macho_file: *MachO) !void {
             if (!atom.flags.alive) continue;
             if (next_reloc >= relocs.items.len) break;
             const end_addr = atom.off + atom.size;
-            atom.relocs.pos = next_reloc;
+            const rel_index = next_reloc;
 
             while (next_reloc < relocs.items.len and relocs.items[next_reloc].offset < end_addr) : (next_reloc += 1) {}
 
-            atom.relocs.len = next_reloc - atom.relocs.pos;
+            const rel_count = next_reloc - rel_index;
+            try atom.addExtra(.{ .rel_index = rel_index, .rel_count = rel_count }, macho_file);
+            atom.flags.relocs = true;
         }
     }
 }
@@ -1004,7 +1006,8 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
         {}
 
         const atom = rec.getAtom(macho_file);
-        atom.unwind_records = .{ .pos = start, .len = next_cu - start };
+        try atom.addExtra(.{ .unwind_index = start, .unwind_count = next_cu - start }, macho_file);
+        atom.flags.unwind = true;
     }
 }
 
@@ -1724,9 +1727,11 @@ pub fn getAtomData(self: *const Object, macho_file: *MachO, atom: Atom, buffer: 
     if (amt != buffer.len) return error.InputOutput;
 }
 
-pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
+pub fn getAtomRelocs(self: *const Object, atom: Atom, macho_file: *MachO) []const Relocation {
+    if (!atom.flags.relocs) return &[0]Relocation{};
+    const extra = atom.getExtra(macho_file).?;
     const relocs = self.sections.items(.relocs)[atom.n_sect];
-    return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
+    return relocs.items[extra.rel_index..][0..extra.rel_count];
 }
 
 fn addString(self: *Object, allocator: Allocator, name: [:0]const u8) error{OutOfMemory}!u32 {
