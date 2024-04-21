@@ -59,10 +59,15 @@ pub fn alwaysSingleThreaded(target: std.Target) bool {
 }
 
 pub fn defaultSingleThreaded(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => true,
-        else => false,
-    };
+    switch (target.cpu.arch) {
+        .wasm32, .wasm64 => return true,
+        else => {},
+    }
+    switch (target.os.tag) {
+        .haiku => return true,
+        else => {},
+    }
+    return false;
 }
 
 /// Valgrind supports more, but Zig does not support them yet.

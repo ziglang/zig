@@ -234,7 +234,7 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             try printEnum(self, out, T, info, indent);
 
             if (name) |some| {
-                try out.print("pub const {}: {s} = .{s};\n", .{
+                try out.print("pub const {}: {} = .{p_};\n", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                     std.zig.fmtId(@tagName(value)),
@@ -246,7 +246,7 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             try printStruct(self, out, T, info, indent);
 
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{
+                try out.print("pub const {}: {} = ", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
@@ -279,7 +279,7 @@ fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.b
 
     inline for (val.fields) |field| {
         try out.writeByteNTimes(' ', indent);
-        try out.print("    {} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
+        try out.print("    {p} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
     }
 
     if (!val.is_exhaustive) {
@@ -313,9 +313,9 @@ fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std
 
         // If the type name doesn't contains a '.' the type is from zig builtins.
         if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
-            try out.print("    {}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
+            try out.print("    {p_}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
         } else {
-            try out.print("    {}: {s}", .{ std.zig.fmtId(field.name), type_name });
+            try out.print("    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
         }
 
         if (field.default_value != null) {
@@ -355,7 +355,7 @@ fn printStructValue(self: *Options, out: anytype, comptime struct_val: std.built
     } else {
         inline for (struct_val.fields) |field| {
             try out.writeByteNTimes(' ', indent);
-            try out.print("    .{} = ", .{std.zig.fmtId(field.name)});
+            try out.print("    .{p_} = ", .{std.zig.fmtId(field.name)});
 
             const field_name = @field(val, field.name);
             switch (@typeInfo(@TypeOf(field_name))) {
@@ -516,6 +516,10 @@ test Options {
         .zig_exe = "test",
         .env_map = std.process.EnvMap.init(arena.allocator()),
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
+        .host = .{
+            .query = .{},
+            .result = try std.zig.system.resolveTargetQuery(.{}),
+        },
     };
 
     var builder = try std.Build.create(
@@ -524,11 +528,6 @@ test Options {
         .{ .path = "test", .handle = std.fs.cwd() },
         &.{},
     );
-
-    builder.host = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
 
     const options = builder.addOptions();
 

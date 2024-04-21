@@ -716,8 +716,8 @@ pub fn updateDecl(
     if (decl.isExtern(mod)) {
         // Extern variable gets a __got entry only
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const name = decl.name.toSlice(&mod.intern_pool);
+        const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         const index = try self.getGlobalSymbol(macho_file, name, lib_name);
         const actual_index = self.symbols.items[index];
         macho_file.getSymbol(actual_index).flags.needs_got = true;
@@ -786,9 +786,9 @@ fn updateDeclCode(
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
+    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
     const required_alignment = decl.getAlignment(mod);
 
@@ -800,7 +800,7 @@ fn updateDeclCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    sym.name = try self.strtab.insert(gpa, decl_name);
+    sym.name = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
@@ -819,7 +819,7 @@ fn updateDeclCode(
 
         if (need_realloc) {
             try atom.grow(macho_file);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom.value });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
@@ -870,23 +870,24 @@ fn updateTlv(
 ) !void {
     const mod = macho_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateTlv {s} ({*})", .{ decl_name, decl });
+    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
 
+    const decl_name_slice = decl_name.toSlice(&mod.intern_pool);
     const required_alignment = decl.getAlignment(mod);
 
     // 1. Lower TLV initializer
     const init_sym_index = try self.createTlvInitializer(
         macho_file,
-        decl_name,
+        decl_name_slice,
         required_alignment,
         sect_index,
         code,
     );
 
     // 2. Create TLV descriptor
-    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name);
+    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name_slice);
 }
 
 fn createTlvInitializer(
@@ -1073,9 +1074,9 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
     const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
     const sym_index = switch (try self.lowerConst(
         macho_file,
@@ -1199,7 +1200,7 @@ pub fn updateExports(
 
     for (exports) |exp| {
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
+            if (!section_name.eqlSlice("__text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,
@@ -1220,7 +1221,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         const global_nlist_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {
@@ -1349,13 +1350,12 @@ pub fn deleteDeclExport(
     decl_index: InternPool.DeclIndex,
     name: InternPool.NullTerminatedString,
 ) void {
-    const metadata = self.decls.getPtr(decl_index) orelse return;
-
     const mod = macho_file.base.comp.module.?;
-    const exp_name = mod.intern_pool.stringToSlice(name);
-    const nlist_index = metadata.@"export"(self, exp_name) orelse return;
 
-    log.debug("deleting export '{s}'", .{exp_name});
+    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const nlist_index = metadata.@"export"(self, name.toSlice(&mod.intern_pool)) orelse return;
+
+    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
 
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;

@@ -1054,7 +1054,7 @@ const x86_64 = struct {
         it: *RelocsIterator,
     ) !void {
         const is_static = elf_file.base.isStatic();
-        const is_dyn_lib = elf_file.base.isDynLib();
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
@@ -1599,7 +1599,7 @@ const aarch64 = struct {
         _ = it;
 
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
-        const is_dyn_lib = elf_file.base.isDynLib();
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
         switch (r_type) {
             .ABS64 => {

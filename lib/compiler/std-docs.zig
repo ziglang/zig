@@ -1,7 +1,23 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const mem = std.mem;
+const io = std.io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+
+fn usage() noreturn {
+    io.getStdOut().writeAll(
+        \\Usage: zig std [options]
+        \\
+        \\Options:
+        \\  -h, --help                Print this help and exit
+        \\  -p [port], --port [port]  Port to listen on. Default is 0, meaning an ephemeral port chosen by the system.
+        \\  --[no-]open-browser       Force enabling or disabling opening a browser tab to the served website.
+        \\                            By default, enabled unless a port is specified.
+        \\
+    ) catch {};
+    std.process.exit(1);
+}
 
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -11,23 +27,47 @@ pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
     const gpa = general_purpose_allocator.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const zig_lib_directory = args[1];
-    const zig_exe_path = args[2];
-    const global_cache_path = args[3];
+    var argv = try std.process.argsWithAllocator(arena);
+    defer argv.deinit();
+    assert(argv.skip());
+    const zig_lib_directory = argv.next().?;
+    const zig_exe_path = argv.next().?;
+    const global_cache_path = argv.next().?;
 
     var lib_dir = try std.fs.cwd().openDir(zig_lib_directory, .{});
     defer lib_dir.close();
 
-    const listen_port: u16 = 0;
+    var listen_port: u16 = 0;
+    var force_open_browser: ?bool = null;
+    while (argv.next()) |arg| {
+        if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+            usage();
+        } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--port")) {
+            listen_port = std.fmt.parseInt(u16, argv.next() orelse usage(), 10) catch |err| {
+                std.log.err("expected port number: {}", .{err});
+                usage();
+            };
+        } else if (mem.eql(u8, arg, "--open-browser")) {
+            force_open_browser = true;
+        } else if (mem.eql(u8, arg, "--no-open-browser")) {
+            force_open_browser = false;
+        } else {
+            std.log.err("unrecognized argument: {s}", .{arg});
+            usage();
+        }
+    }
+    const should_open_browser = force_open_browser orelse (listen_port == 0);
+
     const address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
     var http_server = try address.listen(.{});
     const port = http_server.listen_address.in.getPort();
-    const url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
-    std.io.getStdOut().writeAll(url) catch {};
-    openBrowserTab(gpa, url[0 .. url.len - 1 :'\n']) catch |err| {
-        std.log.err("unable to open browser: {s}", .{@errorName(err)});
-    };
+    const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
+    std.io.getStdOut().writeAll(url_with_newline) catch {};
+    if (should_open_browser) {
+        openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
+            std.log.err("unable to open browser: {s}", .{@errorName(err)});
+        };
+    }
 
     var context: Context = .{
         .gpa = gpa,

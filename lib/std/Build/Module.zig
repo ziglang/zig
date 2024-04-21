@@ -19,7 +19,6 @@ include_dirs: std.ArrayListUnmanaged(IncludeDir),
 lib_paths: std.ArrayListUnmanaged(LazyPath),
 rpaths: std.ArrayListUnmanaged(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
-c_std: std.Build.CStd,
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
 strip: ?bool,
@@ -164,7 +163,6 @@ pub const CreateOptions = struct {
     strip: ?bool = null,
     unwind_tables: ?bool = null,
     dwarf_format: ?std.dwarf.Format = null,
-    c_std: std.Build.CStd = .C99,
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
@@ -204,7 +202,6 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .lib_paths = .{},
         .rpaths = .{},
         .frameworks = .{},
-        .c_std = options.c_std,
         .link_objects = .{},
         .strip = options.strip,
         .unwind_tables = options.unwind_tables,
@@ -265,8 +262,7 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
     for (dependee.link_objects.items) |link_object| switch (link_object) {
         .other_step => |compile| {
             addStepDependencies(m, dependee, &compile.step);
-            for (compile.installed_headers.items) |install_step|
-                addStepDependenciesOnly(m, install_step);
+            addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
         },
 
         .static_path,
@@ -455,7 +451,7 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 pub const AddCSourceFilesOptions = struct {
     /// When provided, `files` are relative to `root` rather than the
     /// package that owns the `Compile` step.
-    root: LazyPath = .{ .path = "" },
+    root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
 };
@@ -476,7 +472,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
 
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
-        .root = options.root,
+        .root = options.root orelse b.path(""),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
     };
@@ -577,17 +573,6 @@ pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    switch (directory_path) {
-        .path, .cwd_relative => |path| {
-            // TODO: remove this check after people upgrade and stop expecting it to work
-            if (std.mem.startsWith(u8, path, "@executable_path") or
-                std.mem.startsWith(u8, path, "@loader_path"))
-            {
-                @panic("this function is for adding directory paths. It does not support special rpaths. use addRPathSpecial for that.");
-            }
-        },
-        else => {},
-    }
     m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }
@@ -691,18 +676,14 @@ pub fn appendZigProcessFlags(
             },
             .other_step => |other| {
                 if (other.generated_h) |header| {
-                    try zig_args.append("-isystem");
-                    try zig_args.append(std.fs.path.dirname(header.path.?).?);
+                    try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
                 }
-                if (other.installed_headers.items.len > 0) {
-                    try zig_args.append("-I");
-                    try zig_args.append(b.pathJoin(&.{
-                        other.step.owner.install_prefix, "include",
-                    }));
+                if (other.installed_headers_include_tree) |include_tree| {
+                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
                 }
             },
             .config_header_step => |config_header| {
-                const full_file_path = config_header.output_file.path.?;
+                const full_file_path = config_header.output_file.getPath();
                 const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
                 try zig_args.appendSlice(&.{ "-I", header_dir_path });
             },
@@ -752,9 +733,7 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 
-    for (other.installed_headers.items) |install_step| {
-        addStepDependenciesOnly(m, install_step);
-    }
+    addLazyPathDependenciesOnly(m, other.getEmittedIncludeTree());
 }
 
 fn requireKnownTarget(m: *Module) std.Target {

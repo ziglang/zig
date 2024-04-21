@@ -1532,7 +1532,7 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = packed union {
-        tag: enum { a, b },
+        tag: enum(u8) { a, b },
         val: u8,
 
         fn doTest() !void {
@@ -1644,7 +1644,6 @@ test "undefined-layout union field pointer has correct alignment" {
 }
 
 test "packed union field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1750,7 +1749,6 @@ test "reinterpret extern union" {
         // https://github.com/ziglang/zig/issues/19389
         return error.SkipZigTest;
     }
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = extern union {
         foo: u8,
@@ -1852,9 +1850,8 @@ test "reinterpret packed union" {
 
             {
                 // Union initialization
-                var u: U = .{
-                    .qux = 0xe2a,
-                };
+                var u: U = .{ .baz = 0 }; // ensure all bits are defined
+                u.qux = 0xe2a;
                 try expectEqual(@as(u8, 0x2a), u.foo);
                 try expectEqual(@as(u12, 0xe2a), u.qux);
                 try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);

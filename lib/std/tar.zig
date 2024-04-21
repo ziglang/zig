@@ -29,6 +29,9 @@ pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
 
+    root_entries: usize = 0,
+    root_dir: []const u8 = "",
+
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
             code: anyerror,
@@ -44,6 +47,43 @@ pub const Diagnostics = struct {
             file_type: Header.Kind,
         },
     };
+
+    fn findRoot(d: *Diagnostics, path: []const u8, kind: FileKind) !void {
+        if (rootDir(path)) |root_dir| {
+            d.root_entries += 1;
+            if (kind == .directory and d.root_entries == 1) {
+                d.root_dir = try d.allocator.dupe(u8, root_dir);
+                return;
+            }
+            d.allocator.free(d.root_dir);
+            d.root_dir = "";
+        }
+    }
+
+    // If path is package root returns root_dir name, otherwise null.
+    fn rootDir(path: []const u8) ?[]const u8 {
+        if (path.len == 0) return null;
+
+        const start_index: usize = if (path[0] == '/') 1 else 0;
+        const end_index: usize = if (path[path.len - 1] == '/') path.len - 1 else path.len;
+        const buf = path[start_index..end_index];
+        return if (std.mem.indexOfScalarPos(u8, buf, 0, '/') == null)
+            buf
+        else
+            null;
+    }
+
+    test rootDir {
+        const expectEqualStrings = testing.expectEqualStrings;
+        const expect = testing.expect;
+
+        try expectEqualStrings("a", rootDir("a").?);
+        try expectEqualStrings("b", rootDir("b").?);
+        try expectEqualStrings("c", rootDir("/c").?);
+        try expectEqualStrings("d", rootDir("/d/").?);
+        try expect(rootDir("a/b") == null);
+        try expect(rootDir("") == null);
+    }
 
     pub fn deinit(d: *Diagnostics) void {
         for (d.errors.items) |item| {
@@ -61,6 +101,7 @@ pub const Diagnostics = struct {
             }
         }
         d.errors.deinit(d.allocator);
+        d.allocator.free(d.root_dir);
         d.* = undefined;
     }
 };
@@ -580,19 +621,21 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
         .link_name_buffer = &link_name_buffer,
         .diagnostics = options.diagnostics,
     });
+
     while (try iter.next()) |file| {
+        const file_name = stripComponents(file.name, options.strip_components);
+        if (options.diagnostics) |d| {
+            try d.findRoot(file_name, file.kind);
+        }
+
         switch (file.kind) {
             .directory => {
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .file => {
-                if (file.size == 0 and file.name.len == 0) return;
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
-
                 if (createDirAndFile(dir, file_name, fileMode(file.mode, options))) |fs_file| {
                     defer fs_file.close();
                     try file.writeAll(fs_file);
@@ -605,12 +648,8 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 }
             },
             .sym_link => {
-                // The file system path of the symbolic link.
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
-                // The data inside the symbolic link.
                 const link_name = file.link_name;
-
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
@@ -799,6 +838,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = Diagnostics;
 }
 
 test "header parse size" {
@@ -991,6 +1031,55 @@ test pipeToFileSystem {
         "../a/file",
         normalizePath(try dir.readLink("b/symlink", &buf)),
     );
+}
+
+test "pipeToFileSystem root_dir" {
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    // with strip_components = 1
+    {
+        var tmp = testing.tmpDir(.{ .no_follow = true });
+        defer tmp.cleanup();
+        var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+        defer diagnostics.deinit();
+
+        pipeToFileSystem(tmp.dir, reader, .{
+            .strip_components = 1,
+            .diagnostics = &diagnostics,
+        }) catch |err| {
+            // Skip on platform which don't support symlinks
+            if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+            return err;
+        };
+
+        // there is no root_dir
+        try testing.expectEqual(0, diagnostics.root_dir.len);
+        try testing.expectEqual(3, diagnostics.root_entries);
+    }
+
+    // with strip_components = 0
+    {
+        fbs.reset();
+        var tmp = testing.tmpDir(.{ .no_follow = true });
+        defer tmp.cleanup();
+        var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+        defer diagnostics.deinit();
+
+        pipeToFileSystem(tmp.dir, reader, .{
+            .strip_components = 0,
+            .diagnostics = &diagnostics,
+        }) catch |err| {
+            // Skip on platform which don't support symlinks
+            if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+            return err;
+        };
+
+        // root_dir found
+        try testing.expectEqualStrings("example", diagnostics.root_dir);
+        try testing.expectEqual(1, diagnostics.root_entries);
+    }
 }
 
 fn normalizePath(bytes: []u8) []u8 {

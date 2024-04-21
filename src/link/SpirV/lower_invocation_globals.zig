@@ -682,7 +682,11 @@ const ModuleBuilder = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
+    var sub_node = progress.start("Lower invocation globals", 6);
+    sub_node.activate();
+    defer sub_node.end();
+
     var arena = std.heap.ArenaAllocator.init(parser.a);
     defer arena.deinit();
     const a = arena.allocator();
@@ -691,10 +695,16 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     try info.resolve(a);
 
     var builder = try ModuleBuilder.init(a, binary.*, info);
+    sub_node.completeOne();
     try builder.deriveNewFnInfo(info);
+    sub_node.completeOne();
     try builder.processPreamble(binary.*, info);
+    sub_node.completeOne();
     try builder.emitFunctionTypes(info);
+    sub_node.completeOne();
     try builder.rewriteFunctions(parser, binary.*, info);
+    sub_node.completeOne();
     try builder.emitNewEntryPoints(info);
+    sub_node.completeOne();
     try builder.finalize(parser.a, binary);
 }

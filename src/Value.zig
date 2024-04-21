@@ -39,11 +39,17 @@ pub fn fmtDebug(val: Value) std.fmt.Formatter(dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, mod: *Module) std.fmt.Formatter(print_value.format) {
+pub fn fmtValue(val: Value, mod: *Module, opt_sema: ?*Sema) std.fmt.Formatter(print_value.format) {
     return .{ .data = .{
         .val = val,
         .mod = mod,
+        .opt_sema = opt_sema,
+        .depth = 3,
     } };
+}
+
+pub fn fmtValueFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.format) {
+    return .{ .data = ctx };
 }
 
 /// Converts `val` to a null-terminated string stored in the InternPool.
@@ -52,30 +58,31 @@ pub fn toIpString(val: Value, ty: Type, mod: *Module) !InternPool.NullTerminated
     assert(ty.zigTypeTag(mod) == .Array);
     assert(ty.childType(mod).toIntern() == .u8_type);
     const ip = &mod.intern_pool;
-    return switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
-        .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
-        .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
+    switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
+        .bytes => |bytes| return bytes.toNullTerminatedString(ty.arrayLen(mod), ip),
+        .elems => return arrayToIpString(val, ty.arrayLen(mod), mod),
         .repeated_elem => |elem| {
-            const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
-            const len = @as(usize, @intCast(ty.arrayLen(mod)));
+            const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(mod));
+            const len: usize = @intCast(ty.arrayLen(mod));
             try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
-            return ip.getOrPutTrailingString(mod.gpa, len);
+            return ip.getOrPutTrailingString(mod.gpa, len, .no_embedded_nulls);
         },
-    };
+    }
 }
 
 /// Asserts that the value is representable as an array of bytes.
 /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
 pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
+    const ip = &mod.intern_pool;
+    return switch (ip.indexToKey(val.toIntern())) {
+        .enum_literal => |enum_literal| allocator.dupe(u8, enum_literal.toSlice(ip)),
         .slice => |slice| try arrayToAllocatedBytes(val, Value.fromInterned(slice.len).toUnsignedInt(mod), allocator, mod),
         .aggregate => |aggregate| switch (aggregate.storage) {
-            .bytes => |bytes| try allocator.dupe(u8, bytes),
+            .bytes => |bytes| try allocator.dupe(u8, bytes.toSlice(ty.arrayLenIncludingSentinel(mod), ip)),
             .elems => try arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
             .repeated_elem => |elem| {
-                const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
-                const result = try allocator.alloc(u8, @as(usize, @intCast(ty.arrayLen(mod))));
+                const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(mod));
+                const result = try allocator.alloc(u8, @intCast(ty.arrayLen(mod)));
                 @memset(result, byte);
                 return result;
             },
@@ -85,10 +92,10 @@ pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module
 }
 
 fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Module) ![]u8 {
-    const result = try allocator.alloc(u8, @as(usize, @intCast(len)));
+    const result = try allocator.alloc(u8, @intCast(len));
     for (result, 0..) |*elem, i| {
         const elem_val = try val.elemValue(mod, i);
-        elem.* = @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+        elem.* = @intCast(elem_val.toUnsignedInt(mod));
     }
     return result;
 }
@@ -96,7 +103,7 @@ fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Modul
 fn arrayToIpString(val: Value, len_u64: u64, mod: *Module) !InternPool.NullTerminatedString {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const len = @as(usize, @intCast(len_u64));
+    const len: usize = @intCast(len_u64);
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
@@ -104,10 +111,10 @@ fn arrayToIpString(val: Value, len_u64: u64, mod: *Module) !InternPool.NullTermi
         const prev = ip.string_bytes.items.len;
         const elem_val = try val.elemValue(mod, i);
         assert(ip.string_bytes.items.len == prev);
-        const byte = @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+        const byte: u8 = @intCast(elem_val.toUnsignedInt(mod));
         ip.string_bytes.appendAssumeCapacity(byte);
     }
-    return ip.getOrPutTrailingString(gpa, len);
+    return ip.getOrPutTrailingString(gpa, len, .no_embedded_nulls);
 }
 
 pub fn fromInterned(i: InternPool.Index) Value {
@@ -245,18 +252,13 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                 else
                     Type.fromInterned(ty).abiSize(mod),
             },
-            .ptr => |ptr| switch (ptr.addr) {
-                .int => |int| Value.fromInterned(int).getUnsignedIntAdvanced(mod, opt_sema),
-                .elem => |elem| {
-                    const base_addr = (try Value.fromInterned(elem.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                    const elem_ty = Value.fromInterned(elem.base).typeOf(mod).elemType2(mod);
-                    return base_addr + elem.index * elem_ty.abiSize(mod);
-                },
+            .ptr => |ptr| switch (ptr.base_addr) {
+                .int => ptr.byte_offset,
                 .field => |field| {
                     const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
                     const struct_ty = Value.fromInterned(field.base).typeOf(mod).childType(mod);
                     if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
-                    return base_addr + struct_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod);
+                    return base_addr + struct_ty.structFieldOffset(@intCast(field.index), mod) + ptr.byte_offset;
                 },
                 else => null,
             },
@@ -308,11 +310,11 @@ pub fn toBool(val: Value) bool {
 fn ptrHasIntAddr(val: Value, mod: *Module) bool {
     var check = val;
     while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
-        .ptr => |ptr| switch (ptr.addr) {
+        .ptr => |ptr| switch (ptr.base_addr) {
             .decl, .comptime_alloc, .comptime_field, .anon_decl => return false,
             .int => return true,
             .eu_payload, .opt_payload => |base| check = Value.fromInterned(base),
-            .elem, .field => |base_index| check = Value.fromInterned(base_index.base),
+            .arr_elem, .field => |base_index| check = Value.fromInterned(base_index.base),
         },
         else => unreachable,
     };
@@ -351,17 +353,17 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
             bigint.writeTwosComplement(buffer[0..byte_count], endian);
         },
         .Float => switch (ty.floatBits(target)) {
-            16 => std.mem.writeInt(u16, buffer[0..2], @as(u16, @bitCast(val.toFloat(f16, mod))), endian),
-            32 => std.mem.writeInt(u32, buffer[0..4], @as(u32, @bitCast(val.toFloat(f32, mod))), endian),
-            64 => std.mem.writeInt(u64, buffer[0..8], @as(u64, @bitCast(val.toFloat(f64, mod))), endian),
-            80 => std.mem.writeInt(u80, buffer[0..10], @as(u80, @bitCast(val.toFloat(f80, mod))), endian),
-            128 => std.mem.writeInt(u128, buffer[0..16], @as(u128, @bitCast(val.toFloat(f128, mod))), endian),
+            16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(val.toFloat(f16, mod)), endian),
+            32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(val.toFloat(f32, mod)), endian),
+            64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(val.toFloat(f64, mod)), endian),
+            80 => std.mem.writeInt(u80, buffer[0..10], @bitCast(val.toFloat(f80, mod)), endian),
+            128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(val.toFloat(f128, mod)), endian),
             else => unreachable,
         },
         .Array => {
             const len = ty.arrayLen(mod);
             const elem_ty = ty.childType(mod);
-            const elem_size = @as(usize, @intCast(elem_ty.abiSize(mod)));
+            const elem_size: usize = @intCast(elem_ty.abiSize(mod));
             var elem_i: usize = 0;
             var buf_off: usize = 0;
             while (elem_i < len) : (elem_i += 1) {
@@ -380,17 +382,17 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
             const struct_type = mod.typeToStruct(ty) orelse return error.IllDefinedMemoryLayout;
             switch (struct_type.layout) {
                 .auto => return error.IllDefinedMemoryLayout,
-                .@"extern" => for (0..struct_type.field_types.len) |i| {
-                    const off: usize = @intCast(ty.structFieldOffset(i, mod));
+                .@"extern" => for (0..struct_type.field_types.len) |field_index| {
+                    const off: usize = @intCast(ty.structFieldOffset(field_index, mod));
                     const field_val = Value.fromInterned(switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                         .bytes => |bytes| {
-                            buffer[off] = bytes[i];
+                            buffer[off] = bytes.at(field_index, ip);
                             continue;
                         },
-                        .elems => |elems| elems[i],
+                        .elems => |elems| elems[field_index],
                         .repeated_elem => |elem| elem,
                     });
-                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
+                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                     try writeToMemory(field_val, field_ty, mod, buffer[off..]);
                 },
                 .@"packed" => {
@@ -423,7 +425,7 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
                     const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
                     const field_type = Type.fromInterned(union_obj.field_types.get(&mod.intern_pool)[field_index]);
                     const field_val = try val.fieldValue(mod, field_index);
-                    const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                    const byte_count: usize = @intCast(field_type.abiSize(mod));
                     return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
                 } else {
                     const backing_ty = try ty.unionBackingType(mod);
@@ -471,8 +473,10 @@ pub fn writeToPackedMemory(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
     if (val.isUndef(mod)) {
-        const bit_size = @as(usize, @intCast(ty.bitSize(mod)));
-        std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
+        const bit_size: usize = @intCast(ty.bitSize(mod));
+        if (bit_size != 0) {
+            std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
+        }
         return;
     }
     switch (ty.zigTypeTag(mod)) {
@@ -507,17 +511,17 @@ pub fn writeToPackedMemory(
             }
         },
         .Float => switch (ty.floatBits(target)) {
-            16 => std.mem.writePackedInt(u16, buffer, bit_offset, @as(u16, @bitCast(val.toFloat(f16, mod))), endian),
-            32 => std.mem.writePackedInt(u32, buffer, bit_offset, @as(u32, @bitCast(val.toFloat(f32, mod))), endian),
-            64 => std.mem.writePackedInt(u64, buffer, bit_offset, @as(u64, @bitCast(val.toFloat(f64, mod))), endian),
-            80 => std.mem.writePackedInt(u80, buffer, bit_offset, @as(u80, @bitCast(val.toFloat(f80, mod))), endian),
-            128 => std.mem.writePackedInt(u128, buffer, bit_offset, @as(u128, @bitCast(val.toFloat(f128, mod))), endian),
+            16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(val.toFloat(f16, mod)), endian),
+            32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(val.toFloat(f32, mod)), endian),
+            64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(val.toFloat(f64, mod)), endian),
+            80 => std.mem.writePackedInt(u80, buffer, bit_offset, @bitCast(val.toFloat(f80, mod)), endian),
+            128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(val.toFloat(f128, mod)), endian),
             else => unreachable,
         },
         .Vector => {
             const elem_ty = ty.childType(mod);
-            const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
-            const len = @as(usize, @intCast(ty.arrayLen(mod)));
+            const elem_bit_size: u16 = @intCast(elem_ty.bitSize(mod));
+            const len: usize = @intCast(ty.arrayLen(mod));
 
             var bits: u16 = 0;
             var elem_i: usize = 0;
@@ -644,22 +648,22 @@ pub fn readFromMemory(
         .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @as(f16, @bitCast(std.mem.readInt(u16, buffer[0..2], endian))) },
-                32 => .{ .f32 = @as(f32, @bitCast(std.mem.readInt(u32, buffer[0..4], endian))) },
-                64 => .{ .f64 = @as(f64, @bitCast(std.mem.readInt(u64, buffer[0..8], endian))) },
-                80 => .{ .f80 = @as(f80, @bitCast(std.mem.readInt(u80, buffer[0..10], endian))) },
-                128 => .{ .f128 = @as(f128, @bitCast(std.mem.readInt(u128, buffer[0..16], endian))) },
+                16 => .{ .f16 = @bitCast(std.mem.readInt(u16, buffer[0..2], endian)) },
+                32 => .{ .f32 = @bitCast(std.mem.readInt(u32, buffer[0..4], endian)) },
+                64 => .{ .f64 = @bitCast(std.mem.readInt(u64, buffer[0..8], endian)) },
+                80 => .{ .f80 = @bitCast(std.mem.readInt(u80, buffer[0..10], endian)) },
+                128 => .{ .f128 = @bitCast(std.mem.readInt(u128, buffer[0..16], endian)) },
                 else => unreachable,
             },
         } }))),
         .Array => {
             const elem_ty = ty.childType(mod);
             const elem_size = elem_ty.abiSize(mod);
-            const elems = try arena.alloc(InternPool.Index, @as(usize, @intCast(ty.arrayLen(mod))));
+            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(mod)));
             var offset: usize = 0;
             for (elems) |*elem| {
                 elem.* = (try readFromMemory(elem_ty, mod, buffer[offset..], arena)).toIntern();
-                offset += @as(usize, @intCast(elem_size));
+                offset += @intCast(elem_size);
             }
             return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
@@ -730,7 +734,8 @@ pub fn readFromMemory(
             const int_val = try readFromMemory(Type.usize, mod, buffer, arena);
             return Value.fromInterned((try mod.intern(.{ .ptr = .{
                 .ty = ty.toIntern(),
-                .addr = .{ .int = int_val.toIntern() },
+                .base_addr = .int,
+                .byte_offset = int_val.toUnsignedInt(mod),
             } })));
         },
         .Optional => {
@@ -795,7 +800,7 @@ pub fn readFromPackedMemory(
             };
 
             // Slow path, we have to construct a big-int
-            const abi_size = @as(usize, @intCast(ty.abiSize(mod)));
+            const abi_size: usize = @intCast(ty.abiSize(mod));
             const Limb = std.math.big.Limb;
             const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
             const limbs_buffer = try arena.alloc(Limb, limb_count);
@@ -812,20 +817,20 @@ pub fn readFromPackedMemory(
         .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @as(f16, @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian))) },
-                32 => .{ .f32 = @as(f32, @bitCast(std.mem.readPackedInt(u32, buffer, bit_offset, endian))) },
-                64 => .{ .f64 = @as(f64, @bitCast(std.mem.readPackedInt(u64, buffer, bit_offset, endian))) },
-                80 => .{ .f80 = @as(f80, @bitCast(std.mem.readPackedInt(u80, buffer, bit_offset, endian))) },
-                128 => .{ .f128 = @as(f128, @bitCast(std.mem.readPackedInt(u128, buffer, bit_offset, endian))) },
+                16 => .{ .f16 = @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian)) },
+                32 => .{ .f32 = @bitCast(std.mem.readPackedInt(u32, buffer, bit_offset, endian)) },
+                64 => .{ .f64 = @bitCast(std.mem.readPackedInt(u64, buffer, bit_offset, endian)) },
+                80 => .{ .f80 = @bitCast(std.mem.readPackedInt(u80, buffer, bit_offset, endian)) },
+                128 => .{ .f128 = @bitCast(std.mem.readPackedInt(u128, buffer, bit_offset, endian)) },
                 else => unreachable,
             },
         } }))),
         .Vector => {
             const elem_ty = ty.childType(mod);
-            const elems = try arena.alloc(InternPool.Index, @as(usize, @intCast(ty.arrayLen(mod))));
+            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(mod)));
 
             var bits: u16 = 0;
-            const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
+            const elem_bit_size: u16 = @intCast(elem_ty.bitSize(mod));
             for (elems, 0..) |_, i| {
                 // On big-endian systems, LLVM reverses the element order of vectors by default
                 const tgt_elem_i = if (endian == .big) elems.len - i - 1 else i;
@@ -868,12 +873,25 @@ pub fn readFromPackedMemory(
         },
         .Pointer => {
             assert(!ty.isSlice(mod)); // No well defined layout.
-            return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
+            const int_val = try readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
+            return Value.fromInterned(try mod.intern(.{ .ptr = .{
+                .ty = ty.toIntern(),
+                .base_addr = .int,
+                .byte_offset = int_val.toUnsignedInt(mod),
+            } }));
         },
         .Optional => {
             assert(ty.isPtrLikeOptional(mod));
-            const child = ty.optionalChild(mod);
-            return readFromPackedMemory(child, mod, buffer, bit_offset, arena);
+            const child_ty = ty.optionalChild(mod);
+            const child_val = try readFromPackedMemory(child_ty, mod, buffer, bit_offset, arena);
+            return Value.fromInterned(try mod.intern(.{ .opt = .{
+                .ty = ty.toIntern(),
+                .val = switch (child_val.orderAgainstZero(mod)) {
+                    .lt => unreachable,
+                    .eq => .none,
+                    .gt => child_val.toIntern(),
+                },
+            } }));
         },
         else => @panic("TODO implement readFromPackedMemory for more types"),
     }
@@ -909,7 +927,7 @@ fn bigIntToFloat(limbs: []const std.math.big.Limb, positive: bool) f128 {
     var i: usize = limbs.len;
     while (i != 0) {
         i -= 1;
-        const limb: f128 = @as(f128, @floatFromInt(limbs[i]));
+        const limb: f128 = @floatFromInt(limbs[i]);
         result = @mulAdd(f128, base, result, limb);
     }
     if (positive) {
@@ -934,7 +952,7 @@ pub fn ctz(val: Value, ty: Type, mod: *Module) u64 {
 pub fn popCount(val: Value, ty: Type, mod: *Module) u64 {
     var bigint_buf: BigIntSpace = undefined;
     const bigint = val.toBigInt(&bigint_buf, mod);
-    return @as(u64, @intCast(bigint.popCount(ty.intInfo(mod).bits)));
+    return @intCast(bigint.popCount(ty.intInfo(mod).bits));
 }
 
 pub fn bitReverse(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
@@ -982,16 +1000,17 @@ pub fn intBitCountTwosComp(self: Value, mod: *Module) usize {
 
 /// Converts an integer or a float to a float. May result in a loss of information.
 /// Caller can find out by equality checking the result against the operand.
-pub fn floatCast(self: Value, dest_ty: Type, mod: *Module) !Value {
-    const target = mod.getTarget();
-    return Value.fromInterned((try mod.intern(.{ .float = .{
+pub fn floatCast(val: Value, dest_ty: Type, zcu: *Zcu) !Value {
+    const target = zcu.getTarget();
+    if (val.isUndef(zcu)) return zcu.undefValue(dest_ty);
+    return Value.fromInterned((try zcu.intern(.{ .float = .{
         .ty = dest_ty.toIntern(),
         .storage = switch (dest_ty.floatBits(target)) {
-            16 => .{ .f16 = self.toFloat(f16, mod) },
-            32 => .{ .f32 = self.toFloat(f32, mod) },
-            64 => .{ .f64 = self.toFloat(f64, mod) },
-            80 => .{ .f80 = self.toFloat(f80, mod) },
-            128 => .{ .f128 = self.toFloat(f128, mod) },
+            16 => .{ .f16 = val.toFloat(f16, zcu) },
+            32 => .{ .f32 = val.toFloat(f32, zcu) },
+            64 => .{ .f64 = val.toFloat(f64, zcu) },
+            80 => .{ .f80 = val.toFloat(f80, zcu) },
+            128 => .{ .f128 = val.toFloat(f128, zcu) },
             else => unreachable,
         },
     } })));
@@ -1020,14 +1039,9 @@ pub fn orderAgainstZeroAdvanced(
         .bool_false => .eq,
         .bool_true => .gt,
         else => switch (mod.intern_pool.indexToKey(lhs.toIntern())) {
-            .ptr => |ptr| switch (ptr.addr) {
+            .ptr => |ptr| if (ptr.byte_offset > 0) .gt else switch (ptr.base_addr) {
                 .decl, .comptime_alloc, .comptime_field => .gt,
-                .int => |int| Value.fromInterned(int).orderAgainstZeroAdvanced(mod, opt_sema),
-                .elem => |elem| switch (try Value.fromInterned(elem.base).orderAgainstZeroAdvanced(mod, opt_sema)) {
-                    .lt => unreachable,
-                    .gt => .gt,
-                    .eq => if (elem.index == 0) .eq else .gt,
-                },
+                .int => .eq,
                 else => unreachable,
             },
             .int => |int| switch (int.storage) {
@@ -1157,6 +1171,7 @@ pub fn compareScalar(
 
 /// Asserts the value is comparable.
 /// For vectors, returns true if comparison is true for ALL elements.
+/// Returns `false` if the value or any vector element is undefined.
 ///
 /// Note that `!compareAllWithZero(.eq, ...) != compareAllWithZero(.neq, ...)`
 pub fn compareAllWithZero(lhs: Value, op: std.math.CompareOperator, mod: *Module) bool {
@@ -1191,7 +1206,7 @@ pub fn compareAllWithZeroAdvancedExtra(
             inline else => |x| if (std.math.isNan(x)) return op == .neq,
         },
         .aggregate => |aggregate| return switch (aggregate.storage) {
-            .bytes => |bytes| for (bytes) |byte| {
+            .bytes => |bytes| for (bytes.toSlice(lhs.typeOf(mod).arrayLenIncludingSentinel(mod), &mod.intern_pool)) |byte| {
                 if (!std.math.order(byte, 0).compare(op)) break false;
             } else true,
             .elems => |elems| for (elems) |elem| {
@@ -1199,6 +1214,7 @@ pub fn compareAllWithZeroAdvancedExtra(
             } else true,
             .repeated_elem => |elem| Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
         },
+        .undef => return false,
         else => {},
     }
     return (try orderAgainstZeroAdvanced(lhs, mod, opt_sema)).compare(op);
@@ -1216,14 +1232,14 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
             .err_name => false,
             .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
         },
-        .ptr => |ptr| switch (ptr.addr) {
+        .ptr => |ptr| switch (ptr.base_addr) {
             .decl => false, // The value of a Decl can never reference a comptime alloc.
             .int => false,
             .comptime_alloc => true, // A comptime alloc is either mutable or references comptime-mutable memory.
             .comptime_field => true, // Comptime field pointers are comptime-mutable, albeit only to the "correct" value.
             .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(zcu),
             .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).canMutateComptimeVarState(zcu),
-            .elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
+            .arr_elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
         },
         .slice => |slice| return Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
         .opt => |opt| switch (opt.val) {
@@ -1246,10 +1262,10 @@ pub fn pointerDecl(val: Value, mod: *Module) ?InternPool.DeclIndex {
         .variable => |variable| variable.decl,
         .extern_func => |extern_func| extern_func.decl,
         .func => |func| func.owner_decl,
-        .ptr => |ptr| switch (ptr.addr) {
+        .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
             .decl => |decl| decl,
             else => null,
-        },
+        } else null,
         else => null,
     };
 }
@@ -1279,7 +1295,7 @@ pub fn elemValue(val: Value, zcu: *Zcu, index: usize) Allocator.Error!Value {
             if (index < len) return Value.fromInterned(switch (aggregate.storage) {
                 .bytes => |bytes| try zcu.intern(.{ .int = .{
                     .ty = .u8_type,
-                    .storage = .{ .u64 = bytes[index] },
+                    .storage = .{ .u64 = bytes.at(index, ip) },
                 } }),
                 .elems => |elems| elems[index],
                 .repeated_elem => |elem| elem,
@@ -1318,28 +1334,37 @@ pub fn sliceArray(
     start: usize,
     end: usize,
 ) error{OutOfMemory}!Value {
-    // TODO: write something like getCoercedInts to avoid needing to dupe
     const mod = sema.mod;
-    const aggregate = mod.intern_pool.indexToKey(val.toIntern()).aggregate;
-    return Value.fromInterned(try mod.intern(.{ .aggregate = .{
-        .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
-            .array_type => |array_type| try mod.arrayType(.{
-                .len = @as(u32, @intCast(end - start)),
-                .child = array_type.child,
-                .sentinel = if (end == array_type.len) array_type.sentinel else .none,
-            }),
-            .vector_type => |vector_type| try mod.vectorType(.{
-                .len = @as(u32, @intCast(end - start)),
-                .child = vector_type.child,
-            }),
-            else => unreachable,
-        }.toIntern(),
-        .storage = switch (aggregate.storage) {
-            .bytes => .{ .bytes = try sema.arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
-            .elems => .{ .elems = try sema.arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
-            .repeated_elem => |elem| .{ .repeated_elem = elem },
+    const ip = &mod.intern_pool;
+    return Value.fromInterned(try mod.intern(.{
+        .aggregate = .{
+            .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
+                .array_type => |array_type| try mod.arrayType(.{
+                    .len = @intCast(end - start),
+                    .child = array_type.child,
+                    .sentinel = if (end == array_type.len) array_type.sentinel else .none,
+                }),
+                .vector_type => |vector_type| try mod.vectorType(.{
+                    .len = @intCast(end - start),
+                    .child = vector_type.child,
+                }),
+                else => unreachable,
+            }.toIntern(),
+            .storage = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                .bytes => |bytes| storage: {
+                    try ip.string_bytes.ensureUnusedCapacity(sema.gpa, end - start + 1);
+                    break :storage .{ .bytes = try ip.getOrPutString(
+                        sema.gpa,
+                        bytes.toSlice(end, ip)[start..],
+                        .maybe_embedded_nulls,
+                    ) };
+                },
+                // TODO: write something like getCoercedInts to avoid needing to dupe
+                .elems => |elems| .{ .elems = try sema.arena.dupe(InternPool.Index, elems[start..end]) },
+                .repeated_elem => |elem| .{ .repeated_elem = elem },
+            },
         },
-    } }));
+    }));
 }
 
 pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
@@ -1350,7 +1375,7 @@ pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
         .aggregate => |aggregate| Value.fromInterned(switch (aggregate.storage) {
             .bytes => |bytes| try mod.intern(.{ .int = .{
                 .ty = .u8_type,
-                .storage = .{ .u64 = bytes[index] },
+                .storage = .{ .u64 = bytes.at(index, &mod.intern_pool) },
             } }),
             .elems => |elems| elems[index],
             .repeated_elem => |elem| elem,
@@ -1376,44 +1401,6 @@ pub fn unionValue(val: Value, mod: *Module) Value {
     };
 }
 
-/// Returns a pointer to the element value at the index.
-pub fn elemPtr(
-    val: Value,
-    elem_ptr_ty: Type,
-    index: usize,
-    mod: *Module,
-) Allocator.Error!Value {
-    const elem_ty = elem_ptr_ty.childType(mod);
-    const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .slice => |slice| Value.fromInterned(slice.ptr),
-        else => val,
-    };
-    switch (mod.intern_pool.indexToKey(ptr_val.toIntern())) {
-        .ptr => |ptr| switch (ptr.addr) {
-            .elem => |elem| if (Value.fromInterned(elem.base).typeOf(mod).elemType2(mod).eql(elem_ty, mod))
-                return Value.fromInterned((try mod.intern(.{ .ptr = .{
-                    .ty = elem_ptr_ty.toIntern(),
-                    .addr = .{ .elem = .{
-                        .base = elem.base,
-                        .index = elem.index + index,
-                    } },
-                } }))),
-            else => {},
-        },
-        else => {},
-    }
-    var ptr_ty_key = mod.intern_pool.indexToKey(elem_ptr_ty.toIntern()).ptr_type;
-    assert(ptr_ty_key.flags.size != .Slice);
-    ptr_ty_key.flags.size = .Many;
-    return Value.fromInterned((try mod.intern(.{ .ptr = .{
-        .ty = elem_ptr_ty.toIntern(),
-        .addr = .{ .elem = .{
-            .base = (try mod.getCoerced(ptr_val, try mod.ptrType(ptr_ty_key))).toIntern(),
-            .index = index,
-        } },
-    } })));
-}
-
 pub fn isUndef(val: Value, mod: *Module) bool {
     return mod.intern_pool.isUndef(val.toIntern());
 }
@@ -1434,11 +1421,8 @@ pub fn isNull(val: Value, mod: *Module) bool {
         .null_value => true,
         else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => unreachable,
-            .ptr => |ptr| switch (ptr.addr) {
-                .int => {
-                    var buf: BigIntSpace = undefined;
-                    return val.toBigInt(&buf, mod).eqlZero();
-                },
+            .ptr => |ptr| switch (ptr.base_addr) {
+                .int => ptr.byte_offset == 0,
                 else => false,
             },
             .opt => |opt| opt.val == .none,
@@ -1461,7 +1445,7 @@ pub fn getErrorName(val: Value, mod: *const Module) InternPool.OptionalNullTermi
 
 pub fn getErrorInt(val: Value, mod: *const Module) Module.ErrorInt {
     return if (getErrorName(val, mod).unwrap()) |err_name|
-        @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(err_name).?))
+        @intCast(mod.global_error_set.getIndex(err_name).?)
     else
         0;
 }
@@ -1715,6 +1699,13 @@ pub fn intMulWithOverflowScalar(
 ) !OverflowArithmeticResult {
     const info = ty.intInfo(mod);
 
+    if (lhs.isUndef(mod) or rhs.isUndef(mod)) {
+        return .{
+            .overflow_bit = try mod.undefValue(Type.u1),
+            .wrapped_result = try mod.undefValue(ty),
+        };
+    }
+
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
@@ -1931,16 +1922,29 @@ pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *
 }
 
 /// operands must be integers; handles undefined.
-pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
+pub fn bitwiseAndScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
+    // still zero out some bits.
+    // TODO: ideally we'd still like tracking for the undef bits. Related: #19634.
+    const lhs: Value, const rhs: Value = make_defined: {
+        const lhs_undef = orig_lhs.isUndef(zcu);
+        const rhs_undef = orig_rhs.isUndef(zcu);
+        break :make_defined switch ((@as(u2, @intFromBool(lhs_undef)) << 1) | @intFromBool(rhs_undef)) {
+            0b00 => .{ orig_lhs, orig_rhs },
+            0b01 => .{ orig_lhs, try intValueAa(ty, arena, zcu) },
+            0b10 => .{ try intValueAa(ty, arena, zcu), orig_rhs },
+            0b11 => return zcu.undefValue(ty),
+        };
+    };
+
     if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() and rhs.toBool());
 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try arena.alloc(
         std.math.big.Limb,
         // + 1 for negatives
@@ -1948,7 +1952,25 @@ pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod:
     );
     var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.bitAnd(lhs_bigint, rhs_bigint);
-    return mod.intValue_big(ty, result_bigint.toConst());
+    return zcu.intValue_big(ty, result_bigint.toConst());
+}
+
+/// Given an integer or boolean type, creates an value of that with the bit pattern 0xAA.
+/// This is used to convert undef values into 0xAA when performing e.g. bitwise operations.
+fn intValueAa(ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    if (ty.toIntern() == .bool_type) return Value.true;
+    const info = ty.intInfo(zcu);
+
+    const buf = try arena.alloc(u8, (info.bits + 7) / 8);
+    @memset(buf, 0xAA);
+
+    const limbs = try arena.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(info.bits),
+    );
+    var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
+    result_bigint.readTwosComplement(buf, info.bits, zcu.getTarget().cpu.arch.endian(), info.signedness);
+    return zcu.intValue_big(ty, result_bigint.toConst());
 }
 
 /// operands must be (vectors of) integers; handles undefined scalars.
@@ -1998,23 +2020,36 @@ pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
 }
 
 /// operands must be integers; handles undefined.
-pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-    if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.fromInterned((try mod.intern(.{ .undef = ty.toIntern() })));
+pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, zcu: *Zcu) !Value {
+    // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
+    // still zero out some bits.
+    // TODO: ideally we'd still like tracking for the undef bits. Related: #19634.
+    const lhs: Value, const rhs: Value = make_defined: {
+        const lhs_undef = orig_lhs.isUndef(zcu);
+        const rhs_undef = orig_rhs.isUndef(zcu);
+        break :make_defined switch ((@as(u2, @intFromBool(lhs_undef)) << 1) | @intFromBool(rhs_undef)) {
+            0b00 => .{ orig_lhs, orig_rhs },
+            0b01 => .{ orig_lhs, try intValueAa(ty, arena, zcu) },
+            0b10 => .{ try intValueAa(ty, arena, zcu), orig_rhs },
+            0b11 => return zcu.undefValue(ty),
+        };
+    };
+
     if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() or rhs.toBool());
 
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     var rhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
     const limbs = try arena.alloc(
         std.math.big.Limb,
         @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
     );
     var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.bitOr(lhs_bigint, rhs_bigint);
-    return mod.intValue_big(ty, result_bigint.toConst());
+    return zcu.intValue_big(ty, result_bigint.toConst());
 }
 
 /// operands must be (vectors of) integers; handles undefined scalars.
@@ -2413,14 +2448,14 @@ pub fn intTruncBitsAsValue(
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(mod, i);
             const bits_elem = try bits.elemValue(mod, i);
-            scalar.* = (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @as(u16, @intCast(bits_elem.toUnsignedInt(mod))), mod)).toIntern();
+            scalar.* = (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(bits_elem.toUnsignedInt(mod)), mod)).toIntern();
         }
         return Value.fromInterned((try mod.intern(.{ .aggregate = .{
             .ty = ty.toIntern(),
             .storage = .{ .elems = result_data },
         } })));
     }
-    return intTruncScalar(val, ty, allocator, signedness, @as(u16, @intCast(bits.toUnsignedInt(mod))), mod);
+    return intTruncScalar(val, ty, allocator, signedness, @intCast(bits.toUnsignedInt(mod)), mod);
 }
 
 pub fn intTruncScalar(
@@ -2429,12 +2464,14 @@ pub fn intTruncScalar(
     allocator: Allocator,
     signedness: std.builtin.Signedness,
     bits: u16,
-    mod: *Module,
+    zcu: *Zcu,
 ) !Value {
-    if (bits == 0) return mod.intValue(ty, 0);
+    if (bits == 0) return zcu.intValue(ty, 0);
+
+    if (val.isUndef(zcu)) return zcu.undefValue(ty);
 
     var val_space: Value.BigIntSpace = undefined;
-    const val_bigint = val.toBigInt(&val_space, mod);
+    const val_bigint = val.toBigInt(&val_space, zcu);
 
     const limbs = try allocator.alloc(
         std.math.big.Limb,
@@ -2443,7 +2480,7 @@ pub fn intTruncScalar(
     var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
 
     result_bigint.truncate(val_bigint, signedness, bits);
-    return mod.intValue_big(ty, result_bigint.toConst());
+    return zcu.intValue_big(ty, result_bigint.toConst());
 }
 
 pub fn shl(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
@@ -2468,7 +2505,7 @@ pub fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try allocator.alloc(
         std.math.big.Limb,
         lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
@@ -2530,7 +2567,7 @@ pub fn shlWithOverflowScalar(
     const info = ty.intInfo(mod);
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try allocator.alloc(
         std.math.big.Limb,
         lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
@@ -2587,7 +2624,7 @@ pub fn shlSatScalar(
 
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits) + 1,
@@ -2659,7 +2696,7 @@ pub fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
 
     const result_limbs = lhs_bigint.limbs.len -| (shift / (@sizeOf(std.math.big.Limb) * 8));
     if (result_limbs == 0) {
@@ -3575,3 +3612,660 @@ pub fn makeBool(x: bool) Value {
 }
 
 pub const RuntimeIndex = InternPool.RuntimeIndex;
+
+/// `parent_ptr` must be a single-pointer to some optional.
+/// Returns a pointer to the payload of the optional.
+/// This takes a `Sema` because it may need to perform type resolution.
+pub fn ptrOptPayload(parent_ptr: Value, sema: *Sema) !Value {
+    const zcu = sema.mod;
+
+    const parent_ptr_ty = parent_ptr.typeOf(zcu);
+    const opt_ty = parent_ptr_ty.childType(zcu);
+
+    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(opt_ty.zigTypeTag(zcu) == .Optional);
+
+    const result_ty = try sema.ptrType(info: {
+        var new = parent_ptr_ty.ptrInfo(zcu);
+        // We can correctly preserve alignment `.none`, since an optional has the same
+        // natural alignment as its child type.
+        new.child = opt_ty.childType(zcu).toIntern();
+        break :info new;
+    });
+
+    if (parent_ptr.isUndef(zcu)) return zcu.undefValue(result_ty);
+
+    if (opt_ty.isPtrLikeOptional(zcu)) {
+        // Just reinterpret the pointer, since the layout is well-defined
+        return zcu.getCoerced(parent_ptr, result_ty);
+    }
+
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, opt_ty, zcu);
+    return Value.fromInterned(try zcu.intern(.{ .ptr = .{
+        .ty = result_ty.toIntern(),
+        .base_addr = .{ .opt_payload = base_ptr.toIntern() },
+        .byte_offset = 0,
+    } }));
+}
+
+/// `parent_ptr` must be a single-pointer to some error union.
+/// Returns a pointer to the payload of the error union.
+/// This takes a `Sema` because it may need to perform type resolution.
+pub fn ptrEuPayload(parent_ptr: Value, sema: *Sema) !Value {
+    const zcu = sema.mod;
+
+    const parent_ptr_ty = parent_ptr.typeOf(zcu);
+    const eu_ty = parent_ptr_ty.childType(zcu);
+
+    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(eu_ty.zigTypeTag(zcu) == .ErrorUnion);
+
+    const result_ty = try sema.ptrType(info: {
+        var new = parent_ptr_ty.ptrInfo(zcu);
+        // We can correctly preserve alignment `.none`, since an error union has a
+        // natural alignment greater than or equal to that of its payload type.
+        new.child = eu_ty.errorUnionPayload(zcu).toIntern();
+        break :info new;
+    });
+
+    if (parent_ptr.isUndef(zcu)) return zcu.undefValue(result_ty);
+
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, eu_ty, zcu);
+    return Value.fromInterned(try zcu.intern(.{ .ptr = .{
+        .ty = result_ty.toIntern(),
+        .base_addr = .{ .eu_payload = base_ptr.toIntern() },
+        .byte_offset = 0,
+    } }));
+}
+
+/// `parent_ptr` must be a single-pointer to a struct, union, or slice.
+/// Returns a pointer to the aggregate field at the specified index.
+/// For slices, uses `slice_ptr_index` and `slice_len_index`.
+/// This takes a `Sema` because it may need to perform type resolution.
+pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
+    const zcu = sema.mod;
+
+    const parent_ptr_ty = parent_ptr.typeOf(zcu);
+    const aggregate_ty = parent_ptr_ty.childType(zcu);
+
+    const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
+    assert(parent_ptr_info.flags.size == .One);
+
+    // Exiting this `switch` indicates that the `field` pointer repsentation should be used.
+    // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
+    const field_ty: Type, const field_align: InternPool.Alignment = switch (aggregate_ty.zigTypeTag(zcu)) {
+        .Struct => field: {
+            const field_ty = aggregate_ty.structFieldType(field_idx, zcu);
+            switch (aggregate_ty.containerLayout(zcu)) {
+                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, sema) },
+                .@"extern" => {
+                    // Well-defined layout, so just offset the pointer appropriately.
+                    const byte_off = aggregate_ty.structFieldOffset(field_idx, zcu);
+                    const field_align = a: {
+                        const parent_align = if (parent_ptr_info.flags.alignment == .none) pa: {
+                            break :pa try sema.typeAbiAlignment(aggregate_ty);
+                        } else parent_ptr_info.flags.alignment;
+                        break :a InternPool.Alignment.fromLog2Units(@min(parent_align.toLog2Units(), @ctz(byte_off)));
+                    };
+                    const result_ty = try sema.ptrType(info: {
+                        var new = parent_ptr_info;
+                        new.child = field_ty.toIntern();
+                        new.flags.alignment = field_align;
+                        break :info new;
+                    });
+                    return parent_ptr.getOffsetPtr(byte_off, result_ty, zcu);
+                },
+                .@"packed" => switch (aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, zcu)) {
+                    .bit_ptr => |packed_offset| {
+                        const result_ty = try zcu.ptrType(info: {
+                            var new = parent_ptr_info;
+                            new.packed_offset = packed_offset;
+                            new.child = field_ty.toIntern();
+                            if (new.flags.alignment == .none) {
+                                new.flags.alignment = try sema.typeAbiAlignment(aggregate_ty);
+                            }
+                            break :info new;
+                        });
+                        return zcu.getCoerced(parent_ptr, result_ty);
+                    },
+                    .byte_ptr => |ptr_info| {
+                        const result_ty = try sema.ptrType(info: {
+                            var new = parent_ptr_info;
+                            new.child = field_ty.toIntern();
+                            new.packed_offset = .{
+                                .host_size = 0,
+                                .bit_offset = 0,
+                            };
+                            new.flags.alignment = ptr_info.alignment;
+                            break :info new;
+                        });
+                        return parent_ptr.getOffsetPtr(ptr_info.offset, result_ty, zcu);
+                    },
+                },
+            }
+        },
+        .Union => field: {
+            const union_obj = zcu.typeToUnion(aggregate_ty).?;
+            const field_ty = Type.fromInterned(union_obj.field_types.get(&zcu.intern_pool)[field_idx]);
+            switch (aggregate_ty.containerLayout(zcu)) {
+                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, sema) },
+                .@"extern" => {
+                    // Point to the same address.
+                    const result_ty = try sema.ptrType(info: {
+                        var new = parent_ptr_info;
+                        new.child = field_ty.toIntern();
+                        break :info new;
+                    });
+                    return zcu.getCoerced(parent_ptr, result_ty);
+                },
+                .@"packed" => {
+                    // If the field has an ABI size matching its bit size, then we can continue to use a
+                    // non-bit pointer if the parent pointer is also a non-bit pointer.
+                    if (parent_ptr_info.packed_offset.host_size == 0 and try sema.typeAbiSize(field_ty) * 8 == try field_ty.bitSizeAdvanced(zcu, sema)) {
+                        // We must offset the pointer on big-endian targets, since the bits of packed memory don't align nicely.
+                        const byte_offset = switch (zcu.getTarget().cpu.arch.endian()) {
+                            .little => 0,
+                            .big => try sema.typeAbiSize(aggregate_ty) - try sema.typeAbiSize(field_ty),
+                        };
+                        const result_ty = try sema.ptrType(info: {
+                            var new = parent_ptr_info;
+                            new.child = field_ty.toIntern();
+                            new.flags.alignment = InternPool.Alignment.fromLog2Units(
+                                @ctz(byte_offset | (try parent_ptr_ty.ptrAlignmentAdvanced(zcu, sema)).toByteUnits().?),
+                            );
+                            break :info new;
+                        });
+                        return parent_ptr.getOffsetPtr(byte_offset, result_ty, zcu);
+                    } else {
+                        // The result must be a bit-pointer if it is not already.
+                        const result_ty = try sema.ptrType(info: {
+                            var new = parent_ptr_info;
+                            new.child = field_ty.toIntern();
+                            if (new.packed_offset.host_size == 0) {
+                                new.packed_offset.host_size = @intCast(((try aggregate_ty.bitSizeAdvanced(zcu, sema)) + 7) / 8);
+                                assert(new.packed_offset.bit_offset == 0);
+                            }
+                            break :info new;
+                        });
+                        return zcu.getCoerced(parent_ptr, result_ty);
+                    }
+                },
+            }
+        },
+        .Pointer => field_ty: {
+            assert(aggregate_ty.isSlice(zcu));
+            break :field_ty switch (field_idx) {
+                Value.slice_ptr_index => .{ aggregate_ty.slicePtrFieldType(zcu), Type.usize.abiAlignment(zcu) },
+                Value.slice_len_index => .{ Type.usize, Type.usize.abiAlignment(zcu) },
+                else => unreachable,
+            };
+        },
+        else => unreachable,
+    };
+
+    const new_align: InternPool.Alignment = if (parent_ptr_info.flags.alignment != .none) a: {
+        const ty_align = try sema.typeAbiAlignment(field_ty);
+        const true_field_align = if (field_align == .none) ty_align else field_align;
+        const new_align = true_field_align.min(parent_ptr_info.flags.alignment);
+        if (new_align == ty_align) break :a .none;
+        break :a new_align;
+    } else field_align;
+
+    const result_ty = try sema.ptrType(info: {
+        var new = parent_ptr_info;
+        new.child = field_ty.toIntern();
+        new.flags.alignment = new_align;
+        break :info new;
+    });
+
+    if (parent_ptr.isUndef(zcu)) return zcu.undefValue(result_ty);
+
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, aggregate_ty, zcu);
+    return Value.fromInterned(try zcu.intern(.{ .ptr = .{
+        .ty = result_ty.toIntern(),
+        .base_addr = .{ .field = .{
+            .base = base_ptr.toIntern(),
+            .index = field_idx,
+        } },
+        .byte_offset = 0,
+    } }));
+}
+
+/// `orig_parent_ptr` must be either a single-pointer to an array or vector, or a many-pointer or C-pointer or slice.
+/// Returns a pointer to the element at the specified index.
+/// This takes a `Sema` because it may need to perform type resolution.
+pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, sema: *Sema) !Value {
+    const zcu = sema.mod;
+
+    const parent_ptr = switch (orig_parent_ptr.typeOf(zcu).ptrSize(zcu)) {
+        .One, .Many, .C => orig_parent_ptr,
+        .Slice => orig_parent_ptr.slicePtr(zcu),
+    };
+
+    const parent_ptr_ty = parent_ptr.typeOf(zcu);
+    const elem_ty = parent_ptr_ty.childType(zcu);
+    const result_ty = try sema.elemPtrType(parent_ptr_ty, @intCast(field_idx));
+
+    if (parent_ptr.isUndef(zcu)) return zcu.undefValue(result_ty);
+
+    if (result_ty.ptrInfo(zcu).packed_offset.host_size != 0) {
+        // Since we have a bit-pointer, the pointer address should be unchanged.
+        assert(elem_ty.zigTypeTag(zcu) == .Vector);
+        return zcu.getCoerced(parent_ptr, result_ty);
+    }
+
+    const PtrStrat = union(enum) {
+        offset: u64,
+        elem_ptr: Type, // many-ptr elem ty
+    };
+
+    const strat: PtrStrat = switch (parent_ptr_ty.ptrSize(zcu)) {
+        .One => switch (elem_ty.zigTypeTag(zcu)) {
+            .Vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeAdvanced(zcu, sema), 8) },
+            .Array => strat: {
+                const arr_elem_ty = elem_ty.childType(zcu);
+                if (try sema.typeRequiresComptime(arr_elem_ty)) {
+                    break :strat .{ .elem_ptr = arr_elem_ty };
+                }
+                break :strat .{ .offset = field_idx * try sema.typeAbiSize(arr_elem_ty) };
+            },
+            else => unreachable,
+        },
+
+        .Many, .C => if (try sema.typeRequiresComptime(elem_ty))
+            .{ .elem_ptr = elem_ty }
+        else
+            .{ .offset = field_idx * try sema.typeAbiSize(elem_ty) },
+
+        .Slice => unreachable,
+    };
+
+    switch (strat) {
+        .offset => |byte_offset| {
+            return parent_ptr.getOffsetPtr(byte_offset, result_ty, zcu);
+        },
+        .elem_ptr => |manyptr_elem_ty| if (field_idx == 0) {
+            return zcu.getCoerced(parent_ptr, result_ty);
+        } else {
+            const arr_base_ty, const arr_base_len = manyptr_elem_ty.arrayBase(zcu);
+            const base_idx = arr_base_len * field_idx;
+            const parent_info = zcu.intern_pool.indexToKey(parent_ptr.toIntern()).ptr;
+            switch (parent_info.base_addr) {
+                .arr_elem => |arr_elem| {
+                    if (Value.fromInterned(arr_elem.base).typeOf(zcu).childType(zcu).toIntern() == arr_base_ty.toIntern()) {
+                        // We already have a pointer to an element of an array of this type.
+                        // Just modify the index.
+                        return Value.fromInterned(try zcu.intern(.{ .ptr = ptr: {
+                            var new = parent_info;
+                            new.base_addr.arr_elem.index += base_idx;
+                            new.ty = result_ty.toIntern();
+                            break :ptr new;
+                        } }));
+                    }
+                },
+                else => {},
+            }
+            const base_ptr = try parent_ptr.canonicalizeBasePtr(.Many, arr_base_ty, zcu);
+            return Value.fromInterned(try zcu.intern(.{ .ptr = .{
+                .ty = result_ty.toIntern(),
+                .base_addr = .{ .arr_elem = .{
+                    .base = base_ptr.toIntern(),
+                    .index = base_idx,
+                } },
+                .byte_offset = 0,
+            } }));
+        },
+    }
+}
+
+fn canonicalizeBasePtr(base_ptr: Value, want_size: std.builtin.Type.Pointer.Size, want_child: Type, zcu: *Zcu) !Value {
+    const ptr_ty = base_ptr.typeOf(zcu);
+    const ptr_info = ptr_ty.ptrInfo(zcu);
+
+    if (ptr_info.flags.size == want_size and
+        ptr_info.child == want_child.toIntern() and
+        !ptr_info.flags.is_const and
+        !ptr_info.flags.is_volatile and
+        !ptr_info.flags.is_allowzero and
+        ptr_info.sentinel == .none and
+        ptr_info.flags.alignment == .none)
+    {
+        // Already canonical!
+        return base_ptr;
+    }
+
+    const new_ty = try zcu.ptrType(.{
+        .child = want_child.toIntern(),
+        .sentinel = .none,
+        .flags = .{
+            .size = want_size,
+            .alignment = .none,
+            .is_const = false,
+            .is_volatile = false,
+            .is_allowzero = false,
+            .address_space = ptr_info.flags.address_space,
+        },
+    });
+    return zcu.getCoerced(base_ptr, new_ty);
+}
+
+pub fn getOffsetPtr(ptr_val: Value, byte_off: u64, new_ty: Type, zcu: *Zcu) !Value {
+    if (ptr_val.isUndef(zcu)) return ptr_val;
+    var ptr = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
+    ptr.ty = new_ty.toIntern();
+    ptr.byte_offset += byte_off;
+    return Value.fromInterned(try zcu.intern(.{ .ptr = ptr }));
+}
+
+pub const PointerDeriveStep = union(enum) {
+    int: struct {
+        addr: u64,
+        ptr_ty: Type,
+    },
+    decl_ptr: InternPool.DeclIndex,
+    anon_decl_ptr: InternPool.Key.Ptr.BaseAddr.AnonDecl,
+    comptime_alloc_ptr: struct {
+        val: Value,
+        ptr_ty: Type,
+    },
+    comptime_field_ptr: Value,
+    eu_payload_ptr: struct {
+        parent: *PointerDeriveStep,
+        /// This type will never be cast: it is provided for convenience.
+        result_ptr_ty: Type,
+    },
+    opt_payload_ptr: struct {
+        parent: *PointerDeriveStep,
+        /// This type will never be cast: it is provided for convenience.
+        result_ptr_ty: Type,
+    },
+    field_ptr: struct {
+        parent: *PointerDeriveStep,
+        field_idx: u32,
+        /// This type will never be cast: it is provided for convenience.
+        result_ptr_ty: Type,
+    },
+    elem_ptr: struct {
+        parent: *PointerDeriveStep,
+        elem_idx: u64,
+        /// This type will never be cast: it is provided for convenience.
+        result_ptr_ty: Type,
+    },
+    offset_and_cast: struct {
+        parent: *PointerDeriveStep,
+        byte_offset: u64,
+        new_ptr_ty: Type,
+    },
+
+    pub fn ptrType(step: PointerDeriveStep, zcu: *Zcu) !Type {
+        return switch (step) {
+            .int => |int| int.ptr_ty,
+            .decl_ptr => |decl| try zcu.declPtr(decl).declPtrType(zcu),
+            .anon_decl_ptr => |ad| Type.fromInterned(ad.orig_ty),
+            .comptime_alloc_ptr => |info| info.ptr_ty,
+            .comptime_field_ptr => |val| try zcu.singleConstPtrType(val.typeOf(zcu)),
+            .offset_and_cast => |oac| oac.new_ptr_ty,
+            inline .eu_payload_ptr, .opt_payload_ptr, .field_ptr, .elem_ptr => |x| x.result_ptr_ty,
+        };
+    }
+};
+
+pub fn pointerDerivation(ptr_val: Value, arena: Allocator, zcu: *Zcu) Allocator.Error!PointerDeriveStep {
+    return ptr_val.pointerDerivationAdvanced(arena, zcu, null) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.AnalysisFail,
+        error.NeededSourceLocation,
+        error.GenericPoison,
+        error.ComptimeReturn,
+        error.ComptimeBreak,
+        => unreachable,
+    };
+}
+
+/// Given a pointer value, get the sequence of steps to derive it, ideally by taking
+/// only field and element pointers with no casts. This can be used by codegen backends
+/// which prefer field/elem accesses when lowering constant pointer values.
+/// It is also used by the Value printing logic for pointers.
+pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, zcu: *Zcu, opt_sema: ?*Sema) !PointerDeriveStep {
+    const ptr = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
+    const base_derive: PointerDeriveStep = switch (ptr.base_addr) {
+        .int => return .{ .int = .{
+            .addr = ptr.byte_offset,
+            .ptr_ty = Type.fromInterned(ptr.ty),
+        } },
+        .decl => |decl| .{ .decl_ptr = decl },
+        .anon_decl => |ad| base: {
+            // A slight tweak: `orig_ty` here is sometimes not `const`, but it ought to be.
+            // TODO: fix this in the sites interning anon decls!
+            const const_ty = try zcu.ptrType(info: {
+                var info = Type.fromInterned(ad.orig_ty).ptrInfo(zcu);
+                info.flags.is_const = true;
+                break :info info;
+            });
+            break :base .{ .anon_decl_ptr = .{
+                .val = ad.val,
+                .orig_ty = const_ty.toIntern(),
+            } };
+        },
+        .comptime_alloc => |idx| base: {
+            const alloc = opt_sema.?.getComptimeAlloc(idx);
+            const val = try alloc.val.intern(zcu, opt_sema.?.arena);
+            const ty = val.typeOf(zcu);
+            break :base .{ .comptime_alloc_ptr = .{
+                .val = val,
+                .ptr_ty = try zcu.ptrType(.{
+                    .child = ty.toIntern(),
+                    .flags = .{
+                        .alignment = alloc.alignment,
+                    },
+                }),
+            } };
+        },
+        .comptime_field => |val| .{ .comptime_field_ptr = Value.fromInterned(val) },
+        .eu_payload => |eu_ptr| base: {
+            const base_ptr = Value.fromInterned(eu_ptr);
+            const base_ptr_ty = base_ptr.typeOf(zcu);
+            const parent_step = try arena.create(PointerDeriveStep);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(eu_ptr), arena, zcu, opt_sema);
+            break :base .{ .eu_payload_ptr = .{
+                .parent = parent_step,
+                .result_ptr_ty = try zcu.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).errorUnionPayload(zcu)),
+            } };
+        },
+        .opt_payload => |opt_ptr| base: {
+            const base_ptr = Value.fromInterned(opt_ptr);
+            const base_ptr_ty = base_ptr.typeOf(zcu);
+            const parent_step = try arena.create(PointerDeriveStep);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(opt_ptr), arena, zcu, opt_sema);
+            break :base .{ .opt_payload_ptr = .{
+                .parent = parent_step,
+                .result_ptr_ty = try zcu.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).optionalChild(zcu)),
+            } };
+        },
+        .field => |field| base: {
+            const base_ptr = Value.fromInterned(field.base);
+            const base_ptr_ty = base_ptr.typeOf(zcu);
+            const agg_ty = base_ptr_ty.childType(zcu);
+            const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
+                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, opt_sema) },
+                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, opt_sema) },
+                .Pointer => .{ switch (field.index) {
+                    Value.slice_ptr_index => agg_ty.slicePtrFieldType(zcu),
+                    Value.slice_len_index => Type.usize,
+                    else => unreachable,
+                }, Type.usize.abiAlignment(zcu) },
+                else => unreachable,
+            };
+            const base_align = base_ptr_ty.ptrAlignment(zcu);
+            const result_align = field_align.minStrict(base_align);
+            const result_ty = try zcu.ptrType(.{
+                .child = field_ty.toIntern(),
+                .flags = flags: {
+                    var flags = base_ptr_ty.ptrInfo(zcu).flags;
+                    if (result_align == field_ty.abiAlignment(zcu)) {
+                        flags.alignment = .none;
+                    } else {
+                        flags.alignment = result_align;
+                    }
+                    break :flags flags;
+                },
+            });
+            const parent_step = try arena.create(PointerDeriveStep);
+            parent_step.* = try pointerDerivationAdvanced(base_ptr, arena, zcu, opt_sema);
+            break :base .{ .field_ptr = .{
+                .parent = parent_step,
+                .field_idx = @intCast(field.index),
+                .result_ptr_ty = result_ty,
+            } };
+        },
+        .arr_elem => |arr_elem| base: {
+            const parent_step = try arena.create(PointerDeriveStep);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(arr_elem.base), arena, zcu, opt_sema);
+            const parent_ptr_info = (try parent_step.ptrType(zcu)).ptrInfo(zcu);
+            const result_ptr_ty = try zcu.ptrType(.{
+                .child = parent_ptr_info.child,
+                .flags = flags: {
+                    var flags = parent_ptr_info.flags;
+                    flags.size = .One;
+                    break :flags flags;
+                },
+            });
+            break :base .{ .elem_ptr = .{
+                .parent = parent_step,
+                .elem_idx = arr_elem.index,
+                .result_ptr_ty = result_ptr_ty,
+            } };
+        },
+    };
+
+    if (ptr.byte_offset == 0 and ptr.ty == (try base_derive.ptrType(zcu)).toIntern()) {
+        return base_derive;
+    }
+
+    const need_child = Type.fromInterned(ptr.ty).childType(zcu);
+    if (need_child.comptimeOnly(zcu)) {
+        // No refinement can happen - this pointer is presumably invalid.
+        // Just offset it.
+        const parent = try arena.create(PointerDeriveStep);
+        parent.* = base_derive;
+        return .{ .offset_and_cast = .{
+            .parent = parent,
+            .byte_offset = ptr.byte_offset,
+            .new_ptr_ty = Type.fromInterned(ptr.ty),
+        } };
+    }
+    const need_bytes = need_child.abiSize(zcu);
+
+    var cur_derive = base_derive;
+    var cur_offset = ptr.byte_offset;
+
+    // Refine through fields and array elements as much as possible.
+
+    if (need_bytes > 0) while (true) {
+        const cur_ty = (try cur_derive.ptrType(zcu)).childType(zcu);
+        if (cur_ty.toIntern() == need_child.toIntern() and cur_offset == 0) {
+            break;
+        }
+        switch (cur_ty.zigTypeTag(zcu)) {
+            .NoReturn,
+            .Type,
+            .ComptimeInt,
+            .ComptimeFloat,
+            .Null,
+            .Undefined,
+            .EnumLiteral,
+            .Opaque,
+            .Fn,
+            .ErrorUnion,
+            .Int,
+            .Float,
+            .Bool,
+            .Void,
+            .Pointer,
+            .ErrorSet,
+            .AnyFrame,
+            .Frame,
+            .Enum,
+            .Vector,
+            .Optional,
+            .Union,
+            => break,
+
+            .Array => {
+                const elem_ty = cur_ty.childType(zcu);
+                const elem_size = elem_ty.abiSize(zcu);
+                const start_idx = cur_offset / elem_size;
+                const end_idx = (cur_offset + need_bytes + elem_size - 1) / elem_size;
+                if (end_idx == start_idx + 1) {
+                    const parent = try arena.create(PointerDeriveStep);
+                    parent.* = cur_derive;
+                    cur_derive = .{ .elem_ptr = .{
+                        .parent = parent,
+                        .elem_idx = start_idx,
+                        .result_ptr_ty = try zcu.adjustPtrTypeChild(try parent.ptrType(zcu), elem_ty),
+                    } };
+                    cur_offset -= start_idx * elem_size;
+                } else {
+                    // Go into the first element if needed, but don't go any deeper.
+                    if (start_idx > 0) {
+                        const parent = try arena.create(PointerDeriveStep);
+                        parent.* = cur_derive;
+                        cur_derive = .{ .elem_ptr = .{
+                            .parent = parent,
+                            .elem_idx = start_idx,
+                            .result_ptr_ty = try zcu.adjustPtrTypeChild(try parent.ptrType(zcu), elem_ty),
+                        } };
+                        cur_offset -= start_idx * elem_size;
+                    }
+                    break;
+                }
+            },
+            .Struct => switch (cur_ty.containerLayout(zcu)) {
+                .auto, .@"packed" => break,
+                .@"extern" => for (0..cur_ty.structFieldCount(zcu)) |field_idx| {
+                    const field_ty = cur_ty.structFieldType(field_idx, zcu);
+                    const start_off = cur_ty.structFieldOffset(field_idx, zcu);
+                    const end_off = start_off + field_ty.abiSize(zcu);
+                    if (cur_offset >= start_off and cur_offset + need_bytes <= end_off) {
+                        const old_ptr_ty = try cur_derive.ptrType(zcu);
+                        const parent_align = old_ptr_ty.ptrAlignment(zcu);
+                        const field_align = InternPool.Alignment.fromLog2Units(@min(parent_align.toLog2Units(), @ctz(start_off)));
+                        const parent = try arena.create(PointerDeriveStep);
+                        parent.* = cur_derive;
+                        const new_ptr_ty = try zcu.ptrType(.{
+                            .child = field_ty.toIntern(),
+                            .flags = flags: {
+                                var flags = old_ptr_ty.ptrInfo(zcu).flags;
+                                if (field_align == field_ty.abiAlignment(zcu)) {
+                                    flags.alignment = .none;
+                                } else {
+                                    flags.alignment = field_align;
+                                }
+                                break :flags flags;
+                            },
+                        });
+                        cur_derive = .{ .field_ptr = .{
+                            .parent = parent,
+                            .field_idx = @intCast(field_idx),
+                            .result_ptr_ty = new_ptr_ty,
+                        } };
+                        cur_offset -= start_off;
+                        break;
+                    }
+                } else break, // pointer spans multiple fields
+            },
+        }
+    };
+
+    if (cur_offset == 0 and (try cur_derive.ptrType(zcu)).toIntern() == ptr.ty) {
+        return cur_derive;
+    }
+
+    const parent = try arena.create(PointerDeriveStep);
+    parent.* = cur_derive;
+    return .{ .offset_and_cast = .{
+        .parent = parent,
+        .byte_offset = cur_offset,
+        .new_ptr_ty = Type.fromInterned(ptr.ty),
+    } };
+}

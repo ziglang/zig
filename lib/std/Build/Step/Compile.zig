@@ -55,11 +55,17 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?[]const u8,
+test_runner: ?LazyPath,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(*Step),
+installed_headers: ArrayList(HeaderInstallation),
+
+/// This step is used to create an include tree that dependent modules can add to their include
+/// search paths. Installed headers are copied to this step.
+/// This step is created the first time a module links with this artifact and is not
+/// created otherwise.
+installed_headers_include_tree: ?*Step.WriteFile = null,
 
 // keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
@@ -230,7 +236,7 @@ pub const Options = struct {
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?[]const u8 = null,
+    test_runner: ?LazyPath = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -247,6 +253,66 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+};
+
+pub const HeaderInstallation = union(enum) {
+    file: File,
+    directory: Directory,
+
+    pub const File = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
+
+        pub fn dupe(self: File, b: *std.Build) File {
+            return .{
+                .source = self.source.dupe(b),
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
+            };
+        }
+    };
+
+    pub const Directory = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
+        options: Directory.Options,
+
+        pub const Options = struct {
+            /// File paths that end in any of these suffixes will be excluded from installation.
+            exclude_extensions: []const []const u8 = &.{},
+            /// Only file paths that end in any of these suffixes will be included in installation.
+            /// `null` means that all suffixes will be included.
+            /// `exclude_extensions` takes precedence over `include_extensions`.
+            include_extensions: ?[]const []const u8 = &.{".h"},
+
+            pub fn dupe(self: Directory.Options, b: *std.Build) Directory.Options {
+                return .{
+                    .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+                    .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
+                };
+            }
+        };
+
+        pub fn dupe(self: Directory, b: *std.Build) Directory {
+            return .{
+                .source = self.source.dupe(b),
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
+                .options = self.options.dupe(b),
+            };
+        }
+    };
+
+    pub fn getSource(self: HeaderInstallation) LazyPath {
+        return switch (self) {
+            inline .file, .directory => |x| x.source,
+        };
+    }
+
+    pub fn dupe(self: HeaderInstallation, b: *std.Build) HeaderInstallation {
+        return switch (self) {
+            .file => |f| .{ .file = f.dupe(b) },
+            .directory => |d| .{ .directory = d.dupe(b) },
+        };
+    }
 };
 
 pub fn create(owner: *std.Build, options: Options) *Compile {
@@ -308,11 +374,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(*Step).init(owner.allocator),
+        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = options.test_runner,
+        .test_runner = null,
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
         .installed_path = null,
@@ -336,6 +402,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     if (options.zig_lib_dir) |lp| {
         self.zig_lib_dir = lp.dupe(self.step.owner);
+        lp.addStepDependencies(&self.step);
+    }
+
+    if (options.test_runner) |lp| {
+        self.test_runner = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
     }
 
@@ -380,78 +451,85 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
-pub fn installHeader(cs: *Compile, src_path: []const u8, dest_rel_path: []const u8) void {
+/// Marks the specified header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
-    const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
+    const installation: HeaderInstallation = .{ .file = .{
+        .source = source.dupe(b),
+        .dest_rel_path = b.dupePath(dest_rel_path),
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
-pub const InstallConfigHeaderOptions = struct {
-    install_dir: InstallDir = .header,
-    dest_rel_path: ?[]const u8 = null,
-};
-
-pub fn installConfigHeader(
-    cs: *Compile,
-    config_header: *Step.ConfigHeader,
-    options: InstallConfigHeaderOptions,
-) void {
-    const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
-    const b = cs.step.owner;
-    const install_file = b.addInstallFileWithDir(
-        .{ .generated = &config_header.output_file },
-        options.install_dir,
-        dest_rel_path,
-    );
-    install_file.step.dependOn(&config_header.step);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
+/// Marks headers from the specified directory for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
 pub fn installHeadersDirectory(
-    a: *Compile,
-    src_dir_path: []const u8,
-    dest_rel_path: []const u8,
-) void {
-    return installHeadersDirectoryOptions(a, .{
-        .source_dir = .{ .path = src_dir_path },
-        .install_dir = .header,
-        .install_subdir = dest_rel_path,
-    });
-}
-
-pub fn installHeadersDirectoryOptions(
     cs: *Compile,
-    options: std.Build.Step.InstallDir.Options,
+    source: LazyPath,
+    dest_rel_path: []const u8,
+    options: HeaderInstallation.Directory.Options,
 ) void {
     const b = cs.step.owner;
-    const install_dir = b.addInstallDirectory(options);
-    b.getInstallStep().dependOn(&install_dir.step);
-    cs.installed_headers.append(&install_dir.step) catch @panic("OOM");
+    const installation: HeaderInstallation = .{ .directory = .{
+        .source = source.dupe(b),
+        .dest_rel_path = b.dupePath(dest_rel_path),
+        .options = options.dupe(b),
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
-pub fn installLibraryHeaders(cs: *Compile, l: *Compile) void {
-    assert(l.kind == .lib);
-    const b = cs.step.owner;
-    const install_step = b.getInstallStep();
-    // Copy each element from installed_headers, modifying the builder
-    // to be the new parent's builder.
-    for (l.installed_headers.items) |step| {
-        const step_copy = switch (step.id) {
-            inline .install_file, .install_dir => |id| blk: {
-                const T = id.Type();
-                const ptr = b.allocator.create(T) catch @panic("OOM");
-                ptr.* = step.cast(T).?.*;
-                ptr.dest_builder = b;
-                break :blk &ptr.step;
-            },
-            else => unreachable,
-        };
-        cs.installed_headers.append(step_copy) catch @panic("OOM");
-        install_step.dependOn(step_copy);
+/// Marks the specified config header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void {
+    cs.installHeader(config_header.getOutput(), config_header.include_path);
+}
+
+/// Forwards all headers marked for installation from `lib` to this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
+    assert(lib.kind == .lib);
+    for (lib.installed_headers.items) |installation| {
+        const installation_copy = installation.dupe(lib.step.owner);
+        cs.installed_headers.append(installation_copy) catch @panic("OOM");
+        cs.addHeaderInstallationToIncludeTree(installation_copy);
+        installation_copy.getSource().addStepDependencies(&cs.step);
     }
-    cs.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
+}
+
+fn addHeaderInstallationToIncludeTree(cs: *Compile, installation: HeaderInstallation) void {
+    if (cs.installed_headers_include_tree) |wf| switch (installation) {
+        .file => |file| {
+            _ = wf.addCopyFile(file.source, file.dest_rel_path);
+        },
+        .directory => |dir| {
+            _ = wf.addCopyDirectory(dir.source, dir.dest_rel_path, .{
+                .exclude_extensions = dir.options.exclude_extensions,
+                .include_extensions = dir.options.include_extensions,
+            });
+        },
+    };
+}
+
+pub fn getEmittedIncludeTree(cs: *Compile) LazyPath {
+    if (cs.installed_headers_include_tree) |wf| return wf.getDirectory();
+    const b = cs.step.owner;
+    const wf = b.addWriteFiles();
+    cs.installed_headers_include_tree = wf;
+    for (cs.installed_headers.items) |installation| {
+        cs.addHeaderInstallationToIncludeTree(installation);
+    }
+    // The compile step itself does not need to depend on the write files step,
+    // only dependent modules do.
+    return wf.getDirectory();
 }
 
 pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {
@@ -933,16 +1011,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
     try zig_args.append(cmd);
 
-    if (!mem.eql(u8, b.graph.host_query_options.arch_os_abi, "native")) {
-        try zig_args.appendSlice(&.{ "--host-target", b.graph.host_query_options.arch_os_abi });
-    }
-    if (b.graph.host_query_options.cpu_features) |cpu| {
-        try zig_args.appendSlice(&.{ "--host-cpu", cpu });
-    }
-    if (b.graph.host_query_options.dynamic_linker) |dl| {
-        try zig_args.appendSlice(&.{ "--host-dynamic-linker", dl });
-    }
-
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
     }
@@ -1305,7 +1373,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(b.pathFromRoot(test_runner));
+        try zig_args.append(test_runner.getPath(b));
     }
 
     for (b.debug_log_scopes) |log_scope| {

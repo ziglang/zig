@@ -771,17 +771,41 @@ pub const Request = struct {
         req.client.connection_pool.release(req.client.allocator, req.connection.?);
         req.connection = null;
 
-        const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
+        var server_header = std.heap.FixedBufferAllocator.init(req.response.parser.header_bytes_buffer);
+        defer req.response.parser.header_bytes_buffer = server_header.buffer[server_header.end_index..];
+        const protocol, const valid_uri = try validateUri(uri, server_header.allocator());
 
-        const port: u16 = uri.port orelse switch (protocol) {
-            .plain => 80,
-            .tls => 443,
-        };
+        const new_host = valid_uri.host.?.raw;
+        const prev_host = req.uri.host.?.raw;
+        const keep_privileged_headers =
+            std.ascii.eqlIgnoreCase(valid_uri.scheme, req.uri.scheme) and
+            std.ascii.endsWithIgnoreCase(new_host, prev_host) and
+            (new_host.len == prev_host.len or new_host[new_host.len - prev_host.len - 1] == '.');
+        if (!keep_privileged_headers) {
+            // When redirecting to a different domain, strip privileged headers.
+            req.privileged_headers = &.{};
+        }
 
-        const host = uri.host orelse return error.UriMissingHost;
+        if (switch (req.response.status) {
+            .see_other => true,
+            .moved_permanently, .found => req.method == .POST,
+            else => false,
+        }) {
+            // A redirect to a GET must change the method and remove the body.
+            req.method = .GET;
+            req.transfer_encoding = .none;
+            req.headers.content_type = .omit;
+        }
 
-        req.uri = uri;
-        req.connection = try req.client.connect(host, port, protocol);
+        if (req.transfer_encoding != .none) {
+            // The request body has already been sent. The request is
+            // still in a valid state, but the redirect must be handled
+            // manually.
+            return error.RedirectRequiresResend;
+        }
+
+        req.uri = valid_uri;
+        req.connection = try req.client.connect(new_host, uriPort(valid_uri, protocol), protocol);
         req.redirect_behavior.subtractOne();
         req.response.parser.reset();
 
@@ -796,13 +820,8 @@ pub const Request = struct {
 
     pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
-    pub const SendOptions = struct {
-        /// Specifies that the uri is already escaped.
-        raw_uri: bool = false,
-    };
-
     /// Send the HTTP request headers to the server.
-    pub fn send(req: *Request, options: SendOptions) SendError!void {
+    pub fn send(req: *Request) SendError!void {
         if (!req.method.requestHasBody() and req.transfer_encoding != .none)
             return error.UnsupportedTransferEncoding;
 
@@ -821,7 +840,6 @@ pub const Request = struct {
                 .authority = connection.proxied,
                 .path = true,
                 .query = true,
-                .raw = options.raw_uri,
             }, w);
         }
         try w.writeByte(' ');
@@ -1038,55 +1056,19 @@ pub const Request = struct {
                 const location = req.response.location orelse
                     return error.HttpRedirectLocationMissing;
 
-                // This mutates the beginning of header_buffer and uses that
-                // for the backing memory of the returned new_uri.
-                const header_buffer = req.response.parser.header_bytes_buffer;
-                const new_uri = req.uri.resolve_inplace(location, header_buffer) catch
-                    return error.HttpRedirectLocationInvalid;
-
-                // The new URI references the beginning of header_bytes_buffer memory.
-                // That memory will be kept, but everything after it will be
-                // reused by the subsequent request. In other words,
-                // header_bytes_buffer must be large enough to store all
-                // redirect locations as well as the final request header.
-                const path_end = new_uri.path.ptr + new_uri.path.len;
-                // https://github.com/ziglang/zig/issues/1738
-                const path_offset = @intFromPtr(path_end) - @intFromPtr(header_buffer.ptr);
-                const end_offset = @max(path_offset, location.len);
-                req.response.parser.header_bytes_buffer = header_buffer[end_offset..];
-
-                const is_same_domain_or_subdomain =
-                    std.ascii.endsWithIgnoreCase(new_uri.host.?, req.uri.host.?) and
-                    (new_uri.host.?.len == req.uri.host.?.len or
-                    new_uri.host.?[new_uri.host.?.len - req.uri.host.?.len - 1] == '.');
-
-                if (new_uri.host == null or !is_same_domain_or_subdomain or
-                    !std.ascii.eqlIgnoreCase(new_uri.scheme, req.uri.scheme))
-                {
-                    // When redirecting to a different domain, strip privileged headers.
-                    req.privileged_headers = &.{};
-                }
-
-                if (switch (req.response.status) {
-                    .see_other => true,
-                    .moved_permanently, .found => req.method == .POST,
-                    else => false,
-                }) {
-                    // A redirect to a GET must change the method and remove the body.
-                    req.method = .GET;
-                    req.transfer_encoding = .none;
-                    req.headers.content_type = .omit;
-                }
-
-                if (req.transfer_encoding != .none) {
-                    // The request body has already been sent. The request is
-                    // still in a valid state, but the redirect must be handled
-                    // manually.
-                    return error.RedirectRequiresResend;
-                }
-
-                try req.redirect(new_uri);
-                try req.send(.{});
+                // This mutates the beginning of header_bytes_buffer and uses that
+                // for the backing memory of the returned Uri.
+                try req.redirect(req.uri.resolve_inplace(
+                    location,
+                    &req.response.parser.header_bytes_buffer,
+                ) catch |err| switch (err) {
+                    error.UnexpectedCharacter,
+                    error.InvalidFormat,
+                    error.InvalidPort,
+                    => return error.HttpRedirectLocationInvalid,
+                    error.NoSpaceLeft => return error.HttpHeadersOversize,
+                });
+                try req.send();
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
@@ -1264,30 +1246,25 @@ fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?
         };
     } else return null;
 
-    const uri = Uri.parse(content) catch try Uri.parseWithoutScheme(content);
+    const uri = Uri.parse(content) catch try Uri.parseAfterScheme("http", content);
+    const protocol, const valid_uri = validateUri(uri, arena) catch |err| switch (err) {
+        error.UnsupportedUriScheme => return null,
+        error.UriMissingHost => return error.HttpProxyMissingHost,
+        error.OutOfMemory => |e| return e,
+    };
 
-    const protocol = if (uri.scheme.len == 0)
-        .plain // No scheme, assume http://
-    else
-        protocol_map.get(uri.scheme) orelse return null; // Unknown scheme, ignore
-
-    const host = uri.host orelse return error.HttpProxyMissingHost;
-
-    const authorization: ?[]const u8 = if (uri.user != null or uri.password != null) a: {
-        const authorization = try arena.alloc(u8, basic_authorization.valueLengthFromUri(uri));
-        assert(basic_authorization.value(uri, authorization).len == authorization.len);
+    const authorization: ?[]const u8 = if (valid_uri.user != null or valid_uri.password != null) a: {
+        const authorization = try arena.alloc(u8, basic_authorization.valueLengthFromUri(valid_uri));
+        assert(basic_authorization.value(valid_uri, authorization).len == authorization.len);
         break :a authorization;
     } else null;
 
     const proxy = try arena.create(Proxy);
     proxy.* = .{
         .protocol = protocol,
-        .host = host,
+        .host = valid_uri.host.?.raw,
         .authorization = authorization,
-        .port = uri.port orelse switch (protocol) {
-            .plain => 80,
-            .tls => 443,
-        },
+        .port = uriPort(valid_uri, protocol),
         .supports_connect = true,
     };
     return proxy;
@@ -1305,24 +1282,26 @@ pub const basic_authorization = struct {
     }
 
     pub fn valueLengthFromUri(uri: Uri) usize {
-        return valueLength(
-            if (uri.user) |user| user.len else 0,
-            if (uri.password) |password| password.len else 0,
-        );
+        var stream = std.io.countingWriter(std.io.null_writer);
+        try stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty});
+        const user_len = stream.bytes_written;
+        stream.bytes_written = 0;
+        try stream.writer().print("{password}", .{uri.password orelse Uri.Component.empty});
+        const password_len = stream.bytes_written;
+        return valueLength(@intCast(user_len), @intCast(password_len));
     }
 
     pub fn value(uri: Uri, out: []u8) []u8 {
-        assert(uri.user == null or uri.user.?.len <= max_user_len);
-        assert(uri.password == null or uri.password.?.len <= max_password_len);
+        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        var stream = std.io.fixedBufferStream(&buf);
+        stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty}) catch
+            unreachable;
+        assert(stream.pos <= max_user_len);
+        stream.writer().print(":{password}", .{uri.password orelse Uri.Component.empty}) catch
+            unreachable;
 
         @memcpy(out[0..prefix.len], prefix);
-
-        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
-        const unencoded = std.fmt.bufPrint(&buf, "{s}:{s}", .{
-            uri.user orelse "", uri.password orelse "",
-        }) catch unreachable;
-        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], unencoded);
-
+        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], stream.getWritten());
         return out[0 .. prefix.len + base64.len];
     }
 };
@@ -1337,8 +1316,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         .host = host,
         .port = port,
         .protocol = protocol,
-    })) |node|
-        return node;
+    })) |node| return node;
 
     if (disable_tls and protocol == .tls)
         return error.TlsInitializationFailed;
@@ -1449,19 +1427,12 @@ pub fn connectTunnel(
             client.connection_pool.release(client.allocator, conn);
         }
 
-        const uri: Uri = .{
-            .scheme = "http",
-            .user = null,
-            .password = null,
-            .host = tunnel_host,
-            .port = tunnel_port,
-            .path = "",
-            .query = null,
-            .fragment = null,
-        };
-
         var buffer: [8096]u8 = undefined;
-        var req = client.open(.CONNECT, uri, .{
+        var req = client.open(.CONNECT, .{
+            .scheme = "http",
+            .host = .{ .raw = tunnel_host },
+            .port = tunnel_port,
+        }, .{
             .redirect_behavior = .unhandled,
             .connection = conn,
             .server_header_buffer = &buffer,
@@ -1471,7 +1442,7 @@ pub fn connectTunnel(
         };
         defer req.deinit();
 
-        req.send(.{ .raw_uri = true }) catch |err| break :tunnel err;
+        req.send() catch |err| break :tunnel err;
         req.wait() catch |err| break :tunnel err;
 
         if (req.response.status.class() == .server_error) {
@@ -1500,7 +1471,7 @@ pub fn connectTunnel(
 }
 
 // Prevents a dependency loop in open()
-const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, ConnectionRefused };
+const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUriScheme, ConnectionRefused };
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
 /// Connect to `host:port` using the specified protocol. This will reuse a
@@ -1548,7 +1519,7 @@ pub fn connect(
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
     std.fmt.ParseIntError || Connection.WriteError ||
     error{ // TODO: file a zig fmt issue for this bad indentation
-    UnsupportedUrlScheme,
+    UnsupportedUriScheme,
     UriMissingHost,
 
     CertificateBundleLoadFailure,
@@ -1598,12 +1569,28 @@ pub const RequestOptions = struct {
     privileged_headers: []const http.Header = &.{},
 };
 
-pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
-    .{ "http", .plain },
-    .{ "ws", .plain },
-    .{ "https", .tls },
-    .{ "wss", .tls },
-});
+fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
+    const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+        .{ "http", .plain },
+        .{ "ws", .plain },
+        .{ "https", .tls },
+        .{ "wss", .tls },
+    });
+    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
+    var valid_uri = uri;
+    // The host is always going to be needed as a raw string for hostname resolution anyway.
+    valid_uri.host = .{
+        .raw = try (uri.host orelse return error.UriMissingHost).toRawMaybeAlloc(arena),
+    };
+    return .{ protocol, valid_uri };
+}
+
+fn uriPort(uri: Uri, protocol: Connection.Protocol) u16 {
+    return uri.port orelse switch (protocol) {
+        .plain => 80,
+        .tls => 443,
+    };
+}
 
 /// Open a connection to the host specified by `uri` and prepare to send a HTTP request.
 ///
@@ -1633,14 +1620,8 @@ pub fn open(
         }
     }
 
-    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
-
-    const port: u16 = uri.port orelse switch (protocol) {
-        .plain => 80,
-        .tls => 443,
-    };
-
-    const host = uri.host orelse return error.UriMissingHost;
+    var server_header = std.heap.FixedBufferAllocator.init(options.server_header_buffer);
+    const protocol, const valid_uri = try validateUri(uri, server_header.allocator());
 
     if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
         if (disable_tls) unreachable;
@@ -1649,15 +1630,17 @@ pub fn open(
         defer client.ca_bundle_mutex.unlock();
 
         if (client.next_https_rescan_certs) {
-            client.ca_bundle.rescan(client.allocator) catch return error.CertificateBundleLoadFailure;
+            client.ca_bundle.rescan(client.allocator) catch
+                return error.CertificateBundleLoadFailure;
             @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
         }
     }
 
-    const conn = options.connection orelse try client.connect(host, port, protocol);
+    const conn = options.connection orelse
+        try client.connect(valid_uri.host.?.raw, uriPort(valid_uri, protocol), protocol);
 
     var req: Request = .{
-        .uri = uri,
+        .uri = valid_uri,
         .client = client,
         .connection = conn,
         .keep_alive = options.keep_alive,
@@ -1671,7 +1654,7 @@ pub fn open(
             .status = undefined,
             .reason = undefined,
             .keep_alive = undefined,
-            .parser = proto.HeadersParser.init(options.server_header_buffer),
+            .parser = proto.HeadersParser.init(server_header.buffer[server_header.end_index..]),
         },
         .headers = options.headers,
         .extra_headers = options.extra_headers,
@@ -1751,7 +1734,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 
     if (options.payload) |payload| req.transfer_encoding = .{ .content_length = payload.len };
 
-    try req.send(.{ .raw_uri = options.raw_uri });
+    try req.send();
 
     if (options.payload) |payload| try req.writeAll(payload);
 

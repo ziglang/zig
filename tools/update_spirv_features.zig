@@ -112,11 +112,11 @@ pub fn main() !void {
     }
 
     for (extensions) |ext| {
-        try w.print("    {},\n", .{std.zig.fmtId(ext)});
+        try w.print("    {p},\n", .{std.zig.fmtId(ext)});
     }
 
     for (capabilities) |cap| {
-        try w.print("    {},\n", .{std.zig.fmtId(cap.enumerant)});
+        try w.print("    {p},\n", .{std.zig.fmtId(cap.enumerant)});
     }
 
     try w.writeAll(
@@ -163,7 +163,7 @@ pub fn main() !void {
     // TODO: Extension dependencies.
     for (extensions) |ext| {
         try w.print(
-            \\    result[@intFromEnum(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{p_})] = .{{
             \\        .llvm_name = null,
             \\        .description = "SPIR-V extension {s}",
             \\        .dependencies = featureSet(&[_]Feature{{}}),
@@ -178,7 +178,7 @@ pub fn main() !void {
     // TODO: Capability extension dependencies.
     for (capabilities) |cap| {
         try w.print(
-            \\    result[@intFromEnum(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{p_})] = .{{
             \\        .llvm_name = null,
             \\        .description = "Enable SPIR-V capability {s}",
             \\        .dependencies = featureSet(&[_]Feature{{
@@ -196,7 +196,7 @@ pub fn main() !void {
         }
 
         for (cap.capabilities) |cap_dep| {
-            try w.print("            .{},\n", .{std.zig.fmtId(cap_dep)});
+            try w.print("            .{p_},\n", .{std.zig.fmtId(cap_dep)});
         }
 
         try w.writeAll(

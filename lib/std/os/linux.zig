@@ -1893,7 +1893,7 @@ pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
 
     switch (std.os.errno(rc)) {
         .SUCCESS => return,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return std.posix.unexpectedErrno(err),
     }
 }
 

@@ -351,7 +351,7 @@ const KeyAdapter = struct {
     pub fn eql(ctx: @This(), a: Key, b_void: void, b_map_index: usize) bool {
         _ = b_void;
         if (ctx.intern_pool.items.items(.tag)[b_map_index] == .removed) return false;
-        return ctx.intern_pool.indexToKey(@as(Index, @enumFromInt(b_map_index))).eql(a, ctx.intern_pool);
+        return ctx.intern_pool.indexToKey(@enumFromInt(b_map_index)).eql(a, ctx.intern_pool);
     }
 
     pub fn hash(ctx: @This(), a: Key) u32 {
@@ -385,7 +385,7 @@ pub const RuntimeIndex = enum(u32) {
     _,
 
     pub fn increment(ri: *RuntimeIndex) void {
-        ri.* = @as(RuntimeIndex, @enumFromInt(@intFromEnum(ri.*) + 1));
+        ri.* = @enumFromInt(@intFromEnum(ri.*) + 1);
     }
 };
 
@@ -418,12 +418,44 @@ pub const OptionalNamespaceIndex = enum(u32) {
 
 /// An index into `string_bytes`.
 pub const String = enum(u32) {
+    /// An empty string.
+    empty = 0,
     _,
+
+    pub fn toSlice(string: String, len: u64, ip: *const InternPool) []const u8 {
+        return ip.string_bytes.items[@intFromEnum(string)..][0..@intCast(len)];
+    }
+
+    pub fn at(string: String, index: u64, ip: *const InternPool) u8 {
+        return ip.string_bytes.items[@intCast(@intFromEnum(string) + index)];
+    }
+
+    pub fn toNullTerminatedString(string: String, len: u64, ip: *const InternPool) NullTerminatedString {
+        assert(std.mem.indexOfScalar(u8, string.toSlice(len, ip), 0) == null);
+        assert(string.at(len, ip) == 0);
+        return @enumFromInt(@intFromEnum(string));
+    }
+};
+
+/// An index into `string_bytes` which might be `none`.
+pub const OptionalString = enum(u32) {
+    /// This is distinct from `none` - it is a valid index that represents empty string.
+    empty = 0,
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn unwrap(string: OptionalString) ?String {
+        return if (string != .none) @enumFromInt(@intFromEnum(string)) else null;
+    }
+
+    pub fn toSlice(string: OptionalString, len: u64, ip: *const InternPool) ?[]const u8 {
+        return (string.unwrap() orelse return null).toSlice(len, ip);
+    }
 };
 
 /// An index into `string_bytes`.
 pub const NullTerminatedString = enum(u32) {
-    /// This is distinct from `none` - it is a valid index that represents empty string.
+    /// An empty string.
     empty = 0,
     _,
 
@@ -447,6 +479,19 @@ pub const NullTerminatedString = enum(u32) {
         return @enumFromInt(@intFromEnum(self));
     }
 
+    pub fn toSlice(string: NullTerminatedString, ip: *const InternPool) [:0]const u8 {
+        const slice = ip.string_bytes.items[@intFromEnum(string)..];
+        return slice[0..std.mem.indexOfScalar(u8, slice, 0).? :0];
+    }
+
+    pub fn length(string: NullTerminatedString, ip: *const InternPool) u32 {
+        return @intCast(string.toSlice(ip).len);
+    }
+
+    pub fn eqlSlice(string: NullTerminatedString, slice: []const u8, ip: *const InternPool) bool {
+        return std.mem.eql(u8, string.toSlice(ip), slice);
+    }
+
     const Adapter = struct {
         strings: []const NullTerminatedString,
 
@@ -467,11 +512,11 @@ pub const NullTerminatedString = enum(u32) {
         return @intFromEnum(a) < @intFromEnum(b);
     }
 
-    pub fn toUnsigned(self: NullTerminatedString, ip: *const InternPool) ?u32 {
-        const s = ip.stringToSlice(self);
-        if (s.len > 1 and s[0] == '0') return null;
-        if (std.mem.indexOfScalar(u8, s, '_')) |_| return null;
-        return std.fmt.parseUnsigned(u32, s, 10) catch null;
+    pub fn toUnsigned(string: NullTerminatedString, ip: *const InternPool) ?u32 {
+        const slice = string.toSlice(ip);
+        if (slice.len > 1 and slice[0] == '0') return null;
+        if (std.mem.indexOfScalar(u8, slice, '_')) |_| return null;
+        return std.fmt.parseUnsigned(u32, slice, 10) catch null;
     }
 
     const FormatData = struct {
@@ -484,11 +529,11 @@ pub const NullTerminatedString = enum(u32) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        const s = data.ip.stringToSlice(data.string);
+        const slice = data.string.toSlice(data.ip);
         if (comptime std.mem.eql(u8, specifier, "")) {
-            try writer.writeAll(s);
+            try writer.writeAll(slice);
         } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try writer.print("{}", .{std.zig.fmtId(s)});
+            try writer.print("{p}", .{std.zig.fmtId(slice)});
         } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
     }
 
@@ -504,9 +549,12 @@ pub const OptionalNullTerminatedString = enum(u32) {
     none = std.math.maxInt(u32),
     _,
 
-    pub fn unwrap(oi: OptionalNullTerminatedString) ?NullTerminatedString {
-        if (oi == .none) return null;
-        return @enumFromInt(@intFromEnum(oi));
+    pub fn unwrap(string: OptionalNullTerminatedString) ?NullTerminatedString {
+        return if (string != .none) @enumFromInt(@intFromEnum(string)) else null;
+    }
+
+    pub fn toSlice(string: OptionalNullTerminatedString, ip: *const InternPool) ?[:0]const u8 {
+        return (string.unwrap() orelse return null).toSlice(ip);
     }
 };
 
@@ -517,7 +565,7 @@ pub const OptionalNullTerminatedString = enum(u32) {
 /// * decl val (so that we can analyze the value lazily)
 /// * decl ref (so that we can analyze the reference lazily)
 pub const CaptureValue = packed struct(u32) {
-    tag: enum { @"comptime", runtime, decl_val, decl_ref },
+    tag: enum(u2) { @"comptime", runtime, decl_val, decl_ref },
     idx: u30,
 
     pub fn wrap(val: Unwrapped) CaptureValue {
@@ -690,6 +738,10 @@ pub const Key = union(enum) {
         len: u64,
         child: Index,
         sentinel: Index = .none,
+
+        pub fn lenIncludingSentinel(array_type: ArrayType) u64 {
+            return array_type.len + @intFromBool(array_type.sentinel != .none);
+        }
     };
 
     /// Extern so that hashing can be done via memory reinterpreting.
@@ -974,21 +1026,75 @@ pub const Key = union(enum) {
     pub const Ptr = struct {
         /// This is the pointer type, not the element type.
         ty: Index,
-        /// The value of the address that the pointer points to.
-        addr: Addr,
+        /// The base address which this pointer is offset from.
+        base_addr: BaseAddr,
+        /// The offset of this pointer from `base_addr` in bytes.
+        byte_offset: u64,
 
-        pub const Addr = union(enum) {
-            const Tag = @typeInfo(Addr).Union.tag_type.?;
+        pub const BaseAddr = union(enum) {
+            const Tag = @typeInfo(BaseAddr).Union.tag_type.?;
 
+            /// Points to the value of a single `Decl`, which may be constant or a `variable`.
             decl: DeclIndex,
+
+            /// Points to the value of a single comptime alloc stored in `Sema`.
             comptime_alloc: ComptimeAllocIndex,
+
+            /// Points to a single unnamed constant value.
             anon_decl: AnonDecl,
+
+            /// Points to a comptime field of a struct. Index is the field's value.
+            ///
+            /// TODO: this exists because these fields are semantically mutable. We
+            /// should probably change the language so that this isn't the case.
             comptime_field: Index,
-            int: Index,
+
+            /// A pointer with a fixed integer address, usually from `@ptrFromInt`.
+            ///
+            /// The address is stored entirely by `byte_offset`, which will be positive
+            /// and in-range of a `usize`. The base address is, for all intents and purposes, 0.
+            int,
+
+            /// A pointer to the payload of an error union. Index is the error union pointer.
+            /// To ensure a canonical representation, the type of the base pointer must:
+            /// * be a one-pointer
+            /// * be `const`, `volatile` and `allowzero`
+            /// * have alignment 1
+            /// * have the same address space as this pointer
+            /// * have a host size, bit offset, and vector index of 0
+            /// See `Value.canonicalizeBasePtr` which enforces these properties.
             eu_payload: Index,
+
+            /// A pointer to the payload of a non-pointer-like optional. Index is the
+            /// optional pointer. To ensure a canonical representation, the base
+            /// pointer is subject to the same restrictions as in `eu_payload`.
             opt_payload: Index,
-            elem: BaseIndex,
+
+            /// A pointer to a field of a slice, or of an auto-layout struct or union. Slice fields
+            /// are referenced according to `Value.slice_ptr_index` and `Value.slice_len_index`.
+            /// Base is the aggregate pointer, which is subject to the same restrictions as
+            /// in `eu_payload`.
             field: BaseIndex,
+
+            /// A pointer to an element of a comptime-only array. Base is the
+            /// many-pointer we are indexing into. It is subject to the same restrictions
+            /// as in `eu_payload`, except it must be a many-pointer rather than a one-pointer.
+            ///
+            /// The element type of the base pointer must NOT be an array. Additionally, the
+            /// base pointer is guaranteed to not be an `arr_elem` into a pointer with the
+            /// same child type. Thus, since there are no two comptime-only types which are
+            /// IMC to one another, the only case where the base pointer may also be an
+            /// `arr_elem` is when this pointer is semantically invalid (e.g. it reinterprets
+            /// a `type` as a `comptime_int`). These restrictions are in place to ensure
+            /// a canonical representation.
+            ///
+            /// This kind of base address differs from others in that it may refer to any
+            /// sequence of values; for instance, an `arr_elem` at index 2 may refer to
+            /// any number of elements starting from index 2.
+            ///
+            /// Index must not be 0. To refer to the element at index 0, simply reinterpret
+            /// the aggregate pointer.
+            arr_elem: BaseIndex,
 
             pub const MutDecl = struct {
                 decl: DeclIndex,
@@ -1043,7 +1149,7 @@ pub const Key = union(enum) {
         storage: Storage,
 
         pub const Storage = union(enum) {
-            bytes: []const u8,
+            bytes: String,
             elems: []const Index,
             repeated_elem: Index,
 
@@ -1170,10 +1276,11 @@ pub const Key = union(enum) {
             .ptr => |ptr| {
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
                 // This is sound due to pointer provenance rules.
-                const addr: @typeInfo(Key.Ptr.Addr).Union.tag_type.? = ptr.addr;
-                const seed2 = seed + @intFromEnum(addr);
-                const common = asBytes(&ptr.ty);
-                return switch (ptr.addr) {
+                const addr_tag: Key.Ptr.BaseAddr.Tag = ptr.base_addr;
+                const seed2 = seed + @intFromEnum(addr_tag);
+                const big_offset: i128 = ptr.byte_offset;
+                const common = asBytes(&ptr.ty) ++ asBytes(&big_offset);
+                return switch (ptr.base_addr) {
                     inline .decl,
                     .comptime_alloc,
                     .anon_decl,
@@ -1183,7 +1290,7 @@ pub const Key = union(enum) {
                     .comptime_field,
                     => |x| Hash.hash(seed2, common ++ asBytes(&x)),
 
-                    .elem, .field => |x| Hash.hash(
+                    .arr_elem, .field => |x| Hash.hash(
                         seed2,
                         common ++ asBytes(&x.base) ++ asBytes(&x.index),
                     ),
@@ -1203,7 +1310,7 @@ pub const Key = union(enum) {
 
                 if (child == .u8_type) {
                     switch (aggregate.storage) {
-                        .bytes => |bytes| for (bytes[0..@intCast(len)]) |byte| {
+                        .bytes => |bytes| for (bytes.toSlice(len, ip)) |byte| {
                             std.hash.autoHash(&hasher, KeyTag.int);
                             std.hash.autoHash(&hasher, byte);
                         },
@@ -1240,7 +1347,7 @@ pub const Key = union(enum) {
 
                 switch (aggregate.storage) {
                     .bytes => unreachable,
-                    .elems => |elems| for (elems[0..@as(usize, @intCast(len))]) |elem|
+                    .elems => |elems| for (elems[0..@intCast(len)]) |elem|
                         std.hash.autoHash(&hasher, elem),
                     .repeated_elem => |elem| {
                         var remaining = len;
@@ -1442,21 +1549,21 @@ pub const Key = union(enum) {
             .ptr => |a_info| {
                 const b_info = b.ptr;
                 if (a_info.ty != b_info.ty) return false;
+                if (a_info.byte_offset != b_info.byte_offset) return false;
 
-                const AddrTag = @typeInfo(Key.Ptr.Addr).Union.tag_type.?;
-                if (@as(AddrTag, a_info.addr) != @as(AddrTag, b_info.addr)) return false;
+                if (@as(Key.Ptr.BaseAddr.Tag, a_info.base_addr) != @as(Key.Ptr.BaseAddr.Tag, b_info.base_addr)) return false;
 
-                return switch (a_info.addr) {
-                    .decl => |a_decl| a_decl == b_info.addr.decl,
-                    .comptime_alloc => |a_alloc| a_alloc == b_info.addr.comptime_alloc,
-                    .anon_decl => |ad| ad.val == b_info.addr.anon_decl.val and
-                        ad.orig_ty == b_info.addr.anon_decl.orig_ty,
-                    .int => |a_int| a_int == b_info.addr.int,
-                    .eu_payload => |a_eu_payload| a_eu_payload == b_info.addr.eu_payload,
-                    .opt_payload => |a_opt_payload| a_opt_payload == b_info.addr.opt_payload,
-                    .comptime_field => |a_comptime_field| a_comptime_field == b_info.addr.comptime_field,
-                    .elem => |a_elem| std.meta.eql(a_elem, b_info.addr.elem),
-                    .field => |a_field| std.meta.eql(a_field, b_info.addr.field),
+                return switch (a_info.base_addr) {
+                    .decl => |a_decl| a_decl == b_info.base_addr.decl,
+                    .comptime_alloc => |a_alloc| a_alloc == b_info.base_addr.comptime_alloc,
+                    .anon_decl => |ad| ad.val == b_info.base_addr.anon_decl.val and
+                        ad.orig_ty == b_info.base_addr.anon_decl.orig_ty,
+                    .int => true,
+                    .eu_payload => |a_eu_payload| a_eu_payload == b_info.base_addr.eu_payload,
+                    .opt_payload => |a_opt_payload| a_opt_payload == b_info.base_addr.opt_payload,
+                    .comptime_field => |a_comptime_field| a_comptime_field == b_info.base_addr.comptime_field,
+                    .arr_elem => |a_elem| std.meta.eql(a_elem, b_info.base_addr.arr_elem),
+                    .field => |a_field| std.meta.eql(a_field, b_info.base_addr.field),
                 };
             },
 
@@ -1505,11 +1612,11 @@ pub const Key = union(enum) {
                 if (a_info.ty == .c_longdouble_type and a_info.storage != .f80) {
                     // These are strange: we'll sometimes represent them as f128, even if the
                     // underlying type is smaller. f80 is an exception: see float_c_longdouble_f80.
-                    const a_val = switch (a_info.storage) {
-                        inline else => |val| @as(u128, @bitCast(@as(f128, @floatCast(val)))),
+                    const a_val: u128 = switch (a_info.storage) {
+                        inline else => |val| @bitCast(@as(f128, @floatCast(val))),
                     };
-                    const b_val = switch (b_info.storage) {
-                        inline else => |val| @as(u128, @bitCast(@as(f128, @floatCast(val)))),
+                    const b_val: u128 = switch (b_info.storage) {
+                        inline else => |val| @bitCast(@as(f128, @floatCast(val))),
                     };
                     return a_val == b_val;
                 }
@@ -1560,11 +1667,11 @@ pub const Key = union(enum) {
                 const len = ip.aggregateTypeLen(a_info.ty);
                 const StorageTag = @typeInfo(Key.Aggregate.Storage).Union.tag_type.?;
                 if (@as(StorageTag, a_info.storage) != @as(StorageTag, b_info.storage)) {
-                    for (0..@as(usize, @intCast(len))) |elem_index| {
+                    for (0..@intCast(len)) |elem_index| {
                         const a_elem = switch (a_info.storage) {
                             .bytes => |bytes| ip.getIfExists(.{ .int = .{
                                 .ty = .u8_type,
-                                .storage = .{ .u64 = bytes[elem_index] },
+                                .storage = .{ .u64 = bytes.at(elem_index, ip) },
                             } }) orelse return false,
                             .elems => |elems| elems[elem_index],
                             .repeated_elem => |elem| elem,
@@ -1572,7 +1679,7 @@ pub const Key = union(enum) {
                         const b_elem = switch (b_info.storage) {
                             .bytes => |bytes| ip.getIfExists(.{ .int = .{
                                 .ty = .u8_type,
-                                .storage = .{ .u64 = bytes[elem_index] },
+                                .storage = .{ .u64 = bytes.at(elem_index, ip) },
                             } }) orelse return false,
                             .elems => |elems| elems[elem_index],
                             .repeated_elem => |elem| elem,
@@ -1585,18 +1692,15 @@ pub const Key = union(enum) {
                 switch (a_info.storage) {
                     .bytes => |a_bytes| {
                         const b_bytes = b_info.storage.bytes;
-                        return std.mem.eql(
-                            u8,
-                            a_bytes[0..@as(usize, @intCast(len))],
-                            b_bytes[0..@as(usize, @intCast(len))],
-                        );
+                        return a_bytes == b_bytes or
+                            std.mem.eql(u8, a_bytes.toSlice(len, ip), b_bytes.toSlice(len, ip));
                     },
                     .elems => |a_elems| {
                         const b_elems = b_info.storage.elems;
                         return std.mem.eql(
                             Index,
-                            a_elems[0..@as(usize, @intCast(len))],
-                            b_elems[0..@as(usize, @intCast(len))],
+                            a_elems[0..@intCast(len)],
+                            b_elems[0..@intCast(len)],
                         );
                     },
                     .repeated_elem => |a_elem| {
@@ -2222,6 +2326,46 @@ pub const LoadedStructType = struct {
             .struct_type = s,
         };
     }
+
+    pub const ReverseRuntimeOrderIterator = struct {
+        ip: *InternPool,
+        last_index: u32,
+        struct_type: InternPool.LoadedStructType,
+
+        pub fn next(it: *@This()) ?u32 {
+            if (it.last_index == 0)
+                return null;
+
+            if (it.struct_type.hasReorderedFields()) {
+                it.last_index -= 1;
+                const order = it.struct_type.runtime_order.get(it.ip);
+                while (order[it.last_index] == .omitted) {
+                    it.last_index -= 1;
+                    if (it.last_index == 0)
+                        return null;
+                }
+                return order[it.last_index].toInt();
+            }
+
+            it.last_index -= 1;
+            while (it.struct_type.fieldIsComptime(it.ip, it.last_index)) {
+                it.last_index -= 1;
+                if (it.last_index == 0)
+                    return null;
+            }
+
+            return it.last_index;
+        }
+    };
+
+    pub fn iterateRuntimeOrderReverse(s: @This(), ip: *InternPool) ReverseRuntimeOrderIterator {
+        assert(s.layout != .@"packed");
+        return .{
+            .ip = ip,
+            .last_index = s.field_types.len,
+            .struct_type = s,
+        };
+    }
 };
 
 pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
@@ -2787,7 +2931,7 @@ pub const Index = enum(u32) {
         ptr_anon_decl: struct { data: *PtrAnonDecl },
         ptr_anon_decl_aligned: struct { data: *PtrAnonDeclAligned },
         ptr_comptime_field: struct { data: *PtrComptimeField },
-        ptr_int: struct { data: *PtrBase },
+        ptr_int: struct { data: *PtrInt },
         ptr_eu_payload: struct { data: *PtrBase },
         ptr_opt_payload: struct { data: *PtrBase },
         ptr_elem: struct { data: *PtrBaseIndex },
@@ -3255,7 +3399,7 @@ pub const Tag = enum(u8) {
     /// data is extra index of `PtrComptimeField`, which contains the pointer type and field value.
     ptr_comptime_field,
     /// A pointer with an integer value.
-    /// data is extra index of `PtrBase`, which contains the type and address.
+    /// data is extra index of `PtrInt`, which contains the type and address (byte offset from 0).
     /// Only pointer types are allowed to have this encoding. Optional types must use
     /// `opt_payload` or `opt_null`.
     ptr_int,
@@ -3448,7 +3592,7 @@ pub const Tag = enum(u8) {
             .ptr_anon_decl => PtrAnonDecl,
             .ptr_anon_decl_aligned => PtrAnonDeclAligned,
             .ptr_comptime_field => PtrComptimeField,
-            .ptr_int => PtrBase,
+            .ptr_int => PtrInt,
             .ptr_eu_payload => PtrBase,
             .ptr_opt_payload => PtrBase,
             .ptr_elem => PtrBaseIndex,
@@ -4104,11 +4248,37 @@ pub const PackedU64 = packed struct(u64) {
 pub const PtrDecl = struct {
     ty: Index,
     decl: DeclIndex,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, decl: DeclIndex, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .decl = decl,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrAnonDecl = struct {
     ty: Index,
     val: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, val: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .val = val,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrAnonDeclAligned = struct {
@@ -4116,27 +4286,110 @@ pub const PtrAnonDeclAligned = struct {
     val: Index,
     /// Must be nonequal to `ty`. Only the alignment from this value is important.
     orig_ty: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, val: Index, orig_ty: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .val = val,
+            .orig_ty = orig_ty,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrComptimeAlloc = struct {
     ty: Index,
     index: ComptimeAllocIndex,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, index: ComptimeAllocIndex, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .index = index,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrComptimeField = struct {
     ty: Index,
     field_val: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, field_val: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .field_val = field_val,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrBase = struct {
     ty: Index,
     base: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, base: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .base = base,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrBaseIndex = struct {
     ty: Index,
     base: Index,
     index: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, base: Index, index: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .base = base,
+            .index = index,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
+};
+
+pub const PtrInt = struct {
+    ty: Index,
+    byte_offset_a: u32,
+    byte_offset_b: u32,
+    fn init(ty: Index, byte_offset: u64) @This() {
+        return .{
+            .ty = ty,
+            .byte_offset_a = @intCast(byte_offset >> 32),
+            .byte_offset_b = @truncate(byte_offset),
+        };
+    }
+    fn byteOffset(data: @This()) u64 {
+        return @as(u64, data.byte_offset_a) << 32 | data.byte_offset_b;
+    }
 };
 
 pub const PtrSlice = struct {
@@ -4175,10 +4428,10 @@ pub const Float64 = struct {
     }
 
     fn pack(val: f64) Float64 {
-        const bits = @as(u64, @bitCast(val));
+        const bits: u64 = @bitCast(val);
         return .{
-            .piece0 = @as(u32, @truncate(bits)),
-            .piece1 = @as(u32, @truncate(bits >> 32)),
+            .piece0 = @truncate(bits),
+            .piece1 = @truncate(bits >> 32),
         };
     }
 };
@@ -4197,11 +4450,11 @@ pub const Float80 = struct {
     }
 
     fn pack(val: f80) Float80 {
-        const bits = @as(u80, @bitCast(val));
+        const bits: u80 = @bitCast(val);
         return .{
-            .piece0 = @as(u32, @truncate(bits)),
-            .piece1 = @as(u32, @truncate(bits >> 32)),
-            .piece2 = @as(u16, @truncate(bits >> 64)),
+            .piece0 = @truncate(bits),
+            .piece1 = @truncate(bits >> 32),
+            .piece2 = @truncate(bits >> 64),
         };
     }
 };
@@ -4222,12 +4475,12 @@ pub const Float128 = struct {
     }
 
     fn pack(val: f128) Float128 {
-        const bits = @as(u128, @bitCast(val));
+        const bits: u128 = @bitCast(val);
         return .{
-            .piece0 = @as(u32, @truncate(bits)),
-            .piece1 = @as(u32, @truncate(bits >> 32)),
-            .piece2 = @as(u32, @truncate(bits >> 64)),
-            .piece3 = @as(u32, @truncate(bits >> 96)),
+            .piece0 = @truncate(bits),
+            .piece1 = @truncate(bits >> 32),
+            .piece2 = @truncate(bits >> 64),
+            .piece3 = @truncate(bits >> 96),
         };
     }
 };
@@ -4244,7 +4497,7 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
     assert(ip.items.len == 0);
 
     // Reserve string index 0 for an empty string.
-    assert((try ip.getOrPutString(gpa, "")) == .empty);
+    assert((try ip.getOrPutString(gpa, "", .no_embedded_nulls)) == .empty);
 
     // So that we can use `catch unreachable` below.
     try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
@@ -4329,13 +4582,13 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .type_int_signed => .{
             .int_type = .{
                 .signedness = .signed,
-                .bits = @as(u16, @intCast(data)),
+                .bits = @intCast(data),
             },
         },
         .type_int_unsigned => .{
             .int_type = .{
                 .signedness = .unsigned,
-                .bits = @as(u16, @intCast(data)),
+                .bits = @intCast(data),
             },
         },
         .type_array_big => {
@@ -4354,8 +4607,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .sentinel = .none,
             } };
         },
-        .simple_type => .{ .simple_type = @as(SimpleType, @enumFromInt(data)) },
-        .simple_value => .{ .simple_value = @as(SimpleValue, @enumFromInt(data)) },
+        .simple_type => .{ .simple_type = @enumFromInt(data) },
+        .simple_value => .{ .simple_value = @enumFromInt(data) },
 
         .type_vector => {
             const vector_info = ip.extraData(Vector, data);
@@ -4506,9 +4759,9 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         } },
         .type_function => .{ .func_type = ip.extraFuncType(data) },
 
-        .undef => .{ .undef = @as(Index, @enumFromInt(data)) },
+        .undef => .{ .undef = @enumFromInt(data) },
         .opt_null => .{ .opt = .{
-            .ty = @as(Index, @enumFromInt(data)),
+            .ty = @enumFromInt(data),
             .val = .none,
         } },
         .opt_payload => {
@@ -4520,78 +4773,55 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .ptr_decl => {
             const info = ip.extraData(PtrDecl, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .decl = info.decl },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .decl = info.decl }, .byte_offset = info.byteOffset() } };
         },
         .ptr_comptime_alloc => {
             const info = ip.extraData(PtrComptimeAlloc, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .comptime_alloc = info.index },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .comptime_alloc = info.index }, .byte_offset = info.byteOffset() } };
         },
         .ptr_anon_decl => {
             const info = ip.extraData(PtrAnonDecl, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .anon_decl = .{
-                    .val = info.val,
-                    .orig_ty = info.ty,
-                } },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .anon_decl = .{
+                .val = info.val,
+                .orig_ty = info.ty,
+            } }, .byte_offset = info.byteOffset() } };
         },
         .ptr_anon_decl_aligned => {
             const info = ip.extraData(PtrAnonDeclAligned, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .anon_decl = .{
-                    .val = info.val,
-                    .orig_ty = info.orig_ty,
-                } },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .anon_decl = .{
+                .val = info.val,
+                .orig_ty = info.orig_ty,
+            } }, .byte_offset = info.byteOffset() } };
         },
         .ptr_comptime_field => {
             const info = ip.extraData(PtrComptimeField, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .comptime_field = info.field_val },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .comptime_field = info.field_val }, .byte_offset = info.byteOffset() } };
         },
         .ptr_int => {
-            const info = ip.extraData(PtrBase, data);
+            const info = ip.extraData(PtrInt, data);
             return .{ .ptr = .{
                 .ty = info.ty,
-                .addr = .{ .int = info.base },
+                .base_addr = .int,
+                .byte_offset = info.byteOffset(),
             } };
         },
         .ptr_eu_payload => {
             const info = ip.extraData(PtrBase, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .eu_payload = info.base },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .eu_payload = info.base }, .byte_offset = info.byteOffset() } };
         },
         .ptr_opt_payload => {
             const info = ip.extraData(PtrBase, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .opt_payload = info.base },
-            } };
+            return .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .opt_payload = info.base }, .byte_offset = info.byteOffset() } };
         },
         .ptr_elem => {
             // Avoid `indexToKey` recursion by asserting the tag encoding.
             const info = ip.extraData(PtrBaseIndex, data);
             const index_item = ip.items.get(@intFromEnum(info.index));
             return switch (index_item.tag) {
-                .int_usize => .{ .ptr = .{
-                    .ty = info.ty,
-                    .addr = .{ .elem = .{
-                        .base = info.base,
-                        .index = index_item.data,
-                    } },
-                } },
+                .int_usize => .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .arr_elem = .{
+                    .base = info.base,
+                    .index = index_item.data,
+                } }, .byte_offset = info.byteOffset() } },
                 .int_positive => @panic("TODO"), // implement along with behavior test coverage
                 else => unreachable,
             };
@@ -4601,13 +4831,10 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const info = ip.extraData(PtrBaseIndex, data);
             const index_item = ip.items.get(@intFromEnum(info.index));
             return switch (index_item.tag) {
-                .int_usize => .{ .ptr = .{
-                    .ty = info.ty,
-                    .addr = .{ .field = .{
-                        .base = info.base,
-                        .index = index_item.data,
-                    } },
-                } },
+                .int_usize => .{ .ptr = .{ .ty = info.ty, .base_addr = .{ .field = .{
+                    .base = info.base,
+                    .index = index_item.data,
+                } }, .byte_offset = info.byteOffset() } },
                 .int_positive => @panic("TODO"), // implement along with behavior test coverage
                 else => unreachable,
             };
@@ -4670,11 +4897,11 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .float_f16 => .{ .float = .{
             .ty = .f16_type,
-            .storage = .{ .f16 = @as(f16, @bitCast(@as(u16, @intCast(data)))) },
+            .storage = .{ .f16 = @bitCast(@as(u16, @intCast(data))) },
         } },
         .float_f32 => .{ .float = .{
             .ty = .f32_type,
-            .storage = .{ .f32 = @as(f32, @bitCast(data)) },
+            .storage = .{ .f32 = @bitCast(data) },
         } },
         .float_f64 => .{ .float = .{
             .ty = .f64_type,
@@ -4771,10 +4998,9 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .bytes => {
             const extra = ip.extraData(Bytes, data);
-            const len: u32 = @intCast(ip.aggregateTypeLenIncludingSentinel(extra.ty));
             return .{ .aggregate = .{
                 .ty = extra.ty,
-                .storage = .{ .bytes = ip.string_bytes.items[@intFromEnum(extra.bytes)..][0..len] },
+                .storage = .{ .bytes = extra.bytes },
             } };
         },
         .aggregate => {
@@ -4809,14 +5035,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .val = .{ .payload = extra.val },
             } };
         },
-        .enum_literal => .{ .enum_literal = @as(NullTerminatedString, @enumFromInt(data)) },
+        .enum_literal => .{ .enum_literal = @enumFromInt(data) },
         .enum_tag => .{ .enum_tag = ip.extraData(Tag.EnumTag, data) },
 
         .memoized_call => {
             const extra = ip.extraDataTrail(MemoizedCall, data);
             return .{ .memoized_call = .{
                 .func = extra.data.func,
-                .arg_values = @as([]const Index, @ptrCast(ip.extra.items[extra.end..][0..extra.data.args_len])),
+                .arg_values = @ptrCast(ip.extra.items[extra.end..][0..extra.data.args_len]),
                 .result = extra.data.result,
             } };
         },
@@ -5163,57 +5389,40 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .ptr => |ptr| {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
             assert(ptr_type.flags.size != .Slice);
-            ip.items.appendAssumeCapacity(switch (ptr.addr) {
+            ip.items.appendAssumeCapacity(switch (ptr.base_addr) {
                 .decl => |decl| .{
                     .tag = .ptr_decl,
-                    .data = try ip.addExtra(gpa, PtrDecl{
-                        .ty = ptr.ty,
-                        .decl = decl,
-                    }),
+                    .data = try ip.addExtra(gpa, PtrDecl.init(ptr.ty, decl, ptr.byte_offset)),
                 },
                 .comptime_alloc => |alloc_index| .{
                     .tag = .ptr_comptime_alloc,
-                    .data = try ip.addExtra(gpa, PtrComptimeAlloc{
-                        .ty = ptr.ty,
-                        .index = alloc_index,
-                    }),
+                    .data = try ip.addExtra(gpa, PtrComptimeAlloc.init(ptr.ty, alloc_index, ptr.byte_offset)),
                 },
                 .anon_decl => |anon_decl| if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) item: {
                     if (ptr.ty != anon_decl.orig_ty) {
                         _ = ip.map.pop();
                         var new_key = key;
-                        new_key.ptr.addr.anon_decl.orig_ty = ptr.ty;
+                        new_key.ptr.base_addr.anon_decl.orig_ty = ptr.ty;
                         const new_gop = try ip.map.getOrPutAdapted(gpa, new_key, adapter);
                         if (new_gop.found_existing) return @enumFromInt(new_gop.index);
                     }
                     break :item .{
                         .tag = .ptr_anon_decl,
-                        .data = try ip.addExtra(gpa, PtrAnonDecl{
-                            .ty = ptr.ty,
-                            .val = anon_decl.val,
-                        }),
+                        .data = try ip.addExtra(gpa, PtrAnonDecl.init(ptr.ty, anon_decl.val, ptr.byte_offset)),
                     };
                 } else .{
                     .tag = .ptr_anon_decl_aligned,
-                    .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
-                        .ty = ptr.ty,
-                        .val = anon_decl.val,
-                        .orig_ty = anon_decl.orig_ty,
-                    }),
+                    .data = try ip.addExtra(gpa, PtrAnonDeclAligned.init(ptr.ty, anon_decl.val, anon_decl.orig_ty, ptr.byte_offset)),
                 },
                 .comptime_field => |field_val| item: {
                     assert(field_val != .none);
                     break :item .{
                         .tag = .ptr_comptime_field,
-                        .data = try ip.addExtra(gpa, PtrComptimeField{
-                            .ty = ptr.ty,
-                            .field_val = field_val,
-                        }),
+                        .data = try ip.addExtra(gpa, PtrComptimeField.init(ptr.ty, field_val, ptr.byte_offset)),
                     };
                 },
-                .int, .eu_payload, .opt_payload => |base| item: {
-                    switch (ptr.addr) {
-                        .int => assert(ip.typeOf(base) == .usize_type),
+                .eu_payload, .opt_payload => |base| item: {
+                    switch (ptr.base_addr) {
                         .eu_payload => assert(ip.indexToKey(
                             ip.indexToKey(ip.typeOf(base)).ptr_type.child,
                         ) == .error_union_type),
@@ -5223,40 +5432,40 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         else => unreachable,
                     }
                     break :item .{
-                        .tag = switch (ptr.addr) {
-                            .int => .ptr_int,
+                        .tag = switch (ptr.base_addr) {
                             .eu_payload => .ptr_eu_payload,
                             .opt_payload => .ptr_opt_payload,
                             else => unreachable,
                         },
-                        .data = try ip.addExtra(gpa, PtrBase{
-                            .ty = ptr.ty,
-                            .base = base,
-                        }),
+                        .data = try ip.addExtra(gpa, PtrBase.init(ptr.ty, base, ptr.byte_offset)),
                     };
                 },
-                .elem, .field => |base_index| item: {
+                .int => .{
+                    .tag = .ptr_int,
+                    .data = try ip.addExtra(gpa, PtrInt.init(ptr.ty, ptr.byte_offset)),
+                },
+                .arr_elem, .field => |base_index| item: {
                     const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
-                    switch (ptr.addr) {
-                        .elem => assert(base_ptr_type.flags.size == .Many),
+                    switch (ptr.base_addr) {
+                        .arr_elem => assert(base_ptr_type.flags.size == .Many),
                         .field => {
                             assert(base_ptr_type.flags.size == .One);
                             switch (ip.indexToKey(base_ptr_type.child)) {
                                 .anon_struct_type => |anon_struct_type| {
-                                    assert(ptr.addr == .field);
+                                    assert(ptr.base_addr == .field);
                                     assert(base_index.index < anon_struct_type.types.len);
                                 },
                                 .struct_type => {
-                                    assert(ptr.addr == .field);
+                                    assert(ptr.base_addr == .field);
                                     assert(base_index.index < ip.loadStructType(base_ptr_type.child).field_types.len);
                                 },
                                 .union_type => {
                                     const union_type = ip.loadUnionType(base_ptr_type.child);
-                                    assert(ptr.addr == .field);
+                                    assert(ptr.base_addr == .field);
                                     assert(base_index.index < union_type.field_types.len);
                                 },
                                 .ptr_type => |slice_type| {
-                                    assert(ptr.addr == .field);
+                                    assert(ptr.base_addr == .field);
                                     assert(slice_type.flags.size == .Slice);
                                     assert(base_index.index < 2);
                                 },
@@ -5273,16 +5482,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                     try ip.items.ensureUnusedCapacity(gpa, 1);
                     break :item .{
-                        .tag = switch (ptr.addr) {
-                            .elem => .ptr_elem,
+                        .tag = switch (ptr.base_addr) {
+                            .arr_elem => .ptr_elem,
                             .field => .ptr_field,
                             else => unreachable,
                         },
-                        .data = try ip.addExtra(gpa, PtrBaseIndex{
-                            .ty = ptr.ty,
-                            .base = base_index.base,
-                            .index = index_index,
-                        }),
+                        .data = try ip.addExtra(gpa, PtrBaseIndex.init(ptr.ty, base_index.base, index_index, ptr.byte_offset)),
                     };
                 },
             });
@@ -5596,9 +5801,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             switch (aggregate.storage) {
                 .bytes => |bytes| {
                     assert(child == .u8_type);
-                    if (bytes.len != len) {
-                        assert(bytes.len == len_including_sentinel);
-                        assert(bytes[@intCast(len)] == ip.indexToKey(sentinel).int.storage.u64);
+                    if (sentinel != .none) {
+                        assert(bytes.at(@intCast(len), ip) == ip.indexToKey(sentinel).int.storage.u64);
                     }
                 },
                 .elems => |elems| {
@@ -5641,11 +5845,16 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             switch (ty_key) {
                 .anon_struct_type => |anon_struct_type| opv: {
                     switch (aggregate.storage) {
-                        .bytes => |bytes| for (anon_struct_type.values.get(ip), bytes) |value, byte| {
-                            if (value != ip.getIfExists(.{ .int = .{
-                                .ty = .u8_type,
-                                .storage = .{ .u64 = byte },
-                            } })) break :opv;
+                        .bytes => |bytes| for (anon_struct_type.values.get(ip), bytes.at(0, ip)..) |value, byte| {
+                            if (value == .none) break :opv;
+                            switch (ip.indexToKey(value)) {
+                                .undef => break :opv,
+                                .int => |int| switch (int.storage) {
+                                    .u64 => |x| if (x != byte) break :opv,
+                                    else => break :opv,
+                                },
+                                else => unreachable,
+                            }
                         },
                         .elems => |elems| if (!std.mem.eql(
                             Index,
@@ -5670,9 +5879,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             repeated: {
                 switch (aggregate.storage) {
-                    .bytes => |bytes| for (bytes[1..@as(usize, @intCast(len))]) |byte|
-                        if (byte != bytes[0]) break :repeated,
-                    .elems => |elems| for (elems[1..@as(usize, @intCast(len))]) |elem|
+                    .bytes => |bytes| for (bytes.toSlice(len, ip)[1..]) |byte|
+                        if (byte != bytes.at(0, ip)) break :repeated,
+                    .elems => |elems| for (elems[1..@intCast(len)]) |elem|
                         if (elem != elems[0]) break :repeated,
                     .repeated_elem => {},
                 }
@@ -5681,7 +5890,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         _ = ip.map.pop();
                         const elem = try ip.get(gpa, .{ .int = .{
                             .ty = .u8_type,
-                            .storage = .{ .u64 = bytes[0] },
+                            .storage = .{ .u64 = bytes.at(0, ip) },
                         } });
                         assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                         try ip.items.ensureUnusedCapacity(gpa, 1);
@@ -5710,7 +5919,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 try ip.string_bytes.ensureUnusedCapacity(gpa, @intCast(len_including_sentinel + 1));
                 try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
                 switch (aggregate.storage) {
-                    .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes[0..@intCast(len)]),
+                    .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes.toSlice(len, ip)),
                     .elems => |elems| for (elems[0..@intCast(len)]) |elem| switch (ip.indexToKey(elem)) {
                         .undef => {
                             ip.string_bytes.shrinkRetainingCapacity(string_bytes_index);
@@ -5730,15 +5939,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         else => unreachable,
                     },
                 }
-                const has_internal_null =
-                    std.mem.indexOfScalar(u8, ip.string_bytes.items[string_bytes_index..], 0) != null;
                 if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
                     @intCast(ip.indexToKey(sentinel).int.storage.u64),
                 );
-                const string: String = if (has_internal_null)
-                    @enumFromInt(string_bytes_index)
-                else
-                    (try ip.getOrPutTrailingString(gpa, @intCast(len_including_sentinel))).toString();
+                const string = try ip.getOrPutTrailingString(
+                    gpa,
+                    @intCast(len_including_sentinel),
+                    .maybe_embedded_nulls,
+                );
                 ip.items.appendAssumeCapacity(.{
                     .tag = .bytes,
                     .data = ip.addExtraAssumeCapacity(Bytes{
@@ -5780,7 +5988,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .tag = .memoized_call,
                 .data = ip.addExtraAssumeCapacity(MemoizedCall{
                     .func = memoized_call.func,
-                    .args_len = @as(u32, @intCast(memoized_call.arg_values.len)),
+                    .args_len = @intCast(memoized_call.arg_values.len),
                     .result = memoized_call.result,
                 }),
             });
@@ -6753,7 +6961,7 @@ fn finishFuncInstance(
     const decl = ip.declPtr(decl_index);
     decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
         fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
-    });
+    }, .no_embedded_nulls);
 
     return func_index;
 }
@@ -7216,7 +7424,7 @@ pub fn remove(ip: *InternPool, index: Index) void {
 }
 
 fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const Limb) !void {
-    const limbs_len = @as(u32, @intCast(limbs.len));
+    const limbs_len: u32 = @intCast(limbs.len);
     try ip.reserveLimbs(gpa, @typeInfo(Int).Struct.fields.len + limbs_len);
     ip.items.appendAssumeCapacity(.{
         .tag = tag,
@@ -7235,7 +7443,7 @@ fn addExtra(ip: *InternPool, gpa: Allocator, extra: anytype) Allocator.Error!u32
 }
 
 fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
-    const result = @as(u32, @intCast(ip.extra.items.len));
+    const result: u32 = @intCast(ip.extra.items.len);
     inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
         ip.extra.appendAssumeCapacity(switch (field.type) {
             Index,
@@ -7286,7 +7494,7 @@ fn addLimbsExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
         @sizeOf(u64) => {},
         else => @compileError("unsupported host"),
     }
-    const result = @as(u32, @intCast(ip.limbs.items.len));
+    const result: u32 = @intCast(ip.limbs.items.len);
     inline for (@typeInfo(@TypeOf(extra)).Struct.fields, 0..) |field, i| {
         const new: u32 = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -7374,7 +7582,7 @@ fn limbData(ip: *const InternPool, comptime T: type, index: usize) T {
 
         @field(result, field.name) = switch (field.type) {
             u32 => int32,
-            Index => @as(Index, @enumFromInt(int32)),
+            Index => @enumFromInt(int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     }
@@ -7410,8 +7618,8 @@ fn limbsSliceToIndex(ip: *const InternPool, limbs: []const Limb) LimbsAsIndexes 
     };
     // TODO: https://github.com/ziglang/zig/issues/1738
     return .{
-        .start = @as(u32, @intCast(@divExact(@intFromPtr(limbs.ptr) - @intFromPtr(host_slice.ptr), @sizeOf(Limb)))),
-        .len = @as(u32, @intCast(limbs.len)),
+        .start = @intCast(@divExact(@intFromPtr(limbs.ptr) - @intFromPtr(host_slice.ptr), @sizeOf(Limb))),
+        .len = @intCast(limbs.len),
     };
 }
 
@@ -7533,13 +7741,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             if (ip.isPointerType(new_ty)) switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
                 .One, .Many, .C => return ip.get(gpa, .{ .ptr = .{
                     .ty = new_ty,
-                    .addr = .{ .int = .zero_usize },
+                    .base_addr = .int,
+                    .byte_offset = 0,
                 } }),
                 .Slice => return ip.get(gpa, .{ .slice = .{
                     .ty = new_ty,
                     .ptr = try ip.get(gpa, .{ .ptr = .{
                         .ty = ip.slicePtrType(new_ty),
-                        .addr = .{ .int = .zero_usize },
+                        .base_addr = .int,
+                        .byte_offset = 0,
                     } }),
                     .len = try ip.get(gpa, .{ .undef = .usize_type }),
                 } }),
@@ -7579,10 +7789,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .ty = new_ty,
                 .int = try ip.getCoerced(gpa, val, ip.loadEnumType(new_ty).tag_ty),
             } }),
-            .ptr_type => return ip.get(gpa, .{ .ptr = .{
-                .ty = new_ty,
-                .addr = .{ .int = try ip.getCoerced(gpa, val, .usize_type) },
-            } }),
+            .ptr_type => switch (int.storage) {
+                inline .u64, .i64 => |int_val| return ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .base_addr = .int,
+                    .byte_offset = @intCast(int_val),
+                } }),
+                .big_int => unreachable, // must be a usize
+                .lazy_align, .lazy_size => {},
+            },
             else => if (ip.isIntegerType(new_ty))
                 return getCoercedInts(ip, gpa, int, new_ty),
         },
@@ -7633,11 +7848,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         .ptr => |ptr| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size != .Slice)
             return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
-                .addr = ptr.addr,
+                .base_addr = ptr.base_addr,
+                .byte_offset = ptr.byte_offset,
             } })
         else if (ip.isIntegerType(new_ty))
-            switch (ptr.addr) {
-                .int => |int| return ip.getCoerced(gpa, int, new_ty),
+            switch (ptr.base_addr) {
+                .int => return ip.get(gpa, .{ .int = .{
+                    .ty = .usize_type,
+                    .storage = .{ .u64 = @intCast(ptr.byte_offset) },
+                } }),
                 else => {},
             },
         .opt => |opt| switch (ip.indexToKey(new_ty)) {
@@ -7645,13 +7864,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .none => switch (ptr_type.flags.size) {
                     .One, .Many, .C => try ip.get(gpa, .{ .ptr = .{
                         .ty = new_ty,
-                        .addr = .{ .int = .zero_usize },
+                        .base_addr = .int,
+                        .byte_offset = 0,
                     } }),
                     .Slice => try ip.get(gpa, .{ .slice = .{
                         .ty = new_ty,
                         .ptr = try ip.get(gpa, .{ .ptr = .{
                             .ty = ip.slicePtrType(new_ty),
-                            .addr = .{ .int = .zero_usize },
+                            .base_addr = .int,
+                            .byte_offset = 0,
                         } }),
                         .len = try ip.get(gpa, .{ .undef = .usize_type }),
                     } }),
@@ -7683,7 +7904,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .val = error_union.val,
             } }),
         .aggregate => |aggregate| {
-            const new_len = @as(usize, @intCast(ip.aggregateTypeLen(new_ty)));
+            const new_len: usize = @intCast(ip.aggregateTypeLen(new_ty));
             direct: {
                 const old_ty_child = switch (ip.indexToKey(old_ty)) {
                     inline .array_type, .vector_type => |seq_type| seq_type.child,
@@ -7696,16 +7917,11 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     else => unreachable,
                 };
                 if (old_ty_child != new_ty_child) break :direct;
-                // TODO: write something like getCoercedInts to avoid needing to dupe here
                 switch (aggregate.storage) {
-                    .bytes => |bytes| {
-                        const bytes_copy = try gpa.dupe(u8, bytes[0..new_len]);
-                        defer gpa.free(bytes_copy);
-                        return ip.get(gpa, .{ .aggregate = .{
-                            .ty = new_ty,
-                            .storage = .{ .bytes = bytes_copy },
-                        } });
-                    },
+                    .bytes => |bytes| return ip.get(gpa, .{ .aggregate = .{
+                        .ty = new_ty,
+                        .storage = .{ .bytes = bytes },
+                    } }),
                     .elems => |elems| {
                         const elems_copy = try gpa.dupe(Index, elems[0..new_len]);
                         defer gpa.free(elems_copy);
@@ -7729,14 +7945,13 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             // lifetime issues, since it'll allow us to avoid referencing `aggregate` after we
             // begin interning elems.
             switch (aggregate.storage) {
-                .bytes => {
+                .bytes => |bytes| {
                     // We have to intern each value here, so unfortunately we can't easily avoid
                     // the repeated indexToKey calls.
-                    for (agg_elems, 0..) |*elem, i| {
-                        const x = ip.indexToKey(val).aggregate.storage.bytes[i];
+                    for (agg_elems, 0..) |*elem, index| {
                         elem.* = try ip.get(gpa, .{ .int = .{
                             .ty = .u8_type,
-                            .storage = .{ .u64 = x },
+                            .storage = .{ .u64 = bytes.at(index, ip) },
                         } });
                     }
                 },
@@ -8136,7 +8351,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .ptr_anon_decl => @sizeOf(PtrAnonDecl),
             .ptr_anon_decl_aligned => @sizeOf(PtrAnonDeclAligned),
             .ptr_comptime_field => @sizeOf(PtrComptimeField),
-            .ptr_int => @sizeOf(PtrBase),
+            .ptr_int => @sizeOf(PtrInt),
             .ptr_eu_payload => @sizeOf(PtrBase),
             .ptr_opt_payload => @sizeOf(PtrBase),
             .ptr_elem => @sizeOf(PtrBaseIndex),
@@ -8169,9 +8384,8 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 
             .bytes => b: {
                 const info = ip.extraData(Bytes, data);
-                const len = @as(u32, @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty)));
-                break :b @sizeOf(Bytes) + len +
-                    @intFromBool(ip.string_bytes.items[@intFromEnum(info.bytes) + len - 1] != 0);
+                const len: usize = @intCast(ip.aggregateTypeLenIncludingSentinel(info.ty));
+                break :b @sizeOf(Bytes) + len + @intFromBool(info.bytes.at(len - 1, ip) != 0);
             },
             .aggregate => b: {
                 const info = ip.extraData(Tag.Aggregate, data);
@@ -8434,15 +8648,35 @@ pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) 
     };
 }
 
+const EmbeddedNulls = enum {
+    no_embedded_nulls,
+    maybe_embedded_nulls,
+
+    fn StringType(comptime embedded_nulls: EmbeddedNulls) type {
+        return switch (embedded_nulls) {
+            .no_embedded_nulls => NullTerminatedString,
+            .maybe_embedded_nulls => String,
+        };
+    }
+
+    fn OptionalStringType(comptime embedded_nulls: EmbeddedNulls) type {
+        return switch (embedded_nulls) {
+            .no_embedded_nulls => OptionalNullTerminatedString,
+            .maybe_embedded_nulls => OptionalString,
+        };
+    }
+};
+
 pub fn getOrPutString(
     ip: *InternPool,
     gpa: Allocator,
-    s: []const u8,
-) Allocator.Error!NullTerminatedString {
-    try ip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
-    ip.string_bytes.appendSliceAssumeCapacity(s);
+    slice: []const u8,
+    comptime embedded_nulls: EmbeddedNulls,
+) Allocator.Error!embedded_nulls.StringType() {
+    try ip.string_bytes.ensureUnusedCapacity(gpa, slice.len + 1);
+    ip.string_bytes.appendSliceAssumeCapacity(slice);
     ip.string_bytes.appendAssumeCapacity(0);
-    return ip.getOrPutTrailingString(gpa, s.len + 1);
+    return ip.getOrPutTrailingString(gpa, slice.len + 1, embedded_nulls);
 }
 
 pub fn getOrPutStringFmt(
@@ -8450,23 +8684,24 @@ pub fn getOrPutStringFmt(
     gpa: Allocator,
     comptime format: []const u8,
     args: anytype,
-) Allocator.Error!NullTerminatedString {
+    comptime embedded_nulls: EmbeddedNulls,
+) Allocator.Error!embedded_nulls.StringType() {
     // ensure that references to string_bytes in args do not get invalidated
     const len: usize = @intCast(std.fmt.count(format, args) + 1);
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
     ip.string_bytes.appendAssumeCapacity(0);
-    return ip.getOrPutTrailingString(gpa, len);
+    return ip.getOrPutTrailingString(gpa, len, embedded_nulls);
 }
 
 pub fn getOrPutStringOpt(
     ip: *InternPool,
     gpa: Allocator,
-    optional_string: ?[]const u8,
-) Allocator.Error!OptionalNullTerminatedString {
-    const s = optional_string orelse return .none;
-    const interned = try getOrPutString(ip, gpa, s);
-    return interned.toOptional();
+    slice: ?[]const u8,
+    comptime embedded_nulls: EmbeddedNulls,
+) Allocator.Error!embedded_nulls.OptionalStringType() {
+    const string = try getOrPutString(ip, gpa, slice orelse return .none, embedded_nulls);
+    return string.toOptional();
 }
 
 /// Uses the last len bytes of ip.string_bytes as the key.
@@ -8474,7 +8709,8 @@ pub fn getOrPutTrailingString(
     ip: *InternPool,
     gpa: Allocator,
     len: usize,
-) Allocator.Error!NullTerminatedString {
+    comptime embedded_nulls: EmbeddedNulls,
+) Allocator.Error!embedded_nulls.StringType() {
     const string_bytes = &ip.string_bytes;
     const str_index: u32 = @intCast(string_bytes.items.len - len);
     if (len > 0 and string_bytes.getLast() == 0) {
@@ -8483,6 +8719,14 @@ pub fn getOrPutTrailingString(
         try string_bytes.ensureUnusedCapacity(gpa, 1);
     }
     const key: []const u8 = string_bytes.items[str_index..];
+    const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
+    switch (embedded_nulls) {
+        .no_embedded_nulls => assert(!has_embedded_null),
+        .maybe_embedded_nulls => if (has_embedded_null) {
+            string_bytes.appendAssumeCapacity(0);
+            return @enumFromInt(str_index);
+        },
+    }
     const gop = try ip.string_table.getOrPutContextAdapted(gpa, key, std.hash_map.StringIndexAdapter{
         .bytes = string_bytes,
     }, std.hash_map.StringIndexContext{
@@ -8498,58 +8742,10 @@ pub fn getOrPutTrailingString(
     }
 }
 
-/// Uses the last len bytes of ip.string_bytes as the key.
-pub fn getTrailingAggregate(
-    ip: *InternPool,
-    gpa: Allocator,
-    ty: Index,
-    len: usize,
-) Allocator.Error!Index {
-    try ip.items.ensureUnusedCapacity(gpa, 1);
-    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
-
-    const str: String = @enumFromInt(ip.string_bytes.items.len - len);
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .aggregate = .{
-        .ty = ty,
-        .storage = .{ .bytes = ip.string_bytes.items[@intFromEnum(str)..] },
-    } }, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
-
-    ip.items.appendAssumeCapacity(.{
-        .tag = .bytes,
-        .data = ip.addExtraAssumeCapacity(Bytes{
-            .ty = ty,
-            .bytes = str,
-        }),
-    });
-    return @enumFromInt(ip.items.len - 1);
-}
-
 pub fn getString(ip: *InternPool, s: []const u8) OptionalNullTerminatedString {
-    if (ip.string_table.getKeyAdapted(s, std.hash_map.StringIndexAdapter{
+    return if (ip.string_table.getKeyAdapted(s, std.hash_map.StringIndexAdapter{
         .bytes = &ip.string_bytes,
-    })) |index| {
-        return @as(NullTerminatedString, @enumFromInt(index)).toOptional();
-    } else {
-        return .none;
-    }
-}
-
-pub fn stringToSlice(ip: *const InternPool, s: NullTerminatedString) [:0]const u8 {
-    const string_bytes = ip.string_bytes.items;
-    const start = @intFromEnum(s);
-    var end: usize = start;
-    while (string_bytes[end] != 0) end += 1;
-    return string_bytes[start..end :0];
-}
-
-pub fn stringToSliceUnwrap(ip: *const InternPool, s: OptionalNullTerminatedString) ?[:0]const u8 {
-    return ip.stringToSlice(s.unwrap() orelse return null);
-}
-
-pub fn stringEqlSlice(ip: *const InternPool, a: NullTerminatedString, b: []const u8) bool {
-    return std.mem.eql(u8, stringToSlice(ip, a), b);
+    })) |index| @enumFromInt(index) else .none;
 }
 
 pub fn typeOf(ip: *const InternPool, index: Index) Index {
@@ -8767,7 +8963,7 @@ pub fn aggregateTypeLenIncludingSentinel(ip: *const InternPool, ty: Index) u64 {
     return switch (ip.indexToKey(ty)) {
         .struct_type => ip.loadStructType(ty).field_types.len,
         .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
-        .array_type => |array_type| array_type.len + @intFromBool(array_type.sentinel != .none),
+        .array_type => |array_type| array_type.lenIncludingSentinel(),
         .vector_type => |vector_type| vector_type.len,
         else => unreachable,
     };
@@ -8828,13 +9024,15 @@ pub fn getBackingDecl(ip: *const InternPool, val: Index) OptionalDeclIndex {
     }
 }
 
-pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.Addr.Tag {
+pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Tag {
     var base = @intFromEnum(val);
     while (true) {
         switch (ip.items.items(.tag)[base]) {
             .ptr_decl => return .decl,
             .ptr_comptime_alloc => return .comptime_alloc,
-            .ptr_anon_decl, .ptr_anon_decl_aligned => return .anon_decl,
+            .ptr_anon_decl,
+            .ptr_anon_decl_aligned,
+            => return .anon_decl,
             .ptr_comptime_field => return .comptime_field,
             .ptr_int => return .int,
             inline .ptr_eu_payload,
