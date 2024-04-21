@@ -800,6 +800,14 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.appendSlice(&.{ "-e", entry_name });
         }
 
+        try argv.append("-o");
+        try argv.append(full_out_path);
+
+        if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
+            try argv.append("-undefined");
+            try argv.append("dynamic_lookup");
+        }
+
         for (comp.objects) |obj| {
             // TODO: verify this
             if (obj.must_link) {
@@ -816,18 +824,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
-        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
-
-        if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+        for (self.lib_dirs) |lib_dir| {
+            const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
+            try argv.append(arg);
         }
-
-        try argv.append("-o");
-        try argv.append(full_out_path);
-
-        try argv.append("-lSystem");
 
         for (comp.system_libs.keys()) |l_name| {
             const info = comp.system_libs.get(l_name).?;
@@ -840,9 +840,9 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
-        for (self.lib_dirs) |lib_dir| {
-            const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
-            try argv.append(arg);
+        for (self.framework_dirs) |f_dir| {
+            try argv.append("-F");
+            try argv.append(f_dir);
         }
 
         for (self.frameworks) |framework| {
@@ -856,15 +856,15 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
-        for (self.framework_dirs) |f_dir| {
-            try argv.append("-F");
-            try argv.append(f_dir);
+        if (comp.config.link_libcpp) {
+            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+            try argv.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
-            try argv.append("-undefined");
-            try argv.append("dynamic_lookup");
-        }
+        try argv.append("-lSystem");
+
+        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
+        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
     }
 
     Compilation.dump_argv(argv.items);

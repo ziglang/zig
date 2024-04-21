@@ -1388,7 +1388,6 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
 
 pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
     if (self.dwarf_info) |dw| {
-        // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
         const comp_dir = try cu.getCompileDir(dw) orelse return;
         const tu_name = try cu.getSourceFile(dw) orelse return;
@@ -1507,7 +1506,6 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
     var index = self.output_symtab_ctx.istab;
 
     if (self.dwarf_info) |dw| {
-        // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
         const comp_dir = try cu.getCompileDir(dw) orelse return;
         const tu_name = try cu.getSourceFile(dw) orelse return;
@@ -1755,7 +1753,6 @@ pub fn hasEhFrameRecords(self: Object) bool {
     return self.cies.items.len > 0;
 }
 
-/// TODO handle multiple CUs
 pub fn hasDebugInfo(self: Object) bool {
     if (self.dwarf_info) |dw| {
         return dw.compile_units.items.len > 0;
