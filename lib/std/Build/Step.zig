@@ -31,6 +31,7 @@ max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+result_stderr: []const u8,
 result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
@@ -164,6 +165,7 @@ pub fn init(options: StepOptions) Step {
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .result_stderr = "",
         .result_cached = false,
         .result_duration_ns = null,
         .result_peak_rss = 0,
@@ -229,7 +231,7 @@ fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
     if (step.id == T.base_id) {
-        return @fieldParentPtr(T, "step", step);
+        return @fieldParentPtr("step", step);
     }
     return null;
 }
@@ -312,7 +314,7 @@ pub fn evalZigProcess(
     try handleVerbose(s.owner, null, argv);
 
     var child = std.ChildProcess.init(argv, arena);
-    child.env_map = b.env_map;
+    child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -371,8 +373,7 @@ pub fn evalZigProcess(
                 // TODO: use @ptrCast when the compiler supports it
                 const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
                 const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                // TODO: use @memcpy when it supports slices
-                for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
+                @memcpy(extra_array, unaligned_extra);
                 s.result_error_bundle = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
@@ -543,7 +544,7 @@ pub fn cacheHit(s: *Step, man: *std.Build.Cache.Manifest) !bool {
 
 fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyerror) anyerror {
     const i = man.failed_file_index orelse return err;
-    const pp = man.files.items[i].prefixed_path orelse return err;
+    const pp = man.files.keys()[i].prefixed_path;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }

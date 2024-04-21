@@ -26,7 +26,6 @@ QuerySecurityPackageInfoA
 QuerySecurityPackageInfoW
 RevertSecurityContext
 SealMessage
-SpLsaModeInitialize
 SpUserModeInitialize
 SslCrackCertificate
 SslEmptyCacheA

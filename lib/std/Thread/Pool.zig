@@ -35,10 +35,9 @@ pub fn init(pool: *Pool, options: Options) !void {
     }
 
     const thread_count = options.n_jobs orelse @max(1, std.Thread.getCpuCount() catch 1);
-    pool.threads = try allocator.alloc(std.Thread, thread_count);
-    errdefer allocator.free(pool.threads);
 
-    // kill and join any threads we spawned previously on error.
+    // kill and join any threads we spawned and free memory on error.
+    pool.threads = try allocator.alloc(std.Thread, thread_count);
     var spawned: usize = 0;
     errdefer pool.join(spawned);
 
@@ -89,8 +88,8 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
 
         fn runFn(runnable: *Runnable) void {
-            const run_node = @fieldParentPtr(RunQueue.Node, "data", runnable);
-            const closure = @fieldParentPtr(@This(), "run_node", run_node);
+            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
+            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
 
             // The thread pool's allocator is protected by the mutex.

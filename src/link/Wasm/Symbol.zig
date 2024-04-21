@@ -1,12 +1,8 @@
-//! Represents a wasm symbol. Containing all of its properties,
+//! Represents a WebAssembly symbol. Containing all of its properties,
 //! as well as providing helper methods to determine its functionality
 //! and how it will/must be linked.
 //! The name of the symbol can be found by providing the offset, found
 //! on the `name` field, to a string table in the wasm binary or object file.
-const Symbol = @This();
-
-const std = @import("std");
-const types = @import("types.zig");
 
 /// Bitfield containings flags for a symbol
 /// Can contain any of the flags defined in `Flag`
@@ -23,6 +19,12 @@ tag: Tag,
 /// Contains the virtual address of the symbol, relative to the start of its section.
 /// This differs from the offset of an `Atom` which is relative to the start of a segment.
 virtual_address: u32,
+
+/// Represents a symbol index where `null` represents an invalid index.
+pub const Index = enum(u32) {
+    null,
+    _,
+};
 
 pub const Tag = enum {
     function,
@@ -79,6 +81,9 @@ pub const Flag = enum(u32) {
     WASM_SYM_NO_STRIP = 0x80,
     /// Indicates a symbol is TLS
     WASM_SYM_TLS = 0x100,
+    /// Zig specific flag. Uses the most significant bit of the flag to annotate whether a symbol is
+    /// alive or not. Dead symbols are allowed to be garbage collected.
+    alive = 0x80000000,
 };
 
 /// Verifies if the given symbol should be imported from the
@@ -90,6 +95,23 @@ pub fn requiresImport(symbol: Symbol) bool {
     // if (symbol.isDefined() and symbol.isWeak()) return true; //TODO: Only when building shared lib
 
     return true;
+}
+
+/// Marks a symbol as 'alive', ensuring the garbage collector will not collect the trash.
+pub fn mark(symbol: *Symbol) void {
+    symbol.flags |= @intFromEnum(Flag.alive);
+}
+
+pub fn unmark(symbol: *Symbol) void {
+    symbol.flags &= ~@intFromEnum(Flag.alive);
+}
+
+pub fn isAlive(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) != 0;
+}
+
+pub fn isDead(symbol: Symbol) bool {
+    return symbol.flags & @intFromEnum(Flag.alive) == 0;
 }
 
 pub fn isTLS(symbol: Symbol) bool {
@@ -182,3 +204,7 @@ pub fn format(symbol: Symbol, comptime fmt: []const u8, options: std.fmt.FormatO
         .{ kind_fmt, binding, visible, symbol.index, symbol.name, undef },
     );
 }
+
+const std = @import("std");
+const types = @import("types.zig");
+const Symbol = @This();

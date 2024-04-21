@@ -6,6 +6,9 @@ const Time = uefi.Time;
 const TimeCapabilities = uefi.TimeCapabilities;
 const Status = uefi.Status;
 const MemoryDescriptor = uefi.tables.MemoryDescriptor;
+const ResetType = uefi.tables.ResetType;
+const CapsuleHeader = uefi.tables.CapsuleHeader;
+const EfiPhysicalAddress = uefi.tables.EfiPhysicalAddress;
 const cc = uefi.cc;
 
 /// Runtime services are provided by the firmware before and after exitBootServices has been called.
@@ -66,37 +69,4 @@ pub const RuntimeServices = extern struct {
     queryVariableInfo: *const fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,
 
     pub const signature: u64 = 0x56524553544e5552;
-};
-
-const EfiPhysicalAddress = u64;
-
-pub const CapsuleHeader = extern struct {
-    capsuleGuid: Guid align(8),
-    headerSize: u32,
-    flags: u32,
-    capsuleImageSize: u32,
-};
-
-pub const UefiCapsuleBlockDescriptor = extern struct {
-    length: u64,
-    address: extern union {
-        dataBlock: EfiPhysicalAddress,
-        continuationPointer: EfiPhysicalAddress,
-    },
-};
-
-pub const ResetType = enum(u32) {
-    ResetCold,
-    ResetWarm,
-    ResetShutdown,
-    ResetPlatformSpecific,
-};
-
-pub const global_variable align(8) = Guid{
-    .time_low = 0x8be4df61,
-    .time_mid = 0x93ca,
-    .time_high_and_version = 0x11d2,
-    .clock_seq_high_and_reserved = 0xaa,
-    .clock_seq_low = 0x0d,
-    .node = [_]u8{ 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c },
 };

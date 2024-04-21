@@ -29,34 +29,28 @@ pub const Node = struct {
         map,
         list,
         value,
+
+        pub fn Type(comptime tag: Tag) type {
+            return switch (tag) {
+                .doc => Doc,
+                .map => Map,
+                .list => List,
+                .value => Value,
+            };
+        }
     };
 
     pub fn cast(self: *const Node, comptime T: type) ?*const T {
         if (self.tag != T.base_tag) {
             return null;
         }
-        return @fieldParentPtr(T, "base", self);
+        return @fieldParentPtr("base", self);
     }
 
     pub fn deinit(self: *Node, allocator: Allocator) void {
         switch (self.tag) {
-            .doc => {
-                const parent = @fieldParentPtr(Node.Doc, "base", self);
-                parent.deinit(allocator);
-                allocator.destroy(parent);
-            },
-            .map => {
-                const parent = @fieldParentPtr(Node.Map, "base", self);
-                parent.deinit(allocator);
-                allocator.destroy(parent);
-            },
-            .list => {
-                const parent = @fieldParentPtr(Node.List, "base", self);
-                parent.deinit(allocator);
-                allocator.destroy(parent);
-            },
-            .value => {
-                const parent = @fieldParentPtr(Node.Value, "base", self);
+            inline else => |tag| {
+                const parent: *tag.Type() = @fieldParentPtr("base", self);
                 parent.deinit(allocator);
                 allocator.destroy(parent);
             },
@@ -69,12 +63,9 @@ pub const Node = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        return switch (self.tag) {
-            .doc => @fieldParentPtr(Node.Doc, "base", self).format(fmt, options, writer),
-            .map => @fieldParentPtr(Node.Map, "base", self).format(fmt, options, writer),
-            .list => @fieldParentPtr(Node.List, "base", self).format(fmt, options, writer),
-            .value => @fieldParentPtr(Node.Value, "base", self).format(fmt, options, writer),
-        };
+        switch (self.tag) {
+            inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(fmt, options, writer),
+        }
     }
 
     pub const Doc = struct {

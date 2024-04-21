@@ -13,7 +13,7 @@
 
 #include "interception.h"
 
-#if SANITIZER_LINUX || SANITIZER_MAC
+#if SANITIZER_LINUX || SANITIZER_APPLE
 
 #include <sys/types.h>
 #include <stddef.h>
@@ -24,9 +24,9 @@ COMPILER_CHECK(sizeof(::SSIZE_T) == sizeof(ssize_t));
 COMPILER_CHECK(sizeof(::PTRDIFF_T) == sizeof(ptrdiff_t));
 COMPILER_CHECK(sizeof(::INTMAX_T) == sizeof(intmax_t));
 
-#if !SANITIZER_MAC
+#  if SANITIZER_GLIBC || SANITIZER_ANDROID
 COMPILER_CHECK(sizeof(::OFF64_T) == sizeof(off64_t));
-#endif
+#  endif
 
 // The following are the cases when pread (and friends) is used instead of
 // pread64. In those cases we need OFF_T to match off_t. We don't care about the

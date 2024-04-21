@@ -14,5 +14,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :4:14: error: duplicate field
-// :7:14: note: other field here
+// :4:14: error: duplicate struct field name
+// :7:14: note: duplicate name here
+// :3:19: note: struct declared here

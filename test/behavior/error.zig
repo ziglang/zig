@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
@@ -458,7 +459,7 @@ test "return function call to error set from error union function" {
         }
     };
     try expectError(error.Failure, S.errorable());
-    try comptime expectError(error.Failure, S.errorable());
+    comptime assert(error.Failure == S.errorable());
 }
 
 test "optional error set is the same size as error set" {
@@ -466,15 +467,15 @@ test "optional error set is the same size as error set" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try comptime expect(@sizeOf(?anyerror) == @sizeOf(anyerror));
-    try comptime expect(@alignOf(?anyerror) == @alignOf(anyerror));
+    comptime assert(@sizeOf(?anyerror) == @sizeOf(anyerror));
+    comptime assert(@alignOf(?anyerror) == @alignOf(anyerror));
     const S = struct {
         fn returnsOptErrSet() ?anyerror {
             return null;
         }
     };
     try expect(S.returnsOptErrSet() == null);
-    try comptime expect(S.returnsOptErrSet() == null);
+    comptime assert(S.returnsOptErrSet() == null);
 }
 
 test "nested catch" {
@@ -929,6 +930,16 @@ test "optional error set return type" {
     try expect(E.A == S.foo(false).?);
 }
 
+test "optional error set function parameter" {
+    const S = struct {
+        fn doTheTest(a: ?anyerror) !void {
+            try std.testing.expect(a.? == error.OutOfMemory);
+        }
+    };
+    try S.doTheTest(error.OutOfMemory);
+    try comptime S.doTheTest(error.OutOfMemory);
+}
+
 test "returning an error union containing a type with no runtime bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -969,4 +980,100 @@ test "try used in recursive function with inferred error set" {
         },
     };
     try expectError(error.a, Value.x(a));
+}
+
+test "generic inline function returns inferred error set" {
+    const S = struct {
+        inline fn retErr(comptime T: type) !T {
+            return error.AnError;
+        }
+
+        fn main0() !void {
+            _ = try retErr(u8);
+        }
+    };
+    S.main0() catch |e| {
+        try std.testing.expect(e == error.AnError);
+    };
+}
+
+test "function called at runtime is properly analyzed for inferred error set" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !void {
+            var a = true;
+            _ = &a;
+            if (a) return error.Foo;
+            return error.Bar;
+        }
+        fn bar() !void {
+            try @This().foo();
+        }
+    };
+
+    S.bar() catch |err| switch (err) {
+        error.Foo => {},
+        error.Bar => {},
+    };
+}
+
+test "generic type constructed from inferred error set of unresolved function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn write(_: void, bytes: []const u8) !usize {
+            _ = bytes;
+            return 0;
+        }
+        const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).Fn.return_type.?).ErrorUnion.error_set, write);
+        fn writer() T {
+            return .{ .context = {} };
+        }
+    };
+    _ = std.io.multiWriter(.{S.writer()});
+}
+
+test "errorCast to adhoc inferred error set" {
+    const S = struct {
+        inline fn baz() !i32 {
+            return @errorCast(err());
+        }
+        fn err() anyerror!i32 {
+            return 1234;
+        }
+    };
+    try std.testing.expect((try S.baz()) == 1234);
+}
+
+test "errorCast from error sets to error unions" {
+    const err_union: Set1!void = @errorCast(error.A);
+    try expectError(error.A, err_union);
+}
+
+test "result location initialization of error union with OPV payload" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: u0,
+    };
+
+    const a: anyerror!S = .{ .x = 0 };
+    comptime assert((a catch unreachable).x == 0);
+
+    comptime {
+        var b: anyerror!S = .{ .x = 0 };
+        _ = &b;
+        assert((b catch unreachable).x == 0);
+    }
+
+    var c: anyerror!S = .{ .x = 0 };
+    _ = &c;
+    try expectEqual(0, (c catch return error.TestFailed).x);
 }

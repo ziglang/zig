@@ -43,12 +43,15 @@ pub fn ComptimeStringMapWithEql(
     comptime kvs_list: anytype,
     comptime eql: fn (a: []const u8, b: []const u8) bool,
 ) type {
-    const precomputed = comptime blk: {
+    const empty_list = kvs_list.len == 0;
+    const precomputed = blk: {
         @setEvalBranchQuota(1500);
         const KV = struct {
             key: []const u8,
             value: V,
         };
+        if (empty_list)
+            break :blk .{};
         var sorted_kvs: [kvs_list.len]KV = undefined;
         for (kvs_list, 0..) |kv, i| {
             if (V != void) {
@@ -103,6 +106,16 @@ pub fn ComptimeStringMapWithEql(
 
         /// Returns the value for the key if any, else null.
         pub fn get(str: []const u8) ?V {
+            if (empty_list)
+                return null;
+
+            return precomputed.sorted_kvs[getIndex(str) orelse return null].value;
+        }
+
+        pub fn getIndex(str: []const u8) ?usize {
+            if (empty_list)
+                return null;
+
             if (str.len < precomputed.min_len or str.len > precomputed.max_len)
                 return null;
 
@@ -112,7 +125,7 @@ pub fn ComptimeStringMapWithEql(
                 if (kv.key.len != str.len)
                     return null;
                 if (eql(kv.key, str))
-                    return kv.value;
+                    return i;
                 i += 1;
                 if (i >= precomputed.sorted_kvs.len)
                     return null;
@@ -129,7 +142,7 @@ const TestEnum = enum {
     E,
 };
 
-test "ComptimeStringMap list literal of list literals" {
+test "list literal of list literals" {
     const map = ComptimeStringMap(TestEnum, .{
         .{ "these", .D },
         .{ "have", .A },
@@ -139,9 +152,12 @@ test "ComptimeStringMap list literal of list literals" {
     });
 
     try testMap(map);
+
+    // Default comparison is case sensitive
+    try std.testing.expect(null == map.get("NOTHING"));
 }
 
-test "ComptimeStringMap array of structs" {
+test "array of structs" {
     const KV = struct { []const u8, TestEnum };
     const map = ComptimeStringMap(TestEnum, [_]KV{
         .{ "these", .D },
@@ -154,7 +170,7 @@ test "ComptimeStringMap array of structs" {
     try testMap(map);
 }
 
-test "ComptimeStringMap slice of structs" {
+test "slice of structs" {
     const KV = struct { []const u8, TestEnum };
     const slice: []const KV = &[_]KV{
         .{ "these", .D },
@@ -177,9 +193,12 @@ fn testMap(comptime map: anytype) !void {
 
     try std.testing.expect(!map.has("missing"));
     try std.testing.expect(map.has("these"));
+
+    try std.testing.expect(null == map.get(""));
+    try std.testing.expect(null == map.get("averylongstringthathasnomatches"));
 }
 
-test "ComptimeStringMap void value type, slice of structs" {
+test "void value type, slice of structs" {
     const KV = struct { []const u8 };
     const slice: []const KV = &[_]KV{
         .{"these"},
@@ -191,9 +210,12 @@ test "ComptimeStringMap void value type, slice of structs" {
     const map = ComptimeStringMap(void, slice);
 
     try testSet(map);
+
+    // Default comparison is case sensitive
+    try std.testing.expect(null == map.get("NOTHING"));
 }
 
-test "ComptimeStringMap void value type, list literal of list literals" {
+test "void value type, list literal of list literals" {
     const map = ComptimeStringMap(void, .{
         .{"these"},
         .{"have"},
@@ -214,6 +236,9 @@ fn testSet(comptime map: anytype) !void {
 
     try std.testing.expect(!map.has("missing"));
     try std.testing.expect(map.has("these"));
+
+    try std.testing.expect(null == map.get(""));
+    try std.testing.expect(null == map.get("averylongstringthathasnomatches"));
 }
 
 test "ComptimeStringMapWithEql" {
@@ -231,4 +256,65 @@ test "ComptimeStringMapWithEql" {
     try std.testing.expect(null == map.get("SameLength"));
 
     try std.testing.expect(map.has("ThESe"));
+}
+
+test "empty" {
+    const m1 = ComptimeStringMap(usize, .{});
+    try std.testing.expect(null == m1.get("anything"));
+
+    const m2 = ComptimeStringMapWithEql(usize, .{}, eqlAsciiIgnoreCase);
+    try std.testing.expect(null == m2.get("anything"));
+}
+
+test "redundant entries" {
+    const map = ComptimeStringMap(TestEnum, .{
+        .{ "redundant", .D },
+        .{ "theNeedle", .A },
+        .{ "redundant", .B },
+        .{ "re" ++ "dundant", .C },
+        .{ "redun" ++ "dant", .E },
+    });
+
+    // No promises about which one you get:
+    try std.testing.expect(null != map.get("redundant"));
+
+    // Default map is not case sensitive:
+    try std.testing.expect(null == map.get("REDUNDANT"));
+
+    try std.testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
+}
+
+test "redundant insensitive" {
+    const map = ComptimeStringMapWithEql(TestEnum, .{
+        .{ "redundant", .D },
+        .{ "theNeedle", .A },
+        .{ "redundanT", .B },
+        .{ "RE" ++ "dundant", .C },
+        .{ "redun" ++ "DANT", .E },
+    }, eqlAsciiIgnoreCase);
+
+    // No promises about which result you'll get ...
+    try std.testing.expect(null != map.get("REDUNDANT"));
+    try std.testing.expect(null != map.get("ReDuNdAnT"));
+
+    try std.testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
+}
+
+test "comptime-only value" {
+    const map = std.ComptimeStringMap(type, .{
+        .{ "a", struct {
+            pub const foo = 1;
+        } },
+        .{ "b", struct {
+            pub const foo = 2;
+        } },
+        .{ "c", struct {
+            pub const foo = 3;
+        } },
+    });
+
+    try std.testing.expect(map.get("a").?.foo == 1);
+    try std.testing.expect(map.get("b").?.foo == 2);
+    try std.testing.expect(map.get("c").?.foo == 3);
+    try std.testing.expect(map.get("d") == null);
 }

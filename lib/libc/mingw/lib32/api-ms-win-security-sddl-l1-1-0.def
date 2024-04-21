@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-security-sddl-l1-1-0
+
+EXPORTS
+
+ConvertSecurityDescriptorToStringSecurityDescriptorW@20
+ConvertSidToStringSidW@8
+ConvertStringSecurityDescriptorToSecurityDescriptorW@16
+ConvertStringSidToSidW@8

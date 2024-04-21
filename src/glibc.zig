@@ -7,12 +7,11 @@ const path = fs.path;
 const assert = std.debug.assert;
 const Version = std.SemanticVersion;
 
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 const Cache = std.Build.Cache;
-const Package = @import("Package.zig");
+const Module = @import("Package/Module.zig");
 
 pub const Lib = struct {
     name: []const u8,
@@ -20,8 +19,8 @@ pub const Lib = struct {
 };
 
 pub const ABI = struct {
-    all_versions: []const Version,
-    all_targets: []const target_util.ArchOsAbi,
+    all_versions: []const Version, // all defined versions (one abilist from v2.0.0 up to current)
+    all_targets: []const std.zig.target.ArchOsAbi,
     /// The bytes from the file verbatim, starting from the u16 number
     /// of function inclusions.
     inclusions: []const u8,
@@ -103,7 +102,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
         const targets_len = contents[index];
         index += 1;
 
-        const targets = try arena.alloc(target_util.ArchOsAbi, targets_len);
+        const targets = try arena.alloc(std.zig.target.ArchOsAbi, targets_len);
         var i: u8 = 0;
         while (i < targets.len) : (i += 1) {
             const target_name = mem.sliceTo(contents[index..], 0);
@@ -170,8 +169,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.getTarget();
+    const target = comp.root_mod.resolved_target.result;
     const target_ver = target.os.version_range.linux.glibc;
+    const nonshared_stat = target_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) != .gt;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
 
     // In all cases in this function, we add the C compiler flags to
@@ -196,12 +196,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = comp.root_mod,
                 },
-            });
+            };
+            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files);
         },
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
@@ -215,12 +217,14 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 "-DASSEMBLER",
                 "-Wa,--noexecstack",
             });
-            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &.{
+            var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 },
-            });
+            };
+            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files);
         },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
@@ -244,6 +248,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 break :blk .{
                     .src_path = try start_asm_path(comp, arena, src_path),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
@@ -263,62 +268,80 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 break :blk .{
                     .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "abi-note.S"),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
             };
-            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &.{
-                start_o, abi_note_o,
-            });
+            var files = [_]Compilation.CSourceFile{ start_o, abi_note_o };
+            return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
             const s = path.sep_str;
-            const linux_prefix = lib_libc_glibc ++
-                "sysdeps" ++ s ++ "unix" ++ s ++ "sysv" ++ s ++ "linux" ++ s;
-            const Flavor = enum { nonshared, shared };
             const Dep = struct {
                 path: []const u8,
-                flavor: Flavor = .shared,
-                exclude: bool = false,
+                include: bool = true,
             };
             const deps = [_]Dep{
+                .{ .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c" },
+                .{ .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c" },
+                .{ .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c" },
+                .{ .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c" },
+
+                // libc_nonshared.a redirected stat functions to xstat until glibc 2.33,
+                // when they were finally versioned like other symbols.
                 .{
-                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "atexit.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "stat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "stdlib" ++ s ++ "at_quick_exit.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "sysdeps" ++ s ++ "pthread" ++ s ++ "pthread_atfork.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "lstat-2.32.c",
+                    .include = nonshared_stat,
                 },
                 .{
-                    .path = lib_libc_glibc ++ "debug" ++ s ++ "stack_chk_fail_local.c",
-                    .flavor = .nonshared,
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "stat64-2.32.c",
+                    .include = nonshared_stat,
                 },
-                .{ .path = lib_libc_glibc ++ "csu" ++ s ++ "errno.c" },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "lstat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstatat-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "fstatat64-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknodat-2.32.c",
+                    .include = nonshared_stat,
+                },
+                .{
+                    .path = lib_libc_glibc ++ "io" ++ s ++ "mknod-2.32.c",
+                    .include = nonshared_stat,
+                },
+
+                // __libc_start_main used to require statically linked init/fini callbacks
+                // until glibc 2.34 when they were assimilated into the shared library.
                 .{
                     .path = lib_libc_glibc ++ "csu" ++ s ++ "elf-init-2.33.c",
-                    .exclude = !start_old_init_fini,
+                    .include = start_old_init_fini,
                 },
-                .{ .path = linux_prefix ++ "stat.c" },
-                .{ .path = linux_prefix ++ "fstat.c" },
-                .{ .path = linux_prefix ++ "lstat.c" },
-                .{ .path = linux_prefix ++ "stat64.c" },
-                .{ .path = linux_prefix ++ "fstat64.c" },
-                .{ .path = linux_prefix ++ "lstat64.c" },
-                .{ .path = linux_prefix ++ "fstatat.c" },
-                .{ .path = linux_prefix ++ "fstatat64.c" },
-                .{ .path = linux_prefix ++ "mknodat.c" },
-                .{ .path = lib_libc_glibc ++ "io" ++ s ++ "mknod.c" },
-                .{ .path = linux_prefix ++ "stat_t64_cp.c" },
             };
 
             var files_buf: [deps.len]Compilation.CSourceFile = undefined;
             var files_index: usize = 0;
 
             for (deps) |dep| {
-                if (dep.exclude) continue;
+                if (!dep.include) continue;
 
                 var args = std.ArrayList([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
@@ -342,13 +365,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     try args.append("-DCAN_USE_REGISTER_ASM_EBP");
                 }
 
-                const shared_def = switch (dep.flavor) {
-                    .nonshared => "-DLIBC_NONSHARED=1",
-                    // glibc passes `-DSHARED` for these. However, empirically if
-                    // we do that here we will see undefined symbols such as `__GI_memcpy`.
-                    // So we pass the same thing as for nonshared.
-                    .shared => "-DLIBC_NONSHARED=1",
-                };
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
                     "-include",
@@ -358,12 +374,13 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     "-include",
                     try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
                     "-DPIC",
-                    shared_def,
+                    "-DLIBC_NONSHARED=1",
                     "-DTOP_NAMESPACE=glibc",
                 });
                 files_buf[files_index] = .{
                     .src_path = try lib_path(comp, arena, dep.path),
                     .cache_exempt_flags = args.items,
+                    .owner = undefined,
                 };
                 files_index += 1;
             }
@@ -494,7 +511,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
-    const arch_name = target_util.osArchName(target);
+    const arch_name = target.osArchName();
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
         comp.zig_lib_directory.path.?, arch_name,
@@ -696,7 +713,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
     };
     defer o_directory.handle.close();
 
-    const abilists_contents = man.files.items[abilists_index].contents.?;
+    const abilists_contents = man.files.keys()[abilists_index].contents.?;
     const metadata = try loadMetaData(comp.gpa, abilists_contents);
     defer metadata.destroy(comp.gpa);
 
@@ -708,7 +725,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
             break i;
         }
     } else {
-        unreachable; // target_util.available_libcs prevents us from getting here
+        unreachable; // std.zig.target.available_libcs prevents us from getting here
     };
 
     const target_ver_index = for (metadata.all_versions, 0..) |ver, i| {
@@ -1061,40 +1078,71 @@ fn buildSharedLib(
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
-    const map_file_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, all_map_basename });
+    const map_file_path = try path.join(arena, &.{ bin_directory.path.?, all_map_basename });
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = .Lib,
+        .link_mode = .dynamic,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = false,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
+    });
+
     const c_source_files = [1]Compilation.CSourceFile{
         .{
-            .src_path = try path.join(arena, &[_][]const u8{ bin_directory.path.?, asm_file_basename }),
+            .src_path = try path.join(arena, &.{ bin_directory.path.?, asm_file_basename }),
+            .owner = root_mod,
         },
     };
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+
+    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = zig_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .cache_mode = .whole,
-        .target = comp.getTarget(),
-        .root_name = lib.name,
-        .main_mod = null,
-        .output_mode = .Lib,
-        .link_mode = .Dynamic,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = false,
-        .is_native_abi = false,
         .self_exe_path = comp.self_exe_path,
+        .cache_mode = .incremental,
+        .config = config,
+        .root_mod = root_mod,
+        .root_name = lib.name,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = emit_bin,
+        .emit_h = null,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,

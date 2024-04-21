@@ -7,19 +7,20 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const shared = b.createModule(.{
-        .source_file = .{ .path = "shared.zig" },
+        .root_source_file = b.path("shared.zig"),
     });
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
+        .target = b.host,
         .optimize = optimize,
     });
-    exe.addAnonymousModule("foo", .{
-        .source_file = .{ .path = "foo.zig" },
-        .dependencies = &.{.{ .name = "shared", .module = shared }},
+    exe.root_module.addAnonymousImport("foo", .{
+        .root_source_file = b.path("foo.zig"),
+        .imports = &.{.{ .name = "shared", .module = shared }},
     });
-    exe.addModule("shared", shared);
+    exe.root_module.addImport("shared", shared);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

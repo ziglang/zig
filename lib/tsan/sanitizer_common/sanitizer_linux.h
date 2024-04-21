@@ -49,26 +49,44 @@ uptr internal_getdents(fd_t fd, struct linux_dirent *dirp, unsigned int count);
 uptr internal_sigaltstack(const void* ss, void* oss);
 uptr internal_sigprocmask(int how, __sanitizer_sigset_t *set,
     __sanitizer_sigset_t *oldset);
-#if SANITIZER_GLIBC
+
+void SetSigProcMask(__sanitizer_sigset_t *set, __sanitizer_sigset_t *oldset);
+void BlockSignals(__sanitizer_sigset_t *oldset = nullptr);
+struct ScopedBlockSignals {
+  explicit ScopedBlockSignals(__sanitizer_sigset_t *copy);
+  ~ScopedBlockSignals();
+
+  ScopedBlockSignals &operator=(const ScopedBlockSignals &) = delete;
+  ScopedBlockSignals(const ScopedBlockSignals &) = delete;
+
+ private:
+  __sanitizer_sigset_t saved_;
+};
+
+#  if SANITIZER_GLIBC
 uptr internal_clock_gettime(__sanitizer_clockid_t clk_id, void *tp);
 #endif
 
 // Linux-only syscalls.
 #if SANITIZER_LINUX
 uptr internal_prctl(int option, uptr arg2, uptr arg3, uptr arg4, uptr arg5);
+#    if defined(__x86_64__)
+uptr internal_arch_prctl(int option, uptr arg2);
+#    endif
 // Used only by sanitizer_stoptheworld. Signal handlers that are actually used
 // (like the process-wide error reporting SEGV handler) must use
 // internal_sigaction instead.
 int internal_sigaction_norestorer(int signum, const void *act, void *oldact);
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
-#if defined(__x86_64__) || defined(__mips__) || defined(__aarch64__) || \
-    defined(__powerpc64__) || defined(__s390__) || defined(__i386__) || \
-    defined(__arm__) || SANITIZER_RISCV64
+#    if defined(__x86_64__) || defined(__mips__) || defined(__aarch64__) || \
+        defined(__powerpc64__) || defined(__s390__) || defined(__i386__) || \
+        defined(__arm__) || SANITIZER_RISCV64 || SANITIZER_LOONGARCH64
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                     int *parent_tidptr, void *newtls, int *child_tidptr);
 #endif
 int internal_uname(struct utsname *buf);
 #elif SANITIZER_FREEBSD
+uptr internal_procctl(int type, int id, int cmd, void *data);
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
 #elif SANITIZER_NETBSD
 void internal_sigdelset(__sanitizer_sigset_t *set, int signum);
@@ -135,6 +153,9 @@ inline void ReleaseMemoryPagesToOSAndZeroFill(uptr beg, uptr end) {
                "rdhwr   %0,$29\n" \
                ".set    pop\n" : "=r"(__v)); \
        __v; })
+#elif defined (__riscv)
+# define __get_tls() \
+    ({ void** __v; __asm__("mv %0, tp" : "=r"(__v)); __v; })
 #elif defined(__i386__)
 # define __get_tls() \
     ({ void** __v; __asm__("movl %%gs:0, %0" : "=r"(__v)); __v; })

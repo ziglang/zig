@@ -11,6 +11,9 @@ pub const Dependency = struct {
     location_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+    node: Ast.Node.Index,
+    name_tok: Ast.TokenIndex,
+    lazy: bool,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -55,7 +58,9 @@ comptime {
 
 name: []const u8,
 version: std.SemanticVersion,
+version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+dependencies_node: Ast.Node.Index,
 paths: std.StringArrayHashMapUnmanaged(void),
 minimum_zig_version: ?std.SemanticVersion,
 
@@ -68,7 +73,7 @@ pub const ParseOptions = struct {
 
 pub const Error = Allocator.Error;
 
-pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Manifest {
+pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
     const node_tags = ast.nodes.items(.tag);
     const node_datas = ast.nodes.items(.data);
     assert(node_tags[0] == .root);
@@ -85,7 +90,9 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Mani
 
         .name = undefined,
         .version = undefined,
+        .version_node = 0,
         .dependencies = .{},
+        .dependencies_node = 0,
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
         .minimum_zig_version = null,
@@ -104,7 +111,9 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Mani
     return .{
         .name = p.name,
         .version = p.version,
+        .version_node = p.version_node,
         .dependencies = try p.dependencies.clone(p.arena),
+        .dependencies_node = p.dependencies_node,
         .paths = try p.paths.clone(p.arena),
         .minimum_zig_version = p.minimum_zig_version,
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
@@ -115,6 +124,33 @@ pub fn parse(gpa: Allocator, ast: std.zig.Ast, options: ParseOptions) Error!Mani
 pub fn deinit(man: *Manifest, gpa: Allocator) void {
     man.arena_state.promote(gpa).deinit();
     man.* = undefined;
+}
+
+pub fn copyErrorsIntoBundle(
+    man: Manifest,
+    ast: Ast,
+    /// ErrorBundle null-terminated string index
+    src_path: u32,
+    eb: *std.zig.ErrorBundle.Wip,
+) Allocator.Error!void {
+    const token_starts = ast.tokens.items(.start);
+
+    for (man.errors) |msg| {
+        const start_loc = ast.tokenLocation(0, msg.tok);
+
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString(msg.msg),
+            .src_loc = try eb.addSourceLocation(.{
+                .src_path = src_path,
+                .span_start = token_starts[msg.tok],
+                .span_end = @intCast(token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
+                .span_main = token_starts[msg.tok] + msg.off,
+                .line = @intCast(start_loc.line),
+                .column = @intCast(start_loc.column),
+                .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
+            }),
+        });
+    }
 }
 
 const hex_charset = "0123456789abcdef";
@@ -153,14 +189,16 @@ pub fn hexDigest(digest: Digest) MultiHashHexDigest {
 
 const Parse = struct {
     gpa: Allocator,
-    ast: std.zig.Ast,
+    ast: Ast,
     arena: Allocator,
     buf: std.ArrayListUnmanaged(u8),
     errors: std.ArrayListUnmanaged(ErrorMessage),
 
     name: []const u8,
     version: std.SemanticVersion,
+    version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
+    dependencies_node: Ast.Node.Index,
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
     minimum_zig_version: ?std.SemanticVersion,
@@ -188,6 +226,7 @@ const Parse = struct {
             // things manually provides an opportunity to do any additional verification
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "dependencies")) {
+                p.dependencies_node = field_init;
                 try parseDependencies(p, field_init);
             } else if (mem.eql(u8, field_name, "paths")) {
                 have_included_paths = true;
@@ -196,6 +235,7 @@ const Parse = struct {
                 p.name = try parseString(p, field_init);
                 have_name = true;
             } else if (mem.eql(u8, field_name, "version")) {
+                p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
                 p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
@@ -264,11 +304,15 @@ const Parse = struct {
             .location_tok = 0,
             .hash = null,
             .hash_tok = 0,
+            .node = node,
+            .name_tok = 0,
+            .lazy = false,
         };
         var has_location = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
+            dep.name_tok = name_token;
             const field_name = try identifierTokenString(p, name_token);
             // We could get fancy with reflection and comptime logic here but doing
             // things manually provides an opportunity to do any additional verification
@@ -303,6 +347,11 @@ const Parse = struct {
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+            } else if (mem.eql(u8, field_name, "lazy")) {
+                dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
+                    error.ParseFailure => continue,
+                    else => |e| return e,
+                };
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -332,6 +381,24 @@ const Parse = struct {
             // against file system paths.
             const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
             try p.paths.put(p.gpa, normalized, {});
+        }
+    }
+
+    fn parseBool(p: *Parse, node: Ast.Node.Index) !bool {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        if (node_tags[node] != .identifier) {
+            return fail(p, main_tokens[node], "expected identifier", .{});
+        }
+        const ident_token = main_tokens[node];
+        const token_bytes = ast.tokenSlice(ident_token);
+        if (mem.eql(u8, token_bytes, "true")) {
+            return true;
+        } else if (mem.eql(u8, token_bytes, "false")) {
+            return false;
+        } else {
+            return fail(p, ident_token, "expected boolean", .{});
         }
     }
 
@@ -548,7 +615,7 @@ test "basic" {
         \\}
     ;
 
-    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    var ast = try Ast.parse(gpa, example, .zon);
     defer ast.deinit(gpa);
 
     try testing.expect(ast.errors.len == 0);
@@ -591,7 +658,7 @@ test "minimum_zig_version" {
         \\}
     ;
 
-    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    var ast = try Ast.parse(gpa, example, .zon);
     defer ast.deinit(gpa);
 
     try testing.expect(ast.errors.len == 0);
@@ -623,7 +690,7 @@ test "minimum_zig_version - invalid version" {
         \\}
     ;
 
-    var ast = try std.zig.Ast.parse(gpa, example, .zon);
+    var ast = try Ast.parse(gpa, example, .zon);
     defer ast.deinit(gpa);
 
     try testing.expect(ast.errors.len == 0);

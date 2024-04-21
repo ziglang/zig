@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-devices-query-l1-1-1
+
+EXPORTS
+
+DevCreateObjectQueryEx
+DevCreateObjectQueryFromIdEx
+DevCreateObjectQueryFromIdsEx
+DevGetObjectPropertiesEx
+DevGetObjectsEx

@@ -1,0 +1,9 @@
+LIBRARY hrtfapo
+
+EXPORTS
+
+CreateHrtfApo
+CreateHrtfApoWithDatasetType
+CreateHrtfEngineFactory
+GetHrtfEngineMinFrameCount
+IsHrtfApoAvailable

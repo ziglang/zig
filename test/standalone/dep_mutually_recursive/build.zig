@@ -7,20 +7,21 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const foo = b.createModule(.{
-        .source_file = .{ .path = "foo.zig" },
+        .root_source_file = b.path("foo.zig"),
     });
     const bar = b.createModule(.{
-        .source_file = .{ .path = "bar.zig" },
+        .root_source_file = b.path("bar.zig"),
     });
-    foo.dependencies.put("bar", bar) catch @panic("OOM");
-    bar.dependencies.put("foo", foo) catch @panic("OOM");
+    foo.addImport("bar", bar);
+    bar.addImport("foo", foo);
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
+        .target = b.host,
         .optimize = optimize,
     });
-    exe.addModule("foo", foo);
+    exe.root_module.addImport("foo", foo);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

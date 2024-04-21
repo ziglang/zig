@@ -106,3 +106,8 @@ fn testIntEdges(comptime T: type) void {
     if (undef_const == max + 1) @compileError("analyzed impossible branch");
     if (undef_const != max + 1) {} else @compileError("analyzed impossible branch");
 }
+
+test "comparison elided on large integer value" {
+    try std.testing.expect(-1 == @as(i8, -3) >> 2);
+    try std.testing.expect(-1 == -3 >> 2000);
+}

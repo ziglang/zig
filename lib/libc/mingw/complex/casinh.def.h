@@ -47,6 +47,7 @@ __FLT_ABI(casinh) (__FLT_TYPE __complex__ z)
 {
   __complex__ __FLT_TYPE ret;
   __complex__ __FLT_TYPE x;
+  __FLT_TYPE arz, aiz;
   int r_class = fpclassify (__real__ z);
   int i_class = fpclassify (__imag__ z);
 
@@ -87,13 +88,69 @@ __FLT_ABI(casinh) (__FLT_TYPE __complex__ z)
   if (r_class == FP_ZERO && i_class == FP_ZERO)
     return z;
 
-  __real__ x = (__real__ z - __imag__ z) * (__real__ z + __imag__ z) + __FLT_CST(1.0);
-  __imag__ x = __FLT_CST(2.0) * __real__ z * __imag__ z;
+  /* casinh(z) = log(z + sqrt(z*z + 1)) */
 
-  x = __FLT_ABI(csqrt) (x);
+  /* Use symmetries to perform the calculation in the first quadrant. */
+  arz = __FLT_ABI(fabs) (__real__ z);
+  aiz = __FLT_ABI(fabs) (__imag__ z);
 
-  __real__ x += __real__ z;
-  __imag__ x += __imag__ z;
+  if (arz >= __FLT_CST(1.0)/__FLT_EPSILON
+      || aiz >= __FLT_CST(1.0)/__FLT_EPSILON)
+  {
+    /* For large z, z + sqrt(z*z + 1) is approximately 2*z.
+    Use that approximation to avoid overflow when squaring. */
+    __real__ x = arz;
+    __imag__ x = aiz;
+    ret = __FLT_ABI(clog) (x);
+    __real__ ret += M_LN2;
+  }
+  else if (aiz < __FLT_CST(1.0) && arz <= __FLT_EPSILON)
+  {
+    /* Taylor series expansion around arz=0 for z + sqrt(z*z + 1):
+    c = arz + sqrt(1-aiz^2) + i*(aiz + arz*aiz / sqrt(1-aiz^2)) + O(arz^2)
+    Identity: clog(c) = log(|c|) + i*arg(c)
+    For real part of result:
+    |c| = 1 + arz / sqrt(1-aiz^2) + O(arz^2)  (Taylor series expansion)
+    For imaginary part of result:
+    c = (arz + sqrt(1-aiz^2))/sqrt(1-aiz^2) * (sqrt(1-aiz^2) + i*aiz) + O(arz^6)
+    */
+    __FLT_TYPE s1maiz2 = __FLT_ABI(sqrt) ((__FLT_CST(1.0)+aiz)*(__FLT_CST(1.0)-aiz));
+    __real__ ret = __FLT_ABI(log1p) (arz / s1maiz2);
+    __imag__ ret = __FLT_ABI(atan2) (aiz, s1maiz2);
+  }
+  else if (aiz < __FLT_CST(1.0) && arz*arz <= __FLT_EPSILON)
+  {
+    /* Taylor series expansion around arz=0 for z + sqrt(z*z + 1):
+    c = arz + sqrt(1-aiz^2) + arz^2 / (2*(1-aiz^2)^(3/2)) + i*(aiz + arz*aiz / sqrt(1-aiz^2)) + O(arz^4)
+    Identity: clog(c) = log(|c|) + i*arg(c)
+    For real part of result:
+    |c| = 1 + arz / sqrt(1-aiz^2) + arz^2/(2*(1-aiz^2)) + O(arz^3)  (Taylor series expansion)
+    For imaginary part of result:
+    c = 1/sqrt(1-aiz^2) * ((1-aiz^2) + arz*sqrt(1-aiz^2) + arz^2/(2*(1-aiz^2)) + i*aiz*(sqrt(1-aiz^2)+arz)) + O(arz^3)
+    */
+    __FLT_TYPE onemaiz2 = (__FLT_CST(1.0)+aiz)*(__FLT_CST(1.0)-aiz);
+    __FLT_TYPE s1maiz2 = __FLT_ABI(sqrt) (onemaiz2);
+    __FLT_TYPE arz2red = arz * arz / __FLT_CST(2.0) / s1maiz2;
+    __real__ ret = __FLT_ABI(log1p) ((arz + arz2red) / s1maiz2);
+    __imag__ ret = __FLT_ABI(atan2) (aiz * (s1maiz2 + arz),
+                                     onemaiz2 + arz*s1maiz2 + arz2red);
+  }
+  else
+  {
+    __real__ x = (arz - aiz) * (arz + aiz) + __FLT_CST(1.0);
+    __imag__ x = __FLT_CST(2.0) * arz * aiz;
 
-  return __FLT_ABI(clog) (x);
+    x = __FLT_ABI(csqrt) (x);
+
+    __real__ x += arz;
+    __imag__ x += aiz;
+
+    ret = __FLT_ABI(clog) (x);
+  }
+
+  /* adjust signs for input quadrant */
+  __real__ ret = __FLT_ABI(copysign) (__real__ ret, __real__ z);
+  __imag__ ret = __FLT_ABI(copysign) (__imag__ ret, __imag__ z);
+
+  return ret;
 }

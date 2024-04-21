@@ -1,9 +1,14 @@
 const std = @import("std");
 const Cases = @import("src/Cases.zig");
 
-pub fn addCases(ctx: *Cases) !void {
+pub fn addCases(ctx: *Cases, b: *std.Build) !void {
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = .nvptx64,
+        .os_tag = .cuda,
+    });
+
     {
-        var case = addPtx(ctx, "simple addition and subtraction");
+        var case = addPtx(ctx, target, "simple addition and subtraction");
 
         case.addCompile(
             \\fn add(a: i32, b: i32) i32 {
@@ -20,7 +25,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = addPtx(ctx, "read special registers");
+        var case = addPtx(ctx, target, "read special registers");
 
         case.addCompile(
             \\fn threadIdX() u32 {
@@ -37,7 +42,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = addPtx(ctx, "address spaces");
+        var case = addPtx(ctx, target, "address spaces");
 
         case.addCompile(
             \\var x: i32 addrspace(.global) = 0;
@@ -50,7 +55,7 @@ pub fn addCases(ctx: *Cases) !void {
     }
 
     {
-        var case = addPtx(ctx, "reduce in shared mem");
+        var case = addPtx(ctx, target, "reduce in shared mem");
         case.addCompile(
             \\fn threadIdX() u32 {
             \\    return asm ("mov.u32 \t%[r], %tid.x;"
@@ -82,18 +87,10 @@ pub fn addCases(ctx: *Cases) !void {
     }
 }
 
-const nvptx_target = std.zig.CrossTarget{
-    .cpu_arch = .nvptx64,
-    .os_tag = .cuda,
-};
-
-pub fn addPtx(
-    ctx: *Cases,
-    name: []const u8,
-) *Cases.Case {
+fn addPtx(ctx: *Cases, target: std.Build.ResolvedTarget, name: []const u8) *Cases.Case {
     ctx.cases.append(.{
         .name = name,
-        .target = nvptx_target,
+        .target = target,
         .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
         .output_mode = .Obj,
         .deps = std.ArrayList(Cases.DepModule).init(ctx.cases.allocator),

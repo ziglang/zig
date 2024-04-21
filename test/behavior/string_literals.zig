@@ -80,3 +80,19 @@ test "string literal pointer sentinel" {
 
     try std.testing.expect(@TypeOf(string_literal.ptr) == [*:0]const u8);
 }
+
+test "sentinel slice of string literal" {
+    const string = "Hello!\x00World!";
+    try std.testing.expect(@TypeOf(string) == *const [13:0]u8);
+
+    const slice_without_sentinel: []const u8 = string[0..6];
+    try std.testing.expect(@TypeOf(slice_without_sentinel) == []const u8);
+
+    const slice_with_sentinel: [:0]const u8 = string[0..6 :0];
+    try std.testing.expect(@TypeOf(slice_with_sentinel) == [:0]const u8);
+}
+
+test "Peer type resolution with string literals and unknown length u8 pointers" {
+    try std.testing.expect(@TypeOf("", "a", @as([*:0]const u8, "")) == [*:0]const u8);
+    try std.testing.expect(@TypeOf(@as([*:0]const u8, "baz"), "foo", "bar") == [*:0]const u8);
+}

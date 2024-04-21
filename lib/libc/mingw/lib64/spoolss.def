@@ -75,7 +75,6 @@ DllCanUnloadNow
 DllFreeSplMem
 DllFreeSplStr
 DllGetClassObject
-DllMain
 DllReallocSplMem
 DllReallocSplStr
 DllRegisterServer
@@ -130,7 +129,6 @@ MarshallDownStructuresArray
 MarshallUpStructure
 MarshallUpStructuresArray
 OldGetPrinterDriverW
-OpenPrinterExW
 OpenPrinterPortW
 OpenPrinter2W
 OpenPrinterPort2W

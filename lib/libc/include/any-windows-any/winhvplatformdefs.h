@@ -169,7 +169,8 @@ typedef union WHV_PROCESSOR_FEATURES1 {
         UINT64 FZLRepMovsb : 1;
         UINT64 FSRepStosb : 1;
         UINT64 FSRepCmpsb : 1;
-        UINT64 Reserved5 : 42;
+        UINT64 TsxLdTrkSupport : 1;
+        UINT64 Reserved5 : 41;
     };
     UINT64 AsUINT64;
 } WHV_PROCESSOR_FEATURES1;
@@ -978,7 +979,8 @@ typedef union WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER {
         UINT64 NmiNotification:1;
         UINT64 InterruptNotification:1;
         UINT64 InterruptPriority:4;
-        UINT64 Reserved:58;
+        UINT64 Reserved:42;
+        UINT64 Sint:16;
     };
     UINT64 AsUINT64;
 } WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER;

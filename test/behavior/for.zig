@@ -156,7 +156,7 @@ test "for loop with pointer elem var" {
 
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
-    mem.copy(u8, target[0..], source);
+    @memcpy(target[0..], source);
     mangleString(target[0..]);
     try expect(mem.eql(u8, &target, "bcdefgh"));
 
@@ -226,7 +226,6 @@ test "else continue outer for" {
 
 test "for loop with else branch" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var x = [_]u32{ 1, 2 };
@@ -456,6 +455,7 @@ test "inline for on tuple pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct { u32, u32, u32 };
     var s: S = .{ 100, 200, 300 };
@@ -503,4 +503,25 @@ test "inferred alloc ptr of for loop" {
         } else null;
         try expectEqual(@as(?bool, true), opt);
     }
+}
+
+test "for loop results in a bool" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try std.testing.expect(for ([1]u8{0}) |x| {
+        if (x == 0) break true;
+    } else false);
+}
+
+test "return from inline for" {
+    const S = struct {
+        fn do() bool {
+            inline for (.{"a"}) |_| {
+                if (true) return false;
+            }
+            return true;
+        }
+    };
+    try std.testing.expect(!S.do());
 }

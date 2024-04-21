@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const math = std.math;
 const mem = std.mem;
 const io = std.io;
-const os = std.os;
+const posix = std.posix;
 const fs = std.fs;
 const testing = std.testing;
 const elf = std.elf;
@@ -34,7 +34,7 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
     .wasm32,
     .wasm64,
-    => builtin.os.tag == .emscripten,
+    => native_os == .emscripten,
 
     // `@returnAddress()` is unsupported in LLVM 13.
     .bpfel,
@@ -104,6 +104,67 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
+/// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
+/// Obtains the stderr mutex while dumping.
+pub fn dump_hex(bytes: []const u8) void {
+    stderr_mutex.lock();
+    defer stderr_mutex.unlock();
+    dump_hex_fallible(bytes) catch {};
+}
+
+/// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
+pub fn dump_hex_fallible(bytes: []const u8) !void {
+    const stderr = std.io.getStdErr();
+    const ttyconf = std.io.tty.detectConfig(stderr);
+    const writer = stderr.writer();
+    var chunks = mem.window(u8, bytes, 16, 16);
+    while (chunks.next()) |window| {
+        // 1. Print the address.
+        const address = (@intFromPtr(bytes.ptr) + 0x10 * (chunks.index orelse 0) / 16) - 0x10;
+        try ttyconf.setColor(writer, .dim);
+        // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
+        // Also, make sure all lines are aligned by padding the address.
+        try writer.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
+        try ttyconf.setColor(writer, .reset);
+
+        // 2. Print the bytes.
+        for (window, 0..) |byte, index| {
+            try writer.print("{X:0>2} ", .{byte});
+            if (index == 7) try writer.writeByte(' ');
+        }
+        try writer.writeByte(' ');
+        if (window.len < 16) {
+            var missing_columns = (16 - window.len) * 3;
+            if (window.len < 8) missing_columns += 1;
+            try writer.writeByteNTimes(' ', missing_columns);
+        }
+
+        // 3. Print the characters.
+        for (window) |byte| {
+            if (std.ascii.isPrint(byte)) {
+                try writer.writeByte(byte);
+            } else {
+                // Related: https://github.com/ziglang/zig/issues/7600
+                if (ttyconf == .windows_api) {
+                    try writer.writeByte('.');
+                    continue;
+                }
+
+                // Let's print some common control codes as graphical Unicode symbols.
+                // We don't want to do this for all control codes because most control codes apart from
+                // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
+                switch (byte) {
+                    '\n' => try writer.writeAll("␊"),
+                    '\r' => try writer.writeAll("␍"),
+                    '\t' => try writer.writeAll("␉"),
+                    else => try writer.writeByte('.'),
+                }
+            }
+        }
+        try writer.writeByte('\n');
+    }
+}
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
@@ -131,8 +192,8 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
-pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
-    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+pub const have_ucontext = @hasDecl(posix.system, "ucontext_t") and
+    (native_os != .linux or switch (builtin.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
     else => true,
 });
@@ -142,9 +203,9 @@ pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
 /// use internal pointers within this structure. To make a copy, use `copyContext`.
 pub const ThreadContext = blk: {
     if (native_os == .windows) {
-        break :blk std.os.windows.CONTEXT;
+        break :blk windows.CONTEXT;
     } else if (have_ucontext) {
-        break :blk os.ucontext_t;
+        break :blk posix.ucontext_t;
     } else {
         break :blk void;
     }
@@ -167,9 +228,9 @@ pub fn relocateContext(context: *ThreadContext) void {
     };
 }
 
-pub const have_getcontext = @hasDecl(os.system, "getcontext") and
-    builtin.os.tag != .openbsd and
-    (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+pub const have_getcontext = @hasDecl(posix.system, "getcontext") and
+    native_os != .openbsd and native_os != .haiku and
+    (native_os != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
     => true,
@@ -188,7 +249,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
         return true;
     }
 
-    const result = have_getcontext and os.system.getcontext(context) == 0;
+    const result = have_getcontext and posix.system.getcontext(context) == 0;
     if (native_os == .macos) {
         assert(context.mcsize == @sizeOf(std.c.mcontext_t));
 
@@ -345,7 +406,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
-    panicExtra(null, null, format, args);
+    panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
@@ -400,7 +461,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         0 => {
             panic_stage = 1;
 
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             // Make sure to release the mutex when done
             {
@@ -409,12 +470,12 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
                 const stderr = io.getStdErr().writer();
                 if (builtin.single_threaded) {
-                    stderr.print("panic: ", .{}) catch os.abort();
+                    stderr.print("panic: ", .{}) catch posix.abort();
                 } else {
                     const current_thread_id = std.Thread.getCurrentId();
-                    stderr.print("thread {} panic: ", .{current_thread_id}) catch os.abort();
+                    stderr.print("thread {} panic: ", .{current_thread_id}) catch posix.abort();
                 }
-                stderr.print("{s}\n", .{msg}) catch os.abort();
+                stderr.print("{s}\n", .{msg}) catch posix.abort();
                 if (trace) |t| {
                     dumpStackTrace(t.*);
                 }
@@ -430,19 +491,19 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
             // we're still holding the mutex but that's fine as we're going to
             // call abort()
             const stderr = io.getStdErr().writer();
-            stderr.print("Panicked during a panic. Aborting.\n", .{}) catch os.abort();
+            stderr.print("Panicked during a panic. Aborting.\n", .{}) catch posix.abort();
         },
         else => {
             // Panicked while printing "Panicked during a panic."
         },
     };
 
-    os.abort();
+    posix.abort();
 }
 
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
 fn waitForOtherThreadToFinishPanicking() void {
-    if (panicking.fetchSub(1, .SeqCst) != 1) {
+    if (panicking.fetchSub(1, .seq_cst) != 1) {
         // Another thread is panicking, wait for the last one to finish
         // and call abort()
         if (builtin.single_threaded) unreachable;
@@ -523,7 +584,7 @@ pub const StackIterator = struct {
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (comptime builtin.target.isDarwin() and native_arch == .aarch64) {
@@ -600,32 +661,18 @@ pub const StackIterator = struct {
 
     fn isValidMemory(address: usize) bool {
         // We are unable to determine validity of memory for freestanding targets
-        if (native_os == .freestanding) return true;
+        if (native_os == .freestanding or native_os == .uefi) return true;
 
         const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
         if (aligned_address == 0) return false;
         const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
-        if (native_os != .windows) {
-            if (native_os != .wasi) {
-                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
-                    switch (err) {
-                        os.MSyncError.UnmappedMemory => {
-                            return false;
-                        },
-                        else => unreachable,
-                    }
-                };
-            }
-
-            return true;
-        } else {
-            const w = os.windows;
-            var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
+        if (native_os == .windows) {
+            var memory_info: windows.MEMORY_BASIC_INFORMATION = undefined;
 
             // The only error this function can throw is ERROR_INVALID_PARAMETER.
             // supply an address that invalid i'll be thrown.
-            const rc = w.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
+            const rc = windows.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
                 return false;
             };
 
@@ -635,10 +682,22 @@ pub const StackIterator = struct {
             }
 
             // Free pages cannot be read, they are unmapped
-            if (memory_info.State == w.MEM_FREE) {
+            if (memory_info.State == windows.MEM_FREE) {
                 return false;
             }
 
+            return true;
+        } else if (@hasDecl(posix.system, "msync") and native_os != .wasi and native_os != .emscripten) {
+            posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
+                switch (err) {
+                    error.UnmappedMemory => return false,
+                    else => unreachable,
+                }
+            };
+
+            return true;
+        } else {
+            // We are unable to determine validity of memory on this target.
             return true;
         }
     }
@@ -752,7 +811,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
 
-    const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
+    const tib = &windows.teb().NtTib;
 
     var context: windows.CONTEXT = undefined;
     if (existing_context) |context_ptr| {
@@ -846,15 +905,15 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-test "machoSearchSymbols" {
+test machoSearchSymbols {
     const symbols = [_]MachoSymbol{
         .{ .addr = 100, .strx = undefined, .size = undefined, .ofile = undefined },
         .{ .addr = 200, .strx = undefined, .size = undefined, .ofile = undefined },
         .{ .addr = 300, .strx = undefined, .size = undefined, .ofile = undefined },
     };
 
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 0));
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 99));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 0));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 99));
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 100).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 150).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 199).?);
@@ -1031,12 +1090,17 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
-        const raw_path = path_buf[0..len];
-
-        const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
-        defer allocator.free(path);
+        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const path = blk: {
+            if (fs.path.isAbsolute(raw_path)) {
+                break :blk raw_path;
+            } else {
+                const self_dir = try fs.selfExeDirPathAlloc(allocator);
+                defer allocator.free(self_dir);
+                break :blk try fs.path.join(allocator, &.{ self_dir, raw_path });
+            }
+        };
+        defer if (path.ptr != raw_path.ptr) allocator.free(path);
 
         di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
@@ -1079,8 +1143,8 @@ pub fn readElfDebugInfo(
 ) !ModuleDebugInfo {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
-        } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            break :blk fs.cwd().openFile(filename, .{});
+        } else fs.openSelfExe(.{})) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1150,8 +1214,7 @@ pub fn readElfDebugInfo(
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
 
                 const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
@@ -1230,7 +1293,7 @@ pub fn readElfDebugInfo(
                 }
 
                 var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const cwd_path = os.realpath(".", &cwd_buf) catch break :blk;
+                const cwd_path = posix.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
                 for (global_debug_directories) |global_directory| {
@@ -1390,36 +1453,174 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
 fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
     var buf: [mem.page_size]u8 = undefined;
-    var line: usize = 1;
-    var column: usize = 1;
-    while (true) {
-        const amt_read = try f.read(buf[0..]);
-        const slice = buf[0..amt_read];
-
-        for (slice) |byte| {
-            if (line == line_info.line) {
-                switch (byte) {
-                    '\t' => try out_stream.writeByte(' '),
-                    else => try out_stream.writeByte(byte),
-                }
-                if (byte == '\n') {
-                    return;
-                }
-            }
-            if (byte == '\n') {
-                line += 1;
-                column = 1;
+    var amt_read = try f.read(buf[0..]);
+    const line_start = seek: {
+        var current_line_start: usize = 0;
+        var next_line: usize = 1;
+        while (next_line != line_info.line) {
+            const slice = buf[current_line_start..amt_read];
+            if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+                next_line += 1;
+                if (pos == slice.len - 1) {
+                    amt_read = try f.read(buf[0..]);
+                    current_line_start = 0;
+                } else current_line_start += pos + 1;
+            } else if (amt_read < buf.len) {
+                return error.EndOfFile;
             } else {
-                column += 1;
+                amt_read = try f.read(buf[0..]);
+                current_line_start = 0;
             }
         }
+        break :seek current_line_start;
+    };
+    const slice = buf[line_start..amt_read];
+    if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+        const line = slice[0 .. pos + 1];
+        mem.replaceScalar(u8, line, '\t', ' ');
+        return out_stream.writeAll(line);
+    } else { // Line is the last inside the buffer, and requires another read to find delimiter. Alternatively the file ends.
+        mem.replaceScalar(u8, slice, '\t', ' ');
+        try out_stream.writeAll(slice);
+        while (amt_read == buf.len) {
+            amt_read = try f.read(buf[0..]);
+            if (mem.indexOfScalar(u8, buf[0..amt_read], '\n')) |pos| {
+                const line = buf[0 .. pos + 1];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                return out_stream.writeAll(line);
+            } else {
+                const line = buf[0..amt_read];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                try out_stream.writeAll(line);
+            }
+        }
+        // Make sure printing last line of file inserts extra newline
+        try out_stream.writeByte('\n');
+    }
+}
 
-        if (amt_read < buf.len) return error.EndOfFile;
+test printLineFromFileAnyOs {
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+    const output_stream = output.writer();
+
+    const allocator = std.testing.allocator;
+    const join = std.fs.path.join;
+    const expectError = std.testing.expectError;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+
+    var test_dir = std.testing.tmpDir(.{});
+    defer test_dir.cleanup();
+    // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
+    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    defer allocator.free(test_dir_path);
+
+    // Cases
+    {
+        const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("three_lines.zig",
+            \\1
+            \\2
+            \\3
+        );
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("1\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
+        try expectEqualStrings("3\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
+        defer allocator.free(path);
+
+        const overlap = 10;
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size - overlap);
+        try writer.writeByte('\n');
+        try writer.writeByteNTimes('a', overlap);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings(("a" ** overlap) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** mem.page_size) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', 3 * mem.page_size);
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+
+        try writer.writeAll("a\na");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "a\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings("a\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        const real_file_start = 3 * mem.page_size;
+        try writer.writeByteNTimes('\n', real_file_start);
+        try writer.writeAll("abc\ndef");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
+        try expectEqualStrings("abc\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
+        try expectEqualStrings("def\n", output.items);
+        output.clearRetainingCapacity();
     }
 }
 
@@ -1440,7 +1641,6 @@ const MachoSymbol = struct {
     }
 };
 
-/// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
@@ -1448,15 +1648,15 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
         defer file.close();
 
         const file_len = math.cast(usize, try file.getEndPos()) orelse math.maxInt(usize);
-        const mapped_mem = try os.mmap(
+        const mapped_mem = try posix.mmap(
             null,
             file_len,
-            os.PROT.READ,
-            os.MAP.SHARED,
+            posix.PROT.READ,
+            .{ .TYPE = .SHARED },
             file.handle,
             0,
         );
-        errdefer os.munmap(mapped_mem);
+        errdefer posix.munmap(mapped_mem);
 
         return mapped_mem;
     }
@@ -1624,9 +1824,7 @@ pub const DebugInfo = struct {
                         errdefer self.allocator.destroy(obj_di);
 
                         const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                        const macho_file = fs.cwd().openFile(macho_path, .{
-                            .intended_io_mode = .blocking,
-                        }) catch |err| switch (err) {
+                        const macho_file = fs.cwd().openFile(macho_path, .{}) catch |err| switch (err) {
                             error.FileNotFound => return error.MissingDebugInfo,
                             else => return err,
                         };
@@ -1705,7 +1903,7 @@ pub const DebugInfo = struct {
                 if (coff_obj.strtabRequired()) {
                     var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
                     // openFileAbsoluteW requires the prefix to be present
-                    mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+                    @memcpy(name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
                     const process_handle = windows.kernel32.GetCurrentProcess();
                     const len = windows.kernel32.K32GetModuleFileNameExW(
@@ -1796,8 +1994,8 @@ pub const DebugInfo = struct {
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
-        if (os.dl_iterate_phdr(&ctx, error{Found}, struct {
-            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+        if (posix.dl_iterate_phdr(&ctx, error{Found}, struct {
+            fn callback(info: *posix.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
                 if (context.address < info.dlpi_addr) return;
                 const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
@@ -1835,8 +2033,8 @@ pub const DebugInfo = struct {
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
-        if (os.dl_iterate_phdr(&ctx, error{Found}, struct {
-            fn callback(info: *os.dl_phdr_info, size: usize, context: *CtxTy) !void {
+        if (posix.dl_iterate_phdr(&ctx, error{Found}, struct {
+            fn callback(info: *posix.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
                 // The base address is too high
                 if (context.address < info.dlpi_addr)
@@ -1958,11 +2156,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
             self.ofiles.deinit();
             allocator.free(self.symbols);
-            os.munmap(self.mapped_memory);
+            posix.munmap(self.mapped_memory);
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !*OFileInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+            const o_file = try fs.cwd().openFile(o_file_path, .{});
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -2232,8 +2430,8 @@ pub const ModuleDebugInfo = switch (native_os) {
 
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
-            os.munmap(self.mapped_memory);
-            if (self.external_mapped_memory) |m| os.munmap(m);
+            posix.munmap(self.mapped_memory);
+            if (self.external_mapped_memory) |m| posix.munmap(m);
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
@@ -2248,7 +2446,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;
@@ -2313,7 +2511,7 @@ pub const have_segfault_handling_support = switch (native_os) {
     .windows,
     => true,
 
-    .freebsd, .openbsd => @hasDecl(os.system, "ucontext_t"),
+    .freebsd, .openbsd => @hasDecl(std.c, "ucontext_t"),
     else => false,
 };
 
@@ -2328,11 +2526,11 @@ pub fn maybeEnableSegfaultHandler() void {
 
 var windows_segfault_handle: ?windows.HANDLE = null;
 
-pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSupported}!void {
-    try os.sigaction(os.SIG.SEGV, act, null);
-    try os.sigaction(os.SIG.ILL, act, null);
-    try os.sigaction(os.SIG.BUS, act, null);
-    try os.sigaction(os.SIG.FPE, act, null);
+pub fn updateSegfaultHandler(act: ?*const posix.Sigaction) error{OperationNotSupported}!void {
+    try posix.sigaction(posix.SIG.SEGV, act, null);
+    try posix.sigaction(posix.SIG.ILL, act, null);
+    try posix.sigaction(posix.SIG.BUS, act, null);
+    try posix.sigaction(posix.SIG.FPE, act, null);
 }
 
 /// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
@@ -2344,10 +2542,10 @@ pub fn attachSegfaultHandler() void {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = os.Sigaction{
+    var act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = os.empty_sigset,
-        .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
+        .mask = posix.empty_sigset,
+        .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
 
     updateSegfaultHandler(&act) catch {
@@ -2363,16 +2561,16 @@ fn resetSegfaultHandler() void {
         }
         return;
     }
-    var act = os.Sigaction{
-        .handler = .{ .handler = os.SIG.DFL },
-        .mask = os.empty_sigset,
+    var act = posix.Sigaction{
+        .handler = .{ .handler = posix.SIG.DFL },
+        .mask = posix.empty_sigset,
         .flags = 0,
     };
     // To avoid a double-panic, do nothing if an error happens here.
     updateSegfaultHandler(&act) catch {};
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
@@ -2387,36 +2585,37 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         else => unreachable,
     };
 
+    const code = if (native_os == .netbsd) info.info.code else info.code;
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             {
                 panic_mutex.lock();
                 defer panic_mutex.unlock();
 
-                dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
+                dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, info.code, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
         },
     };
 
     // We cannot allow the signal handler to return because when it runs the original instruction
     // again, the memory may be mapped and undefined behavior would occur rather than repeating
     // the segfault. So we simply abort here.
-    os.abort();
+    posix.abort();
 }
 
 fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
-        os.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
+        posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
             // Addresses outside of that address space are non-canonical
             // and the CPU won't provide the faulting address to us.
@@ -2427,11 +2626,11 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyo
             stderr.print("General protection exception (no address available)\n", .{})
         else
             stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
-        os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
-        os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
-        os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
+        posix.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
+        posix.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+        posix.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
         else => unreachable,
-    } catch os.abort();
+    } catch posix.abort();
 
     switch (native_arch) {
         .x86,
@@ -2439,7 +2638,7 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyo
         .arm,
         .aarch64,
         => {
-            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ctx: *const posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             dumpStackTraceFromBase(ctx);
         },
         else => {},
@@ -2466,7 +2665,7 @@ fn handleSegfaultWindowsExtra(
         nosuspend switch (panic_stage) {
             0 => {
                 panic_stage = 1;
-                _ = panicking.fetchAdd(1, .SeqCst);
+                _ = panicking.fetchAdd(1, .seq_cst);
 
                 {
                     panic_mutex.lock();
@@ -2482,7 +2681,7 @@ fn handleSegfaultWindowsExtra(
                 dumpSegfaultInfoWindows(info, msg, label);
             },
         };
-        os.abort();
+        posix.abort();
     } else {
         switch (msg) {
             0 => panicImpl(null, exception_address, "{s}", label.?),
@@ -2505,7 +2704,7 @@ fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
         2 => stderr.print("Illegal instruction at address 0x{x}\n", .{info.ContextRecord.getRegs().ip}),
         else => unreachable,
-    } catch os.abort();
+    } catch posix.abort();
 
     dumpStackTraceFromBase(info.ContextRecord);
 }
@@ -2518,9 +2717,11 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.strip_debug_info) return error.SkipZigTest;
 
-    if (builtin.os.tag == .windows) {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    if (native_os == .windows) {
         // https://github.com/ziglang/zig/issues/13963
         return error.SkipZigTest;
     }
@@ -2632,4 +2833,41 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             }
         }
     };
+}
+
+pub const SafetyLock = struct {
+    state: State = .unlocked,
+
+    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unlocked };
+
+    pub fn lock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+        l.state = .locked;
+    }
+
+    pub fn unlock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .locked);
+        l.state = .unlocked;
+    }
+
+    pub fn assertUnlocked(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+    }
+};
+
+/// Detect whether the program is being executed in the Valgrind virtual machine.
+///
+/// When Valgrind integrations are disabled, this returns comptime-known false.
+/// Otherwise, the result is runtime-known.
+pub inline fn inValgrind() bool {
+    if (@inComptime()) return false;
+    if (!builtin.valgrind_support) return false;
+    return std.valgrind.runningOnValgrind() > 0;
+}
+
+test {
+    _ = &dump_hex;
 }

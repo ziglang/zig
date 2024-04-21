@@ -10,25 +10,28 @@ const expect = std.testing.expect;
 
 /// Returns the arc-tangent of y/x.
 ///
-/// Special Cases:
-///  - atan2(y, nan)     = nan
-///  - atan2(nan, x)     = nan
-///  - atan2(+0, x>=0)   = +0
-///  - atan2(-0, x>=0)   = -0
-///  - atan2(+0, x<=-0)  = +pi
-///  - atan2(-0, x<=-0)  = -pi
-///  - atan2(y>0, 0)     = +pi/2
-///  - atan2(y<0, 0)     = -pi/2
-///  - atan2(+inf, +inf) = +pi/4
-///  - atan2(-inf, +inf) = -pi/4
-///  - atan2(+inf, -inf) = 3pi/4
-///  - atan2(-inf, -inf) = -3pi/4
-///  - atan2(y, +inf)    = 0
-///  - atan2(y>0, -inf)  = +pi
-///  - atan2(y<0, -inf)  = -pi
-///  - atan2(+inf, x)    = +pi/2
-///  - atan2(-inf, x)    = -pi/2
-pub fn atan2(comptime T: type, y: T, x: T) T {
+///      Special Cases:
+/// |   y   |   x   | radians |
+/// |-------|-------|---------|
+/// |  fin  |  nan  |   nan   |
+/// |  nan  |  fin  |   nan   |
+/// |  +0   | >=+0  |   +0    |
+/// |  -0   | >=+0  |   -0    |
+/// |  +0   | <=-0  |   pi    |
+/// |  -0   | <=-0  |  -pi    |
+/// |  pos  |   0   |  +pi/2  |
+/// |  neg  |   0   |  -pi/2  |
+/// | +inf  | +inf  |  +pi/4  |
+/// | -inf  | +inf  |  -pi/4  |
+/// | +inf  | -inf  |  3pi/4  |
+/// | -inf  | -inf  | -3pi/4  |
+/// |  fin  | +inf  |    0    |
+/// |  pos  | -inf  |  +pi    |
+/// |  neg  | -inf  |  -pi    |
+/// | +inf  |  fin  |  +pi/2  |
+/// | -inf  |  fin  |  -pi/2  |
+pub fn atan2(y: anytype, x: anytype) @TypeOf(x, y) {
+    const T = @TypeOf(x, y);
     return switch (T) {
         f32 => atan2_32(y, x),
         f64 => atan2_64(y, x),
@@ -211,12 +214,16 @@ fn atan2_64(y: f64, x: f64) f64 {
     }
 }
 
-test "math.atan2" {
-    try expect(atan2(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
-    try expect(atan2(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
+test atan2 {
+    const y32: f32 = 0.2;
+    const x32: f32 = 0.21;
+    const y64: f64 = 0.2;
+    const x64: f64 = 0.21;
+    try expect(atan2(y32, x32) == atan2_32(0.2, 0.21));
+    try expect(atan2(y64, x64) == atan2_64(0.2, 0.21));
 }
 
-test "math.atan2_32" {
+test atan2_32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, atan2_32(0.0, 0.0), 0.0, epsilon));
@@ -228,7 +235,7 @@ test "math.atan2_32" {
     try expect(math.approxEqAbs(f32, atan2_32(0.34, 1.243), 0.267001, epsilon));
 }
 
-test "math.atan2_64" {
+test atan2_64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, atan2_64(0.0, 0.0), 0.0, epsilon));
@@ -240,7 +247,7 @@ test "math.atan2_64" {
     try expect(math.approxEqAbs(f64, atan2_64(0.34, 1.243), 0.267001, epsilon));
 }
 
-test "math.atan2_32.special" {
+test "atan2_32.special" {
     const epsilon = 0.000001;
 
     try expect(math.isNan(atan2_32(1.0, math.nan(f32))));
@@ -264,7 +271,7 @@ test "math.atan2_32.special" {
     try expect(math.approxEqAbs(f32, atan2_32(-math.inf(f32), 1.0), -math.pi / 2.0, epsilon));
 }
 
-test "math.atan2_64.special" {
+test "atan2_64.special" {
     const epsilon = 0.000001;
 
     try expect(math.isNan(atan2_64(1.0, math.nan(f64))));

@@ -7,8 +7,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const abi = target.getAbi();
-    if (target.getObjectFormat() != .elf or !(abi.isMusl() or abi.isGnu())) return;
+    if (target.result.ofmt != .elf or !(target.result.abi.isMusl() or target.result.abi.isGnu()))
+        return;
 
     const exe = b.addExecutable(.{
         .name = "main",
@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     exe.addCSourceFile(.{
-        .file = .{ .path = "main.c" },
+        .file = b.path("main.c"),
         .flags = &.{},
     });
     exe.link_gc_sections = false;

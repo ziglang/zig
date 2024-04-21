@@ -82,6 +82,9 @@ extern "C" {
     STDMETHOD(GetThreadContext)(THIS_ PVOID Context,ULONG ContextSize) PURE;
     STDMETHOD(SetThreadContext)(THIS_ PVOID Context,ULONG ContextSize) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugAdvanced,0xf2df5f53,0x071f,0x47bd,0x9d,0xe6,0x57,0x34,0xc3,0xfe,0xd6,0x89)
+#endif
 
 #define DEBUG_BREAKPOINT_CODE 0
 #define DEBUG_BREAKPOINT_DATA 1
@@ -140,6 +143,9 @@ extern "C" {
     STDMETHOD(SetOffsetExpression)(THIS_ PCSTR Expression) PURE;
     STDMETHOD(GetParameters)(THIS_ PDEBUG_BREAKPOINT_PARAMETERS Params) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugBreakpoint,0x5bd9d474,0x5975,0x423a,0xb8,0x8b,0x65,0xa8,0xe7,0x11,0x0e,0x65)
+#endif
 
 #define DEBUG_ATTACH_KERNEL_CONNECTION 0x00000000
 #define DEBUG_ATTACH_LOCAL_KERNEL 0x00000001
@@ -252,6 +258,9 @@ extern "C" {
     STDMETHOD(SetEventCallbacks)(THIS_ PDEBUG_EVENT_CALLBACKS Callbacks) PURE;
     STDMETHOD(FlushCallbacks)(THIS) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugClient,0x27fe5639,0x8407,0x4f47,0x83,0x64,0xee,0x11,0x8f,0xb0,0x8a,0xc8)
+#endif
 
 #define DEBUG_FORMAT_DEFAULT 0x00000000
 #define DEBUG_FORMAT_WRITE_CAB 0x20000000
@@ -331,6 +340,9 @@ extern "C" {
     STDMETHOD(DetachCurrentProcess)(THIS) PURE;
     STDMETHOD(AbandonCurrentProcess)(THIS) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugClient2,0xedbed635,0x372e,0x4dab,0xbb,0xfe,0xed,0x0d,0x2f,0x63,0xbe,0x81)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugClient3
@@ -397,6 +409,9 @@ extern "C" {
     STDMETHOD(CreateProcessWide)(THIS_ ULONG64 Server,PWSTR CommandLine,ULONG CreateFlags) PURE;
     STDMETHOD(CreateProcessAndAttachWide)(THIS_ ULONG64 Server,PWSTR CommandLine,ULONG CreateFlags,ULONG ProcessId,ULONG AttachFlags) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugClient3,0xdd492d7f,0x71b8,0x4ad6,0xa8,0xdc,0x1c,0x88,0x74,0x79,0xff,0x91)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugClient4
@@ -468,6 +483,9 @@ extern "C" {
     STDMETHOD(GetDumpFile)(THIS_ ULONG Index,PSTR Buffer,ULONG BufferSize,PULONG NameSize,PULONG64 Handle,PULONG Type) PURE;
     STDMETHOD(GetDumpFileWide)(THIS_ ULONG Index,PWSTR Buffer,ULONG BufferSize,PULONG NameSize,PULONG64 Handle,PULONG Type) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugClient4,0xca83c3de,0x5089,0x4cf8,0x93,0xc8,0xd8,0x92,0x38,0x7f,0x2a,0x5e)
+#endif
 
 #define DEBUG_STATUS_NO_CHANGE 0
 #define DEBUG_STATUS_GO 1
@@ -796,6 +814,9 @@ extern "C" {
     STDMETHOD(WaitForEvent)(THIS_ ULONG Flags,ULONG Timeout) PURE;
     STDMETHOD(GetLastEventInformation)(THIS_ PULONG Type,PULONG ProcessId,PULONG ThreadId,PVOID ExtraInformation,ULONG ExtraInformationSize,PULONG ExtraInformationUsed,PSTR Description,ULONG DescriptionSize,PULONG DescriptionUsed) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugControl,0x5182e668,0x105e,0x416e,0xad,0x92,0x24,0xef,0x80,0x04,0x24,0xba)
+#endif
 
 #define DEBUG_OUT_TEXT_REPL_DEFAULT 0x00000000
 
@@ -906,6 +927,9 @@ extern "C" {
     STDMETHOD(RemoveTextReplacements)(THIS) PURE;
     STDMETHOD(OutputTextReplacements)(THIS_ ULONG OutputControl,ULONG Flags) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugControl2,0xd4366723,0x44df,0x4bed,0x8c,0x7e,0x4c,0x05,0x42,0x4f,0x45,0x88)
+#endif
 
 #define DEBUG_ASMOPT_DEFAULT 0x00000000
 #define DEBUG_ASMOPT_VERBOSE 0x00000001
@@ -1040,6 +1064,9 @@ extern "C" {
     STDMETHOD(GetCurrentEventIndex)(THIS_ PULONG Index) PURE;
     STDMETHOD(SetNextEventIndex)(THIS_ ULONG Relation,ULONG Value,PULONG NextIndex) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugControl3,0x7df74a86,0xb03f,0x407f,0x90,0xab,0xa2,0x0d,0xad,0xce,0xad,0x08)
+#endif
 
 #define DEBUG_DATA_SPACE_VIRTUAL 0
 #define DEBUG_DATA_SPACE_PHYSICAL 1
@@ -1232,6 +1259,9 @@ extern "C" {
     STDMETHOD(ReadDebuggerData)(THIS_ ULONG Index,PVOID Buffer,ULONG BufferSize,PULONG DataSize) PURE;
     STDMETHOD(ReadProcessorSystemData)(THIS_ ULONG Processor,ULONG Index,PVOID Buffer,ULONG BufferSize,PULONG DataSize) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugDataSpaces,0x88f7dfab,0x3ea7,0x4c3a,0xae,0xfb,0xc4,0xe8,0x10,0x61,0x73,0xaa)
+#endif
 
 #define DEBUG_HANDLE_DATA_TYPE_BASIC 0
 #define DEBUG_HANDLE_DATA_TYPE_TYPE_NAME 1
@@ -1282,6 +1312,9 @@ extern "C" {
     STDMETHOD(FillPhysical)(THIS_ ULONG64 Start,ULONG Size,PVOID Pattern,ULONG PatternSize,PULONG Filled) PURE;
     STDMETHOD(QueryVirtual)(THIS_ ULONG64 Offset,PMEMORY_BASIC_INFORMATION64 Info) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugDataSpaces2,0x7a5e852f,0x96e9,0x468f,0xac,0x1b,0x0b,0x3a,0xdd,0xc4,0xa0,0x49)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugDataSpaces3
@@ -1322,6 +1355,9 @@ extern "C" {
     STDMETHOD(GetNextTagged)(THIS_ ULONG64 Handle,LPGUID Tag,PULONG Size) PURE;
     STDMETHOD(EndEnumTagged)(THIS_ ULONG64 Handle) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugDataSpaces3,0x23f79d6c,0x8aaf,0x4f7c,0xa6,0x07,0x99,0x95,0xf5,0x40,0x7e,0x63)
+#endif
 
 #define DEBUG_EVENT_BREAKPOINT 0x00000001
 #define DEBUG_EVENT_EXCEPTION 0x00000002
@@ -1400,6 +1436,9 @@ extern "C" {
     STDMETHOD(ChangeEngineState)(THIS_ ULONG Flags,ULONG64 Argument) PURE;
     STDMETHOD(ChangeSymbolState)(THIS_ ULONG Flags,ULONG64 Argument) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugEventCallbacks,0x337be28b,0x5036,0x4d72,0xb6,0xbf,0xc4,0x5f,0xbb,0x9f,0x2e,0xaa)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugInputCallbacks
@@ -1410,6 +1449,9 @@ extern "C" {
     STDMETHOD(StartInput)(THIS_ ULONG BufferSize) PURE;
     STDMETHOD(EndInput)(THIS) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugInputCallbacks,0x9f50e42c,0xf136,0x499e,0x9a,0x97,0x73,0x03,0x6c,0x94,0xed,0x2d)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugOutputCallbacks
@@ -1419,6 +1461,9 @@ extern "C" {
     STDMETHOD_(ULONG,Release)(THIS) PURE;
     STDMETHOD(Output)(THIS_ ULONG Mask,PCSTR Text) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugOutputCallbacks,0x4bf58045,0xd654,0x4c40,0xb0,0xaf,0x68,0x30,0x90,0xf3,0x56,0xdc)
+#endif
 
 #define DEBUG_REGISTER_SUB_REGISTER 0x00000001
 
@@ -1456,6 +1501,9 @@ extern "C" {
     STDMETHOD(GetStackOffset)(THIS_ PULONG64 Offset) PURE;
     STDMETHOD(GetFrameOffset)(THIS_ PULONG64 Offset) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugRegisters,0xce289126,0x9e84,0x45a7,0x93,0x7e,0x67,0xbb,0x18,0x69,0x14,0x93)
+#endif
 
 #define DEBUG_OUTPUT_SYMBOLS_DEFAULT 0x00000000
 #define DEBUG_OUTPUT_SYMBOLS_NO_NAMES 0x00000001
@@ -1502,6 +1550,9 @@ extern "C" {
     STDMETHOD(WriteSymbol)(THIS_ ULONG Index,PCSTR Value) PURE;
     STDMETHOD(OutputAsType)(THIS_ ULONG Index,PCSTR Type) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSymbolGroup,0xf2528316,0x0f1a,0x4431,0xae,0xed,0x11,0xd0,0x96,0xe1,0xe2,0xab)
+#endif
 
 #define DEBUG_MODULE_LOADED 0x00000000
 #define DEBUG_MODULE_UNLOADED 0x00000001
@@ -1608,6 +1659,9 @@ extern "C" {
     STDMETHOD(FindSourceFile)(THIS_ ULONG StartElement,PCSTR File,ULONG Flags,PULONG FoundElement,PSTR Buffer,ULONG BufferSize,PULONG FoundSize) PURE;
     STDMETHOD(GetSourceFileLineOffsets)(THIS_ PCSTR File,PULONG64 Buffer,ULONG BufferLines,PULONG FileLines) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSymbols,0x8c31e98c,0x983a,0x48a5,0x90,0x16,0x6f,0xe5,0xd6,0x67,0xa9,0x50)
+#endif
 
 #define DEBUG_MODNAME_IMAGE 0x00000000
 #define DEBUG_MODNAME_MODULE 0x00000001
@@ -1683,6 +1737,9 @@ extern "C" {
     STDMETHOD(RemoveTypeOptions)(THIS_ ULONG Options) PURE;
     STDMETHOD(SetTypeOptions)(THIS_ ULONG Options) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSymbols2,0x3a707211,0xafdd,0x4495,0xad,0x4f,0x56,0xfe,0xcd,0xf8,0x16,0x3f)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugSystemObjects
@@ -1720,6 +1777,9 @@ extern "C" {
     STDMETHOD(GetProcessIdByHandle)(THIS_ ULONG64 Handle,PULONG Id) PURE;
     STDMETHOD(GetCurrentProcessExecutableName)(THIS_ PSTR Buffer,ULONG BufferSize,PULONG ExeSize) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSystemObjects,0x6b86fe2c,0x2c4f,0x4f0c,0x9d,0xa2,0x17,0x43,0x11,0xac,0xc3,0x27)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugSystemObjects2
@@ -1762,6 +1822,9 @@ extern "C" {
     STDMETHOD(GetImplicitProcessDataOffset)(THIS_ PULONG64 Offset) PURE;
     STDMETHOD(SetImplicitProcessDataOffset)(THIS_ ULONG64 Offset) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSystemObjects2,0x0ae9f5ff,0x1852,0x4679,0xb0,0x55,0x49,0x4b,0xee,0x64,0x07,0xee)
+#endif
 
 #undef INTERFACE
 #define INTERFACE IDebugSystemObjects3
@@ -1813,6 +1876,9 @@ extern "C" {
     STDMETHOD(GetSystemByServer)(THIS_ ULONG64 Server,PULONG Id) PURE;
     STDMETHOD(GetCurrentSystemServerName)(THIS_ PSTR Buffer,ULONG BufferSize,PULONG NameSize) PURE;
   };
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDebugSystemObjects3,0xe9676e2f,0xe286,0x4ea3,0xb0,0xf9,0xdf,0xe5,0xd9,0xfc,0x33,0x0e)
+#endif
 
 #define DEBUG_COMMAND_EXCEPTION_ID 0xdbe00dbe
 

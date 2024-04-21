@@ -7,10 +7,15 @@ const Log2Int = math.Log2Int;
 /// Returns the logarithm of `x` for the provided `base`, rounding down to the nearest integer.
 /// Asserts that `base > 1` and `x > 0`.
 pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
-    if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
-        @compileError("log_int requires an unsigned integer, found " ++ @typeName(T));
+    const valid = switch (@typeInfo(T)) {
+        .ComptimeInt => true,
+        .Int => |IntType| IntType.signedness == .unsigned,
+        else => false,
+    };
+    if (!valid) @compileError("log_int requires an unsigned integer, found " ++ @typeName(T));
 
     assert(base > 1 and x > 0);
+    if (base == 2) return math.log2_int(T, x);
 
     // Let's denote by [y] the integer part of y.
 
@@ -55,7 +60,7 @@ pub fn log_int(comptime T: type, base: T, x: T) Log2Int(T) {
     return exponent;
 }
 
-test "math.log_int" {
+test "log_int" {
     // Test all unsigned integers with 2, 3, ..., 64 bits.
     // We cannot test 0 or 1 bits since base must be > 1.
     inline for (2..64 + 1) |bits| {
@@ -87,7 +92,7 @@ test "math.log_int" {
     }
 }
 
-test "math.log_int vs math.log2" {
+test "log_int vs math.log2" {
     const types = [_]type{ u2, u3, u4, u8, u16 };
     inline for (types) |T| {
         var n: T = 0;
@@ -100,7 +105,7 @@ test "math.log_int vs math.log2" {
     }
 }
 
-test "math.log_int vs math.log10" {
+test "log_int vs math.log10" {
     const types = [_]type{ u4, u5, u6, u8, u16 };
     inline for (types) |T| {
         var n: T = 0;
@@ -109,6 +114,15 @@ test "math.log_int vs math.log10" {
             const special = math.log10_int(n);
             const general = log_int(T, 10, n);
             try testing.expectEqual(special, general);
+        }
+    }
+}
+
+test "log_int at comptime" {
+    const x = 59049; // 9 ** 5;
+    comptime {
+        if (math.log_int(comptime_int, 9, x) != 5) {
+            @compileError("log(9, 59049) should be 5");
         }
     }
 }

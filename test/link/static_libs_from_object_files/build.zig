@@ -57,9 +57,9 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const exe = b.addExecutable(.{
             .name = "test1",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .optimize = optimize,
-            .target = .{},
+            .target = b.host,
         });
 
         for (files) |file| {
@@ -77,12 +77,12 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const lib_a = b.addStaticLibrary(.{
             .name = "test2_a",
-            .target = .{},
+            .target = b.host,
             .optimize = optimize,
         });
         const lib_b = b.addStaticLibrary(.{
             .name = "test2_b",
-            .target = .{},
+            .target = b.host,
             .optimize = optimize,
         });
 
@@ -93,7 +93,8 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
         const exe = b.addExecutable(.{
             .name = "test2",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
+            .target = b.host,
             .optimize = optimize,
         });
         exe.linkLibrary(lib_a);
@@ -110,19 +111,19 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const lib_a = b.addStaticLibrary(.{
             .name = "test3_a",
-            .target = .{},
+            .target = b.host,
             .optimize = optimize,
         });
         const lib_b = b.addStaticLibrary(.{
             .name = "test3_b",
-            .target = .{},
+            .target = b.host,
             .optimize = optimize,
         });
 
         for (files, 1..) |file, i| {
             const obj = b.addObject(.{
                 .name = b.fmt("obj_{}", .{i}),
-                .target = .{},
+                .target = b.host,
                 .optimize = optimize,
             });
             obj.addCSourceFile(.{ .file = file, .flags = &flags });
@@ -133,7 +134,8 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
         const exe = b.addExecutable(.{
             .name = "test3",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
+            .target = b.host,
             .optimize = optimize,
         });
         exe.linkLibrary(lib_a);

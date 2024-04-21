@@ -21,8 +21,12 @@ extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE
 uptr __sanitizer_get_estimated_allocated_size(uptr size);
 SANITIZER_INTERFACE_ATTRIBUTE int __sanitizer_get_ownership(const void *p);
+SANITIZER_INTERFACE_ATTRIBUTE const void *__sanitizer_get_allocated_begin(
+    const void *p);
 SANITIZER_INTERFACE_ATTRIBUTE uptr
 __sanitizer_get_allocated_size(const void *p);
+SANITIZER_INTERFACE_ATTRIBUTE uptr
+__sanitizer_get_allocated_size_fast(const void *p);
 SANITIZER_INTERFACE_ATTRIBUTE uptr __sanitizer_get_current_allocated_bytes();
 SANITIZER_INTERFACE_ATTRIBUTE uptr __sanitizer_get_heap_size();
 SANITIZER_INTERFACE_ATTRIBUTE uptr __sanitizer_get_free_bytes();

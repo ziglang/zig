@@ -62,6 +62,10 @@ void * __cdecl tfind (const void *, void * const *, int (*)(const void *, const 
 void * __cdecl tsearch (const void *, void **, int (*)(const void *, const void *)) __MINGW_ATTRIB_NONNULL (2) __MINGW_ATTRIB_NONNULL (3);
 void __cdecl twalk (const void *, void (*)(const void *, VISIT, int));
 
+#ifdef _GNU_SOURCE
+void __cdecl tdestroy(void *, void (*)(void *))  __MINGW_ATTRIB_NONNULL (2);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,11 +8,12 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
+        .target = b.host,
         .optimize = optimize,
     });
-    exe.addAnonymousModule("foo", .{
-        .source_file = .{ .path = "foo.zig" },
+    exe.root_module.addAnonymousImport("foo", .{
+        .root_source_file = b.path("foo.zig"),
     });
 
     const run = b.addRunArtifact(exe);

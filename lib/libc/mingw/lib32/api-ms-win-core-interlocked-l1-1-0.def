@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-core-interlocked-l1-1-0
+
+EXPORTS
+
+InitializeSListHead@4
+InterlockedCompareExchange@12
+InterlockedCompareExchange64@20
+InterlockedDecrement@4
+InterlockedExchange@8
+InterlockedExchangeAdd@8
+InterlockedFlushSList@4
+InterlockedIncrement@4
+InterlockedPopEntrySList@4
+InterlockedPushEntrySList@8
+QueryDepthSList@4

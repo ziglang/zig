@@ -76,7 +76,7 @@ pub fn Hmac(comptime Hash: type) type {
 
 const htest = @import("test.zig");
 
-test "hmac md5" {
+test "md5" {
     var out: [HmacMd5.mac_length]u8 = undefined;
     HmacMd5.create(out[0..], "", "");
     try htest.assertEqual("74e6f7298a9c2d168935f58c001bad88", out[0..]);
@@ -85,7 +85,7 @@ test "hmac md5" {
     try htest.assertEqual("80070713463e7749b90c2dc24911e275", out[0..]);
 }
 
-test "hmac sha1" {
+test "sha1" {
     var out: [HmacSha1.mac_length]u8 = undefined;
     HmacSha1.create(out[0..], "", "");
     try htest.assertEqual("fbdb1d1b18aa6c08324b7d64b71fb76370690e1d", out[0..]);
@@ -94,7 +94,7 @@ test "hmac sha1" {
     try htest.assertEqual("de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", out[0..]);
 }
 
-test "hmac sha256" {
+test "sha256" {
     var out: [sha2.HmacSha256.mac_length]u8 = undefined;
     sha2.HmacSha256.create(out[0..], "", "");
     try htest.assertEqual("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad", out[0..]);

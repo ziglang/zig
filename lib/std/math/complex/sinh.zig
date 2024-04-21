@@ -13,8 +13,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic sine of z.
-pub fn sinh(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn sinh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => sinh32(z),
         f64 => sinh64(z),
@@ -154,7 +154,7 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.csinh32" {
+test sinh32 {
     const a = Complex(f32).init(5, 3);
     const c = sinh(a);
 
@@ -162,7 +162,7 @@ test "complex.csinh32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 10.472508, epsilon));
 }
 
-test "complex.csinh64" {
+test sinh64 {
     const a = Complex(f64).init(5, 3);
     const c = sinh(a);
 

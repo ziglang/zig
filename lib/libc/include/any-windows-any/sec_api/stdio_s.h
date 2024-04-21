@@ -15,7 +15,7 @@
 #ifndef _SECIMP
 #define _SECIMP __declspec(dllimport)
 #endif /* _SECIMP */
-#endif /* defined(_CRTBLD) || defined(__LIBMSVCRT__) */
+#endif /* defined(__LIBMSVCRT__) */
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,21 @@ extern "C" {
   __mingw_ovr int __cdecl _vfscanf_s_l(FILE *_File, const char *_Format, _locale_t _Locale, va_list _ArgList)
   {
     return __stdio_common_vfscanf(_CRT_INTERNAL_SCANF_SECURECRT, _File, _Format, _Locale, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl vfscanf_s(FILE *_File, const char *_Format, va_list _ArgList)
+  {
+    return _vfscanf_s_l(_File, _Format, NULL, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl _vscanf_s_l(const char *_Format, _locale_t _Locale, va_list _ArgList)
+  {
+    return _vfscanf_s_l(stdin, _Format, _Locale, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl vscanf_s(const char *_Format, va_list _ArgList)
+  {
+    return _vfscanf_s_l(stdin, _Format, NULL, _ArgList);
   }
 
   __mingw_ovr int __cdecl _fscanf_s_l(FILE *_File, const char *_Format, _locale_t _Locale, ...)
@@ -86,6 +101,12 @@ extern "C" {
   {
     return __stdio_common_vfscanf(0, _File, _Format, _Locale, _ArgList);
   }
+
+  __mingw_ovr int __cdecl _vscanf_l(const char *_Format, _locale_t _Locale, va_list _ArgList)
+  {
+    return _vfscanf_l(stdin, _Format, _Locale, _ArgList);
+  }
+
   __mingw_ovr int __cdecl _fscanf_l(FILE *_File, const char *_Format, _locale_t _Locale, ...)
   {
     __builtin_va_list _ArgList;
@@ -571,6 +592,8 @@ extern "C" {
   _CRTIMP char* __cdecl gets_s(char*,rsize_t);
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(char*,get_s,char,_DstBuf)
 
+  _CRTIMP errno_t __cdecl tmpfile_s(FILE **_File);
+
   _CRTIMP errno_t __cdecl tmpnam_s(char*,rsize_t);
   __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_0(errno_t,tmpnam_s,char,_DstBuf)
 
@@ -588,6 +611,21 @@ extern "C" {
   __mingw_ovr int __cdecl _vfwscanf_s_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
   {
     return __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS | _CRT_INTERNAL_SCANF_SECURECRT, _File, _Format, _Locale, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl vfwscanf_s(FILE* _File, const wchar_t *_Format, va_list _ArgList)
+  {
+    return _vfwscanf_s_l(_File, _Format, NULL, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl _vwscanf_s_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
+  {
+    return _vfwscanf_s_l(stdin, _Format, _Locale, _ArgList);
+  }
+
+  __mingw_ovr int __cdecl vwscanf_s(const wchar_t *_Format, va_list _ArgList)
+  {
+    return _vfwscanf_s_l(stdin, _Format, NULL, _ArgList);
   }
 
   __mingw_ovr int __cdecl _fwscanf_s_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, ...)
@@ -634,6 +672,12 @@ extern "C" {
   {
     return __stdio_common_vswscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS | _CRT_INTERNAL_SCANF_SECURECRT, _Src, (size_t)-1, _Format, _Locale, _ArgList);
   }
+
+  __mingw_ovr int __cdecl vswscanf_s(const wchar_t *_Src, const wchar_t *_Format, va_list _ArgList)
+  {
+    return _vswscanf_s_l(_Src, _Format, NULL, _ArgList);
+  }
+
   __mingw_ovr int __cdecl _swscanf_s_l(const wchar_t *_Src, const wchar_t *_Format, _locale_t _Locale, ...)
   {
     __builtin_va_list _ArgList;

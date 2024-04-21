@@ -35,7 +35,7 @@ THIS SOFTWARE.
 #include "locale.h"
 #endif
 
-int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
+int gethex (const char **sp, const FPI *fpi, Long *expo, Bigint **bp, int sign)
 {
 	Bigint *b;
 	const unsigned char *decpt, *s0, *s, *s1;
@@ -62,8 +62,7 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 #endif
 #endif
 
-	if (!hexdig['0'])
-		hexdig_init_D2A();
+	/**** if (!hexdig['0']) hexdig_init_D2A(); ****/
 	*bp = 0;
 	havedig = 0;
 	s0 = *(const unsigned char **)sp + 2;
@@ -125,7 +124,7 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 		switch(*++s) {
 		  case '-':
 			esign = 1;
-			/* no break */
+			/* fallthrough */
 		  case '+':
 			s++;
 		}
@@ -177,7 +176,6 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 		  case FPI_Round_down:
 			if (sign)
 				goto ovfl1;
-			goto ret_big;
 		}
  ret_big:
 		nbits = fpi->nbits;
@@ -190,8 +188,8 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 		for(j = 0; j < n0; ++j)
 			b->x[j] = ALL_ON;
 		if (n > n0)
-			b->x[j] = ULbits >> (ULbits - (nbits & kmask));
-		*expo = fpi->emin;
+			b->x[j] = ALL_ON >> (ULbits - (nbits & kmask));
+		*expo = fpi->emax;
 		return STRTOG_Normal | STRTOG_Inexlo;
 	}
 	n = s1 - s0 - 1;
@@ -253,6 +251,17 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 		Bfree(b);
  ovfl1:
 		SET_ERRNO(ERANGE);
+		switch (fpi->rounding) {
+		  case FPI_Round_zero:
+			goto ret_big;
+		  case FPI_Round_down:
+			if (!sign)
+				goto ret_big;
+			break;
+		  case FPI_Round_up:
+			if (sign)
+				goto ret_big;
+		}
 		return STRTOG_Infinite | STRTOG_Overflow | STRTOG_Inexhi;
 	}
 	irv = STRTOG_Normal;
@@ -262,7 +271,7 @@ int gethex (const char **sp, FPI *fpi, Long *expo, Bigint **bp, int sign)
 		if (n >= nbits) {
 			switch (fpi->rounding) {
 			  case FPI_Round_near:
-				if (n == nbits && (n < 2 || any_on(b,n-1)))
+				if (n == nbits && (n < 2 || lostbits || any_on(b,n-1)))
 					goto one_bit;
 				break;
 			  case FPI_Round_up:

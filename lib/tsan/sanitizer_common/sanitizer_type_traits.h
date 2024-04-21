@@ -13,6 +13,8 @@
 #ifndef SANITIZER_TYPE_TRAITS_H
 #define SANITIZER_TYPE_TRAITS_H
 
+#include "sanitizer_common/sanitizer_internal_defs.h"
+
 namespace __sanitizer {
 
 struct true_type {
@@ -56,6 +58,83 @@ template <class T, class F>
 struct conditional<false, T, F> {
   using type = F;
 };
+
+template <class T>
+struct remove_reference {
+  using type = T;
+};
+template <class T>
+struct remove_reference<T&> {
+  using type = T;
+};
+template <class T>
+struct remove_reference<T&&> {
+  using type = T;
+};
+
+template <class T>
+WARN_UNUSED_RESULT inline typename remove_reference<T>::type&& move(T&& t) {
+  return static_cast<typename remove_reference<T>::type&&>(t);
+}
+
+template <class T>
+WARN_UNUSED_RESULT inline constexpr T&& forward(
+    typename remove_reference<T>::type& t) {
+  return static_cast<T&&>(t);
+}
+
+template <class T>
+WARN_UNUSED_RESULT inline constexpr T&& forward(
+    typename remove_reference<T>::type&& t) {
+  return static_cast<T&&>(t);
+}
+
+template <class T, T v>
+struct integral_constant {
+  static constexpr const T value = v;
+  typedef T value_type;
+  typedef integral_constant type;
+  constexpr operator value_type() const { return value; }
+  constexpr value_type operator()() const { return value; }
+};
+
+#ifndef __has_builtin
+#  define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__is_trivially_destructible)
+
+template <class T>
+struct is_trivially_destructible
+    : public integral_constant<bool, __is_trivially_destructible(T)> {};
+
+#elif __has_builtin(__has_trivial_destructor)
+
+template <class T>
+struct is_trivially_destructible
+    : public integral_constant<bool, __has_trivial_destructor(T)> {};
+
+#else
+
+template <class T>
+struct is_trivially_destructible
+    : public integral_constant<bool, /* less efficient fallback */ false> {};
+
+#endif
+
+#if __has_builtin(__is_trivially_copyable)
+
+template <class T>
+struct is_trivially_copyable
+    : public integral_constant<bool, __is_trivially_copyable(T)> {};
+
+#else
+
+template <class T>
+struct is_trivially_copyable
+    : public integral_constant<bool, /* less efficient fallback */ false> {};
+
+#endif
 
 }  // namespace __sanitizer
 

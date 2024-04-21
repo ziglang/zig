@@ -1,0 +1,18 @@
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+
+#define INITGUID
+#include <basetyps.h>
+
+// These IIDs are used for IContextCallback::ContextCallback (ctxtcall.h)
+// according to various sources.
+
+DEFINE_GUID(IID_IContextCallback,0x000001da,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
+DEFINE_GUID(IID_ICallbackWithNoReentrancyToApplicationSTA,0x0a299774,0x3e4e,0xfc42,0x1d,0x9d,0x72,0xce,0xe1,0x05,0xca,0x57);
+DEFINE_GUID(IID_IEnterActivityWithNoLock,0xd7174f82,0x36b8,0x4aa8,0x80,0x0a,0xe9,0x63,0xab,0x2d,0xfa,0xb9);
+
+// This CLSID is used to create IContextCallback.
+DEFINE_GUID(CLSID_ContextSwitcher,0x0000034e,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);

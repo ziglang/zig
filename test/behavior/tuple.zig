@@ -135,7 +135,7 @@ test "array-like initializer for tuple types" {
     const T = @Type(.{
         .Struct = .{
             .is_tuple = true,
-            .layout = .Auto,
+            .layout = .auto,
             .decls = &.{},
             .fields = &.{
                 .{
@@ -222,7 +222,7 @@ test "fieldParentPtr of tuple" {
     var x: u32 = 0;
     _ = &x;
     const tuple = .{ x, x };
-    try testing.expect(&tuple == @fieldParentPtr(@TypeOf(tuple), "1", &tuple[1]));
+    try testing.expect(&tuple == @as(@TypeOf(&tuple), @fieldParentPtr("1", &tuple[1])));
 }
 
 test "fieldParentPtr of anon struct" {
@@ -233,7 +233,7 @@ test "fieldParentPtr of anon struct" {
     var x: u32 = 0;
     _ = &x;
     const anon_st = .{ .foo = x, .bar = x };
-    try testing.expect(&anon_st == @fieldParentPtr(@TypeOf(anon_st), "bar", &anon_st.bar));
+    try testing.expect(&anon_st == @as(@TypeOf(&anon_st), @fieldParentPtr("bar", &anon_st.bar)));
 }
 
 test "offsetOf tuple" {
@@ -323,7 +323,7 @@ test "zero sized struct in tuple handled correctly" {
         data: @Type(.{
             .Struct = .{
                 .is_tuple = true,
-                .layout = .Auto,
+                .layout = .auto,
                 .decls = &.{},
                 .fields = &.{.{
                     .name = "0",
@@ -386,7 +386,7 @@ test "tuple of struct concatenation and coercion to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const StructWithDefault = struct { value: f32 = 42 };
     const SomeStruct = struct { array: [4]StructWithDefault };
@@ -471,7 +471,7 @@ test "coerce anon tuple to tuple" {
 
 test "empty tuple type" {
     const S = @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &.{},
         .decls = &.{},
         .is_tuple = true,
@@ -479,4 +479,98 @@ test "empty tuple type" {
 
     const s: S = .{};
     try expect(s.len == 0);
+}
+
+test "tuple with comptime fields with non empty initializer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const a: struct { comptime comptime_int = 0 } = .{0};
+    _ = a;
+}
+
+test "tuple with runtime value coerced into a slice with a sentinel" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn f(a: [:null]const ?u8) !void {
+            try expect(a[0] == 42);
+        }
+    };
+
+    const c: u8 = 42;
+    try S.f(&[_:null]?u8{c});
+    try S.f(&.{c});
+
+    var v: u8 = 42;
+    _ = &v;
+    try S.f(&[_:null]?u8{v});
+    try S.f(&.{v});
+}
+
+test "tuple implicitly coerced to optional/error union struct/union" {
+    const SomeUnion = union(enum) {
+        variant: u8,
+    };
+    const SomeStruct = struct {
+        struct_field: u8,
+    };
+    const OptEnum = struct {
+        opt_union: ?SomeUnion,
+    };
+    const ErrEnum = struct {
+        err_union: anyerror!SomeUnion,
+    };
+    const OptStruct = struct {
+        opt_struct: ?SomeStruct,
+    };
+    const ErrStruct = struct {
+        err_struct: anyerror!SomeStruct,
+    };
+
+    try expect((OptEnum{
+        .opt_union = .{
+            .variant = 1,
+        },
+    }).opt_union.?.variant == 1);
+
+    try expect(((ErrEnum{
+        .err_union = .{
+            .variant = 1,
+        },
+    }).err_union catch unreachable).variant == 1);
+
+    try expect((OptStruct{
+        .opt_struct = .{
+            .struct_field = 1,
+        },
+    }).opt_struct.?.struct_field == 1);
+
+    try expect(((ErrStruct{
+        .err_struct = .{
+            .struct_field = 1,
+        },
+    }).err_struct catch unreachable).struct_field == 1);
+}
+
+test "comptime fields in tuple can be initialized" {
+    const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
+    var a: T = .{ 0, 0 };
+    _ = &a;
+}
+
+test "tuple default values" {
+    const T = struct {
+        usize,
+        usize = 123,
+        usize = 456,
+    };
+
+    const t: T = .{1};
+
+    try expectEqual(1, t[0]);
+    try expectEqual(123, t[1]);
+    try expectEqual(456, t[2]);
 }

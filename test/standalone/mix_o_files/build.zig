@@ -5,11 +5,11 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
+    const target = b.host;
 
     const obj = b.addObject(.{
         .name = "base64",
-        .root_source_file = .{ .path = "base64.zig" },
+        .root_source_file = b.path("base64.zig"),
         .optimize = optimize,
         .target = target,
     });
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
     exe.addCSourceFile(.{
-        .file = .{ .path = "test.c" },
+        .file = b.path("test.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
     exe.addObject(obj);

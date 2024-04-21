@@ -20,8 +20,8 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub const ActiveFields = std.enums.EnumFieldStruct(FieldEnum, bool, false);
         pub const FieldValues = blk: {
-            comptime var fields: [bit_count]Type.StructField = undefined;
-            inline for (@typeInfo(Fields).Struct.fields, 0..) |struct_field, i| {
+            var fields: [bit_count]Type.StructField = undefined;
+            for (@typeInfo(Fields).Struct.fields, 0..) |struct_field, i| {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
                     .type = ?struct_field.type,
@@ -32,7 +32,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
             }
             break :blk @Type(.{
                 .Struct = .{
-                    .layout = .Auto,
+                    .layout = .auto,
                     .fields = &fields,
                     .decls = &.{},
                     .is_tuple = false,
@@ -132,7 +132,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
     };
 }
 
-test "TrailerFlags" {
+test TrailerFlags {
     const Flags = TrailerFlags(struct {
         a: i32,
         b: bool,

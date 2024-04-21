@@ -1,18 +1,9 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.888+130227492"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.2073+402fe565a"
 $MCPU = "baseline"
-$ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
-$PREFIX_PATH = "$(Get-Location)\$ZIG_LLVM_CLANG_LLD_NAME"
+$PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
-
-choco install ninja
-Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
-Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$ZIG_LLVM_CLANG_LLD_NAME.zip"
-
-Write-Output "Extracting..."
-Add-Type -AssemblyName System.IO.Compression.FileSystem ;
-[System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD")
 
 function CheckLastExitCode {
     if (!$?) {
@@ -23,7 +14,6 @@ function CheckLastExitCode {
 
 # Make the `zig version` number consistent.
 # This will affect the `zig build` command below which uses `git describe`.
-git config core.abbrev 9
 git fetch --tags
 
 if ((git rev-parse --is-shallow-repository) -eq "true") {
@@ -44,6 +34,8 @@ Set-Location -Path 'build-debug'
   -DCMAKE_BUILD_TYPE=Debug `
   -DCMAKE_C_COMPILER="$($ZIG -Replace "\\", "/");cc;-target;$TARGET;-mcpu=$MCPU" `
   -DCMAKE_CXX_COMPILER="$($ZIG -Replace "\\", "/");c++;-target;$TARGET;-mcpu=$MCPU" `
+  -DCMAKE_AR="$($ZIG -Replace "\\", "/")" `
+  -DZIG_AR_WORKAROUND=ON `
   -DZIG_TARGET_TRIPLE="$TARGET" `
   -DZIG_TARGET_MCPU="$MCPU" `
   -DZIG_STATIC=ON `
@@ -67,8 +59,6 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 & "stage3-debug\bin\zig.exe" test `
   ..\test\behavior.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
-  -I..\test `
-  -I..\lib `
   -ofmt=c `
   -femit-bin="test-x86_64-windows-msvc.c" `
   --test-no-exec `
@@ -77,29 +67,28 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 CheckLastExitCode
 
 & "stage3-debug\bin\zig.exe" build-obj `
-  ..\lib\compiler_rt.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   -ofmt=c `
   -OReleaseSmall `
   --name compiler_rt `
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
-  --mod build_options::config.zig `
-  --deps build_options `
-  -target x86_64-windows-msvc
+  --dep build_options `
+  -target x86_64-windows-msvc `
+  --mod root ..\lib\compiler_rt.zig `
+  --mod build_options config.zig
 CheckLastExitCode
 
-Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
 CheckLastExitCode
 
-Enter-VsDevShell -VsInstallPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" `
+Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools" `
   -DevCmdArguments '-arch=x64 -no_logo' `
   -StartInPath $(Get-Location)
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-Write-Output "Skipped due to https://github.com/ziglang/zig/issues/17817"
-#& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
-#CheckLastExitCode
-#
-#& .\test-x86_64-windows-msvc.exe
-#CheckLastExitCode
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
+CheckLastExitCode
+
+& .\test-x86_64-windows-msvc.exe
+CheckLastExitCode

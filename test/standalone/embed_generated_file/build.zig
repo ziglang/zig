@@ -6,20 +6,20 @@ pub fn build(b: *std.Build) void {
 
     const bootloader = b.addExecutable(.{
         .name = "bootloader",
-        .root_source_file = .{ .path = "bootloader.zig" },
-        .target = .{
+        .root_source_file = b.path("bootloader.zig"),
+        .target = b.resolveTargetQuery(.{
             .cpu_arch = .x86,
             .os_tag = .freestanding,
-        },
+        }),
         .optimize = .ReleaseSmall,
     });
 
     const exe = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = .Debug,
     });
-    exe.addAnonymousModule("bootloader.elf", .{
-        .source_file = bootloader.getEmittedBin(),
+    exe.root_module.addAnonymousImport("bootloader.elf", .{
+        .root_source_file = bootloader.getEmittedBin(),
     });
 
     // TODO: actually check the output

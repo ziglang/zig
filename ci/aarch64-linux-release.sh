@@ -12,11 +12,10 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
-git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 
@@ -30,8 +29,8 @@ cd build-release
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
@@ -68,7 +67,7 @@ stage3-release/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
+  --zig-lib-dir "$PWD/../lib"
 
 # Look for HTML errors.
 # TODO: move this to a build.zig flag (-Denable-tidy)
@@ -81,8 +80,8 @@ rm -rf ../build-new
 mkdir ../build-new
 cd ../build-new
 
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
@@ -100,11 +99,11 @@ unset CXX
 
 ninja install
 
-stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig test ../test/behavior.zig
 stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
-stage4/bin/zig test ../test/behavior.zig -I../test
+  --zig-lib-dir "$PWD/../lib"
+stage4/bin/zig test ../test/behavior.zig

@@ -454,18 +454,19 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         }
 
-        pub usingnamespace if (config.retain_metadata) struct {
-            pub fn flushRetainedMetadata(self: *Self) void {
-                self.freeRetainedMetadata();
-                // also remove entries from large_allocations
-                var it = self.large_allocations.iterator();
-                while (it.next()) |large| {
-                    if (large.value_ptr.freed) {
-                        _ = self.large_allocations.remove(@intFromPtr(large.value_ptr.bytes.ptr));
-                    }
+        pub fn flushRetainedMetadata(self: *Self) void {
+            if (!config.retain_metadata) {
+                @compileError("'flushRetainedMetadata' requires 'config.retain_metadata = true'");
+            }
+            self.freeRetainedMetadata();
+            // also remove entries from large_allocations
+            var it = self.large_allocations.iterator();
+            while (it.next()) |large| {
+                if (large.value_ptr.freed) {
+                    _ = self.large_allocations.remove(@intFromPtr(large.value_ptr.bytes.ptr));
                 }
             }
-        } else struct {};
+        }
 
         /// Returns `Check.leak` if there were leaks; `Check.ok` otherwise.
         pub fn deinit(self: *Self) Check {

@@ -26,6 +26,10 @@
 #ifndef __HIDPI_H__
 #define __HIDPI_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
 
 #include <pshpack4.h>
@@ -257,5 +261,9 @@ NTSTATUS NTAPI HidP_TranslateUsagesToI8042ScanCodes (PUSAGE ChangedUsageList, UL
 
 #include <poppack.h>
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 #endif

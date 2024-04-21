@@ -8,7 +8,6 @@ LIBRARY NTLANMAN.dll
 EXPORTS
 NPGetConnection
 NPGetCaps
-DllMain
 I_SystemFocusDialog
 NPGetUser
 NPAddConnection

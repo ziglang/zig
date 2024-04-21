@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-sysinfo-l1-2-1
+
+EXPORTS
+
+GetPhysicallyInstalledSystemMemory@4

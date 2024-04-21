@@ -151,6 +151,8 @@ int Atexit(void (*function)(void)) {
 #endif
 }
 
+bool CreateDir(const char *pathname) { return mkdir(pathname, 0755) == 0; }
+
 bool SupportsColoredOutput(fd_t fd) {
   return isatty(fd) != 0;
 }
@@ -288,7 +290,7 @@ bool IsAccessibleMemoryRange(uptr beg, uptr size) {
   return result;
 }
 
-void PlatformPrepareForSandboxing(__sanitizer_sandbox_arguments *args) {
+void PlatformPrepareForSandboxing(void *args) {
   // Some kinds of sandboxes may forbid filesystem access, so we won't be able
   // to read the file mappings from /proc/self/maps. Luckily, neither the
   // process will be able to load additional libraries, so it's fine to use the
@@ -381,8 +383,8 @@ SANITIZER_WEAK_ATTRIBUTE int
 real_pthread_attr_getstack(void *attr, void **addr, size_t *size);
 } // extern "C"
 
-int my_pthread_attr_getstack(void *attr, void **addr, uptr *size) {
-#if !SANITIZER_GO && !SANITIZER_MAC
+int internal_pthread_attr_getstack(void *attr, void **addr, uptr *size) {
+#if !SANITIZER_GO && !SANITIZER_APPLE
   if (&real_pthread_attr_getstack)
     return real_pthread_attr_getstack((pthread_attr_t *)attr, addr,
                                       (size_t *)size);
@@ -395,7 +397,7 @@ void AdjustStackSize(void *attr_) {
   pthread_attr_t *attr = (pthread_attr_t *)attr_;
   uptr stackaddr = 0;
   uptr stacksize = 0;
-  my_pthread_attr_getstack(attr, (void**)&stackaddr, &stacksize);
+  internal_pthread_attr_getstack(attr, (void **)&stackaddr, &stacksize);
   // GLibC will return (0 - stacksize) as the stack address in the case when
   // stacksize is set, but stackaddr is not.
   bool stack_set = (stackaddr != 0) && (stackaddr + stacksize != 0);

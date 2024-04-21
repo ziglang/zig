@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
+const Module = @import("Package/Module.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
@@ -19,10 +20,50 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const root_name = "unwind";
     const output_mode = .Lib;
-    const link_mode = .Static;
-    const target = comp.getTarget();
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = .Lib,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = comp.compilerRtOptMode(),
+        .root_strip = comp.compilerRtStrip(),
+        .link_libc = true,
+        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
+        .lto = false,
+    });
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = comp.compilerRtStrip(),
+            .stack_check = false,
+            .stack_protector = 0,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .sanitize_c = false,
+            .sanitize_thread = false,
+            .unwind_tables = false,
+            .pic = comp.root_mod.pic,
+            .optimize_mode = comp.compilerRtOptMode(),
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
+    });
+
+    const root_name = "unwind";
+    const link_mode = .static;
+    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -64,10 +105,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         // defines will be correct.
         try cflags.append("-D_LIBUNWIND_IS_NATIVE_ONLY");
 
-        if (comp.bin_file.options.optimize_mode == .Debug) {
+        if (comp.root_mod.optimize_mode == .Debug) {
             try cflags.append("-D_DEBUG");
         }
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
         if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {
@@ -80,49 +121,32 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
             .extra_flags = cflags.items,
+            .owner = root_mod,
         };
     }
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+        .self_exe_path = comp.self_exe_path,
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .config = config,
+        .root_mod = root_mod,
         .cache_mode = .whole,
-        .target = target,
         .root_name = root_name,
         .main_mod = null,
-        .output_mode = output_mode,
         .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
+        .libc_installation = comp.libc_installation,
         .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .link_mode = link_mode,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = false,
-        .want_pic = comp.bin_file.options.pic,
-        .want_pie = null,
-        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .want_lto = false,
-        .function_sections = comp.bin_file.options.function_sections,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
-        .self_exe_path = comp.self_exe_path,
+        .function_sections = comp.function_sections,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .link_libc = true,
         .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
@@ -130,13 +154,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libunwind, prog_node);
 
     assert(comp.libunwind_static_lib == null);
-
-    comp.libunwind_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
 }
 
 const unwind_src_list = [_][]const u8{

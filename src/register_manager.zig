@@ -59,7 +59,7 @@ pub fn RegisterManager(
         pub const RegisterBitSet = StaticBitSet(tracked_registers.len);
 
         fn getFunction(self: *Self) *Function {
-            return @fieldParentPtr(Function, "register_manager", self);
+            return @alignCast(@fieldParentPtr("register_manager", self));
         }
 
         fn excludeRegister(reg: Register, register_class: RegisterBitSet) bool {

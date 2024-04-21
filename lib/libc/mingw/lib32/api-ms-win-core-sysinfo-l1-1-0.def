@@ -1,0 +1,26 @@
+LIBRARY api-ms-win-core-sysinfo-l1-1-0
+
+EXPORTS
+
+GetComputerNameExA@12
+GetComputerNameExW@12
+GetLocalTime@4
+GetLogicalProcessorInformation@8
+GetLogicalProcessorInformationEx@12
+GetSystemDirectoryA@8
+GetSystemDirectoryW@8
+GetSystemInfo@4
+GetSystemTime@4
+GetSystemTimeAdjustment@12
+GetSystemTimeAsFileTime@4
+GetSystemWindowsDirectoryA@8
+GetSystemWindowsDirectoryW@8
+GetTickCount@0
+GetTickCount64@0
+GetVersion@0
+GetVersionExA@4
+GetVersionExW@4
+GetWindowsDirectoryA@8
+GetWindowsDirectoryW@8
+GlobalMemoryStatusEx@4
+SetLocalTime@4

@@ -1,0 +1,38 @@
+LIBRARY api-ms-win-crt-conio-l1-1-0
+
+EXPORTS
+
+__conio_common_vcprintf
+__conio_common_vcprintf_p
+__conio_common_vcprintf_s
+__conio_common_vcscanf
+__conio_common_vcwprintf
+__conio_common_vcwprintf_p
+__conio_common_vcwprintf_s
+__conio_common_vcwscanf
+_cgets
+_cgets_s
+_cgetws
+_cgetws_s
+_cputs
+_cputws
+_getch
+getch == _getch
+_getch_nolock
+_getche
+getche == _getche
+_getche_nolock
+_getwch
+_getwch_nolock
+_getwche
+_getwche_nolock
+_putch
+putch == _putch
+_putch_nolock
+_putwch
+_putwch_nolock
+_ungetch
+ungetch == _ungetch
+_ungetch_nolock
+_ungetwch
+_ungetwch_nolock

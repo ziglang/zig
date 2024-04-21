@@ -21,7 +21,7 @@
 #ifndef _SECIMP
 #define _SECIMP __declspec(dllimport)
 #endif /* _SECIMP */
-#endif /* defined(_CRTBLD) || defined(__LIBMSVCRT__) */
+#endif /* defined(__LIBMSVCRT__) */
 
 #pragma pack(push,_CRT_PACKING)
 
@@ -890,6 +890,12 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   {
     return __stdio_common_vfwscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _File, _Format, _Locale, _ArgList);
   }
+
+  __mingw_ovr int __cdecl _vwscanf_l(const wchar_t *_Format, _locale_t _Locale, va_list _ArgList)
+  {
+    return _vfwscanf_l(stdin, _Format, _Locale, _ArgList);
+  }
+
   __mingw_ovr int __cdecl _fwscanf_l(FILE *_File, const wchar_t *_Format, _locale_t _Locale, ...)
   {
     __builtin_va_list _ArgList;
@@ -1259,7 +1265,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
   float __cdecl __mingw_wcstof(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr);
   long double __cdecl __mingw_wcstold(const wchar_t * __restrict__, wchar_t ** __restrict__);
 
-#if __USE_MINGW_STRTOX
+#if defined(__USE_MINGW_STRTOX) && !defined(_UCRT)
   __mingw_ovr
   double __cdecl wcstod(const wchar_t * __restrict__ _Str,wchar_t ** __restrict__ _EndPtr){
     return __mingw_wcstod(_Str,_EndPtr);
@@ -1272,7 +1278,7 @@ int vsnwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, __builti
 #else
   double __cdecl wcstod(const wchar_t * __restrict__ _Str,wchar_t ** __restrict__ _EndPtr);
   float __cdecl wcstof(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr);
-#endif /* defined(__USE_MINGW_STRTOX) */
+#endif /* !defined(__USE_MINGW_STRTOX) || defined(_UCRT) */
 #if !defined __NO_ISOCEXT /* in libmingwex.a */
   long double __cdecl wcstold (const wchar_t * __restrict__, wchar_t ** __restrict__);
 #endif /* __NO_ISOCEXT */

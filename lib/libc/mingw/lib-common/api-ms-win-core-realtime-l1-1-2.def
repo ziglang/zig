@@ -5,8 +5,3 @@ EXPORTS
 ConvertAuxiliaryCounterToPerformanceCounter
 ConvertPerformanceCounterToAuxiliaryCounter
 QueryAuxiliaryCounterFrequency
-QueryInterruptTime
-QueryInterruptTimePrecise
-QueryThreadCycleTime
-QueryUnbiasedInterruptTime
-QueryUnbiasedInterruptTimePrecise

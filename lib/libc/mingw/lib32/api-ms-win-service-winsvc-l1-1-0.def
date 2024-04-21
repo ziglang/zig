@@ -1,0 +1,20 @@
+LIBRARY api-ms-win-service-winsvc-l1-1-0
+
+EXPORTS
+
+ChangeServiceConfig2A@12
+ChangeServiceConfigA@44
+ControlService@12
+ControlServiceExA@16
+CreateServiceA@52
+NotifyServiceStatusChangeA@12
+OpenSCManagerA@12
+OpenServiceA@12
+QueryServiceConfig2A@20
+QueryServiceConfigA@16
+QueryServiceStatus@8
+RegisterServiceCtrlHandlerA@8
+RegisterServiceCtrlHandlerExA@12
+RegisterServiceCtrlHandlerW@8
+StartServiceA@12
+StartServiceCtrlDispatcherA@4

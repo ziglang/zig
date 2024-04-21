@@ -270,8 +270,8 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 {
 	int abe, abits, asub;
 	int bb0, bb2, bb5, bbe, bd2, bd5, bbbits, bs2, c, decpt, denorm;
-	int dsign, e, e1, e2, emin, esign, finished, i, inex, irv;
-	int j, k, nbits, nd, nd0, nf, nz, nz0, rd, rvbits, rve, rve1, sign;
+	int dsign, e, e1, e2, emin, esign, finished, i, inex, irv, j, k;
+	int nbits, nd, nd0, nf, nz, nz0, rd, rvbits, rve, rve1, sign;
 	int sudden_underflow;
 	const char *s, *s0, *s1;
 	double adj0, tol;
@@ -309,11 +309,11 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 	for(s = s00;;s++) switch(*s) {
 		case '-':
 			sign = 1;
-			/* no break */
+			/* fallthrough */
 		case '+':
 			if (*++s)
 				goto break2;
-			/* no break */
+			/* fallthrough */
 		case 0:
 			sign = 0;
 			irv = STRTOG_NoNumber;
@@ -411,8 +411,10 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 		switch(c = *++s) {
 			case '-':
 				esign = 1;
+				/* fallthrough */
 			case '+':
 				c = *++s;
+				/* fallthrough */
 		}
 		if (c >= '0' && c <= '9') {
 			while(c == '0')
@@ -494,7 +496,7 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 
 	if (!nd0)
 		nd0 = nd;
-	k = nd < DBL_DIG + 1 ? nd : DBL_DIG + 1;
+	k = nd < DBL_DIG + 2 ? nd : DBL_DIG + 2;
 	dval(&rv) = y;
 	if (k > 9)
 		dval(&rv) = tens[k - 9] * dval(&rv) + z;
@@ -921,20 +923,31 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 	Bfree(bd0);
 	Bfree(delta);
 	if (rve > fpi->emax) {
-		switch(fpi->rounding & 3) {
-		  case FPI_Round_near:
-			goto huge;
-		  case FPI_Round_up:
-			if (!sign)
-				goto huge;
-			break;
-		  case FPI_Round_down:
-			if (sign)
-				goto huge;
-		}
-		/* Round to largest representable magnitude */
+huge:
 		Bfree(rvb);
 		rvb = 0;
+		SET_ERRNO(ERANGE);
+		switch(fpi->rounding & 3) {
+		  case FPI_Round_up:
+			if (!sign)
+				goto ret_inf;
+			break;
+		  case FPI_Round_down:
+			if (!sign)
+				break;
+			/* fallthrough */
+		  case FPI_Round_near:
+ ret_inf:
+			irv = STRTOG_Infinite | STRTOG_Overflow | STRTOG_Inexhi;
+			k = nbits >> kshift;
+			if (nbits & kmask)
+				++k;
+			memset(bits, 0, k*sizeof(ULong));
+ infnanexp:
+			*expo = fpi->emax + 1;
+			goto ret;
+		}
+		/* Round to largest representable magnitude */
 		irv = STRTOG_Normal | STRTOG_Inexlo;
 		*expo = fpi->emax;
 		b = bits;
@@ -943,13 +956,6 @@ int __strtodg (const char *s00, char **se, FPI *fpi, Long *expo, ULong *bits)
 			*b++ = -1;
 		if ((j = fpi->nbits & 0x1f))
 			*--be >>= (32 - j);
-		goto ret;
- huge:
-		rvb->wds = 0;
-		irv = STRTOG_Infinite | STRTOG_Overflow | STRTOG_Inexhi;
-		SET_ERRNO(ERANGE);
- infnanexp:
-		*expo = fpi->emax + 1;
 	}
  ret:
 	if (denorm) {

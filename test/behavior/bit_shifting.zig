@@ -109,3 +109,52 @@ test "comptime shr of BigInt" {
 test "comptime shift safety check" {
     _ = @as(usize, 42) << @sizeOf(usize);
 }
+
+test "Saturating Shift Left where lhs is of a computed type" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn getIntShiftType(comptime T: type) type {
+            var unsigned_shift_type = @typeInfo(std.math.Log2Int(T)).Int;
+            unsigned_shift_type.signedness = .signed;
+
+            return @Type(.{
+                .Int = unsigned_shift_type,
+            });
+        }
+
+        pub fn FixedPoint(comptime value_type: type) type {
+            return struct {
+                value: value_type,
+                exponent: ShiftType,
+
+                const ShiftType: type = getIntShiftType(value_type);
+
+                pub fn shiftExponent(self: @This(), shift: ShiftType) @This() {
+                    const shiftAbs = @abs(shift);
+                    return .{ .value = if (shift >= 0) self.value >> shiftAbs else self.value <<| shiftAbs, .exponent = self.exponent + shift };
+                }
+            };
+        }
+    };
+
+    const FP = S.FixedPoint(i32);
+
+    const value = (FP{
+        .value = 1,
+        .exponent = 1,
+    }).shiftExponent(-1);
+
+    try expect(value.value == 2);
+    try expect(value.exponent == 0);
+}
+
+comptime {
+    var image: [1]u8 = undefined;
+    _ = &image;
+    _ = @shlExact(@as(u16, image[0]), 8);
+}

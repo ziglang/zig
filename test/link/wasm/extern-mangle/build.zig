@@ -13,8 +13,8 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const lib = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = .{ .path = "lib.zig" },
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .root_source_file = b.path("lib.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
     });
     lib.entry = .disabled;
@@ -22,7 +22,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib.rdynamic = true; // export `foo`
 
     const check_lib = lib.checkObject();
-    check_lib.checkStart();
+    check_lib.checkInHeaders();
     check_lib.checkExact("Section import");
     check_lib.checkExact("entries 2"); // a.hello & b.hello
     check_lib.checkExact("module a");

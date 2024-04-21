@@ -5,7 +5,6 @@
 ;
 LIBRARY "P2P.dll"
 EXPORTS
-DllMain@12
 PeerCollabAddContact@8
 PeerCollabAsyncInviteContact@20
 PeerCollabAsyncInviteEndpoint@16

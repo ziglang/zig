@@ -10,7 +10,7 @@ fn id(x: u32) u32 {
 
 fn print(len: u32) void {
     const str = "Hello, World!\n";
-    _ = std.os.write(1, str[0..len]) catch {};
+    _ = std.posix.write(1, str[0..len]) catch {};
 }
 
 // run

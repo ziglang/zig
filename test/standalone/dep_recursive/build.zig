@@ -7,16 +7,17 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const foo = b.createModule(.{
-        .source_file = .{ .path = "foo.zig" },
+        .root_source_file = b.path("foo.zig"),
     });
-    foo.dependencies.put("foo", foo) catch @panic("OOM");
+    foo.addImport("foo", foo);
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
+        .target = b.host,
         .optimize = optimize,
     });
-    exe.addModule("foo", foo);
+    exe.root_module.addImport("foo", foo);
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

@@ -107,7 +107,8 @@ pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base:
         .ptr_width = coff_file.ptr_width,
     };
 
-    switch (coff_file.base.options.target.cpu.arch) {
+    const target = coff_file.base.comp.root_mod.resolved_target.result;
+    switch (target.cpu.arch) {
         .aarch64 => self.resolveAarch64(ctx),
         .x86, .x86_64 => self.resolveX86(ctx),
         else => unreachable, // unhandled target architecture

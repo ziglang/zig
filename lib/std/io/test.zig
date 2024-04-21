@@ -1,6 +1,6 @@
 const std = @import("std");
 const io = std.io;
-const DefaultPrng = std.rand.DefaultPrng;
+const DefaultPrng = std.Random.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;

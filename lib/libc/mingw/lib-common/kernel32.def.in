@@ -6,6 +6,7 @@ AcquireSRWLockExclusive
 AcquireSRWLockShared
 ActivateActCtx
 ActivateActCtxWorker
+ActivatePackageVirtualizationContext
 AddAtomA
 AddAtomW
 AddConsoleAliasA
@@ -38,6 +39,7 @@ AppXGetOSMaxVersionTested
 ApplicationRecoveryFinished
 ApplicationRecoveryInProgress
 AreFileApisANSI
+AreShortNamesEnabled
 AssignProcessToJobObject
 AttachConsole
 BackupRead
@@ -116,6 +118,12 @@ BuildCommDCBA
 BuildCommDCBAndTimeoutsA
 BuildCommDCBAndTimeoutsW
 BuildCommDCBW
+BuildIoRingCancelRequest
+BuildIoRingFlushFile
+BuildIoRingReadFile
+BuildIoRingRegisterBuffers
+BuildIoRingRegisterFileHandles
+BuildIoRingWriteFile
 CallNamedPipeA
 CallNamedPipeW
 CallbackMayRunLong
@@ -143,6 +151,7 @@ ClearCommBreak
 ClearCommError
 CloseConsoleHandle
 CloseHandle
+CloseIoRing
 ClosePackageInfo
 ClosePrivateNamespace
 CloseProfileUserMapping
@@ -219,6 +228,7 @@ CreateHardLinkTransactedA
 CreateHardLinkTransactedW
 CreateHardLinkW
 CreateIoCompletionPort
+CreateIoRing
 CreateJobObjectA
 CreateJobObjectW
 CreateJobSet
@@ -232,12 +242,14 @@ CreateMutexW
 CreateNamedPipeA
 CreateNamedPipeW
 CreateNlsSecurityDescriptor
+CreatePackageVirtualizationContext
 CreatePipe
 CreatePrivateNamespaceA
 CreatePrivateNamespaceW
 CreateProcessA
-CreateProcessAsUserA
-CreateProcessAsUserW
+; MSDN says these are exported from ADVAPI32.DLL.
+; CreateProcessAsUserA
+; CreateProcessAsUserW
 CreateProcessInternalA
 CreateProcessInternalW
 CreateProcessW
@@ -272,6 +284,7 @@ CreateWaitableTimerW
 CtrlRoutine
 DeactivateActCtx
 DeactivateActCtxWorker
+DeactivatePackageVirtualizationContext
 DebugActiveProcess
 DebugActiveProcessStop
 DebugBreak
@@ -315,6 +328,8 @@ DosPathToSessionPathW
 DuplicateConsoleHandle
 DuplicateEncryptionInfoFileExt
 DuplicateHandle
+DuplicatePackageVirtualizationContext
+EnableProcessOptionalXStateFeatures
 EnableThreadProfiling
 EncodePointer
 EncodeSystemPointer
@@ -323,7 +338,6 @@ EndUpdateResourceW
 EnterCriticalSection
 F_X64(EnterUmsSchedulingMode)
 EnterSynchronizationBarrier
-EnterUmsSchedulingMode
 EnumCalendarInfoA
 EnumCalendarInfoExA
 EnumCalendarInfoExEx
@@ -554,6 +568,7 @@ GetCurrentPackageFullName
 GetCurrentPackageId
 GetCurrentPackageInfo
 GetCurrentPackagePath
+GetCurrentPackageVirtualizationContext
 GetCurrentProcess
 GetCurrentProcessId
 GetCurrentProcessorNumber
@@ -630,6 +645,7 @@ GetGeoInfoA
 GetGeoInfoW
 GetGeoInfoEx
 GetHandleInformation
+GetIoRingInfo
 GetLargePageMinimum
 GetLargestConsoleWindowSize
 GetLastError
@@ -647,6 +663,7 @@ GetLongPathNameA
 GetLongPathNameTransactedA
 GetLongPathNameTransactedW
 GetLongPathNameW
+GetMachineTypeAttributes
 GetMailslotInfo
 GetMaximumProcessorCount
 GetMaximumProcessorGroupCount
@@ -678,6 +695,7 @@ GetNumaAvailableMemoryNodeEx
 GetNumaHighestNodeNumber
 GetNumaNodeNumberFromHandle
 GetNumaNodeProcessorMask
+GetNumaNodeProcessorMask2
 GetNumaNodeProcessorMaskEx
 GetNumaProcessorNode
 GetNumaProcessorNodeEx
@@ -714,9 +732,9 @@ GetPrivateProfileStructA
 GetPrivateProfileStructW
 GetProcAddress
 GetProcessAffinityMask
+GetProcessDefaultCpuSetMasks
 GetProcessDefaultCpuSets
 GetProcessDEPPolicy
-GetProcessDefaultCpuSets
 GetProcessGroupAffinity
 GetProcessHandleCount
 GetProcessHeap
@@ -733,6 +751,7 @@ GetProcessTimes
 GetProcessVersion
 GetProcessWorkingSetSize
 GetProcessWorkingSetSizeEx
+GetProcessesInVirtualizationContext
 GetProcessorSystemCycleTime
 GetProductInfo
 GetProfileIntA
@@ -786,8 +805,11 @@ GetTempFileNameA
 GetTempFileNameW
 GetTempPathA
 GetTempPathW
+GetTempPath2A
+GetTempPath2W
 GetThreadContext
 GetThreadDescription
+GetThreadEnabledXStateFeatures
 GetThreadErrorMode
 GetThreadGroupAffinity
 GetThreadIOPendingFlag
@@ -798,6 +820,7 @@ GetThreadLocale
 GetThreadPreferredUILanguages
 GetThreadPriority
 GetThreadPriorityBoost
+GetThreadSelectedCpuSetMasks
 GetThreadSelectedCpuSets
 GetThreadSelectorEntry
 GetThreadTimes
@@ -925,6 +948,7 @@ IsDBCSLeadByte
 IsDBCSLeadByteEx
 IsDebuggerPresent
 IsEnclaveTypeSupported
+IsIoRingOpSupported
 IsNLSDefinedString
 IsNativeVhdBoot
 IsNormalizedString
@@ -935,6 +959,7 @@ IsSystemResumeAutomatic
 IsThreadAFiber
 IsThreadpoolTimerSet
 IsTimeZoneRedirectionEnabled
+IsUserCetAvailableInEnvironment
 IsValidCalDateTime
 IsValidCodePage
 IsValidLanguageGroup
@@ -1081,7 +1106,8 @@ OpenSemaphoreW
 OpenState
 OpenStateExplicit
 OpenThread
-;OpenThreadToken
+; MSDN says this is exported from ADVAPI32.DLL.
+; OpenThreadToken
 OpenWaitableTimerA
 OpenWaitableTimerW
 OutputDebugStringA
@@ -1095,6 +1121,7 @@ ParseApplicationUserModelId
 PeekConsoleInputA
 PeekConsoleInputW
 PeekNamedPipe
+PopIoRingCompletion
 PostQueuedCompletionStatus
 PowerClearRequest
 PowerCreateRequest
@@ -1136,6 +1163,7 @@ QueryIdleProcessorCycleTime
 QueryIdleProcessorCycleTimeEx
 QueryInformationJobObject
 QueryIoRateControlInformationJobObject
+QueryIoRingCapabilities
 QueryMemoryResourceNotification
 QueryPerformanceCounter
 QueryPerformanceFrequency
@@ -1148,6 +1176,7 @@ QueryThreadpoolStackInformation
 F_X64(QueryUmsThreadInformation)
 QueryUnbiasedInterruptTime
 QueueUserAPC
+QueueUserAPC2
 QueueUserWorkItem
 QuirkGetData2Worker
 QuirkGetDataWorker
@@ -1182,7 +1211,6 @@ ReadFileEx
 ReadFileScatter
 ReadProcessMemory
 ReadThreadProfilingData
-ReclaimVirtualMemory
 ;
 ; MSDN says these functions are exported
 ; from advapi32.dll. Commented out for
@@ -1251,6 +1279,7 @@ ReleaseActCtx
 ReleaseActCtxWorker
 ReleaseMutex
 ReleaseMutexWhenCallbackReturns
+ReleasePackageVirtualizationContext
 ReleaseSRWLockExclusive
 ReleaseSRWLockShared
 ReleaseSemaphore
@@ -1287,6 +1316,7 @@ RtlCopyMemory
 RtlDeleteFunctionTable
 RtlFillMemory
 RtlInstallFunctionTableCallback
+RtlIsEcCode
 RtlLookupFunctionEntry
 RtlMoveMemory
 RtlPcToFileHeader
@@ -1295,6 +1325,7 @@ RtlRestoreContext
 RtlUnwind
 RtlUnwindEx
 RtlVirtualUnwind
+RtlVirtualUnwind2
 RtlZeroMemory
 ScrollConsoleScreenBufferA
 ScrollConsoleScreenBufferW
@@ -1390,6 +1421,7 @@ SetHandleCount
 SetHandleInformation
 SetInformationJobObject
 SetIoRateControlInformationJobObject
+SetIoRingCompletionEvent
 SetLastConsoleEventActive
 SetLastError
 SetLocalPrimaryComputerNameA
@@ -1405,7 +1437,10 @@ SetPriorityClass
 SetProcessAffinityMask
 SetProcessAffinityUpdateMode
 SetProcessDEPPolicy
+SetProcessDefaultCpuSetMasks
 SetProcessDefaultCpuSets
+SetProcessDynamicEHContinuationTargets
+SetProcessDynamicEnforcedCetCompatibleRanges
 SetProcessInformation
 SetProcessMitigationPolicy
 SetProcessPreferredUILanguages
@@ -1437,9 +1472,11 @@ SetThreadLocale
 SetThreadPreferredUILanguages
 SetThreadPriority
 SetThreadPriorityBoost
+SetThreadSelectedCpuSetMasks
 SetThreadSelectedCpuSets
 SetThreadStackGuarantee
-SetThreadToken
+; MSDN says this is exported from ADVAPI32.DLL.
+; SetThreadToken
 SetThreadUILanguage
 SetThreadpoolStackInformation
 SetThreadpoolThreadMaximum
@@ -1474,6 +1511,7 @@ SleepEx
 SortCloseHandle
 SortGetHandle
 StartThreadpoolIo
+SubmitIoRing
 SubmitThreadpoolWork
 SuspendThread
 SwitchToFiber

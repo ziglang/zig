@@ -257,13 +257,6 @@ NdrFixedArrayMarshall@12
 NdrFixedArrayMemorySize@8
 NdrFixedArrayUnmarshall@16
 NdrFreeBuffer@4
-NdrFullPointerFree@8
-NdrFullPointerInsertRefId@12
-NdrFullPointerQueryPointer@16
-NdrFullPointerQueryRefId@16
-NdrFullPointerInsertRefId@12
-NdrFullPointerQueryPointer@16
-NdrFullPointerQueryRefId@16
 NdrFullPointerXlatFree@4
 NdrFullPointerXlatInit@8
 NdrGetBuffer@12

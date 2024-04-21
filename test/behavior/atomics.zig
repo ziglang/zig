@@ -22,18 +22,18 @@ test "cmpxchg" {
 
 fn testCmpxchg() !void {
     var x: i32 = 1234;
-    if (@cmpxchgWeak(i32, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
+    if (@cmpxchgWeak(i32, &x, 99, 5678, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == 1234);
     } else {
         @panic("cmpxchg should have failed");
     }
 
-    while (@cmpxchgWeak(i32, &x, 1234, 5678, .SeqCst, .SeqCst)) |x1| {
+    while (@cmpxchgWeak(i32, &x, 1234, 5678, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == 1234);
     }
     try expect(x == 5678);
 
-    try expect(@cmpxchgStrong(i32, &x, 5678, 42, .SeqCst, .SeqCst) == null);
+    try expect(@cmpxchgStrong(i32, &x, 5678, 42, .seq_cst, .seq_cst) == null);
     try expect(x == 42);
 }
 
@@ -43,7 +43,7 @@ test "fence" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: i32 = 1234;
-    @fence(.SeqCst);
+    @fence(.seq_cst);
     x = 5678;
 }
 
@@ -60,18 +60,18 @@ test "atomicrmw and atomicload" {
 }
 
 fn testAtomicRmw(ptr: *u8) !void {
-    const prev_value = @atomicRmw(u8, ptr, .Xchg, 42, .SeqCst);
+    const prev_value = @atomicRmw(u8, ptr, .Xchg, 42, .seq_cst);
     try expect(prev_value == 200);
     comptime {
         var x: i32 = 1234;
         const y: i32 = 12345;
-        try expect(@atomicLoad(i32, &x, .SeqCst) == 1234);
-        try expect(@atomicLoad(i32, &y, .SeqCst) == 12345);
+        try expect(@atomicLoad(i32, &x, .seq_cst) == 1234);
+        try expect(@atomicLoad(i32, &y, .seq_cst) == 12345);
     }
 }
 
 fn testAtomicLoad(ptr: *u8) !void {
-    const x = @atomicLoad(u8, ptr, .SeqCst);
+    const x = @atomicLoad(u8, ptr, .seq_cst);
     try expect(x == 42);
 }
 
@@ -85,18 +85,18 @@ test "cmpxchg with ptr" {
     var data2: i32 = 5678;
     var data3: i32 = 9101;
     var x: *i32 = &data1;
-    if (@cmpxchgWeak(*i32, &x, &data2, &data3, .SeqCst, .SeqCst)) |x1| {
+    if (@cmpxchgWeak(*i32, &x, &data2, &data3, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == &data1);
     } else {
         @panic("cmpxchg should have failed");
     }
 
-    while (@cmpxchgWeak(*i32, &x, &data1, &data3, .SeqCst, .SeqCst)) |x1| {
+    while (@cmpxchgWeak(*i32, &x, &data1, &data3, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == &data1);
     }
     try expect(x == &data3);
 
-    try expect(@cmpxchgStrong(*i32, &x, &data3, &data2, .SeqCst, .SeqCst) == null);
+    try expect(@cmpxchgStrong(*i32, &x, &data3, &data2, .seq_cst, .seq_cst) == null);
     try expect(x == &data2);
 }
 
@@ -108,7 +108,7 @@ test "cmpxchg with ignored result" {
 
     var x: i32 = 1234;
 
-    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
+    _ = @cmpxchgStrong(i32, &x, 1234, 5678, .monotonic, .monotonic);
 
     try expect(5678 == x);
 }
@@ -127,18 +127,18 @@ test "128-bit cmpxchg" {
 
 fn test_u128_cmpxchg() !void {
     var x: u128 align(16) = 1234;
-    if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
+    if (@cmpxchgWeak(u128, &x, 99, 5678, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == 1234);
     } else {
         @panic("cmpxchg should have failed");
     }
 
-    while (@cmpxchgWeak(u128, &x, 1234, 5678, .SeqCst, .SeqCst)) |x1| {
+    while (@cmpxchgWeak(u128, &x, 1234, 5678, .seq_cst, .seq_cst)) |x1| {
         try expect(x1 == 1234);
     }
     try expect(x == 5678);
 
-    try expect(@cmpxchgStrong(u128, &x, 5678, 42, .SeqCst, .SeqCst) == null);
+    try expect(@cmpxchgStrong(u128, &x, 5678, 42, .seq_cst, .seq_cst) == null);
     try expect(x == 42);
 }
 
@@ -155,7 +155,7 @@ test "cmpxchg on a global variable" {
         return error.SkipZigTest;
     }
 
-    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .Acquire, .Monotonic);
+    _ = @cmpxchgWeak(u32, &a_global_variable, 1234, 42, .acquire, .monotonic);
     try expect(a_global_variable == 42);
 }
 
@@ -168,12 +168,12 @@ test "atomic load and rmw with enum" {
     const Value = enum(u8) { a, b, c };
     var x = Value.a;
 
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
+    try expect(@atomicLoad(Value, &x, .seq_cst) != .b);
 
-    _ = @atomicRmw(Value, &x, .Xchg, .c, .SeqCst);
-    try expect(@atomicLoad(Value, &x, .SeqCst) == .c);
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .a);
-    try expect(@atomicLoad(Value, &x, .SeqCst) != .b);
+    _ = @atomicRmw(Value, &x, .Xchg, .c, .seq_cst);
+    try expect(@atomicLoad(Value, &x, .seq_cst) == .c);
+    try expect(@atomicLoad(Value, &x, .seq_cst) != .a);
+    try expect(@atomicLoad(Value, &x, .seq_cst) != .b);
 }
 
 test "atomic store" {
@@ -183,10 +183,10 @@ test "atomic store" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: u32 = 0;
-    @atomicStore(u32, &x, 1, .SeqCst);
-    try expect(@atomicLoad(u32, &x, .SeqCst) == 1);
-    @atomicStore(u32, &x, 12345678, .SeqCst);
-    try expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+    @atomicStore(u32, &x, 1, .seq_cst);
+    try expect(@atomicLoad(u32, &x, .seq_cst) == 1);
+    @atomicStore(u32, &x, 12345678, .seq_cst);
+    try expect(@atomicLoad(u32, &x, .seq_cst) == 12345678);
 }
 
 test "atomic store comptime" {
@@ -201,14 +201,13 @@ test "atomic store comptime" {
 
 fn testAtomicStore() !void {
     var x: u32 = 0;
-    @atomicStore(u32, &x, 1, .SeqCst);
-    try expect(@atomicLoad(u32, &x, .SeqCst) == 1);
-    @atomicStore(u32, &x, 12345678, .SeqCst);
-    try expect(@atomicLoad(u32, &x, .SeqCst) == 12345678);
+    @atomicStore(u32, &x, 1, .seq_cst);
+    try expect(@atomicLoad(u32, &x, .seq_cst) == 1);
+    @atomicStore(u32, &x, 12345678, .seq_cst);
+    try expect(@atomicLoad(u32, &x, .seq_cst) == 12345678);
 }
 
 test "atomicrmw with floats" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -225,15 +224,15 @@ test "atomicrmw with floats" {
 fn testAtomicRmwFloat() !void {
     var x: f32 = 0;
     try expect(x == 0);
-    _ = @atomicRmw(f32, &x, .Xchg, 1, .SeqCst);
+    _ = @atomicRmw(f32, &x, .Xchg, 1, .seq_cst);
     try expect(x == 1);
-    _ = @atomicRmw(f32, &x, .Add, 5, .SeqCst);
+    _ = @atomicRmw(f32, &x, .Add, 5, .seq_cst);
     try expect(x == 6);
-    _ = @atomicRmw(f32, &x, .Sub, 2, .SeqCst);
+    _ = @atomicRmw(f32, &x, .Sub, 2, .seq_cst);
     try expect(x == 4);
-    _ = @atomicRmw(f32, &x, .Max, 13, .SeqCst);
+    _ = @atomicRmw(f32, &x, .Max, 13, .seq_cst);
     try expect(x == 13);
-    _ = @atomicRmw(f32, &x, .Min, 42, .SeqCst);
+    _ = @atomicRmw(f32, &x, .Min, 42, .seq_cst);
     try expect(x == 13);
 }
 
@@ -267,46 +266,46 @@ fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usi
     const int = std.meta.Int(signedness, N);
 
     var x: int = 1;
-    var res = @atomicRmw(int, &x, .Xchg, 3, .SeqCst);
+    var res = @atomicRmw(int, &x, .Xchg, 3, .seq_cst);
     try expect(x == 3 and res == 1);
 
-    res = @atomicRmw(int, &x, .Add, 3, .SeqCst);
+    res = @atomicRmw(int, &x, .Add, 3, .seq_cst);
     var y: int = 3;
     try expect(res == y);
     y = y + 3;
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Sub, 1, .SeqCst);
+    res = @atomicRmw(int, &x, .Sub, 1, .seq_cst);
     try expect(res == y);
     y = y - 1;
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .And, 4, .SeqCst);
+    res = @atomicRmw(int, &x, .And, 4, .seq_cst);
     try expect(res == y);
     y = y & 4;
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Nand, 4, .SeqCst);
+    res = @atomicRmw(int, &x, .Nand, 4, .seq_cst);
     try expect(res == y);
     y = ~(y & 4);
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Or, 6, .SeqCst);
+    res = @atomicRmw(int, &x, .Or, 6, .seq_cst);
     try expect(res == y);
     y = y | 6;
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Xor, 2, .SeqCst);
+    res = @atomicRmw(int, &x, .Xor, 2, .seq_cst);
     try expect(res == y);
     y = y ^ 2;
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Max, 1, .SeqCst);
+    res = @atomicRmw(int, &x, .Max, 1, .seq_cst);
     try expect(res == y);
     y = @max(y, 1);
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Min, 1, .SeqCst);
+    res = @atomicRmw(int, &x, .Min, 1, .seq_cst);
     try expect(res == y);
     y = @min(y, 1);
     try expect(x == y);
@@ -316,7 +315,6 @@ test "atomicrmw with 128-bit ints" {
     if (!supports_128_bit_atomics) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     // TODO "ld.lld: undefined symbol: __sync_lock_test_and_set_16" on -mcpu x86_64
     if (builtin.cpu.arch == .x86_64 and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
@@ -335,53 +333,53 @@ fn testAtomicRmwInt128(comptime signedness: std.builtin.Signedness) !void {
     const replacement: int = 0x00000000_00000005_00000000_00000003;
 
     var x: int align(16) = initial;
-    var res = @atomicRmw(int, &x, .Xchg, replacement, .SeqCst);
+    var res = @atomicRmw(int, &x, .Xchg, replacement, .seq_cst);
     try expect(x == replacement and res == initial);
 
     var operator: int = 0x00000001_00000000_20000000_00000000;
-    res = @atomicRmw(int, &x, .Add, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Add, operator, .seq_cst);
     var y: int = replacement;
     try expect(res == y);
     y = y + operator;
     try expect(x == y);
 
     operator = 0x00000000_10000000_00000000_20000000;
-    res = @atomicRmw(int, &x, .Sub, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Sub, operator, .seq_cst);
     try expect(res == y);
     y = y - operator;
     try expect(x == y);
 
     operator = 0x12345678_87654321_12345678_87654321;
-    res = @atomicRmw(int, &x, .And, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .And, operator, .seq_cst);
     try expect(res == y);
     y = y & operator;
     try expect(x == y);
 
     operator = 0x00000000_10000000_00000000_20000000;
-    res = @atomicRmw(int, &x, .Nand, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Nand, operator, .seq_cst);
     try expect(res == y);
     y = ~(y & operator);
     try expect(x == y);
 
     operator = 0x12340000_56780000_67890000_98760000;
-    res = @atomicRmw(int, &x, .Or, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Or, operator, .seq_cst);
     try expect(res == y);
     y = y | operator;
     try expect(x == y);
 
     operator = 0x0a0b0c0d_0e0f0102_03040506_0708090a;
-    res = @atomicRmw(int, &x, .Xor, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Xor, operator, .seq_cst);
     try expect(res == y);
     y = y ^ operator;
     try expect(x == y);
 
     operator = 0x00000000_10000000_00000000_20000000;
-    res = @atomicRmw(int, &x, .Max, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Max, operator, .seq_cst);
     try expect(res == y);
     y = @max(y, operator);
     try expect(x == y);
 
-    res = @atomicRmw(int, &x, .Min, operator, .SeqCst);
+    res = @atomicRmw(int, &x, .Min, operator, .seq_cst);
     try expect(res == y);
     y = @min(y, operator);
     try expect(x == y);
@@ -407,13 +405,13 @@ test "atomics with different types" {
 
 fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
     var x: T = b;
-    @atomicStore(T, &x, a, .SeqCst);
+    @atomicStore(T, &x, a, .seq_cst);
     try expect(x == a);
-    try expect(@atomicLoad(T, &x, .SeqCst) == a);
-    try expect(@atomicRmw(T, &x, .Xchg, b, .SeqCst) == a);
-    try expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst) == null);
+    try expect(@atomicLoad(T, &x, .seq_cst) == a);
+    try expect(@atomicRmw(T, &x, .Xchg, b, .seq_cst) == a);
+    try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst) == null);
     if (@sizeOf(T) != 0)
-        try expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst).? == a);
+        try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst).? == a);
 }
 
 test "return @atomicStore, using it as a void value" {
@@ -427,12 +425,12 @@ test "return @atomicStore, using it as a void value" {
             value: usize,
 
             pub fn store(self: *A, value: usize) void {
-                return @atomicStore(usize, &self.value, value, .Unordered);
+                return @atomicStore(usize, &self.value, value, .unordered);
             }
 
             pub fn store2(self: *A, value: usize) void {
                 return switch (value) {
-                    else => @atomicStore(usize, &self.value, value, .Unordered),
+                    else => @atomicStore(usize, &self.value, value, .unordered),
                 };
             }
         };

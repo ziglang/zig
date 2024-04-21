@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const tests = @import("tests.zig");
-const CrossTarget = std.zig.CrossTarget;
 
 // ********************************************************
 // *                                                      *
@@ -764,27 +763,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .z = 0,
         \\};
     });
-
-    // Test case temporarily disabled:
-    // https://github.com/ziglang/zig/issues/12055
-    if (false) {
-        cases.add("align() attribute",
-            \\__attribute__ ((aligned(128)))
-            \\extern char my_array[16];
-            \\__attribute__ ((aligned(128)))
-            \\void my_fn(void) { }
-            \\void other_fn(void) {
-            \\    char ARR[16] __attribute__ ((aligned (16)));
-            \\}
-        , &[_][]const u8{
-            \\pub extern var my_array: [16]u8 align(128);
-            \\pub export fn my_fn() align(128) void {}
-            \\pub export fn other_fn() void {
-            \\    var ARR: [16]u8 align(16) = undefined;
-            \\    _ = &ARR;
-            \\}
-        });
-    }
 
     cases.add("linksection() attribute",
         \\// Use the "segment,section" format to make this test pass when
@@ -1846,7 +1824,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo5(a: [*c]f32) callconv(.Thiscall) void;
     });
 
-    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+    cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
         .arch_os_abi = "arm-linux-none",
         .cpu_features = "generic+v8_5a",
     }) catch unreachable,
@@ -1857,7 +1835,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
     });
 
-    cases.addWithTarget("Calling convention", CrossTarget.parse(.{
+    cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
         .arch_os_abi = "aarch64-linux-none",
         .cpu_features = "generic+v8_5a",
     }) catch unreachable,

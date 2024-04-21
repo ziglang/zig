@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-windowserrorreporting-l1-1-2
+
+EXPORTS
+
+WerRegisterAppLocalDump
+WerUnregisterAppLocalDump

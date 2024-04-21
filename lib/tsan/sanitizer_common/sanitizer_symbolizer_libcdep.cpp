@@ -83,16 +83,13 @@ const char *ExtractTokenUpToDelimiter(const char *str, const char *delimiter,
 }
 
 SymbolizedStack *Symbolizer::SymbolizePC(uptr addr) {
-  BlockingMutexLock l(&mu_);
-  const char *module_name = nullptr;
-  uptr module_offset;
-  ModuleArch arch;
+  Lock l(&mu_);
   SymbolizedStack *res = SymbolizedStack::New(addr);
-  if (!FindModuleNameAndOffsetForAddress(addr, &module_name, &module_offset,
-                                         &arch))
+  auto *mod = FindModuleForAddress(addr);
+  if (!mod)
     return res;
   // Always fill data about module name and offset.
-  res->info.FillModuleInfo(module_name, module_offset, arch);
+  res->info.FillModuleInfo(*mod);
   for (auto &tool : tools_) {
     SymbolizerScope sym_scope(this);
     if (tool.SymbolizePC(addr, res)) {
@@ -103,7 +100,7 @@ SymbolizedStack *Symbolizer::SymbolizePC(uptr addr) {
 }
 
 bool Symbolizer::SymbolizeData(uptr addr, DataInfo *info) {
-  BlockingMutexLock l(&mu_);
+  Lock l(&mu_);
   const char *module_name = nullptr;
   uptr module_offset;
   ModuleArch arch;
@@ -124,7 +121,7 @@ bool Symbolizer::SymbolizeData(uptr addr, DataInfo *info) {
 }
 
 bool Symbolizer::SymbolizeFrame(uptr addr, FrameInfo *info) {
-  BlockingMutexLock l(&mu_);
+  Lock l(&mu_);
   const char *module_name = nullptr;
   if (!FindModuleNameAndOffsetForAddress(
           addr, &module_name, &info->module_offset, &info->module_arch))
@@ -141,7 +138,7 @@ bool Symbolizer::SymbolizeFrame(uptr addr, FrameInfo *info) {
 
 bool Symbolizer::GetModuleNameAndOffsetForPC(uptr pc, const char **module_name,
                                              uptr *module_address) {
-  BlockingMutexLock l(&mu_);
+  Lock l(&mu_);
   const char *internal_module_name = nullptr;
   ModuleArch arch;
   if (!FindModuleNameAndOffsetForAddress(pc, &internal_module_name,
@@ -154,7 +151,7 @@ bool Symbolizer::GetModuleNameAndOffsetForPC(uptr pc, const char **module_name,
 }
 
 void Symbolizer::Flush() {
-  BlockingMutexLock l(&mu_);
+  Lock l(&mu_);
   for (auto &tool : tools_) {
     SymbolizerScope sym_scope(this);
     tool.Flush();
@@ -162,7 +159,7 @@ void Symbolizer::Flush() {
 }
 
 const char *Symbolizer::Demangle(const char *name) {
-  BlockingMutexLock l(&mu_);
+  Lock l(&mu_);
   for (auto &tool : tools_) {
     SymbolizerScope sym_scope(this);
     if (const char *demangled = tool.Demangle(name))
@@ -240,7 +237,7 @@ const LoadedModule *Symbolizer::FindModuleForAddress(uptr address) {
 class LLVMSymbolizerProcess final : public SymbolizerProcess {
  public:
   explicit LLVMSymbolizerProcess(const char *path)
-      : SymbolizerProcess(path, /*use_posix_spawn=*/SANITIZER_MAC) {}
+      : SymbolizerProcess(path, /*use_posix_spawn=*/SANITIZER_APPLE) {}
 
  private:
   bool ReachedEndOfOutput(const char *buffer, uptr length) const override {
@@ -259,6 +256,8 @@ class LLVMSymbolizerProcess final : public SymbolizerProcess {
     const char* const kSymbolizerArch = "--default-arch=x86_64";
 #elif defined(__i386__)
     const char* const kSymbolizerArch = "--default-arch=i386";
+#elif SANITIZER_LOONGARCH64
+    const char *const kSymbolizerArch = "--default-arch=loongarch64";
 #elif SANITIZER_RISCV64
     const char *const kSymbolizerArch = "--default-arch=riscv64";
 #elif defined(__aarch64__)
@@ -277,14 +276,17 @@ class LLVMSymbolizerProcess final : public SymbolizerProcess {
     const char* const kSymbolizerArch = "--default-arch=unknown";
 #endif
 
-    const char *const inline_flag = common_flags()->symbolize_inline_frames
-                                        ? "--inlines"
-                                        : "--no-inlines";
+    const char *const demangle_flag =
+        common_flags()->demangle ? "--demangle" : "--no-demangle";
+    const char *const inline_flag =
+        common_flags()->symbolize_inline_frames ? "--inlines" : "--no-inlines";
     int i = 0;
     argv[i++] = path_to_binary;
+    argv[i++] = demangle_flag;
     argv[i++] = inline_flag;
     argv[i++] = kSymbolizerArch;
     argv[i++] = nullptr;
+    CHECK_LE(i, kArgVMax);
   }
 };
 
@@ -363,14 +365,21 @@ void ParseSymbolizePCOutput(const char *str, SymbolizedStack *res) {
   }
 }
 
-// Parses a two-line string in the following format:
+// Parses a two- or three-line string in the following format:
 //   <symbol_name>
 //   <start_address> <size>
-// Used by LLVMSymbolizer and InternalSymbolizer.
+//   <filename>:<column>
+// Used by LLVMSymbolizer and InternalSymbolizer. LLVMSymbolizer added support
+// for symbolizing the third line in D123538, but we support the older two-line
+// information as well.
 void ParseSymbolizeDataOutput(const char *str, DataInfo *info) {
   str = ExtractToken(str, "\n", &info->name);
   str = ExtractUptr(str, " ", &info->start);
   str = ExtractUptr(str, "\n", &info->size);
+  // Note: If the third line isn't present, these calls will set info.{file,
+  // line} to empty strings.
+  str = ExtractToken(str, ":", &info->file);
+  str = ExtractUptr(str, "\n", &info->line);
 }
 
 static void ParseSymbolizeFrameOutput(const char *str,
@@ -500,9 +509,9 @@ const char *SymbolizerProcess::SendCommandImpl(const char *command) {
       return nullptr;
   if (!WriteToSymbolizer(command, internal_strlen(command)))
       return nullptr;
-  if (!ReadFromSymbolizer(buffer_, kBufferSize))
-      return nullptr;
-  return buffer_;
+  if (!ReadFromSymbolizer())
+    return nullptr;
+  return buffer_.data();
 }
 
 bool SymbolizerProcess::Restart() {
@@ -513,31 +522,33 @@ bool SymbolizerProcess::Restart() {
   return StartSymbolizerSubprocess();
 }
 
-bool SymbolizerProcess::ReadFromSymbolizer(char *buffer, uptr max_length) {
-  if (max_length == 0)
-    return true;
-  uptr read_len = 0;
-  while (true) {
+bool SymbolizerProcess::ReadFromSymbolizer() {
+  buffer_.clear();
+  constexpr uptr max_length = 1024;
+  bool ret = true;
+  do {
     uptr just_read = 0;
-    bool success = ReadFromFile(input_fd_, buffer + read_len,
-                                max_length - read_len - 1, &just_read);
+    uptr size_before = buffer_.size();
+    buffer_.resize(size_before + max_length);
+    buffer_.resize(buffer_.capacity());
+    bool ret = ReadFromFile(input_fd_, &buffer_[size_before],
+                            buffer_.size() - size_before, &just_read);
+
+    if (!ret)
+      just_read = 0;
+
+    buffer_.resize(size_before + just_read);
+
     // We can't read 0 bytes, as we don't expect external symbolizer to close
     // its stdout.
-    if (!success || just_read == 0) {
+    if (just_read == 0) {
       Report("WARNING: Can't read from symbolizer at fd %d\n", input_fd_);
-      return false;
-    }
-    read_len += just_read;
-    if (ReachedEndOfOutput(buffer, read_len))
-      break;
-    if (read_len + 1 == max_length) {
-      Report("WARNING: Symbolizer buffer too small\n");
-      read_len = 0;
+      ret = false;
       break;
     }
-  }
-  buffer[read_len] = '\0';
-  return true;
+  } while (!ReachedEndOfOutput(buffer_.data(), buffer_.size()));
+  buffer_.push_back('\0');
+  return ret;
 }
 
 bool SymbolizerProcess::WriteToSymbolizer(const char *buffer, uptr length) {

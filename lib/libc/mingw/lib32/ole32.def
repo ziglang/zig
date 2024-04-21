@@ -383,8 +383,6 @@ StgOpenStorageOnHandle@24
 StgOpenStorageOnILockBytes@24
 StgPropertyLengthAsVariant@16
 StgSetTimes@16
-StgCreateStorageEx@32
-StgOpenStorageEx@32
 StringFromCLSID@8
 StringFromGUID2@12
 StringFromIID@8

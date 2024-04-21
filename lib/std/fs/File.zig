@@ -1,20 +1,6 @@
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
-/// On some systems, such as Linux, file system file descriptors are incapable
-/// of non-blocking I/O. This forces us to perform asynchronous I/O on a dedicated thread,
-/// to achieve non-blocking file-system I/O. To do this, `File` must be aware of whether
-/// it is a file system file descriptor, or, more specifically, whether the I/O is always
-/// blocking.
-capable_io_mode: io.ModeOverride = io.default_mode,
-
-/// Furthermore, even when `std.options.io_mode` is async, it is still sometimes desirable
-/// to perform blocking I/O, although not by default. For example, when printing a
-/// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
-/// When not building in async I/O mode, the type only has the `.blocking` tag, making
-/// it a zero-bit type.
-intended_io_mode: io.ModeOverride = io.default_mode,
-
 pub const Handle = posix.fd_t;
 pub const Mode = posix.mode_t;
 pub const INode = posix.ino_t;
@@ -54,14 +40,23 @@ pub const OpenError = error{
     AccessDenied,
     PipeBusy,
     NameTooLong,
-    /// On Windows, file paths must be valid Unicode.
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
     Unexpected,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
 } || posix.OpenError || posix.FlockError;
 
 pub const OpenMode = enum {
@@ -108,15 +103,7 @@ pub const OpenFlags = struct {
     /// Sets whether or not to wait until the file is locked to return. If set to true,
     /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
     /// is available to proceed.
-    /// In async I/O mode, non-blocking at the OS level is
-    /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
-    /// and `false` means `error.WouldBlock` is handled by the event loop.
     lock_nonblocking: bool = false,
-
-    /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
-    /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
-    /// related to opening the file, reading, writing, and locking.
-    intended_io_mode: io.ModeOverride = io.default_mode,
 
     /// Set this to allow the opened file to automatically become the
     /// controlling TTY for the current process.
@@ -172,19 +159,11 @@ pub const CreateFlags = struct {
     /// Sets whether or not to wait until the file is locked to return. If set to true,
     /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
     /// is available to proceed.
-    /// In async I/O mode, non-blocking at the OS level is
-    /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
-    /// and `false` means `error.WouldBlock` is handled by the event loop.
     lock_nonblocking: bool = false,
 
     /// For POSIX systems this is the file system mode the file will
     /// be created with. On other systems this is always 0.
     mode: Mode = default_mode,
-
-    /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
-    /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
-    /// related to opening the file, reading, writing, and locking.
-    intended_io_mode: io.ModeOverride = io.default_mode,
 };
 
 /// Upon success, the stream is in an uninitialized state. To continue using it,
@@ -192,8 +171,6 @@ pub const CreateFlags = struct {
 pub fn close(self: File) void {
     if (is_windows) {
         windows.CloseHandle(self.handle);
-    } else if (self.capable_io_mode != self.intended_io_mode) {
-        std.event.Loop.instance.?.close(self.handle);
     } else {
         posix.close(self.handle);
     }
@@ -216,6 +193,58 @@ pub fn isTty(self: File) bool {
     return posix.isatty(self.handle);
 }
 
+pub fn isCygwinPty(file: File) bool {
+    if (builtin.os.tag != .windows) return false;
+
+    const handle = file.handle;
+
+    // If this is a MSYS2/cygwin pty, then it will be a named pipe with a name in one of these formats:
+    //   msys-[...]-ptyN-[...]
+    //   cygwin-[...]-ptyN-[...]
+    //
+    // Example: msys-1888ae32e00d56aa-pty0-to-master
+
+    // First, just check that the handle is a named pipe.
+    // This allows us to avoid the more costly NtQueryInformationFile call
+    // for handles that aren't named pipes.
+    {
+        var io_status: windows.IO_STATUS_BLOCK = undefined;
+        var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+        const rc = windows.ntdll.NtQueryVolumeInformationFile(handle, &io_status, &device_info, @sizeOf(windows.FILE_FS_DEVICE_INFORMATION), .FileFsDeviceInformation);
+        switch (rc) {
+            .SUCCESS => {},
+            else => return false,
+        }
+        if (device_info.DeviceType != windows.FILE_DEVICE_NAMED_PIPE) return false;
+    }
+
+    const name_bytes_offset = @offsetOf(windows.FILE_NAME_INFO, "FileName");
+    // `NAME_MAX` UTF-16 code units (2 bytes each)
+    // This buffer may not be long enough to handle *all* possible paths
+    // (PATH_MAX_WIDE would be necessary for that), but because we only care
+    // about certain paths and we know they must be within a reasonable length,
+    // we can use this smaller buffer and just return false on any error from
+    // NtQueryInformationFile.
+    const num_name_bytes = windows.MAX_PATH * 2;
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = [_]u8{0} ** (name_bytes_offset + num_name_bytes);
+
+    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
+    const rc = windows.ntdll.NtQueryInformationFile(handle, &io_status_block, &name_info_bytes, @intCast(name_info_bytes.len), .FileNameInformation);
+    switch (rc) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        else => return false,
+    }
+
+    const name_info: *const windows.FILE_NAME_INFO = @ptrCast(&name_info_bytes);
+    const name_bytes = name_info_bytes[name_bytes_offset .. name_bytes_offset + name_info.FileNameLength];
+    const name_wide = std.mem.bytesAsSlice(u16, name_bytes);
+    // The name we get from NtQueryInformationFile will be prefixed with a '\', e.g. \msys-1888ae32e00d56aa-pty0-to-master
+    return (std.mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'm', 's', 'y', 's', '-' }) or
+        std.mem.startsWith(u16, name_wide, &[_]u16{ '\\', 'c', 'y', 'g', 'w', 'i', 'n', '-' })) and
+        std.mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
+}
+
 /// Test whether ANSI escape codes will be treated as such.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
@@ -224,7 +253,7 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
             if (console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
         }
 
-        return posix.isCygwinPty(self.handle);
+        return self.isCygwinPty();
     }
     if (builtin.os.tag == .wasi) {
         // WASI sanitizes stdout when fd is a tty so ANSI escape codes
@@ -315,60 +344,72 @@ pub const Stat = struct {
     mode: Mode,
     kind: Kind,
 
-    /// Access time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last access time in nanoseconds, relative to UTC 1970-01-01.
     atime: i128,
     /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
     mtime: i128,
-    /// Creation time in nanoseconds, relative to UTC 1970-01-01.
+    /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
-    pub fn fromSystem(st: posix.system.Stat) Stat {
+    pub fn fromSystem(st: posix.Stat) Stat {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
-        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-            .BLOCK_DEVICE => .block_device,
-            .CHARACTER_DEVICE => .character_device,
-            .DIRECTORY => .directory,
-            .SYMBOLIC_LINK => .sym_link,
-            .REGULAR_FILE => .file,
-            .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-            else => .unknown,
-        } else blk: {
-            const m = st.mode & posix.S.IFMT;
-            switch (m) {
-                posix.S.IFBLK => break :blk .block_device,
-                posix.S.IFCHR => break :blk .character_device,
-                posix.S.IFDIR => break :blk .directory,
-                posix.S.IFIFO => break :blk .named_pipe,
-                posix.S.IFLNK => break :blk .sym_link,
-                posix.S.IFREG => break :blk .file,
-                posix.S.IFSOCK => break :blk .unix_domain_socket,
-                else => {},
-            }
-            if (builtin.os.tag.isSolarish()) switch (m) {
-                posix.S.IFDOOR => break :blk .door,
-                posix.S.IFPORT => break :blk .event_port,
-                else => {},
-            };
-
-            break :blk .unknown;
-        };
-
-        return Stat{
+        return .{
             .inode = st.ino,
-            .size = @as(u64, @bitCast(st.size)),
+            .size = @bitCast(st.size),
             .mode = st.mode,
-            .kind = kind,
+            .kind = k: {
+                const m = st.mode & posix.S.IFMT;
+                switch (m) {
+                    posix.S.IFBLK => break :k .block_device,
+                    posix.S.IFCHR => break :k .character_device,
+                    posix.S.IFDIR => break :k .directory,
+                    posix.S.IFIFO => break :k .named_pipe,
+                    posix.S.IFLNK => break :k .sym_link,
+                    posix.S.IFREG => break :k .file,
+                    posix.S.IFSOCK => break :k .unix_domain_socket,
+                    else => {},
+                }
+                if (builtin.os.tag.isSolarish()) switch (m) {
+                    posix.S.IFDOOR => break :k .door,
+                    posix.S.IFPORT => break :k .event_port,
+                    else => {},
+                };
+
+                break :k .unknown;
+            },
             .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+        };
+    }
+
+    pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
+        return .{
+            .inode = st.ino,
+            .size = @bitCast(st.size),
+            .mode = 0,
+            .kind = switch (st.filetype) {
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
+            },
+            .atime = st.atim,
+            .mtime = st.mtim,
+            .ctime = st.ctim,
         };
     }
 };
 
 pub const StatError = posix.FStatError;
 
+/// Returns `Stat` containing basic information about the `File`.
+/// Use `metadata` to retrieve more detailed information (e.g. creation time, permissions).
 /// TODO: integrate with async I/O
 pub fn stat(self: File) StatError!Stat {
     if (builtin.os.tag == .windows) {
@@ -385,15 +426,39 @@ pub fn stat(self: File) StatError!Stat {
             .ACCESS_DENIED => return error.AccessDenied,
             else => return windows.unexpectedStatus(rc),
         }
-        return Stat{
+        return .{
             .inode = info.InternalInformation.IndexNumber,
             .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
             .mode = 0,
-            .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
+            .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
+                var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
+                const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
+                switch (tag_rc) {
+                    .SUCCESS => {},
+                    // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
+                    // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
+                    .INFO_LENGTH_MISMATCH => unreachable,
+                    .ACCESS_DENIED => return error.AccessDenied,
+                    else => return windows.unexpectedStatus(rc),
+                }
+                if (tag_info.ReparseTag & windows.reparse_tag_name_surrogate_bit != 0) {
+                    break :reparse_point .sym_link;
+                }
+                // Unknown reparse point
+                break :reparse_point .unknown;
+            } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
+                .directory
+            else
+                .file,
             .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
             .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-            .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
+            .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
+    }
+
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        const st = try std.os.fstat_wasi(self.handle);
+        return Stat.fromWasi(st);
     }
 
     const st = try posix.fstat(self.handle);
@@ -587,10 +652,11 @@ pub fn setPermissions(self: File, permissions: Permissions) SetPermissionsError!
 /// Cross-platform representation of file metadata.
 /// Platform-specific functionality is available through the `inner` field.
 pub const Metadata = struct {
-    /// You may use the `inner` field to use platform-specific functionality
+    /// Exposes platform-specific functionality.
     inner: switch (builtin.os.tag) {
         .windows => MetadataWindows,
         .linux => MetadataLinux,
+        .wasi => MetadataWasi,
         else => MetadataUnix,
     },
 
@@ -639,12 +705,12 @@ pub const MetadataUnix = struct {
 
     /// Returns the size of the file
     pub fn size(self: Self) u64 {
-        return @as(u64, @intCast(self.stat.size));
+        return @intCast(self.stat.size);
     }
 
     /// Returns a `Permissions` struct, representing the permissions on the file
     pub fn permissions(self: Self) Permissions {
-        return Permissions{ .inner = PermissionsUnix{ .mode = self.stat.mode } };
+        return .{ .inner = .{ .mode = self.stat.mode } };
     }
 
     /// Returns the `Kind` of the file
@@ -767,6 +833,42 @@ pub const MetadataLinux = struct {
     }
 };
 
+pub const MetadataWasi = struct {
+    stat: std.os.wasi.filestat_t,
+
+    pub fn size(self: @This()) u64 {
+        return self.stat.size;
+    }
+
+    pub fn permissions(self: @This()) Permissions {
+        return .{ .inner = .{ .mode = self.stat.mode } };
+    }
+
+    pub fn kind(self: @This()) Kind {
+        return switch (self.stat.filetype) {
+            .BLOCK_DEVICE => .block_device,
+            .CHARACTER_DEVICE => .character_device,
+            .DIRECTORY => .directory,
+            .SYMBOLIC_LINK => .sym_link,
+            .REGULAR_FILE => .file,
+            .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+            else => .unknown,
+        };
+    }
+
+    pub fn accessed(self: @This()) i128 {
+        return self.stat.atim;
+    }
+
+    pub fn modified(self: @This()) i128 {
+        return self.stat.mtim;
+    }
+
+    pub fn created(self: @This()) ?i128 {
+        return self.stat.ctim;
+    }
+};
+
 pub const MetadataWindows = struct {
     attributes: windows.DWORD,
     reparse_tag: windows.DWORD,
@@ -784,14 +886,14 @@ pub const MetadataWindows = struct {
 
     /// Returns a `Permissions` struct, representing the permissions on the file
     pub fn permissions(self: Self) Permissions {
-        return Permissions{ .inner = PermissionsWindows{ .attributes = self.attributes } };
+        return .{ .inner = .{ .attributes = self.attributes } };
     }
 
     /// Returns the `Kind` of the file.
     /// Can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
     pub fn kind(self: Self) Kind {
         if (self.attributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
-            if (self.reparse_tag & 0x20000000 != 0) {
+            if (self.reparse_tag & windows.reparse_tag_name_surrogate_bit != 0) {
                 return .sym_link;
             }
         } else if (self.attributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
@@ -822,7 +924,7 @@ pub const MetadataWindows = struct {
 pub const MetadataError = posix.FStatError;
 
 pub fn metadata(self: File) MetadataError!Metadata {
-    return Metadata{
+    return .{
         .inner = switch (builtin.os.tag) {
             .windows => blk: {
                 var io_status_block: windows.IO_STATUS_BLOCK = undefined;
@@ -842,15 +944,22 @@ pub fn metadata(self: File) MetadataError!Metadata {
 
                 const reparse_tag: windows.DWORD = reparse_blk: {
                     if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
-                        var reparse_buf: [windows.MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 = undefined;
-                        try windows.DeviceIoControl(self.handle, windows.FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]);
-                        const reparse_struct: *const windows.REPARSE_DATA_BUFFER = @ptrCast(@alignCast(&reparse_buf[0]));
-                        break :reparse_blk reparse_struct.ReparseTag;
+                        var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
+                        const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
+                        switch (tag_rc) {
+                            .SUCCESS => {},
+                            // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
+                            // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
+                            .INFO_LENGTH_MISMATCH => unreachable,
+                            .ACCESS_DENIED => return error.AccessDenied,
+                            else => return windows.unexpectedStatus(rc),
+                        }
+                        break :reparse_blk tag_info.ReparseTag;
                     }
                     break :reparse_blk 0;
                 };
 
-                break :blk MetadataWindows{
+                break :blk .{
                     .attributes = info.BasicInformation.FileAttributes,
                     .reparse_tag = reparse_tag,
                     ._size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
@@ -891,16 +1000,12 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     else => |err| return posix.unexpectedErrno(err),
                 }
 
-                break :blk MetadataLinux{
+                break :blk .{
                     .statx = stx,
                 };
             },
-            else => blk: {
-                const st = try posix.fstat(self.handle);
-                break :blk MetadataUnix{
-                    .stat = st,
-                };
-            },
+            .wasi => .{ .stat = try std.os.fstat_wasi(self.handle) },
+            else => .{ .stat = try posix.fstat(self.handle) },
         },
     };
 }
@@ -985,14 +1090,10 @@ pub const PReadError = posix.PReadError;
 
 pub fn read(self: File, buffer: []u8) ReadError!usize {
     if (is_windows) {
-        return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
+        return windows.ReadFile(self.handle, buffer, null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.read(self.handle, buffer);
-    } else {
-        return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.read(self.handle, buffer);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -1011,14 +1112,10 @@ pub fn readAll(self: File, buffer: []u8) ReadError!usize {
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
     if (is_windows) {
-        return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
+        return windows.ReadFile(self.handle, buffer, offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pread(self.handle, buffer, offset);
-    } else {
-        return std.event.Loop.instance.?.pread(self.handle, buffer, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pread(self.handle, buffer, offset);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -1041,14 +1138,10 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.readv(self.handle, iovecs);
-    } else {
-        return std.event.Loop.instance.?.readv(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.readv(self.handle, iovecs);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than the total bytes
@@ -1101,14 +1194,10 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.preadv(self.handle, iovecs, offset);
-    } else {
-        return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.preadv(self.handle, iovecs, offset);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than the total bytes
@@ -1145,14 +1234,10 @@ pub const PWriteError = posix.PWriteError;
 
 pub fn write(self: File, bytes: []const u8) WriteError!usize {
     if (is_windows) {
-        return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
+        return windows.WriteFile(self.handle, bytes, null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.write(self.handle, bytes);
-    } else {
-        return std.event.Loop.instance.?.write(self.handle, bytes, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.write(self.handle, bytes);
 }
 
 pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
@@ -1166,14 +1251,10 @@ pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
     if (is_windows) {
-        return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
+        return windows.WriteFile(self.handle, bytes, offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pwrite(self.handle, bytes, offset);
-    } else {
-        return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pwrite(self.handle, bytes, offset);
 }
 
 /// On Windows, this function currently does alter the file pointer.
@@ -1192,14 +1273,10 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.writev(self.handle, iovecs);
-    } else {
-        return std.event.Loop.instance.?.writev(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.writev(self.handle, iovecs);
 }
 
 /// The `iovecs` parameter is mutable because:
@@ -1243,14 +1320,10 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pwritev(self.handle, iovecs, offset);
-    } else {
-        return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pwritev(self.handle, iovecs, offset);
 }
 
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
@@ -1613,8 +1686,7 @@ const File = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-// https://github.com/ziglang/zig/issues/5019
-const posix = std.os;
+const posix = std.posix;
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;

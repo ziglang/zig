@@ -1,0 +1,7 @@
+LIBRARY dnsperf
+
+EXPORTS
+
+CloseDnsPerformanceData
+CollectDnsPerformanceData
+OpenDnsPerformanceData

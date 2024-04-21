@@ -8,7 +8,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Air = @This();
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
 const Module = @import("Module.zig");
@@ -443,16 +443,9 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
-        /// Marks the beginning of a semantic scope for debug info variables.
-        dbg_block_begin,
-        /// Marks the end of a semantic scope for debug info variables.
-        dbg_block_end,
-        /// Marks the start of an inline call.
-        /// Uses the `ty_fn` field.
-        dbg_inline_begin,
-        /// Marks the end of an inline call.
-        /// Uses the `ty_fn` field.
-        dbg_inline_end,
+        /// A block that represents an inlined function call.
+        /// Uses the `ty_pl` field. Payload is `DbgInlineBlock`.
+        dbg_inline_block,
         /// Marks the beginning of a local variable. The operand is a pointer pointing
         /// to the storage for the variable. The local may be a const or a var.
         /// Result type is always void.
@@ -516,6 +509,11 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         /// Triggers `resolveTypeLayout` on the return type.
         ret,
+        /// Same as `ret`, except if the operand is undefined, the
+        /// returned value is 0xaa bytes, and any other safety metadata
+        /// such as Valgrind integrations should be notified of
+        /// this value being undefined.
+        ret_safe,
         /// This instruction communicates that the function's result value is pointed to by
         /// the operand. If the function will pass the result by-ref, the operand is a
         /// `ret_ptr` instruction. Otherwise, this instruction is equivalent to a `load`
@@ -729,11 +727,11 @@ pub const Inst = struct {
         /// Result type is always `void`.
         /// Uses the `bin_op` field. LHS is pointer, RHS is element.
         atomic_store_unordered,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.Monotonic`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.monotonic`.
         atomic_store_monotonic,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.Release`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.release`.
         atomic_store_release,
-        /// Same as `atomic_store_unordered` but with `AtomicOrder.SeqCst`.
+        /// Same as `atomic_store_unordered` but with `AtomicOrder.seq_cst`.
         atomic_store_seq_cst,
         /// Atomically read-modify-write via a pointer.
         /// Result type is the element type of the pointer.
@@ -875,7 +873,19 @@ pub const Inst = struct {
     };
 
     /// The position of an AIR instruction within the `Air` instructions array.
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toRef(i: Index) Inst.Ref {
+            assert(@intFromEnum(i) >> 31 == 0);
+            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        }
+
+        pub fn toTargetIndex(i: Index) u31 {
+            assert(@intFromEnum(i) >> 31 == 1);
+            return @truncate(@intFromEnum(i));
+        }
+    };
 
     /// Either a reference to a value stored in the InternPool, or a reference to an AIR instruction.
     /// The most-significant bit of the value is a tag bit. This bit is 1 if the value represents an
@@ -976,6 +986,41 @@ pub const Inst = struct {
         /// value and may instead be used as a sentinel to indicate null.
         none = @intFromEnum(InternPool.Index.none),
         _,
+
+        pub fn toInterned(ref: Ref) ?InternPool.Index {
+            assert(ref != .none);
+            return ref.toInternedAllowNone();
+        }
+
+        pub fn toInternedAllowNone(ref: Ref) ?InternPool.Index {
+            return switch (ref) {
+                .var_args_param_type => .var_args_param_type,
+                .none => .none,
+                else => if (@intFromEnum(ref) >> 31 == 0)
+                    @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
+                else
+                    null,
+            };
+        }
+
+        pub fn toIndex(ref: Ref) ?Index {
+            assert(ref != .none);
+            return ref.toIndexAllowNone();
+        }
+
+        pub fn toIndexAllowNone(ref: Ref) ?Index {
+            return switch (ref) {
+                .var_args_param_type, .none => null,
+                else => if (@intFromEnum(ref) >> 31 != 0)
+                    @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
+                else
+                    null,
+            };
+        }
+
+        pub fn toType(ref: Ref) Type {
+            return Type.fromInterned(ref.toInterned().?);
+        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -1002,10 +1047,6 @@ pub const Inst = struct {
             ty: Ref,
             // Index into a different array.
             payload: u32,
-        },
-        ty_fn: struct {
-            ty: Ref,
-            func: InternPool.Index,
         },
         br: struct {
             block_inst: Index,
@@ -1043,9 +1084,11 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: InternPool.DeclIndex,
             alignment: InternPool.Alignment,
             is_const: bool,
+            /// This is `undefined` until we encounter a `store_to_inferred_alloc`,
+            /// at which point the pointer is created and stored here.
+            ptr: InternPool.Index,
         };
 
         pub const InferredAlloc = struct {
@@ -1054,10 +1097,10 @@ pub const Inst = struct {
         };
 
         // Make sure we don't accidentally add a field to make this union
-        // bigger than expected. Note that in Debug builds, Zig is allowed
+        // bigger than expected. Note that in safety builds, Zig is allowed
         // to insert a secret field for safety checks.
         comptime {
-            if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+            if (!std.debug.runtime_safety) {
                 assert(@sizeOf(Data) == 8);
             }
         }
@@ -1066,6 +1109,12 @@ pub const Inst = struct {
 
 /// Trailing is a list of instruction indexes for every `body_len`.
 pub const Block = struct {
+    body_len: u32,
+};
+
+/// Trailing is a list of instruction indexes for every `body_len`.
+pub const DbgInlineBlock = struct {
+    func: InternPool.Index,
     body_len: u32,
 };
 
@@ -1216,20 +1265,20 @@ pub const UnionInit = struct {
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
     const body_index = air.extra[@intFromEnum(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
-    return air.extra[extra.end..][0..extra.data.body_len];
+    return @ptrCast(air.extra[extra.end..][0..extra.data.body_len]);
 }
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
-    if (refToInterned(inst)) |ip_index| {
+    if (inst.toInterned()) |ip_index| {
         return Type.fromInterned(ip.typeOf(ip_index));
     } else {
-        return air.typeOfIndex(refToIndex(inst).?, ip);
+        return air.typeOfIndex(inst.toIndex().?, ip);
     }
 }
 
 pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
     const datas = air.instructions.items(.data);
-    switch (air.instructions.items(.tag)[inst]) {
+    switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .add,
         .add_safe,
         .add_wrap,
@@ -1269,7 +1318,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
-        => return air.typeOf(datas[inst].bin_op.lhs, ip),
+        => return air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip),
 
         .sqrt,
         .sin,
@@ -1286,7 +1335,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .trunc_float,
         .neg,
         .neg_optimized,
-        => return air.typeOf(datas[inst].un_op, ip),
+        => return air.typeOf(datas[@intFromEnum(inst)].un_op, ip),
 
         .cmp_lt,
         .cmp_lte,
@@ -1317,12 +1366,13 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ret_ptr,
         .err_return_trace,
         .c_va_start,
-        => return datas[inst].ty,
+        => return datas[@intFromEnum(inst)].ty,
 
-        .arg => return air.getRefType(datas[inst].arg.ty),
+        .arg => return datas[@intFromEnum(inst)].arg.ty.toType(),
 
         .assembly,
         .block,
+        .dbg_inline_block,
         .struct_field_ptr,
         .struct_field_val,
         .slice_elem_ptr,
@@ -1343,7 +1393,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_add,
         .ptr_sub,
         .try_ptr,
-        => return air.getRefType(datas[inst].ty_pl.ty),
+        => return datas[@intFromEnum(inst)].ty_pl.ty.toType(),
 
         .not,
         .bitcast,
@@ -1385,13 +1435,14 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_arg,
         .c_va_copy,
         .abs,
-        => return air.getRefType(datas[inst].ty_op.ty),
+        => return datas[@intFromEnum(inst)].ty_op.ty.toType(),
 
         .loop,
         .br,
         .cond_br,
         .switch_br,
         .ret,
+        .ret_safe,
         .ret_load,
         .unreach,
         .trap,
@@ -1399,10 +1450,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .breakpoint,
         .dbg_stmt,
-        .dbg_inline_begin,
-        .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .dbg_var_ptr,
         .dbg_var_val,
         .store,
@@ -1437,36 +1484,36 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const callee_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
-            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].bin_op.lhs, ip);
             return ptr_ty.childTypeIp(ip);
         },
         .atomic_load => {
-            const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].atomic_load.ptr, ip);
             return ptr_ty.childTypeIp(ip);
         },
         .atomic_rmw => {
-            const ptr_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const ptr_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return ptr_ty.childTypeIp(ip);
         },
 
         .reduce, .reduce_optimized => {
-            const operand_ty = air.typeOf(datas[inst].reduce.operand, ip);
+            const operand_ty = air.typeOf(datas[@intFromEnum(inst)].reduce.operand, ip);
             return Type.fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
         },
 
-        .mul_add => return air.typeOf(datas[inst].pl_op.operand, ip),
+        .mul_add => return air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip),
         .select => {
-            const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
+            const extra = air.extraData(Air.Bin, datas[@intFromEnum(inst)].pl_op.payload).data;
             return air.typeOf(extra.lhs, ip);
         },
 
         .@"try" => {
-            const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
+            const err_union_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
             return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
@@ -1478,11 +1525,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
     }
-}
-
-pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
-    _ = air; // TODO: remove this parameter
-    return Type.fromInterned(refToInterned(ref).?);
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -1513,21 +1555,6 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.* = undefined;
 }
 
-pub fn refToInternedAllowNone(ref: Inst.Ref) ?InternPool.Index {
-    return switch (ref) {
-        .var_args_param_type => .var_args_param_type,
-        .none => .none,
-        else => if (@intFromEnum(ref) >> 31 == 0) {
-            return @as(InternPool.Index, @enumFromInt(@intFromEnum(ref)));
-        } else null,
-    };
-}
-
-pub fn refToInterned(ref: Inst.Ref) ?InternPool.Index {
-    assert(ref != .none);
-    return refToInternedAllowNone(ref);
-}
-
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     return switch (ip_index) {
         .var_args_param_type => .var_args_param_type,
@@ -1539,31 +1566,12 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     };
 }
 
-pub fn refToIndexAllowNone(ref: Inst.Ref) ?Inst.Index {
-    return switch (ref) {
-        .var_args_param_type, .none => null,
-        else => if (@intFromEnum(ref) >> 31 != 0) {
-            return @as(u31, @truncate(@intFromEnum(ref)));
-        } else null,
-    };
-}
-
-pub fn refToIndex(ref: Inst.Ref) ?Inst.Index {
-    assert(ref != .none);
-    return refToIndexAllowNone(ref);
-}
-
-pub fn indexToRef(inst: Inst.Index) Inst.Ref {
-    assert(inst >> 31 == 0);
-    return @enumFromInt((1 << 31) | inst);
-}
-
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
-    if (refToInterned(inst)) |ip_index| {
+    if (inst.toInterned()) |ip_index| {
         return Value.fromInterned(ip_index);
     }
-    const index = refToIndex(inst).?;
+    const index = inst.toIndex().?;
     return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
 }
 
@@ -1581,8 +1589,8 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
 /// lowered, and Liveness determines its result is unused, backends should
 /// avoid lowering it.
 pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
-    const data = air.instructions.items(.data)[inst];
-    return switch (air.instructions.items(.tag)[inst]) {
+    const data = air.instructions.items(.data)[@intFromEnum(inst)];
+    return switch (air.instructions.items(.tag)[@intFromEnum(inst)]) {
         .arg,
         .block,
         .loop,
@@ -1598,13 +1606,11 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .@"try",
         .try_ptr,
         .dbg_stmt,
-        .dbg_block_begin,
-        .dbg_block_end,
-        .dbg_inline_begin,
-        .dbg_inline_end,
+        .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,
         .ret,
+        .ret_safe,
         .ret_load,
         .store,
         .store_safe,
@@ -1631,20 +1637,20 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
+        .add_safe,
+        .sub_safe,
+        .mul_safe,
         => true,
 
         .add,
-        .add_safe,
         .add_optimized,
         .add_wrap,
         .add_sat,
         .sub,
-        .sub_safe,
         .sub_optimized,
         .sub_wrap,
         .sub_sat,
         .mul,
-        .mul_safe,
         .mul_optimized,
         .mul_wrap,
         .mul_sat,

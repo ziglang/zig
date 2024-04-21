@@ -9,9 +9,8 @@ pub const BuildOptions = struct {
     llvm_has_xtensa: bool,
 };
 
-pub fn addCases(cases: *Cases, build_options: BuildOptions) !void {
-    try @import("compile_errors.zig").addCases(cases);
-    try @import("cbe.zig").addCases(cases);
-    try @import("llvm_targets.zig").addCases(cases, build_options);
-    try @import("nvptx.zig").addCases(cases);
+pub fn addCases(cases: *Cases, build_options: BuildOptions, b: *std.Build) !void {
+    try @import("compile_errors.zig").addCases(cases, b);
+    try @import("llvm_targets.zig").addCases(cases, build_options, b);
+    try @import("nvptx.zig").addCases(cases, b);
 }

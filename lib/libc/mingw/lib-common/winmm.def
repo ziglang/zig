@@ -51,7 +51,6 @@ joySetThreshold
 mci32Message
 mciDriverNotify
 mciDriverYield
-mciExecute
 mciFreeCommandResource
 mciGetCreatorTask
 mciGetDeviceIDA

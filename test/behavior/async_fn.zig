@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -221,7 +222,7 @@ var a_promise: anyframe = undefined;
 var global_result = false;
 fn testSuspendBlock() callconv(.Async) void {
     suspend {
-        comptime expect(@TypeOf(@frame()) == *@Frame(testSuspendBlock)) catch unreachable;
+        comptime assert(@TypeOf(@frame()) == *@Frame(testSuspendBlock)) catch unreachable;
         a_promise = @frame();
     }
 
@@ -334,7 +335,7 @@ test "async fn pointer in a struct field" {
     _ = &foo;
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    try comptime expect(@TypeOf(f) == anyframe->void);
+    comptime assert(@TypeOf(f) == anyframe->void);
     try expect(data == 2);
     resume f;
     try expect(data == 4);
@@ -1150,7 +1151,7 @@ test "@asyncCall using the result location inside the frame" {
     _ = &foo;
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    try comptime expect(@TypeOf(f) == anyframe->i32);
+    comptime assert(@TypeOf(f) == anyframe->i32);
     try expect(data == 2);
     resume f;
     try expect(data == 4);
@@ -1165,7 +1166,7 @@ test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
         fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
-            try comptime expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
+            comptime assert(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
             return undefined;
         }
     };

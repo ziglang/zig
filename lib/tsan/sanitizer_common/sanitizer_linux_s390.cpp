@@ -57,8 +57,10 @@ uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
 
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                     int *parent_tidptr, void *newtls, int *child_tidptr) {
-  if (!fn || !child_stack)
-    return -EINVAL;
+  if (!fn || !child_stack) {
+    errno = EINVAL;
+    return -1;
+  }
   CHECK_EQ(0, (uptr)child_stack % 16);
   // Minimum frame size.
 #ifdef __s390x__
@@ -71,9 +73,9 @@ uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
   // And pass parameters.
   ((unsigned long *)child_stack)[1] = (uptr)fn;
   ((unsigned long *)child_stack)[2] = (uptr)arg;
-  register long res __asm__("r2");
+  register uptr res __asm__("r2");
   register void *__cstack      __asm__("r2") = child_stack;
-  register int __flags         __asm__("r3") = flags;
+  register long __flags        __asm__("r3") = flags;
   register int * __ptidptr     __asm__("r4") = parent_tidptr;
   register int * __ctidptr     __asm__("r5") = child_tidptr;
   register void * __newtls     __asm__("r6") = newtls;
@@ -113,6 +115,10 @@ uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                          "r"(__ctidptr),
                          "r"(__newtls)
                        : "memory", "cc");
+  if (res >= (uptr)-4095) {
+    errno = -res;
+    return -1;
+  }
   return res;
 }
 

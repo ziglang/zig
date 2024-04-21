@@ -55,7 +55,7 @@ fn staticAdd(a: i32, b: i32) i32 {
 
 test "const expr eval on single expr blocks" {
     try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
-    try comptime expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+    comptime assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
@@ -426,7 +426,7 @@ test "f64 at compile time is lossy" {
 }
 
 test {
-    try comptime expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
+    comptime assert(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 fn copyWithPartialInline(s: []u32, b: []u8) void {
@@ -489,7 +489,6 @@ test "comptime bitwise operators" {
 
 test "comptime shlWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
     var a = ~@as(u64, 0);
@@ -522,7 +521,7 @@ test "runtime 128 bit integer division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
@@ -613,7 +612,7 @@ test "const global shares pointer with other same one" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try assertEqualPtrs(&hi1[0], &hi2[0]);
-    try comptime expect(&hi1[0] == &hi2[0]);
+    comptime assert(&hi1[0] == &hi2[0]);
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
@@ -634,8 +633,8 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
-    try comptime expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
-    try comptime expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+    comptime assert(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    comptime assert(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -876,27 +875,27 @@ test "two comptime calls with array default initialized to undefined" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        const CrossTarget = struct {
-            dynamic_linker: DynamicLinker = DynamicLinker{},
+        const A = struct {
+            c: B = B{},
 
-            pub fn parse() void {
-                var result: CrossTarget = .{};
-                result.getCpuArch();
+            pub fn d() void {
+                var f: A = .{};
+                f.e();
             }
 
-            pub fn getCpuArch(self: CrossTarget) void {
-                _ = self;
+            pub fn e(g: A) void {
+                _ = g;
             }
         };
 
-        const DynamicLinker = struct {
+        const B = struct {
             buffer: [255]u8 = undefined,
         };
     };
 
     comptime {
-        S.CrossTarget.parse();
-        S.CrossTarget.parse();
+        S.A.d();
+        S.A.d();
     }
 }
 
@@ -953,7 +952,7 @@ test "const local with comptime init through array init" {
         S.declarations(E1),
     };
 
-    try comptime expect(decls[0][0].name[0] == 'a');
+    comptime assert(decls[0][0].name[0] == 'a');
 }
 
 test "closure capture type of runtime-known parameter" {
@@ -1212,7 +1211,7 @@ test "storing an array of type in a field" {
 
     const S = struct {
         fn doTheTest() void {
-            comptime var foobar = Foobar.foo();
+            const foobar = Foobar.foo();
             foo(foobar.str[0..10]);
         }
         const Foobar = struct {
@@ -1339,7 +1338,7 @@ test "value in if block is comptime-known" {
         const s = if (false) S{ .str = "a" } else S{ .str = "b" };
         break :blk "foo" ++ s.str;
     };
-    try comptime expect(std.mem.eql(u8, first, second));
+    comptime assert(std.mem.eql(u8, first, second));
 }
 
 test "lazy sizeof is resolved in division" {
@@ -1561,7 +1560,7 @@ test "comptime function turns function value to function pointer" {
             fnPtr(Nil),
         };
     };
-    try comptime expect(S.foo[0] == &S.Nil);
+    comptime assert(S.foo[0] == &S.Nil);
 }
 
 test "container level const and var have unique addresses" {
@@ -1714,4 +1713,22 @@ test "const with specified type initialized with typed array is comptime-known" 
     comptime assert(x[0] == 1);
     comptime assert(x[1] == 2);
     comptime assert(x[2] == 3);
+}
+
+test "block with comptime-known result but possible runtime exit is comptime-known" {
+    var t: bool = true;
+    _ = &t;
+
+    const a: comptime_int = a: {
+        if (!t) return error.TestFailed;
+        break :a 123;
+    };
+
+    const b: comptime_int = b: {
+        if (t) break :b 456;
+        return error.TestFailed;
+    };
+
+    comptime assert(a == 123);
+    comptime assert(b == 456);
 }

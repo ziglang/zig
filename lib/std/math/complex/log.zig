@@ -5,8 +5,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the natural logarithm of z.
-pub fn log(z: anytype) Complex(@TypeOf(z.re)) {
-    const T = @TypeOf(z.re);
+pub fn log(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     const r = cmath.abs(z);
     const phi = cmath.arg(z);
 
@@ -15,7 +15,7 @@ pub fn log(z: anytype) Complex(@TypeOf(z.re)) {
 
 const epsilon = 0.0001;
 
-test "complex.clog" {
+test log {
     const a = Complex(f32).init(5, 3);
     const c = log(a);
 

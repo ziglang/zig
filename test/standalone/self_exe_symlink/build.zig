@@ -7,22 +7,22 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
+    const target = b.host;
 
     // The test requires getFdPath in order to to get the path of the
     // File returned by openSelfExe
-    if (!std.os.isGetFdPathSupportedOnTarget(target.getOs())) return;
+    if (!std.os.isGetFdPathSupportedOnTarget(target.result.os)) return;
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
     });
 
     const create_symlink_exe = b.addExecutable(.{
         .name = "create-symlink",
-        .root_source_file = .{ .path = "create-symlink.zig" },
+        .root_source_file = b.path("create-symlink.zig"),
         .optimize = optimize,
         .target = target,
     });

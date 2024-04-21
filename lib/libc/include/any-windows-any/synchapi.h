@@ -128,6 +128,8 @@ extern "C" {
   WINBASEAPI DWORD WINAPI SignalObjectAndWait (HANDLE hObjectToSignal, HANDLE hObjectToWaitOn, DWORD dwMilliseconds, WINBOOL bAlertable);
 #if _WIN32_WINNT >= 0x0600
 #define CREATE_WAITABLE_TIMER_MANUAL_RESET 0x1
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x2
+
   WINBASEAPI HANDLE WINAPI CreateWaitableTimerExW (LPSECURITY_ATTRIBUTES lpTimerAttributes, LPCWSTR lpTimerName, DWORD dwFlags, DWORD dwDesiredAccess);
 
 #ifdef UNICODE

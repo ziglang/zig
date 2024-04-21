@@ -12,7 +12,7 @@
 
 #include "sanitizer_platform.h"
 
-#if SANITIZER_MAC && (defined(__x86_64__) || defined(__aarch64__) || \
+#if SANITIZER_APPLE && (defined(__x86_64__) || defined(__aarch64__) || \
                       defined(__i386))
 
 #include <mach/mach.h>
@@ -29,7 +29,7 @@ typedef struct {
 
 class SuspendedThreadsListMac final : public SuspendedThreadsList {
  public:
-  SuspendedThreadsListMac() : threads_(1024) {}
+  SuspendedThreadsListMac() = default;
 
   tid_t GetThreadID(uptr index) const override;
   thread_t GetThread(uptr index) const;
@@ -87,11 +87,13 @@ void StopTheWorld(StopTheWorldCallback callback, void *argument) {
 
 #if defined(__x86_64__)
 typedef x86_thread_state64_t regs_struct;
+#define regs_flavor x86_THREAD_STATE64
 
 #define SP_REG __rsp
 
 #elif defined(__aarch64__)
 typedef arm_thread_state64_t regs_struct;
+#define regs_flavor ARM_THREAD_STATE64
 
 # if __DARWIN_UNIX03
 #  define SP_REG __sp
@@ -101,6 +103,7 @@ typedef arm_thread_state64_t regs_struct;
 
 #elif defined(__i386)
 typedef x86_thread_state32_t regs_struct;
+#define regs_flavor x86_THREAD_STATE32
 
 #define SP_REG __esp
 
@@ -146,17 +149,15 @@ PtraceRegistersStatus SuspendedThreadsListMac::GetRegistersAndSP(
   thread_t thread = GetThread(index);
   regs_struct regs;
   int err;
-  mach_msg_type_number_t reg_count = MACHINE_THREAD_STATE_COUNT;
-  err = thread_get_state(thread, MACHINE_THREAD_STATE, (thread_state_t)&regs,
+  mach_msg_type_number_t reg_count = sizeof(regs) / sizeof(natural_t);
+  err = thread_get_state(thread, regs_flavor, (thread_state_t)&regs,
                          &reg_count);
   if (err != KERN_SUCCESS) {
     VReport(1, "Error - unable to get registers for a thread\n");
-    // KERN_INVALID_ARGUMENT indicates that either the flavor is invalid,
-    // or the thread does not exist. The other possible error case,
     // MIG_ARRAY_TOO_LARGE, means that the state is too large, but it's
     // still safe to proceed.
-    return err == KERN_INVALID_ARGUMENT ? REGISTERS_UNAVAILABLE_FATAL
-                                        : REGISTERS_UNAVAILABLE;
+    return err == MIG_ARRAY_TOO_LARGE ? REGISTERS_UNAVAILABLE
+                                      : REGISTERS_UNAVAILABLE_FATAL;
   }
 
   buffer->resize(RoundUpTo(sizeof(regs), sizeof(uptr)) / sizeof(uptr));
@@ -176,5 +177,5 @@ PtraceRegistersStatus SuspendedThreadsListMac::GetRegistersAndSP(
 
 } // namespace __sanitizer
 
-#endif  // SANITIZER_MAC && (defined(__x86_64__) || defined(__aarch64__)) ||
+#endif  // SANITIZER_APPLE && (defined(__x86_64__) || defined(__aarch64__)) ||
         //                   defined(__i386))

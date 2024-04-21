@@ -1,0 +1,26 @@
+LIBRARY RPCDCE4.dll
+EXPORTS
+DceErrorInqTextA@8
+DceErrorInqTextW@8
+MIDL_user_allocate@4
+MIDL_user_free@4
+RpcBindingToStringBindingA@8
+RpcBindingToStringBindingW@8
+RpcMgmtEpEltInqBegin@24
+RpcMgmtEpEltInqDone@4
+RpcMgmtEpEltInqNextA@20
+RpcMgmtEpEltInqNextW@20
+RpcMgmtEpUnregister@16
+RpcMgmtInqIfIds@8
+RpcMgmtInqServerPrincNameA@12
+RpcMgmtInqServerPrincNameW@12
+RpcMgmtInqStats@8
+RpcMgmtIsServerListening@4
+RpcMgmtSetAuthorizationFn@4
+RpcMgmtStopServerListening@4
+RpcServerListen@12
+UuidCompare@12
+UuidCreateNil@4
+UuidEqual@12
+UuidHash@8
+UuidIsNil@8

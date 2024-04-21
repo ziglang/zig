@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Type = std.builtin.Type;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 fn testTypes(comptime types: []const type) !void {
     inline for (types) |testType| {
@@ -262,7 +263,7 @@ test "Type.Struct" {
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Auto, infoA.layout);
+    try testing.expectEqual(Type.ContainerLayout.auto, infoA.layout);
     try testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
     try testing.expectEqual(u8, infoA.fields[0].type);
     try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value);
@@ -280,7 +281,7 @@ test "Type.Struct" {
 
     const B = @Type(@typeInfo(extern struct { x: u8, y: u32 = 5 }));
     const infoB = @typeInfo(B).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Extern, infoB.layout);
+    try testing.expectEqual(Type.ContainerLayout.@"extern", infoB.layout);
     try testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
     try testing.expectEqual(u8, infoB.fields[0].type);
     try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
@@ -292,7 +293,7 @@ test "Type.Struct" {
 
     const C = @Type(@typeInfo(packed struct { x: u8 = 3, y: u32 = 5 }));
     const infoC = @typeInfo(C).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Packed, infoC.layout);
+    try testing.expectEqual(Type.ContainerLayout.@"packed", infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
     try testing.expectEqual(u8, infoC.fields[0].type);
     try testing.expectEqual(@as(u8, 3), @as(*const u8, @ptrCast(infoC.fields[0].default_value.?)).*);
@@ -305,7 +306,7 @@ test "Type.Struct" {
     // anon structs
     const D = @Type(@typeInfo(@TypeOf(.{ .x = 3, .y = 5 })));
     const infoD = @typeInfo(D).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Auto, infoD.layout);
+    try testing.expectEqual(Type.ContainerLayout.auto, infoD.layout);
     try testing.expectEqualSlices(u8, "x", infoD.fields[0].name);
     try testing.expectEqual(comptime_int, infoD.fields[0].type);
     try testing.expectEqual(@as(comptime_int, 3), @as(*const comptime_int, @ptrCast(infoD.fields[0].default_value.?)).*);
@@ -318,7 +319,7 @@ test "Type.Struct" {
     // tuples
     const E = @Type(@typeInfo(@TypeOf(.{ 1, 2 })));
     const infoE = @typeInfo(E).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Auto, infoE.layout);
+    try testing.expectEqual(Type.ContainerLayout.auto, infoE.layout);
     try testing.expectEqualSlices(u8, "0", infoE.fields[0].name);
     try testing.expectEqual(comptime_int, infoE.fields[0].type);
     try testing.expectEqual(@as(comptime_int, 1), @as(*const comptime_int, @ptrCast(infoE.fields[0].default_value.?)).*);
@@ -331,14 +332,14 @@ test "Type.Struct" {
     // empty struct
     const F = @Type(@typeInfo(struct {}));
     const infoF = @typeInfo(F).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Auto, infoF.layout);
+    try testing.expectEqual(Type.ContainerLayout.auto, infoF.layout);
     try testing.expect(infoF.fields.len == 0);
     try testing.expectEqual(@as(bool, false), infoF.is_tuple);
 
     // empty tuple
     const G = @Type(@typeInfo(@TypeOf(.{})));
     const infoG = @typeInfo(G).Struct;
-    try testing.expectEqual(Type.ContainerLayout.Auto, infoG.layout);
+    try testing.expectEqual(Type.ContainerLayout.auto, infoG.layout);
     try testing.expect(infoG.fields.len == 0);
     try testing.expectEqual(@as(bool, true), infoG.is_tuple);
 }
@@ -385,7 +386,7 @@ test "Type.Union" {
 
     const Untagged = @Type(.{
         .Union = .{
-            .layout = .Extern,
+            .layout = .@"extern",
             .tag_type = null,
             .fields = &.{
                 .{ .name = "int", .type = i32, .alignment = @alignOf(f32) },
@@ -401,7 +402,7 @@ test "Type.Union" {
 
     const PackedUntagged = @Type(.{
         .Union = .{
-            .layout = .Packed,
+            .layout = .@"packed",
             .tag_type = null,
             .fields = &.{
                 .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
@@ -428,7 +429,7 @@ test "Type.Union" {
     });
     const Tagged = @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .auto,
             .tag_type = Tag,
             .fields = &.{
                 .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
@@ -438,9 +439,9 @@ test "Type.Union" {
         },
     });
     var tagged = Tagged{ .signed = -1 };
-    try testing.expectEqual(Tag.signed, tagged);
+    try testing.expectEqual(Tag.signed, @as(Tag, tagged));
     tagged = .{ .unsigned = 1 };
-    try testing.expectEqual(Tag.unsigned, tagged);
+    try testing.expectEqual(Tag.unsigned, @as(Tag, tagged));
 }
 
 test "Type.Union from Type.Enum" {
@@ -456,7 +457,7 @@ test "Type.Union from Type.Enum" {
     });
     const T = @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .auto,
             .tag_type = Tag,
             .fields = &.{
                 .{ .name = "working_as_expected", .type = u32, .alignment = @alignOf(u32) },
@@ -471,7 +472,7 @@ test "Type.Union from regular enum" {
     const E = enum { working_as_expected };
     const T = @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .auto,
             .tag_type = E,
             .fields = &.{
                 .{ .name = "working_as_expected", .type = u32, .alignment = @alignOf(u32) },
@@ -480,6 +481,39 @@ test "Type.Union from regular enum" {
         },
     });
     _ = @typeInfo(T).Union;
+}
+
+test "Type.Union from empty regular enum" {
+    const E = enum {};
+    const U = @Type(.{
+        .Union = .{
+            .layout = .auto,
+            .tag_type = E,
+            .fields = &.{},
+            .decls = &.{},
+        },
+    });
+    try testing.expectEqual(@sizeOf(U), 0);
+}
+
+test "Type.Union from empty Type.Enum" {
+    const E = @Type(.{
+        .Enum = .{
+            .tag_type = u0,
+            .fields = &.{},
+            .decls = &.{},
+            .is_exhaustive = true,
+        },
+    });
+    const U = @Type(.{
+        .Union = .{
+            .layout = .auto,
+            .tag_type = E,
+            .fields = &.{},
+            .decls = &.{},
+        },
+    });
+    try testing.expectEqual(@sizeOf(U), 0);
 }
 
 test "Type.Fn" {
@@ -493,7 +527,6 @@ test "Type.Fn" {
     {
         const fn_info = std.builtin.Type{ .Fn = .{
             .calling_convention = .C,
-            .alignment = 0,
             .is_generic = false,
             .is_var_args = false,
             .return_type = void,
@@ -516,10 +549,10 @@ test "Type.Fn" {
 
 test "reified struct field name from optional payload" {
     comptime {
-        const m_name: ?[1]u8 = "a".*;
+        const m_name: ?[1:0]u8 = "a".*;
         if (m_name) |*name| {
             const T = @Type(.{ .Struct = .{
-                .layout = .Auto,
+                .layout = .auto,
                 .fields = &.{.{
                     .name = name,
                     .type = u8,
@@ -534,4 +567,215 @@ test "reified struct field name from optional payload" {
             try std.testing.expect(t.a == 123);
         }
     }
+}
+
+test "reified union uses @alignOf" {
+    const S = struct {
+        fn CreateUnion(comptime T: type) type {
+            return @Type(.{
+                .Union = .{
+                    .layout = .auto,
+                    .tag_type = null,
+                    .fields = &[_]std.builtin.Type.UnionField{
+                        .{
+                            .name = "field",
+                            .type = T,
+                            .alignment = @alignOf(T),
+                        },
+                    },
+                    .decls = &.{},
+                },
+            });
+        }
+    };
+    _ = S.CreateUnion(struct {});
+}
+
+test "reified struct uses @alignOf" {
+    const S = struct {
+        fn NamespacedGlobals(comptime modules: anytype) type {
+            return @Type(.{
+                .Struct = .{
+                    .layout = .auto,
+                    .is_tuple = false,
+                    .fields = &.{
+                        .{
+                            .name = "globals",
+                            .type = modules.mach.globals,
+                            .default_value = null,
+                            .is_comptime = false,
+                            .alignment = @alignOf(modules.mach.globals),
+                        },
+                    },
+                    .decls = &.{},
+                },
+            });
+        }
+    };
+    _ = S.NamespacedGlobals(.{
+        .mach = .{
+            .globals = struct {},
+        },
+    });
+}
+
+test "reified error set initialized with field pointer" {
+    const S = struct {
+        const info = .{
+            .args = [_]Type.Error{
+                .{ .name = "bar" },
+            },
+        };
+        const Foo = @Type(.{
+            .ErrorSet = &info.args,
+        });
+    };
+    try testing.expect(S.Foo == error{bar});
+}
+test "reified function type params initialized with field pointer" {
+    const S = struct {
+        const fn_info = .{
+            .params = [_]Type.Fn.Param{
+                .{ .is_generic = false, .is_noalias = false, .type = u8 },
+            },
+        };
+        const Bar = @Type(.{
+            .Fn = .{
+                .calling_convention = .Unspecified,
+                .is_generic = false,
+                .is_var_args = false,
+                .return_type = void,
+                .params = &fn_info.params,
+            },
+        });
+    };
+    try testing.expect(@typeInfo(S.Bar) == .Fn);
+}
+
+test "empty struct assigned to reified struct field" {
+    const S = struct {
+        fn NamespacedComponents(comptime modules: anytype) type {
+            return @Type(.{
+                .Struct = .{
+                    .layout = .auto,
+                    .is_tuple = false,
+                    .fields = &.{.{
+                        .name = "components",
+                        .type = @TypeOf(modules.components),
+                        .default_value = null,
+                        .is_comptime = false,
+                        .alignment = @alignOf(@TypeOf(modules.components)),
+                    }},
+                    .decls = &.{},
+                },
+            });
+        }
+
+        fn namespacedComponents(comptime modules: anytype) NamespacedComponents(modules) {
+            var x: NamespacedComponents(modules) = undefined;
+            x.components = modules.components;
+            return x;
+        }
+    };
+    _ = S.namespacedComponents(.{
+        .components = .{
+            .location = struct {},
+        },
+    });
+}
+
+test "@Type should resolve its children types" {
+    const sparse = enum(u2) { a, b, c };
+    const dense = enum(u2) { a, b, c, d };
+
+    comptime var sparse_info = @typeInfo(anyerror!sparse);
+    sparse_info.ErrorUnion.payload = dense;
+    const B = @Type(sparse_info);
+    try testing.expectEqual(anyerror!dense, B);
+}
+
+test "struct field names sliced at comptime from larger string" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const text =
+        \\f1
+        \\f2
+        \\f3
+    ;
+    comptime {
+        var fields: []const Type.StructField = &[0]Type.StructField{};
+
+        var it = std.mem.tokenizeScalar(u8, text, '\n');
+        while (it.next()) |name| {
+            fields = fields ++ &[_]Type.StructField{.{
+                .alignment = 0,
+                .name = name ++ "",
+                .type = usize,
+                .default_value = null,
+                .is_comptime = false,
+            }};
+        }
+
+        const T = @Type(.{
+            .Struct = .{
+                .layout = .auto,
+                .is_tuple = false,
+                .fields = fields,
+                .decls = &.{},
+            },
+        });
+
+        const gen_fields = @typeInfo(T).Struct.fields;
+        try testing.expectEqual(3, gen_fields.len);
+        try testing.expectEqualStrings("f1", gen_fields[0].name);
+        try testing.expectEqualStrings("f2", gen_fields[1].name);
+        try testing.expectEqualStrings("f3", gen_fields[2].name);
+    }
+}
+
+test "matching captures causes opaque equivalence" {
+    const S = struct {
+        fn UnsignedId(comptime I: type) type {
+            const U = @Type(.{ .Int = .{
+                .signedness = .unsigned,
+                .bits = @typeInfo(I).Int.bits,
+            } });
+            return opaque {
+                fn id(x: U) U {
+                    return x;
+                }
+            };
+        }
+    };
+
+    comptime assert(S.UnsignedId(u8) == S.UnsignedId(i8));
+    comptime assert(S.UnsignedId(u16) == S.UnsignedId(i16));
+    comptime assert(S.UnsignedId(u8) != S.UnsignedId(u16));
+
+    const a = S.UnsignedId(u8).id(123);
+    const b = S.UnsignedId(i8).id(123);
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try testing.expect(a == b);
+}
+
+test "reify enum where fields refers to part of array" {
+    const fields: [3]std.builtin.Type.EnumField = .{
+        .{ .name = "foo", .value = 0 },
+        .{ .name = "bar", .value = 1 },
+        undefined,
+    };
+    const E = @Type(.{ .Enum = .{
+        .tag_type = u8,
+        .fields = fields[0..2],
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+    var a: E = undefined;
+    var b: E = undefined;
+    a = .foo;
+    b = .bar;
+    try testing.expect(a == .foo);
+    try testing.expect(b == .bar);
+    try testing.expect(a != b);
 }

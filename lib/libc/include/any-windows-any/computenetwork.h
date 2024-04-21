@@ -132,6 +132,8 @@ HRESULT WINAPI HcnReserveGuestNetworkServicePortRange (HCN_GUESTNETWORKSERVICE G
 HRESULT WINAPI HcnReleaseGuestNetworkServicePortReservationHandle (HANDLE PortReservationHandle);
 HRESULT WINAPI HcnEnumerateGuestNetworkPortReservations (ULONG* ReturnCount, HCN_PORT_RANGE_ENTRY** PortEntries);
 VOID WINAPI HcnFreeGuestNetworkPortReservations (HCN_PORT_RANGE_ENTRY* PortEntries);
+HRESULT WINAPI HcnQueryEndpointStats (HCN_ENDPOINT Endpoint, PCWSTR Query, PWSTR *Stats, PWSTR *ErrorRecord);
+HRESULT WINAPI HcnQueryEndpointAddresses (HCN_ENDPOINT Endpoint, PCWSTR Query, PWSTR *Addresses, PWSTR *ErrorRecord);
 
 #ifdef __cplusplus
 }

@@ -9,19 +9,22 @@ const std = @import("std");
 const Wasm = @import("../Wasm.zig");
 const Symbol = @import("Symbol.zig");
 const Alignment = types.Alignment;
+const File = @import("file.zig").File;
 
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
 const meta = std.meta;
 
-const log = std.log.scoped(.link);
+const log = std.log.scoped(.object);
 
+/// Index into the list of relocatable object files within the linker driver.
+index: File.Index = .null,
 /// Wasm spec version used for this `Object`
 version: u32 = 0,
 /// The file descriptor that represents the wasm object file.
 file: ?std.fs.File = null,
 /// Name (read path) of the object file.
-name: []const u8,
+path: []const u8,
 /// Parsed type section
 func_types: []const std.wasm.Type = &.{},
 /// A list of all imports for this module
@@ -59,20 +62,22 @@ init_funcs: []const types.InitFunc = &.{},
 comdat_info: []const types.Comdat = &.{},
 /// Represents non-synthetic sections that can essentially be mem-cpy'd into place
 /// after performing relocations.
-relocatable_data: []const RelocatableData = &.{},
+relocatable_data: std.AutoHashMapUnmanaged(RelocatableData.Tag, []RelocatableData) = .{},
 /// String table for all strings required by the object file, such as symbol names,
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
 string_table: Wasm.StringTable = .{},
-/// All the names of each debug section found in the current object file.
-/// Each name is terminated by a null-terminator. The name can be found,
-/// from the `index` offset within the `RelocatableData`.
-debug_names: [:0]const u8,
+/// Amount of functions in the `import` sections.
+imported_functions_count: u32 = 0,
+/// Amount of globals in the `import` section.
+imported_globals_count: u32 = 0,
+/// Amount of tables in the `import` section.
+imported_tables_count: u32 = 0,
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
     /// The type of the relocatable data
-    type: enum { data, code, debug },
+    type: Tag,
     /// Pointer to the data of the segment, where its length is written to `size`
     data: [*]u8,
     /// The size in bytes of the data representing the segment within the section
@@ -84,6 +89,11 @@ const RelocatableData = struct {
     offset: u32,
     /// Represents the index of the section it belongs to
     section_index: u32,
+    /// Whether the relocatable section is represented by a symbol or not.
+    /// Can only be `true` for custom sections.
+    represented: bool = false,
+
+    const Tag = enum { data, code, custom };
 
     /// Returns the alignment of the segment, by retrieving it from the segment
     /// meta data of the given object file.
@@ -99,14 +109,14 @@ const RelocatableData = struct {
         return switch (relocatable_data.type) {
             .data => .data,
             .code => .function,
-            .debug => .section,
+            .custom => .section,
         };
     }
 
-    /// Returns the index within a section itrelocatable_data, or in case of a debug section,
+    /// Returns the index within a section, or in case of a custom section,
     /// returns the section index within the object file.
     pub fn getIndex(relocatable_data: RelocatableData) u32 {
-        if (relocatable_data.type == .debug) return relocatable_data.section_index;
+        if (relocatable_data.type == .custom) return relocatable_data.section_index;
         return relocatable_data.index;
     }
 };
@@ -117,16 +127,16 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 /// This also parses and verifies the object file.
 /// When a max size is given, will only parse up to the given size,
 /// else will read until the end of the file.
-pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
+pub fn create(wasm_file: *const Wasm, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
+    const gpa = wasm_file.base.comp.gpa;
     var object: Object = .{
         .file = file,
-        .name = try gpa.dupe(u8, name),
-        .debug_names = &.{},
+        .path = try gpa.dupe(u8, name),
     };
 
     var is_object_file: bool = false;
     const size = maybe_max_size orelse size: {
-        errdefer gpa.free(object.name);
+        errdefer gpa.free(object.path);
         const stat = try file.stat();
         break :size @as(usize, @intCast(stat.size));
     };
@@ -142,7 +152,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
     }
     var fbs = std.io.fixedBufferStream(file_contents);
 
-    try object.parse(gpa, fbs.reader(), &is_object_file);
+    try object.parse(gpa, wasm_file, fbs.reader(), &is_object_file);
     errdefer object.deinit(gpa);
     if (!is_object_file) return error.NotObjectFile;
 
@@ -182,38 +192,31 @@ pub fn deinit(object: *Object, gpa: Allocator) void {
         gpa.free(info.name);
     }
     gpa.free(object.segment_info);
-    for (object.relocatable_data) |rel_data| {
-        gpa.free(rel_data.data[0..rel_data.size]);
+    {
+        var it = object.relocatable_data.valueIterator();
+        while (it.next()) |relocatable_data| {
+            for (relocatable_data.*) |rel_data| {
+                gpa.free(rel_data.data[0..rel_data.size]);
+            }
+            gpa.free(relocatable_data.*);
+        }
     }
-    gpa.free(object.relocatable_data);
+    object.relocatable_data.deinit(gpa);
     object.string_table.deinit(gpa);
-    gpa.free(object.name);
+    gpa.free(object.path);
     object.* = undefined;
 }
 
 /// Finds the import within the list of imports from a given kind and index of that kind.
 /// Asserts the import exists
-pub fn findImport(object: *const Object, import_kind: std.wasm.ExternalKind, index: u32) types.Import {
+pub fn findImport(object: *const Object, sym: Symbol) types.Import {
     var i: u32 = 0;
     return for (object.imports) |import| {
-        if (std.meta.activeTag(import.kind) == import_kind) {
-            if (i == index) return import;
+        if (std.meta.activeTag(import.kind) == sym.tag.externalType()) {
+            if (i == sym.index) return import;
             i += 1;
         }
     } else unreachable; // Only existing imports are allowed to be found
-}
-
-/// Counts the entries of imported `kind` and returns the result
-pub fn importedCountByKind(object: *const Object, kind: std.wasm.ExternalKind) u32 {
-    var i: u32 = 0;
-    return for (object.imports) |imp| {
-        if (@as(std.wasm.ExternalKind, imp.kind) == kind) i += 1;
-    } else i;
-}
-
-/// From a given `RelocatableDate`, find the corresponding debug section name
-pub fn getDebugName(object: *const Object, relocatable_data: RelocatableData) []const u8 {
-    return object.string_table.get(relocatable_data.index);
 }
 
 /// Checks if the object file is an MVP version.
@@ -222,33 +225,37 @@ pub fn getDebugName(object: *const Object, relocatable_data: RelocatableData) []
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
 /// When the object file is *NOT* MVP, we return `null`.
-fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
+fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?Symbol {
     var table_count: usize = 0;
     for (object.symtable) |sym| {
         if (sym.tag == .table) table_count += 1;
     }
 
-    const import_table_count = object.importedCountByKind(.table);
-
     // For each import table, we also have a symbol so this is not a legacy object file
-    if (import_table_count == table_count) return null;
+    if (object.imported_tables_count == table_count) return null;
 
     if (table_count != 0) {
-        log.err("Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
-            import_table_count,
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
+            object.imported_tables_count,
             table_count,
         });
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
     // MVP object files cannot have any table definitions, only imports (for the indirect function table).
     if (object.tables.len > 0) {
-        log.err("Unexpected table definition without representing table symbols.", .{});
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Unexpected table definition without representing table symbols.", .{});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.UnexpectedTable;
     }
 
-    if (import_table_count != 1) {
-        log.err("Found more than one table import, but no representing table symbols", .{});
+    if (object.imported_tables_count != 1) {
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Found more than one table import, but no representing table symbols", .{});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -259,7 +266,9 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
     } else unreachable;
 
     if (!std.mem.eql(u8, object.string_table.get(table_import.name), "__indirect_function_table")) {
-        log.err("Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -312,8 +321,8 @@ pub const ParseError = error{
     UnknownFeature,
 };
 
-fn parse(object: *Object, gpa: Allocator, reader: anytype, is_object_file: *bool) Parser(@TypeOf(reader)).Error!void {
-    var parser = Parser(@TypeOf(reader)).init(object, reader);
+fn parse(object: *Object, gpa: Allocator, wasm_file: *const Wasm, reader: anytype, is_object_file: *bool) Parser(@TypeOf(reader)).Error!void {
+    var parser = Parser(@TypeOf(reader)).init(object, wasm_file, reader);
     return parser.parseObject(gpa, is_object_file);
 }
 
@@ -325,9 +334,11 @@ fn Parser(comptime ReaderType: type) type {
         reader: std.io.CountingReader(ReaderType),
         /// Object file we're building
         object: *Object,
+        /// Read-only reference to the WebAssembly linker
+        wasm_file: *const Wasm,
 
-        fn init(object: *Object, reader: ReaderType) ObjectParser {
-            return .{ .object = object, .reader = std.io.countingReader(reader) };
+        fn init(object: *Object, wasm_file: *const Wasm, reader: ReaderType) ObjectParser {
+            return .{ .object = object, .wasm_file = wasm_file, .reader = std.io.countingReader(reader) };
         }
 
         /// Verifies that the first 4 bytes contains \0Asm
@@ -345,23 +356,7 @@ fn Parser(comptime ReaderType: type) type {
             errdefer parser.object.deinit(gpa);
             try parser.verifyMagicBytes();
             const version = try parser.reader.reader().readInt(u32, .little);
-
             parser.object.version = version;
-            var relocatable_data = std.ArrayList(RelocatableData).init(gpa);
-            var debug_names = std.ArrayList(u8).init(gpa);
-
-            errdefer {
-                // only free the inner contents of relocatable_data if we didn't
-                // assign it to the object yet.
-                if (parser.object.relocatable_data.len == 0) {
-                    for (relocatable_data.items) |rel_data| {
-                        gpa.free(rel_data.data[0..rel_data.size]);
-                    }
-                    relocatable_data.deinit();
-                }
-                gpa.free(debug_names.items);
-                debug_names.deinit();
-            }
 
             var section_index: u32 = 0;
             while (parser.reader.reader().readByte()) |byte| : (section_index += 1) {
@@ -377,26 +372,34 @@ fn Parser(comptime ReaderType: type) type {
 
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
-                            parser.object.relocatable_data = relocatable_data.items; // at this point no new relocatable sections will appear so we're free to store them.
                             try parser.parseMetadata(gpa, @as(usize, @intCast(reader.context.bytes_left)));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try parser.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
                             try parser.parseFeatures(gpa);
                         } else if (std.mem.startsWith(u8, name, ".debug")) {
+                            const gop = try parser.object.relocatable_data.getOrPut(gpa, .custom);
+                            var relocatable_data: std.ArrayListUnmanaged(RelocatableData) = .{};
+                            defer relocatable_data.deinit(gpa);
+                            if (!gop.found_existing) {
+                                gop.value_ptr.* = &.{};
+                            } else {
+                                relocatable_data = std.ArrayListUnmanaged(RelocatableData).fromOwnedSlice(gop.value_ptr.*);
+                            }
                             const debug_size = @as(u32, @intCast(reader.context.bytes_left));
                             const debug_content = try gpa.alloc(u8, debug_size);
                             errdefer gpa.free(debug_content);
                             try reader.readNoEof(debug_content);
 
-                            try relocatable_data.append(.{
-                                .type = .debug,
+                            try relocatable_data.append(gpa, .{
+                                .type = .custom,
                                 .data = debug_content.ptr,
                                 .size = debug_size,
                                 .index = try parser.object.string_table.put(gpa, name),
                                 .offset = 0, // debug sections only contain 1 entry, so no need to calculate offset
                                 .section_index = section_index,
                             });
+                            gop.value_ptr.* = try relocatable_data.toOwnedSlice(gpa);
                         } else {
                             try reader.skipBytes(reader.context.bytes_left, .{});
                         }
@@ -429,16 +432,25 @@ fn Parser(comptime ReaderType: type) type {
 
                             const kind = try readEnum(std.wasm.ExternalKind, reader);
                             const kind_value: std.wasm.Import.Kind = switch (kind) {
-                                .function => .{ .function = try readLeb(u32, reader) },
+                                .function => val: {
+                                    parser.object.imported_functions_count += 1;
+                                    break :val .{ .function = try readLeb(u32, reader) };
+                                },
                                 .memory => .{ .memory = try readLimits(reader) },
-                                .global => .{ .global = .{
-                                    .valtype = try readEnum(std.wasm.Valtype, reader),
-                                    .mutable = (try reader.readByte()) == 0x01,
-                                } },
-                                .table => .{ .table = .{
-                                    .reftype = try readEnum(std.wasm.RefType, reader),
-                                    .limits = try readLimits(reader),
-                                } },
+                                .global => val: {
+                                    parser.object.imported_globals_count += 1;
+                                    break :val .{ .global = .{
+                                        .valtype = try readEnum(std.wasm.Valtype, reader),
+                                        .mutable = (try reader.readByte()) == 0x01,
+                                    } };
+                                },
+                                .table => val: {
+                                    parser.object.imported_tables_count += 1;
+                                    break :val .{ .table = .{
+                                        .reftype = try readEnum(std.wasm.RefType, reader),
+                                        .limits = try readLimits(reader),
+                                    } };
+                                },
                             };
 
                             import.* = .{
@@ -515,26 +527,32 @@ fn Parser(comptime ReaderType: type) type {
                         const start = reader.context.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
+                        const imported_function_count = parser.object.imported_functions_count;
+                        var relocatable_data = try std.ArrayList(RelocatableData).initCapacity(gpa, count);
+                        defer relocatable_data.deinit();
                         while (index < count) : (index += 1) {
                             const code_len = try readLeb(u32, reader);
                             const offset = @as(u32, @intCast(start - reader.context.bytes_left));
                             const data = try gpa.alloc(u8, code_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
-                            try relocatable_data.append(.{
+                            relocatable_data.appendAssumeCapacity(.{
                                 .type = .code,
                                 .data = data.ptr,
                                 .size = code_len,
-                                .index = parser.object.importedCountByKind(.function) + index,
+                                .index = imported_function_count + index,
                                 .offset = offset,
                                 .section_index = section_index,
                             });
                         }
+                        try parser.object.relocatable_data.put(gpa, .code, try relocatable_data.toOwnedSlice());
                     },
                     .data => {
                         const start = reader.context.bytes_left;
                         var index: u32 = 0;
                         const count = try readLeb(u32, reader);
+                        var relocatable_data = try std.ArrayList(RelocatableData).initCapacity(gpa, count);
+                        defer relocatable_data.deinit();
                         while (index < count) : (index += 1) {
                             const flags = try readLeb(u32, reader);
                             const data_offset = try readInit(reader);
@@ -545,7 +563,7 @@ fn Parser(comptime ReaderType: type) type {
                             const data = try gpa.alloc(u8, data_len);
                             errdefer gpa.free(data);
                             try reader.readNoEof(data);
-                            try relocatable_data.append(.{
+                            relocatable_data.appendAssumeCapacity(.{
                                 .type = .data,
                                 .data = data.ptr,
                                 .size = data_len,
@@ -554,6 +572,7 @@ fn Parser(comptime ReaderType: type) type {
                                 .section_index = section_index,
                             });
                         }
+                        try parser.object.relocatable_data.put(gpa, .data, try relocatable_data.toOwnedSlice());
                     },
                     else => try parser.reader.reader().skipBytes(len, .{}),
                 }
@@ -561,7 +580,6 @@ fn Parser(comptime ReaderType: type) type {
                 error.EndOfStream => {}, // finished parsing the file
                 else => |e| return e,
             }
-            parser.object.relocatable_data = try relocatable_data.toOwnedSlice();
         }
 
         /// Based on the "features" custom section, parses it into a list of
@@ -578,7 +596,9 @@ fn Parser(comptime ReaderType: type) type {
                 try reader.readNoEof(name);
 
                 const tag = types.known_features.get(name) orelse {
-                    log.err("Object file contains unknown feature: {s}", .{name});
+                    var err = try parser.wasm_file.addErrorWithNotes(1);
+                    try err.addMsg(parser.wasm_file, "Object file contains unknown feature: {s}", .{name});
+                    try err.addNote(parser.wasm_file, "defined in '{s}'", .{parser.object.path});
                     return error.UnknownFeature;
                 };
                 feature.* = .{
@@ -747,9 +767,27 @@ fn Parser(comptime ReaderType: type) type {
 
                     // we found all symbols, check for indirect function table
                     // in case of an MVP object file
-                    if (try parser.object.checkLegacyIndirectFunctionTable()) |symbol| {
+                    if (try parser.object.checkLegacyIndirectFunctionTable(parser.wasm_file)) |symbol| {
                         try symbols.append(symbol);
                         log.debug("Found legacy indirect function table. Created symbol", .{});
+                    }
+
+                    // Not all debug sections may be represented by a symbol, for those sections
+                    // we manually create a symbol.
+                    if (parser.object.relocatable_data.get(.custom)) |custom_sections| {
+                        for (custom_sections) |*data| {
+                            if (!data.represented) {
+                                try symbols.append(.{
+                                    .name = data.index,
+                                    .flags = @intFromEnum(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
+                                    .tag = .section,
+                                    .virtual_address = 0,
+                                    .index = data.section_index,
+                                });
+                                data.represented = true;
+                                log.debug("Created synthetic custom section symbol for '{s}'", .{parser.object.string_table.get(data.index)});
+                            }
+                        }
                     }
 
                     parser.object.symtable = try symbols.toOwnedSlice();
@@ -789,31 +827,26 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .section => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    for (parser.object.relocatable_data) |data| {
+                    const section_data = parser.object.relocatable_data.get(.custom).?;
+                    for (section_data) |*data| {
                         if (data.section_index == symbol.index) {
                             symbol.name = data.index;
+                            data.represented = true;
                             break;
                         }
                     }
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    var maybe_import: ?types.Import = null;
-
                     const is_undefined = symbol.isUndefined();
-                    if (is_undefined) {
-                        maybe_import = parser.object.findImport(symbol.tag.externalType(), symbol.index);
-                    }
                     const explicit_name = symbol.hasFlag(.WASM_SYM_EXPLICIT_NAME);
-                    if (!(is_undefined and !explicit_name)) {
+                    symbol.name = if (!is_undefined or (is_undefined and explicit_name)) name: {
                         const name_len = try leb.readULEB128(u32, reader);
                         const name = try gpa.alloc(u8, name_len);
                         defer gpa.free(name);
                         try reader.readNoEof(name);
-                        symbol.name = try parser.object.string_table.put(gpa, name);
-                    } else {
-                        symbol.name = maybe_import.?.name;
-                    }
+                        break :name try parser.object.string_table.put(gpa, name);
+                    } else parser.object.findImport(symbol).name;
                 },
             }
             return symbol;
@@ -887,110 +920,91 @@ fn assertEnd(reader: anytype) !void {
 }
 
 /// Parses an object file into atoms, for code and data sections
-pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_bin: *Wasm) !void {
-    const Key = struct {
-        kind: Symbol.Tag,
-        index: u32,
+pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: Symbol.Index) !Atom.Index {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const symbol = &object.symtable[@intFromEnum(symbol_index)];
+    const relocatable_data: RelocatableData = switch (symbol.tag) {
+        .function => object.relocatable_data.get(.code).?[symbol.index - object.imported_functions_count],
+        .data => object.relocatable_data.get(.data).?[symbol.index],
+        .section => blk: {
+            const data = object.relocatable_data.get(.custom).?;
+            for (data) |dat| {
+                if (dat.section_index == symbol.index) {
+                    break :blk dat;
+                }
+            }
+            unreachable;
+        },
+        else => unreachable,
     };
-    var symbol_for_segment = std.AutoArrayHashMap(Key, std.ArrayList(u32)).init(gpa);
-    defer for (symbol_for_segment.values()) |*list| {
-        list.deinit();
-    } else symbol_for_segment.deinit();
+    const final_index = try wasm.getMatchingSegment(object.index, symbol_index);
+    const atom_index = try wasm.createAtom(symbol_index, object.index);
+    try wasm.appendAtomAtIndex(final_index, atom_index);
 
-    for (object.symtable, 0..) |symbol, symbol_index| {
-        switch (symbol.tag) {
-            .function, .data, .section => if (!symbol.isUndefined()) {
-                const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
-                const sym_idx = @as(u32, @intCast(symbol_index));
-                if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(u32).init(gpa);
-                }
-                try gop.value_ptr.*.append(sym_idx);
-            },
-            else => continue,
+    const atom = wasm.getAtomPtr(atom_index);
+    atom.size = relocatable_data.size;
+    atom.alignment = relocatable_data.getAlignment(object);
+    atom.code = std.ArrayListUnmanaged(u8).fromOwnedSlice(relocatable_data.data[0..relocatable_data.size]);
+    atom.original_offset = relocatable_data.offset;
+
+    const segment: *Wasm.Segment = &wasm.segments.items[final_index];
+    if (relocatable_data.type == .data) { //code section and custom sections are 1-byte aligned
+        segment.alignment = segment.alignment.max(atom.alignment);
+    }
+
+    if (object.relocations.get(relocatable_data.section_index)) |relocations| {
+        const start = searchRelocStart(relocations, relocatable_data.offset);
+        const len = searchRelocEnd(relocations[start..], relocatable_data.offset + atom.size);
+        atom.relocs = std.ArrayListUnmanaged(types.Relocation).fromOwnedSlice(relocations[start..][0..len]);
+        for (atom.relocs.items) |reloc| {
+            switch (reloc.relocation_type) {
+                .R_WASM_TABLE_INDEX_I32,
+                .R_WASM_TABLE_INDEX_I64,
+                .R_WASM_TABLE_INDEX_SLEB,
+                .R_WASM_TABLE_INDEX_SLEB64,
+                => {
+                    try wasm.function_table.put(gpa, .{
+                        .file = object.index,
+                        .index = @enumFromInt(reloc.index),
+                    }, 0);
+                },
+                .R_WASM_GLOBAL_INDEX_I32,
+                .R_WASM_GLOBAL_INDEX_LEB,
+                => {
+                    const sym = object.symtable[reloc.index];
+                    if (sym.tag != .global) {
+                        try wasm.got_symbols.append(gpa, .{ .file = object.index, .index = @enumFromInt(reloc.index) });
+                    }
+                },
+                else => {},
+            }
         }
     }
 
-    for (object.relocatable_data, 0..) |relocatable_data, index| {
-        const final_index = (try wasm_bin.getMatchingSegment(object_index, @as(u32, @intCast(index)))) orelse {
-            continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
-        };
-
-        const atom_index: Atom.Index = @intCast(wasm_bin.managed_atoms.items.len);
-        const atom = try wasm_bin.managed_atoms.addOne(gpa);
-        atom.* = Atom.empty;
-        atom.file = object_index;
-        atom.size = relocatable_data.size;
-        atom.alignment = relocatable_data.getAlignment(object);
-
-        const relocations: []types.Relocation = object.relocations.get(relocatable_data.section_index) orelse &.{};
-        for (relocations) |relocation| {
-            if (isInbetween(relocatable_data.offset, atom.size, relocation.offset)) {
-                // set the offset relative to the offset of the segment itobject,
-                // rather than within the entire section.
-                var reloc = relocation;
-                reloc.offset -= relocatable_data.offset;
-                try atom.relocs.append(gpa, reloc);
-
-                switch (relocation.relocation_type) {
-                    .R_WASM_TABLE_INDEX_I32,
-                    .R_WASM_TABLE_INDEX_I64,
-                    .R_WASM_TABLE_INDEX_SLEB,
-                    .R_WASM_TABLE_INDEX_SLEB64,
-                    => {
-                        try wasm_bin.function_table.put(gpa, .{
-                            .file = object_index,
-                            .index = relocation.index,
-                        }, 0);
-                    },
-                    .R_WASM_GLOBAL_INDEX_I32,
-                    .R_WASM_GLOBAL_INDEX_LEB,
-                    => {
-                        const sym = object.symtable[relocation.index];
-                        if (sym.tag != .global) {
-                            try wasm_bin.got_symbols.append(
-                                wasm_bin.base.allocator,
-                                .{ .file = object_index, .index = relocation.index },
-                            );
-                        }
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
-
-        if (symbol_for_segment.getPtr(.{
-            .kind = relocatable_data.getSymbolKind(),
-            .index = relocatable_data.getIndex(),
-        })) |symbols| {
-            atom.sym_index = symbols.pop();
-            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom_index);
-
-            // symbols referencing the same atom will be added as alias
-            // or as 'parent' when they are global.
-            while (symbols.popOrNull()) |idx| {
-                try wasm_bin.symbol_atom.putNoClobber(gpa, .{ .file = atom.file, .index = idx }, atom_index);
-                const alias_symbol = object.symtable[idx];
-                if (alias_symbol.isGlobal()) {
-                    atom.sym_index = idx;
-                }
-            }
-        }
-
-        const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
-        if (relocatable_data.type == .data) { //code section and debug sections are 1-byte aligned
-            segment.alignment = segment.alignment.max(atom.alignment);
-        }
-
-        try wasm_bin.appendAtomAtIndex(final_index, atom_index);
-        log.debug("Parsed into atom: '{s}' at segment index {d}", .{ object.string_table.get(object.symtable[atom.sym_index].name), final_index });
-    }
+    return atom_index;
 }
 
-/// Verifies if a given value is in between a minimum -and maximum value.
-/// The maxmimum value is calculated using the length, both start and end are inclusive.
-inline fn isInbetween(min: u32, length: u32, value: u32) bool {
-    return value >= min and value <= min + length;
+fn searchRelocStart(relocs: []const types.Relocation, address: u32) usize {
+    var min: usize = 0;
+    var max: usize = relocs.len;
+    while (min < max) {
+        const index = (min + max) / 2;
+        const curr = relocs[index];
+        if (curr.offset < address) {
+            min = index + 1;
+        } else {
+            max = index;
+        }
+    }
+    return min;
+}
+
+fn searchRelocEnd(relocs: []const types.Relocation, address: u32) usize {
+    for (relocs, 0..relocs.len) |reloc, index| {
+        if (reloc.offset > address) {
+            return index;
+        }
+    }
+    return relocs.len;
 }

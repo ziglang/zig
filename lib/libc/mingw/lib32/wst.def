@@ -1,0 +1,3 @@
+LIBRARY WST.DLL
+EXPORTS
+_penter

@@ -128,8 +128,7 @@ void NORETURN ReportAllocationSizeTooBig(uptr user_size, uptr max_size,
 void NORETURN ReportOutOfMemory(uptr requested_size, const StackTrace *stack) {
   {
     ScopedAllocatorErrorReport report("out-of-memory", stack);
-    Report("ERROR: %s: allocator is out of memory trying to allocate 0x%zx "
-           "bytes\n", SanitizerToolName, requested_size);
+    ERROR_OOM("allocator is trying to allocate 0x%zx bytes\n", requested_size);
   }
   Die();
 }

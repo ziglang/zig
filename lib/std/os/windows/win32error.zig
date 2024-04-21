@@ -380,7 +380,7 @@ pub const Win32Error = enum(u16) {
     /// The extended attributes are inconsistent.
     EA_LIST_INCONSISTENT = 255,
     /// The wait operation timed out.
-    IMEOUT = 258,
+    WAIT_TIMEOUT = 258,
     /// No more data is available.
     NO_MORE_ITEMS = 259,
     /// The copy functions cannot be used.

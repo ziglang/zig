@@ -45,7 +45,7 @@ char *__g_ffmt (char *buf, float *f, int ndig, size_t bufsize)
 
 	if (ndig < 0)
 		ndig = 0;
-	if ((int) bufsize < ndig + 10)
+	if (bufsize < (size_t)(ndig + 10))
 		return 0;
 
 	L = (ULong*)f;

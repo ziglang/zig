@@ -558,7 +558,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .alignment = fields[i].alignment,
             };
             break :entry @Type(.{ .Struct = .{
-                .layout = .Extern,
+                .layout = .@"extern",
                 .fields = &entry_fields,
                 .decls = &.{},
                 .is_tuple = false,
@@ -574,7 +574,7 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         comptime {
-            if (builtin.mode == .Debug) {
+            if (!builtin.strip_debug_info) {
                 _ = &dbHelper;
                 _ = &Slice.dbHelper;
             }
@@ -842,24 +842,24 @@ test "union" {
         &.{ .a, .b, .b, .a, .a, .a, .a, .a, .a },
         list.items(.tags),
     );
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
-    try testing.expectEqual(list.get(3), .{ .a = 4 });
-    try testing.expectEqual(list.get(4), .{ .a = 5 });
-    try testing.expectEqual(list.get(5), .{ .a = 6 });
-    try testing.expectEqual(list.get(6), .{ .a = 7 });
-    try testing.expectEqual(list.get(7), .{ .a = 8 });
-    try testing.expectEqual(list.get(8), .{ .a = 9 });
+    try testing.expectEqual(Foo{ .a = 1 }, list.get(0));
+    try testing.expectEqual(Foo{ .b = "zigzag" }, list.get(1));
+    try testing.expectEqual(Foo{ .b = "foobar" }, list.get(2));
+    try testing.expectEqual(Foo{ .a = 4 }, list.get(3));
+    try testing.expectEqual(Foo{ .a = 5 }, list.get(4));
+    try testing.expectEqual(Foo{ .a = 6 }, list.get(5));
+    try testing.expectEqual(Foo{ .a = 7 }, list.get(6));
+    try testing.expectEqual(Foo{ .a = 8 }, list.get(7));
+    try testing.expectEqual(Foo{ .a = 9 }, list.get(8));
 
     list.shrinkAndFree(ally, 3);
 
     try testing.expectEqual(@as(usize, 3), list.items(.tags).len);
     try testing.expectEqualSlices(meta.Tag(Foo), list.items(.tags), &.{ .a, .b, .b });
 
-    try testing.expectEqual(list.get(0), .{ .a = 1 });
-    try testing.expectEqual(list.get(1), .{ .b = "zigzag" });
-    try testing.expectEqual(list.get(2), .{ .b = "foobar" });
+    try testing.expectEqual(Foo{ .a = 1 }, list.get(0));
+    try testing.expectEqual(Foo{ .b = "zigzag" }, list.get(1));
+    try testing.expectEqual(Foo{ .b = "foobar" }, list.get(2));
 }
 
 test "sorting a span" {

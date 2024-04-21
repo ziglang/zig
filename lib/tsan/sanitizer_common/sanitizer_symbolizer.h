@@ -32,6 +32,8 @@ struct AddressInfo {
   char *module;
   uptr module_offset;
   ModuleArch module_arch;
+  u8 uuid[kModuleUUIDSize];
+  uptr uuid_size;
 
   static const uptr kUnknown = ~(uptr)0;
   char *function;
@@ -45,6 +47,8 @@ struct AddressInfo {
   // Deletes all strings and resets all fields.
   void Clear();
   void FillModuleInfo(const char *mod_name, uptr mod_offset, ModuleArch arch);
+  void FillModuleInfo(const LoadedModule &mod);
+  uptr module_base() const { return address - module_offset; }
 };
 
 // Linked list of symbolized frames (each frame is described by AddressInfo).
@@ -158,7 +162,7 @@ class Symbolizer final {
   // its method should be protected by |mu_|.
   class ModuleNameOwner {
    public:
-    explicit ModuleNameOwner(BlockingMutex *synchronized_by)
+    explicit ModuleNameOwner(Mutex *synchronized_by)
         : last_match_(nullptr), mu_(synchronized_by) {
       storage_.reserve(kInitialCapacity);
     }
@@ -169,7 +173,7 @@ class Symbolizer final {
     InternalMmapVector<const char*> storage_;
     const char *last_match_;
 
-    BlockingMutex *mu_;
+    Mutex *mu_;
   } module_names_;
 
   /// Platform-specific function for creating a Symbolizer object.
@@ -192,7 +196,7 @@ class Symbolizer final {
   // Mutex locked from public methods of |Symbolizer|, so that the internals
   // (including individual symbolizer tools and platform-specific methods) are
   // always synchronized.
-  BlockingMutex mu_;
+  Mutex mu_;
 
   IntrusiveList<SymbolizerTool> tools_;
 
@@ -209,9 +213,6 @@ class Symbolizer final {
    private:
     const Symbolizer *sym_;
   };
-
-  // Calls `LateInitialize()` on all items in `tools_`.
-  void LateInitializeTools();
 };
 
 #ifdef SANITIZER_WINDOWS

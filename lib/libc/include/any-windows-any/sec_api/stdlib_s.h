@@ -40,6 +40,7 @@ extern "C" {
   _CRTIMP errno_t __cdecl _fcvt_s(char *_DstBuf,size_t _Size,double _Val,int _NumOfDec,int *_PtDec,int *_PtSign);
   _CRTIMP errno_t __cdecl _gcvt_s(char *_DstBuf,size_t _Size,double _Val,int _NumOfDigits);
   _CRTIMP errno_t __cdecl _makepath_s(char *_PathResult,size_t _Size,const char *_Drive,const char *_Dir,const char *_Filename,const char *_Ext);
+  __DEFINE_CPP_OVERLOAD_SECURE_FUNC_0_4(errno_t,_makepath_s,char,_PathResult,const char*,_Drive,const char*,_Dir,const char*,_Filename,const char*,_Ext)
   _CRTIMP errno_t __cdecl _putenv_s(const char *_Name,const char *_Value);
   _CRTIMP errno_t __cdecl _searchenv_s(const char *_Filename,const char *_EnvVar,char *_ResultPath,size_t _SizeInBytes);
 

@@ -77,7 +77,7 @@ class LibIgnore {
   LibCodeRange instrumented_code_ranges_[kMaxInstrumentedRanges];
 
   // Cold part:
-  BlockingMutex mutex_;
+  Mutex mutex_;
   uptr count_;
   Lib libs_[kMaxLibs];
   bool track_instrumented_libs_;

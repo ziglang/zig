@@ -1,14 +1,45 @@
 base: link.File,
+image_base: u64,
+emit_relocs: bool,
+z_nodelete: bool,
+z_notext: bool,
+z_defs: bool,
+z_origin: bool,
+z_nocopyreloc: bool,
+z_now: bool,
+z_relro: bool,
+/// TODO make this non optional and resolve the default in open()
+z_common_page_size: ?u64,
+/// TODO make this non optional and resolve the default in open()
+z_max_page_size: ?u64,
+lib_dirs: []const []const u8,
+hash_style: HashStyle,
+compress_debug_sections: CompressDebugSections,
+symbol_wrap_set: std.StringArrayHashMapUnmanaged(void),
+sort_section: ?SortSection,
+soname: ?[]const u8,
+bind_global_refs_locally: bool,
+linker_script: ?[]const u8,
+version_script: ?[]const u8,
+allow_undefined_version: bool,
+enable_new_dtags: ?bool,
+print_icf_sections: bool,
+print_map: bool,
+entry_name: ?[]const u8,
 
 ptr_width: PtrWidth,
 
-/// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
+/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
 llvm_object: ?*LlvmObject = null,
 
 /// A list of all input files.
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
+/// Long-lived list of all file descriptors.
+/// We store them globally rather than per actual File so that we can re-use
+/// one file handle per every object file within an archive.
+file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
@@ -108,40 +139,40 @@ comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 
 /// Tracked section headers with incremental updates to Zig object.
 /// .rela.* sections are only used when emitting a relocatable object file.
-zig_text_section_index: ?u16 = null,
-zig_data_rel_ro_section_index: ?u16 = null,
-zig_data_section_index: ?u16 = null,
-zig_bss_section_index: ?u16 = null,
-zig_got_section_index: ?u16 = null,
+zig_text_section_index: ?u32 = null,
+zig_data_rel_ro_section_index: ?u32 = null,
+zig_data_section_index: ?u32 = null,
+zig_bss_section_index: ?u32 = null,
+zig_got_section_index: ?u32 = null,
 
-debug_info_section_index: ?u16 = null,
-debug_abbrev_section_index: ?u16 = null,
-debug_str_section_index: ?u16 = null,
-debug_aranges_section_index: ?u16 = null,
-debug_line_section_index: ?u16 = null,
+debug_info_section_index: ?u32 = null,
+debug_abbrev_section_index: ?u32 = null,
+debug_str_section_index: ?u32 = null,
+debug_aranges_section_index: ?u32 = null,
+debug_line_section_index: ?u32 = null,
 
-copy_rel_section_index: ?u16 = null,
-dynamic_section_index: ?u16 = null,
-dynstrtab_section_index: ?u16 = null,
-dynsymtab_section_index: ?u16 = null,
-eh_frame_section_index: ?u16 = null,
-eh_frame_rela_section_index: ?u16 = null,
-eh_frame_hdr_section_index: ?u16 = null,
-hash_section_index: ?u16 = null,
-gnu_hash_section_index: ?u16 = null,
-got_section_index: ?u16 = null,
-got_plt_section_index: ?u16 = null,
-interp_section_index: ?u16 = null,
-plt_section_index: ?u16 = null,
-plt_got_section_index: ?u16 = null,
-rela_dyn_section_index: ?u16 = null,
-rela_plt_section_index: ?u16 = null,
-versym_section_index: ?u16 = null,
-verneed_section_index: ?u16 = null,
+copy_rel_section_index: ?u32 = null,
+dynamic_section_index: ?u32 = null,
+dynstrtab_section_index: ?u32 = null,
+dynsymtab_section_index: ?u32 = null,
+eh_frame_section_index: ?u32 = null,
+eh_frame_rela_section_index: ?u32 = null,
+eh_frame_hdr_section_index: ?u32 = null,
+hash_section_index: ?u32 = null,
+gnu_hash_section_index: ?u32 = null,
+got_section_index: ?u32 = null,
+got_plt_section_index: ?u32 = null,
+interp_section_index: ?u32 = null,
+plt_section_index: ?u32 = null,
+plt_got_section_index: ?u32 = null,
+rela_dyn_section_index: ?u32 = null,
+rela_plt_section_index: ?u32 = null,
+versym_section_index: ?u32 = null,
+verneed_section_index: ?u32 = null,
 
-shstrtab_section_index: ?u16 = null,
-strtab_section_index: ?u16 = null,
-symtab_section_index: ?u16 = null,
+shstrtab_section_index: ?u32 = null,
+strtab_section_index: ?u32 = null,
+symtab_section_index: ?u32 = null,
 
 // Linker-defined symbols
 dynamic_index: ?Symbol.Index = null,
@@ -159,6 +190,7 @@ gnu_eh_frame_hdr_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
+global_pointer_index: ?Symbol.Index = null,
 start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
 
 /// An array of symbols parsed across all input files.
@@ -171,11 +203,20 @@ resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
-error_flags: link.File.ErrorFlags = link.File.ErrorFlags{},
-misc_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
-
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+
+/// List of range extension thunks.
+thunks: std.ArrayListUnmanaged(Thunk) = .{},
+
+/// List of output merge sections with deduped contents.
+merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
+/// List of output merge subsections.
+/// Each subsection is akin to Atom but belongs to a MergeSection.
+merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
+/// List of input merge sections as parsed from input relocatables.
+merge_input_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
 
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
@@ -199,59 +240,165 @@ const minimum_atom_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_atom_size);
 
 pub const PtrWidth = enum { p32, p64 };
+pub const HashStyle = enum { sysv, gnu, both };
+pub const CompressDebugSections = enum { none, zlib, zstd };
+pub const SortSection = enum { name, alignment };
 
-pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
-    assert(options.target.ofmt == .elf);
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Elf {
+    const target = comp.root_mod.resolved_target.result;
+    assert(target.ofmt == .elf);
 
-    const self = try createEmpty(allocator, options);
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const opt_zcu = comp.module;
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const is_native_os = comp.root_mod.resolved_target.is_native_os;
+    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
+        0...32 => .p32,
+        33...64 => .p64,
+        else => return error.UnsupportedELFArchitecture,
+    };
+
+    const page_size: u32 = switch (target.cpu.arch) {
+        .aarch64, .powerpc64le => 0x10000,
+        .sparc64 => 0x2000,
+        else => 0x1000,
+    };
+    const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
+    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
+        elf.VER_NDX_GLOBAL
+    else
+        elf.VER_NDX_LOCAL;
+
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    // If using LLVM to generate the object file for the zig compilation unit,
+    // we need a place to put the object file so that it can be subsequently
+    // handled.
+    const zcu_object_sub_path = if (!use_lld and !use_llvm)
+        null
+    else
+        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
+
+    const self = try arena.create(Elf);
+    self.* = .{
+        .base = .{
+            .tag = .elf,
+            .comp = comp,
+            .emit = emit,
+            .zcu_object_sub_path = zcu_object_sub_path,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .file = null,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
+        },
+        .ptr_width = ptr_width,
+        .page_size = page_size,
+        .default_sym_version = default_sym_version,
+
+        .entry_name = switch (options.entry) {
+            .disabled => null,
+            .default => if (output_mode != .Exe) null else defaultEntrySymbolName(target.cpu.arch),
+            .enabled => defaultEntrySymbolName(target.cpu.arch),
+            .named => |name| name,
+        },
+
+        .image_base = b: {
+            if (is_dyn_lib) break :b 0;
+            if (output_mode == .Exe and comp.config.pie) break :b 0;
+            break :b options.image_base orelse switch (ptr_width) {
+                .p32 => 0x10000,
+                .p64 => 0x1000000,
+            };
+        },
+
+        .emit_relocs = options.emit_relocs,
+        .z_nodelete = options.z_nodelete,
+        .z_notext = options.z_notext,
+        .z_defs = options.z_defs,
+        .z_origin = options.z_origin,
+        .z_nocopyreloc = options.z_nocopyreloc,
+        .z_now = options.z_now,
+        .z_relro = options.z_relro,
+        .z_common_page_size = options.z_common_page_size,
+        .z_max_page_size = options.z_max_page_size,
+        .lib_dirs = options.lib_dirs,
+        .hash_style = options.hash_style,
+        .compress_debug_sections = options.compress_debug_sections,
+        .symbol_wrap_set = options.symbol_wrap_set,
+        .sort_section = options.sort_section,
+        .soname = options.soname,
+        .bind_global_refs_locally = options.bind_global_refs_locally,
+        .linker_script = options.linker_script,
+        .version_script = options.version_script,
+        .allow_undefined_version = options.allow_undefined_version,
+        .enable_new_dtags = options.enable_new_dtags,
+        .print_icf_sections = options.print_icf_sections,
+        .print_map = options.print_map,
+    };
+    if (use_llvm and comp.config.have_zcu) {
+        self.llvm_object = try LlvmObject.create(arena, comp);
+    }
     errdefer self.base.destroy();
 
-    const is_obj = options.output_mode == .Obj;
-    const is_obj_or_ar = is_obj or (options.output_mode == .Lib and options.link_mode == .Static);
-
-    if (options.use_llvm) {
-        const use_lld = build_options.have_llvm and self.base.options.use_lld;
-        if (use_lld) return self;
-
-        if (options.module != null) {
-            self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-                sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
-            });
-        }
+    if (use_lld and (use_llvm or !comp.config.have_zcu)) {
+        // LLVM emits the object file (if any); LLD links it into the final product.
+        return self;
     }
-    errdefer if (self.base.intermediary_basename) |path| allocator.free(path);
 
-    self.base.file = try options.emit.?.directory.handle.createFile(sub_path, .{
-        .truncate = false,
+    const is_obj = output_mode == .Obj;
+    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .static);
+
+    // What path should this ELF linker code output to?
+    // If using LLD to link, this code should produce an object file so that it
+    // can be passed to LLD.
+    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
+    self.base.file = try emit.directory.handle.createFile(sub_path, .{
+        .truncate = true,
         .read = true,
-        .mode = link.determineMode(options),
+        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
 
+    const gpa = comp.gpa;
+
     // Index 0 is always a null symbol.
-    try self.symbols.append(allocator, .{});
+    try self.symbols.append(gpa, .{});
     // Index 0 is always a null symbol.
-    try self.symbols_extra.append(allocator, 0);
+    try self.symbols_extra.append(gpa, 0);
     // Allocate atom index 0 to null atom
-    try self.atoms.append(allocator, .{});
+    try self.atoms.append(gpa, .{});
+    try self.atoms_extra.append(gpa, 0);
     // Append null file at index 0
-    try self.files.append(allocator, .null);
+    try self.files.append(gpa, .null);
     // Append null byte to string tables
-    try self.shstrtab.append(allocator, 0);
-    try self.strtab.append(allocator, 0);
+    try self.shstrtab.append(gpa, 0);
+    try self.strtab.append(gpa, 0);
     // There must always be a null shdr in index 0
     _ = try self.addSection(.{ .name = "" });
     // Append null symbol in output symtab
-    try self.symtab.append(allocator, null_sym);
+    try self.symtab.append(gpa, null_sym);
+    // Append null input merge section.
+    try self.merge_input_sections.append(gpa, .{});
 
     if (!is_obj_or_ar) {
-        try self.dynstrtab.append(allocator, 0);
+        try self.dynstrtab.append(gpa, 0);
 
         // Initialize PT_PHDR program header
         const p_align: u16 = switch (self.ptr_width) {
             .p32 => @alignOf(elf.Elf32_Phdr),
             .p64 => @alignOf(elf.Elf64_Phdr),
         };
-        const image_base = self.calcImageBase();
         const ehsize: u64 = switch (self.ptr_width) {
             .p32 => @sizeOf(elf.Elf32_Ehdr),
             .p64 => @sizeOf(elf.Elf64_Ehdr),
@@ -266,7 +413,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .type = elf.PT_PHDR,
             .flags = elf.PF_R,
             .@"align" = p_align,
-            .addr = image_base + ehsize,
+            .addr = self.image_base + ehsize,
             .offset = ehsize,
             .filesz = reserved,
             .memsz = reserved,
@@ -275,71 +422,54 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .type = elf.PT_LOAD,
             .flags = elf.PF_R,
             .@"align" = self.page_size,
-            .addr = image_base,
+            .addr = self.image_base,
             .offset = 0,
             .filesz = reserved + ehsize,
             .memsz = reserved + ehsize,
         });
     }
 
-    if (options.module != null and !options.use_llvm) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(allocator)));
-        self.files.set(index, .{ .zig_object = .{
-            .index = index,
-            .path = try std.fmt.allocPrint(self.base.allocator, "{s}.o", .{std.fs.path.stem(
-                options.module.?.main_mod.root_src_path,
-            )}),
-        } });
-        self.zig_object_index = index;
-        try self.zigObjectPtr().?.init(self);
-        try self.initMetadata();
+    if (opt_zcu) |zcu| {
+        if (!use_llvm) {
+            const index: File.Index = @intCast(try self.files.addOne(gpa));
+            self.files.set(index, .{ .zig_object = .{
+                .index = index,
+                .path = try std.fmt.allocPrint(arena, "{s}.o", .{fs.path.stem(
+                    zcu.main_mod.root_src_path,
+                )}),
+            } });
+            self.zig_object_index = index;
+            try self.zigObjectPtr().?.init(self);
+            try self.initMetadata(.{
+                .symbol_count_hint = options.symbol_count_hint,
+                .program_code_size_hint = options.program_code_size_hint,
+            });
+        }
     }
 
     return self;
 }
 
-pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
-    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
-        0...32 => .p32,
-        33...64 => .p64,
-        else => return error.UnsupportedELFArchitecture,
-    };
-    const self = try gpa.create(Elf);
-    errdefer gpa.destroy(self);
-
-    const page_size: u32 = switch (options.target.cpu.arch) {
-        .powerpc64le => 0x10000,
-        .sparc64 => 0x2000,
-        else => 0x1000,
-    };
-    const is_dyn_lib = options.output_mode == .Lib and options.link_mode == .Dynamic;
-    const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or options.rdynamic)
-        elf.VER_NDX_GLOBAL
-    else
-        elf.VER_NDX_LOCAL;
-
-    self.* = .{
-        .base = .{
-            .tag = .elf,
-            .options = options,
-            .allocator = gpa,
-            .file = null,
-        },
-        .ptr_width = ptr_width,
-        .page_size = page_size,
-        .default_sym_version = default_sym_version,
-    };
-    if (options.use_llvm and options.module != null) {
-        self.llvm_object = try LlvmObject.create(gpa, options);
-    }
-
-    return self;
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*Elf {
+    // TODO: restore saved linker state, don't truncate the file, and
+    // participate in incremental compilation.
+    return createEmpty(arena, comp, emit, options);
 }
 
 pub fn deinit(self: *Elf) void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
-    if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
+    if (self.llvm_object) |llvm_object| llvm_object.deinit();
+
+    for (self.file_handles.items) |fh| {
+        fh.close();
+    }
+    self.file_handles.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
@@ -373,12 +503,25 @@ pub fn deinit(self: *Elf) void {
     self.start_stop_indexes.deinit(gpa);
 
     self.atoms.deinit(gpa);
+    self.atoms_extra.deinit(gpa);
+    for (self.thunks.items) |*th| {
+        th.deinit(gpa);
+    }
+    self.thunks.deinit(gpa);
+    for (self.merge_sections.items) |*sect| {
+        sect.deinit(gpa);
+    }
+    self.merge_sections.deinit(gpa);
+    self.merge_subsections.deinit(gpa);
+    for (self.merge_input_sections.items) |*sect| {
+        sect.deinit(gpa);
+    }
+    self.merge_input_sections.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
     self.last_atom_and_free_list_table.deinit(gpa);
 
-    self.misc_errors.deinit(gpa);
     self.comdat_groups.deinit(gpa);
     self.comdat_groups_owners.deinit(gpa);
     self.comdat_groups_table.deinit(gpa);
@@ -459,7 +602,7 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
     return null;
 }
 
-fn allocatedSize(self: *Elf, start: u64) u64 {
+pub fn allocatedSize(self: *Elf, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     if (self.shdr_table_offset) |off| {
@@ -486,7 +629,7 @@ fn allocatedVirtualSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
+pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
@@ -494,17 +637,23 @@ fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
     return start;
 }
 
+pub const InitMetadataOptions = struct {
+    symbol_count_hint: u64,
+    program_code_size_hint: u64,
+};
+
 /// TODO move to ZigObject
-pub fn initMetadata(self: *Elf) !void {
-    const gpa = self.base.allocator;
+pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
+    const gpa = self.base.comp.gpa;
     const ptr_size = self.ptrWidthBytes();
-    const ptr_bit_width = self.base.options.target.ptrBitWidth();
-    const is_linux = self.base.options.target.os.tag == .linux;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const ptr_bit_width = target.ptrBitWidth();
+    const has_os = target.os.tag != .freestanding;
     const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) void {
-            if (elf_file.isRelocatable()) {
+            if (elf_file.base.isRelocatable()) {
                 const off = elf_file.findFreeSpace(size, shdr.sh_addralign);
                 shdr.sh_offset = off;
                 shdr.sh_size = size;
@@ -519,9 +668,9 @@ pub fn initMetadata(self: *Elf) !void {
 
     comptime assert(number_of_zig_segments == 5);
 
-    if (!self.isRelocatable()) {
+    if (!self.base.isRelocatable()) {
         if (self.phdr_zig_load_re_index == null) {
-            const filesz = self.base.options.program_code_size_hint;
+            const filesz = options.program_code_size_hint;
             const off = self.findFreeSpace(filesz, self.page_size);
             self.phdr_zig_load_re_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
@@ -537,8 +686,8 @@ pub fn initMetadata(self: *Elf) !void {
         if (self.phdr_zig_got_index == null) {
             // We really only need ptr alignment but since we are using PROGBITS, linux requires
             // page align.
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
-            const filesz = @as(u64, ptr_size) * self.base.options.symbol_count_hint;
+            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
@@ -552,7 +701,7 @@ pub fn initMetadata(self: *Elf) !void {
         }
 
         if (self.phdr_zig_load_ro_index == null) {
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
@@ -567,7 +716,7 @@ pub fn initMetadata(self: *Elf) !void {
         }
 
         if (self.phdr_zig_load_rw_index == null) {
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
@@ -582,7 +731,7 @@ pub fn initMetadata(self: *Elf) !void {
         }
 
         if (self.phdr_zig_load_zerofill_index == null) {
-            const alignment = if (is_linux) self.page_size else @as(u16, ptr_size);
+            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
             self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
@@ -602,8 +751,8 @@ pub fn initMetadata(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
-        fillSection(self, shdr, self.base.options.program_code_size_hint, self.phdr_zig_load_re_index);
-        if (self.isRelocatable()) {
+        fillSection(self, shdr, options.program_code_size_hint, self.phdr_zig_load_re_index);
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(".rela.text.zig", self.zig_text_section_index.?);
             try self.output_rela_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{
                 .shndx = rela_shndx,
@@ -619,7 +768,7 @@ pub fn initMetadata(self: *Elf) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
     }
 
-    if (self.zig_got_section_index == null and !self.isRelocatable()) {
+    if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
         self.zig_got_section_index = try self.addSection(.{
             .name = ".got.zig",
             .type = elf.SHT_PROGBITS,
@@ -650,7 +799,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
-        if (self.isRelocatable()) {
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 ".rela.data.rel.ro.zig",
                 self.zig_data_rel_ro_section_index.?,
@@ -679,7 +828,7 @@ pub fn initMetadata(self: *Elf) !void {
         });
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
-        if (self.isRelocatable()) {
+        if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 ".rela.data.zig",
                 self.zig_data_section_index.?,
@@ -814,7 +963,7 @@ pub fn initMetadata(self: *Elf) !void {
     try self.base.file.?.pwriteAll(&[1]u8{0}, end_pos);
 }
 
-pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
+pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const maybe_phdr = if (self.phdr_to_shdr_table.get(shdr_index)) |phndx| &self.phdrs.items[phndx] else null;
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
@@ -864,7 +1013,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
 
 pub fn growNonAllocSection(
     self: *Elf,
-    shdr_index: u16,
+    shdr_index: u32,
     needed_size: u64,
     min_alignment: u32,
     requires_file_copy: bool,
@@ -901,7 +1050,7 @@ pub fn growNonAllocSection(
     self.markDirty(shdr_index);
 }
 
-pub fn markDirty(self: *Elf, shdr_index: u16) void {
+pub fn markDirty(self: *Elf, shdr_index: u32) void {
     const zig_object = self.zigObjectPtr().?;
     if (zig_object.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
@@ -918,65 +1067,56 @@ pub fn markDirty(self: *Elf, shdr_index: u16) void {
     }
 }
 
-pub fn flush(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    if (self.base.options.emit == null) {
-        if (self.llvm_object) |llvm_object| {
-            try llvm_object.flushModule(comp, prog_node);
-        }
-        return;
-    }
-    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+    const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
-        return self.linkWithLLD(comp, prog_node);
+        return self.linkWithLLD(arena, prog_node);
     }
-    try self.flushModule(comp, prog_node);
+    try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.llvm_object) |llvm_object| {
-        try llvm_object.flushModule(comp, prog_node);
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
 
-        const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    if (self.llvm_object) |llvm_object| {
+        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
+        const use_lld = build_options.have_llvm and comp.config.use_lld;
         if (use_lld) return;
     }
 
-    const gpa = self.base.allocator;
     var sub_prog_node = prog_node.start("ELF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
-
-    const target = self.base.options.target;
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+    const target = comp.root_mod.resolved_target.result;
+    const link_mode = comp.config.link_mode;
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
+    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
         } else {
             break :blk path;
         }
     } else null;
-    const gc_sections = self.base.options.gc_sections orelse false;
 
     // --verbose-link
-    if (self.base.options.verbose_link) try self.dumpArgv(comp);
+    if (comp.verbose_link) try self.dumpArgv(comp);
 
-    const csu = try CsuObjects.init(arena, self.base.options, comp);
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
+    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
+
+    const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-
-    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
-    if (self.isObject()) return self.flushObject(comp, module_obj_path);
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
@@ -987,8 +1127,8 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crti) |v| try positionals.append(.{ .path = v });
     if (csu.crtbegin) |v| try positionals.append(.{ .path = v });
 
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
 
     // This is a set of object files emitted by clang in a single `build-exe` invocation.
     // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
@@ -1000,75 +1140,59 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
     // rpaths
-    var rpath_table = std.StringArrayHashMap(void).init(self.base.allocator);
+    var rpath_table = std.StringArrayHashMap(void).init(gpa);
     defer rpath_table.deinit();
 
-    for (self.base.options.rpath_list) |rpath| {
+    for (self.base.rpath_list) |rpath| {
         _ = try rpath_table.put(rpath, {});
     }
 
-    if (self.base.options.each_lib_rpath) {
-        var test_path = std.ArrayList(u8).init(self.base.allocator);
-        defer test_path.deinit();
-        for (self.base.options.lib_dirs) |lib_dir_path| {
-            for (self.base.options.system_libs.keys()) |link_lib| {
-                if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                    continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-        for (self.base.options.objects) |obj| {
-            if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                if (obj.loption) continue;
-                _ = try rpath_table.put(lib_dir_path, {});
-            }
-        }
-    }
-
     // TSAN
-    if (self.base.options.tsan) {
+    if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
     }
 
     // libc
-    if (!self.base.options.skip_linker_dependencies and
-        !self.base.options.link_libc)
-    {
+    if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
         if (comp.libc_static_lib) |lib| {
             try positionals.append(.{ .path = lib.full_object_path });
         }
     }
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     var system_libs = std.ArrayList(SystemLib).init(arena);
 
-    try system_libs.ensureUnusedCapacity(self.base.options.system_libs.values().len);
-    for (self.base.options.system_libs.values()) |lib_info| {
+    try system_libs.ensureUnusedCapacity(comp.system_libs.values().len);
+    for (comp.system_libs.values()) |lib_info| {
         system_libs.appendAssumeCapacity(.{ .needed = lib_info.needed, .path = lib_info.path.? });
     }
 
     // libc++ dep
-    if (self.base.options.link_libcpp) {
+    if (comp.config.link_libcpp) {
         try system_libs.ensureUnusedCapacity(2);
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxxabi_static_lib.?.full_object_path });
         system_libs.appendAssumeCapacity(.{ .path = comp.libcxx_static_lib.?.full_object_path });
     }
 
     // libunwind dep
-    if (self.base.options.link_libunwind) {
+    if (comp.config.link_libunwind) {
         try system_libs.append(.{ .path = comp.libunwind_static_lib.?.full_object_path });
     }
 
     // libc dep
-    self.error_flags.missing_libc = false;
-    if (self.base.options.link_libc) {
-        if (self.base.options.libc_installation) |lc| {
+    comp.link_error_flags.missing_libc = false;
+    if (comp.config.link_libc) {
+        if (comp.libc_installation) |lc| {
             const flags = target_util.libcFullLinkFlags(target);
             try system_libs.ensureUnusedCapacity(flags.len);
 
@@ -1080,11 +1204,11 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 const lib_name = flag["-l".len..];
 
                 success: {
-                    if (!self.isStatic()) {
-                        if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                    if (!self.base.isStatic()) {
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(&test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
                         break :success;
 
                     try self.reportMissingLibraryError(
@@ -1111,20 +1235,25 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
                 .path = try comp.get_libc_crt_file(arena, "libc_nonshared.a"),
             });
         } else if (target.isMusl()) {
-            const path = try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                .Static => "libc.a",
-                .Dynamic => "libc.so",
+            const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
+                .static => "libc.a",
+                .dynamic => "libc.so",
             });
             try system_libs.append(.{ .path = path });
         } else {
-            self.error_flags.missing_libc = true;
+            comp.link_error_flags.missing_libc = true;
         }
     }
 
     for (system_libs.items) |lib| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parseLibrary(lib, false, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(lib.path, err, &parse_ctx);
+        self.parseLibrary(lib, false) catch |err| switch (err) {
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            else => |e| try self.reportParseError(
+                lib.path,
+                "unexpected error: parsing library failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
     // Finally, as the last input objects we add compiler_rt and CSU postlude (if any).
@@ -1140,18 +1269,17 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     if (csu.crtn) |v| try positionals.append(.{ .path = v });
 
     for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
+        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            else => |e| try self.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 
-    // Init all objects
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.init(self);
-    }
-    for (self.shared_objects.items) |index| {
-        try self.file(index).?.shared_object.init(self);
-    }
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
     // Dedup shared objects
     {
@@ -1186,29 +1314,35 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // symbol for potential resolution at load-time.
     self.resolveSymbols();
     self.markEhFrameAtomsDead();
+    try self.resolveMergeSections();
 
     try self.convertCommonSymbols();
     self.markImportsExports();
 
     // Look for entry address in objects if not set by the incremental compiler.
     if (self.entry_index == null) {
-        const entry: ?[]const u8 = entry: {
-            if (self.base.options.entry) |entry| break :entry entry;
-            if (!self.isDynLib()) break :entry "_start";
-            break :entry null;
-        };
-        self.entry_index = if (entry) |name| self.globalByName(name) else null;
+        if (self.entry_name) |name| {
+            self.entry_index = self.globalByName(name);
+        }
     }
 
-    if (gc_sections) {
+    if (self.base.gc_sections) {
         try gc.gcAtoms(self);
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try gc.dumpPrunedAtoms(self);
         }
     }
 
+    self.checkDuplicates() catch |err| switch (err) {
+        error.HasDuplicates => return error.FlushFailure,
+        else => |e| return e,
+    };
+
+    try self.addCommentString();
+    try self.finalizeMergeSections();
     try self.initOutputSections();
+    try self.initMergeSections();
     try self.addLinkerDefinedSymbols();
     self.claimUnresolved();
 
@@ -1227,6 +1361,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     self.sortDynamicSymtab();
     try self.setHashSections();
     try self.setVersionSymtab();
+    try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
 
     try self.allocatePhdrTable();
@@ -1234,7 +1369,6 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
-    self.allocateAtoms();
     self.allocateLinkerDefinedSymbols();
 
     // Dump the state for easy debugging.
@@ -1246,6 +1380,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zigObjectPtr()) |zig_object| {
+        var has_reloc_errors = false;
         for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -1254,246 +1389,66 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zig_object.codeAlloc(self, atom_index);
             defer gpa.free(code);
-            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
-                // TODO
-                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
+                error.UnsupportedCpuArch => {
+                    try self.reportUnsupportedCpuArch();
+                    return error.FlushFailure;
                 },
                 else => |e| return e,
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
+
+        if (has_reloc_errors) return error.FlushFailure;
     }
 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-    try self.writeSyntheticSections();
-
-    if (self.entry_index == null and self.isExe()) {
-        log.debug("flushing. no_entry_point_found = true", .{});
-        self.error_flags.no_entry_point_found = true;
-    } else {
-        log.debug("flushing. no_entry_point_found = false", .{});
-        self.error_flags.no_entry_point_found = false;
-        try self.writeElfHeader();
-    }
-}
-
-pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = self.base.allocator;
-
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
-
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
-
-    // This is a set of object files emitted by clang in a single `build-exe` invocation.
-    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
-    // in this set.
-    for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
-    }
-
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
-
-    for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
-    }
-
-    // First, we flush relocatable object file generated with our backends.
-    if (self.zigObjectPtr()) |zig_object| {
-        zig_object.resolveSymbols(self);
-        zig_object.claimUnresolvedObject(self);
-
-        try self.initSymtab();
-        try self.initShStrtab();
-        try self.sortShdrs();
-        try zig_object.addAtomsToRelaSections(self);
-        try self.updateSectionSizesObject();
-
-        try self.allocateNonAllocSections();
-
-        if (build_options.enable_logging) {
-            state_log.debug("{}", .{self.dumpState()});
-        }
-
-        try self.writeSyntheticSectionsObject();
-        try self.writeShdrTable();
-        try self.writeElfHeader();
-    }
-
-    var files = std.ArrayList(File.Index).init(gpa);
-    defer files.deinit();
-    try files.ensureTotalCapacityPrecise(self.objects.items.len + 1);
-    // Note to self: we currently must have ZigObject written out first as we write the object
-    // file into the same file descriptor and then re-read its contents.
-    // TODO implement writing ZigObject to a buffer instead of file.
-    if (self.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
-    for (self.objects.items) |index| files.appendAssumeCapacity(index);
-
-    // Update ar symtab from parsed objects
-    var ar_symtab: Archive.ArSymtab = .{};
-    defer ar_symtab.deinit(gpa);
-
-    for (files.items) |index| {
-        try self.file(index).?.updateArSymtab(&ar_symtab, self);
-    }
-
-    ar_symtab.sort();
-
-    // Save object paths in filenames strtab.
-    var ar_strtab: Archive.ArStrtab = .{};
-    defer ar_strtab.deinit(gpa);
-
-    for (files.items) |index| {
-        const file_ptr = self.file(index).?;
-        try file_ptr.updateArStrtab(gpa, &ar_strtab);
-        file_ptr.updateArSize(self);
-    }
-
-    // Update file offsets of contributing objects.
-    const total_size: usize = blk: {
-        var pos: usize = elf.ARMAG.len;
-        pos += @sizeOf(elf.ar_hdr) + ar_symtab.size(.p64);
-
-        if (ar_strtab.size() > 0) {
-            pos = mem.alignForward(usize, pos, 2);
-            pos += @sizeOf(elf.ar_hdr) + ar_strtab.size();
-        }
-
-        for (files.items) |index| {
-            const file_ptr = self.file(index).?;
-            const state = switch (file_ptr) {
-                .zig_object => |x| &x.output_ar_state,
-                .object => |x| &x.output_ar_state,
-                else => unreachable,
-            };
-            pos = mem.alignForward(usize, pos, 2);
-            state.file_off = pos;
-            pos += @sizeOf(elf.ar_hdr) + (math.cast(usize, state.size) orelse return error.Overflow);
-        }
-
-        break :blk pos;
+    try self.writeMergeSections();
+    self.writeSyntheticSections() catch |err| switch (err) {
+        error.RelocFailure => return error.FlushFailure,
+        error.UnsupportedCpuArch => {
+            try self.reportUnsupportedCpuArch();
+            return error.FlushFailure;
+        },
+        else => |e| return e,
     };
 
-    if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(self)});
-        state_log.debug("ar_strtab\n{}\n", .{ar_strtab});
+    if (self.entry_index == null and self.base.isExe()) {
+        log.debug("flushing. no_entry_point_found = true", .{});
+        comp.link_error_flags.no_entry_point_found = true;
+    } else {
+        log.debug("flushing. no_entry_point_found = false", .{});
+        comp.link_error_flags.no_entry_point_found = false;
+        try self.writeElfHeader();
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-    try buffer.ensureTotalCapacityPrecise(total_size);
-
-    // Write magic
-    try buffer.writer().writeAll(elf.ARMAG);
-
-    // Write symtab
-    try ar_symtab.write(.p64, self, buffer.writer());
-
-    // Write strtab
-    if (ar_strtab.size() > 0) {
-        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try ar_strtab.write(buffer.writer());
-    }
-
-    // Write object files
-    for (files.items) |index| {
-        if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try self.file(index).?.writeAr(self, buffer.writer());
-    }
-
-    assert(buffer.items.len == total_size);
-
-    try self.base.file.?.setEndPos(total_size);
-    try self.base.file.?.pwriteAll(buffer.items, 0);
-}
-
-pub fn flushObject(self: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    const gpa = self.base.allocator;
-
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
-    defer positionals.deinit();
-    try positionals.ensureUnusedCapacity(self.base.options.objects.len);
-    positionals.appendSliceAssumeCapacity(self.base.options.objects);
-
-    // This is a set of object files emitted by clang in a single `build-exe` invocation.
-    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
-    // in this set.
-    for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
-    }
-
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
-
-    for (positionals.items) |obj| {
-        var parse_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
-        self.parsePositional(obj.path, obj.must_link, &parse_ctx) catch |err|
-            try self.handleAndReportParseError(obj.path, err, &parse_ctx);
-    }
-
-    // Init all objects
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.init(self);
-    }
-
-    // Now, we are ready to resolve the symbols across all input files.
-    // We will first resolve the files in the ZigObject, next in the parsed
-    // input Object files.
-    self.resolveSymbols();
-    self.markEhFrameAtomsDead();
-    self.claimUnresolvedObject();
-
-    try self.initSectionsObject();
-    try self.sortShdrs();
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.addAtomsToRelaSections(self);
-    }
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        try object.addAtomsToOutputSections(self);
-        try object.addAtomsToRelaSections(self);
-    }
-    try self.updateSectionSizesObject();
-
-    try self.allocateAllocSectionsObject();
-    try self.allocateNonAllocSections();
-    self.allocateAtoms();
-
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
-    }
-
-    try self.writeAtomsObject();
-    try self.writeSyntheticSectionsObject();
-    try self.writeShdrTable();
-    try self.writeElfHeader();
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
 }
 
 /// --verbose-link output
 fn dumpArgv(self: *Elf, comp: *Compilation) !void {
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    const gpa = self.base.comp.gpa;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = self.base.options.target;
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.intermediary_basename) |path| blk: {
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const link_mode = self.base.comp.config.link_mode;
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
+    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, path });
         } else {
             break :blk path;
         }
     } else null;
-    const gc_sections = self.base.options.gc_sections orelse false;
 
-    const csu = try CsuObjects.init(arena, self.base.options, comp);
+    const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -1504,21 +1459,21 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
     try argv.append("zig");
 
-    if (self.isStaticLib()) {
+    if (self.base.isStaticLib()) {
         try argv.append("ar");
     } else {
         try argv.append("ld");
     }
 
-    if (self.isObject()) {
+    if (self.base.isObject()) {
         try argv.append("-r");
     }
 
     try argv.append("-o");
     try argv.append(full_out_path);
 
-    if (self.isRelocatable()) {
-        for (self.base.options.objects) |obj| {
+    if (self.base.isRelocatable()) {
+        for (comp.objects) |obj| {
             try argv.append(obj.path);
         }
 
@@ -1530,97 +1485,78 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
     } else {
-        if (!self.isStatic()) {
-            if (self.base.options.dynamic_linker) |path| {
+        if (!self.base.isStatic()) {
+            if (target.dynamic_linker.get()) |path| {
                 try argv.append("-dynamic-linker");
                 try argv.append(path);
             }
         }
 
-        if (self.isDynLib()) {
-            if (self.base.options.soname) |name| {
+        if (self.base.isDynLib()) {
+            if (self.soname) |name| {
                 try argv.append("-soname");
                 try argv.append(name);
             }
         }
 
-        if (self.base.options.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        if (self.entry_name) |name| {
+            try argv.appendSlice(&.{ "--entry", name });
         }
 
-        for (self.base.options.rpath_list) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
         }
 
-        if (self.base.options.each_lib_rpath) {
-            for (self.base.options.lib_dirs) |lib_dir_path| {
-                try argv.append("-rpath");
-                try argv.append(lib_dir_path);
-            }
-            for (self.base.options.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
+        try argv.appendSlice(&.{
+            "-z",
+            try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
+        });
 
-                    try argv.append("-rpath");
-                    try argv.append(lib_dir_path);
-                }
-            }
-        }
+        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
-        if (self.base.options.stack_size_override) |ss| {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{ss}));
-        }
-
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-        }
-
-        if (gc_sections) {
+        if (self.base.gc_sections) {
             try argv.append("--gc-sections");
         }
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try argv.append("--print-gc-sections");
         }
 
-        if (self.base.options.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
-        if (self.base.options.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (self.base.options.z_notext) {
+        if (self.z_notext) {
             try argv.append("-z");
             try argv.append("notext");
         }
 
-        if (self.base.options.z_nocopyreloc) {
+        if (self.z_nocopyreloc) {
             try argv.append("-z");
             try argv.append("nocopyreloc");
         }
 
-        if (self.base.options.z_now) {
+        if (self.z_now) {
             try argv.append("-z");
             try argv.append("now");
         }
 
-        if (self.isStatic()) {
+        if (self.base.isStatic()) {
             try argv.append("-static");
-        } else if (self.isDynLib()) {
+        } else if (self.isEffectivelyDynLib()) {
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and self.isExe()) {
+        if (comp.config.pie and self.base.isExe()) {
             try argv.append("-pie");
         }
 
-        if (self.base.options.strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 
@@ -1629,20 +1565,20 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
 
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
         }
 
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
+        if (comp.config.link_libc) {
+            if (self.base.comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
         }
 
         var whole_archive = false;
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -1670,15 +1606,12 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        // TSAN
-        if (self.base.options.tsan) {
+        if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         // libc
-        if (!self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc)
-        {
+        if (!comp.skip_linker_dependencies and !comp.config.link_libc) {
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
@@ -1687,11 +1620,11 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // Shared libraries.
         // Worst-case, we need an --as-needed argument for every lib, as well
         // as one before and one after.
-        try argv.ensureUnusedCapacity(self.base.options.system_libs.keys().len * 2 + 2);
+        try argv.ensureUnusedCapacity(self.base.comp.system_libs.keys().len * 2 + 2);
         argv.appendAssumeCapacity("--as-needed");
         var as_needed = true;
 
-        for (self.base.options.system_libs.values()) |lib_info| {
+        for (self.base.comp.system_libs.values()) |lib_info| {
             const lib_as_needed = !lib_info.needed;
             switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                 0b00, 0b11 => {},
@@ -1713,20 +1646,20 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         // libc++ dep
-        if (self.base.options.link_libcpp) {
+        if (comp.config.link_libcpp) {
             try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
             try argv.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
         // libunwind dep
-        if (self.base.options.link_libunwind) {
+        if (comp.config.link_libunwind) {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
         // libc dep
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation != null) {
-                const needs_grouping = self.base.options.link_mode == .Static;
+        if (comp.config.link_libc) {
+            if (self.base.comp.libc_installation != null) {
+                const needs_grouping = link_mode == .static;
                 if (needs_grouping) try argv.append("--start-group");
                 try argv.appendSlice(target_util.libcFullLinkFlags(target));
                 if (needs_grouping) try argv.append("--end-group");
@@ -1739,9 +1672,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                 }
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
-                try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
+                try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
+                    .static => "libc.a",
+                    .dynamic => "libc.so",
                 }));
             }
         }
@@ -1759,8 +1692,9 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     Compilation.dump_argv(argv.items);
 }
 
-const ParseError = error{
-    UnknownFileType,
+pub const ParseError = error{
+    MalformedObject,
+    MalformedArchive,
     InvalidCpuArch,
     OutOfMemory,
     Overflow,
@@ -1769,69 +1703,63 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
-} || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+    UnknownFileType,
+} || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
-fn parsePositional(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+pub fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
     if (try Object.isObject(path)) {
-        try self.parseObject(path, ctx);
+        try self.parseObject(path);
     } else {
-        try self.parseLibrary(.{ .path = path }, must_link, ctx);
+        try self.parseLibrary(.{ .path = path }, must_link);
     }
 }
 
-fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLibrary(self: *Elf, lib: SystemLib, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (try Archive.isArchive(lib.path)) {
-        try self.parseArchive(lib.path, must_link, ctx);
+        try self.parseArchive(lib.path, must_link);
     } else if (try SharedObject.isSharedObject(lib.path)) {
-        try self.parseSharedObject(lib, ctx);
+        try self.parseSharedObject(lib);
     } else {
-        // TODO if the script has a top-level comment identifying it as GNU ld script,
-        // then report parse errors. Otherwise return UnknownFileType.
-        self.parseLdScript(lib, ctx) catch |err| switch (err) {
-            else => return error.UnknownFileType,
-        };
+        try self.parseLdScript(lib);
     }
 }
 
-fn parseObject(self: *Elf, path: []const u8, ctx: *ParseErrorCtx) ParseError!void {
+fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
-    const in_file = try std.fs.cwd().openFile(path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const gpa = self.base.comp.gpa;
+    const handle = try fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(handle);
+
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .path = try gpa.dupe(u8, path),
-        .data = data,
+        .file_handle = fh,
         .index = index,
     } });
     try self.objects.append(gpa, index);
 
     const object = self.file(index).?.object;
     try object.parse(self);
-
-    ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
-    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
 }
 
-fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorCtx) ParseError!void {
+fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
-    const in_file = try std.fs.cwd().openFile(path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
+    const gpa = self.base.comp.gpa;
+    const handle = try fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(handle);
+
+    var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self);
+    try archive.parse(self, path, fh);
 
     const objects = try archive.objects.toOwnedSlice(gpa);
     defer gpa.free(objects);
@@ -1844,24 +1772,20 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool, ctx: *ParseErrorC
         object.alive = must_link;
         try object.parse(self);
         try self.objects.append(gpa, index);
-
-        ctx.detected_cpu_arch = object.header.?.e_machine.toTargetCpuArch().?;
-        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
     }
 }
 
-fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
-    const in_file = try std.fs.cwd().openFile(lib.path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const gpa = self.base.comp.gpa;
+    const handle = try fs.cwd().openFile(lib.path, .{});
+    defer handle.close();
+
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
         .path = try gpa.dupe(u8, lib.path),
-        .data = data,
         .index = index,
         .needed = lib.needed,
         .alive = lib.needed,
@@ -1869,32 +1793,22 @@ fn parseSharedObject(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError
     try self.shared_objects.append(gpa, index);
 
     const shared_object = self.file(index).?.shared_object;
-    try shared_object.parse(self);
-
-    ctx.detected_cpu_arch = shared_object.header.?.e_machine.toTargetCpuArch().?;
-    if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
+    try shared_object.parse(self, handle);
 }
 
-fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!void {
+fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
-    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    const gpa = self.base.comp.gpa;
+    const in_file = try fs.cwd().openFile(lib.path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
 
-    var script = LdScript{};
+    var script = LdScript{ .path = lib.path };
     defer script.deinit(gpa);
     try script.parse(data, self);
-
-    if (script.cpu_arch) |cpu_arch| {
-        ctx.detected_cpu_arch = cpu_arch;
-        if (ctx.detected_cpu_arch != self.base.options.target.cpu.arch) return error.InvalidCpuArch;
-    }
-
-    const lib_dirs = self.base.options.lib_dirs;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -1912,12 +1826,12 @@ fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!voi
 
                 // TODO I think technically we should re-use the mechanism used by the frontend here.
                 // Maybe we should hoist search-strategy all the way here?
-                for (lib_dirs) |lib_dir| {
-                    if (!self.isStatic()) {
-                        if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                for (self.lib_dirs) |lib_dir| {
+                    if (!self.base.isStatic()) {
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .static))
                         break :success;
                 }
             } else {
@@ -1928,9 +1842,9 @@ fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!voi
                     break :success;
                 } else |_| {}
 
-                try checked_paths.append(try gpa.dupe(u8, scr_obj.path));
-                for (lib_dirs) |lib_dir| {
-                    if (try self.accessLibPath(&test_path, &checked_paths, lib_dir, scr_obj.path, null))
+                try checked_paths.append(try arena.dupe(u8, scr_obj.path));
+                for (self.lib_dirs) |lib_dir| {
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, scr_obj.path, null))
                         break :success;
                 }
             }
@@ -1947,16 +1861,23 @@ fn parseLdScript(self: *Elf, lib: SystemLib, ctx: *ParseErrorCtx) ParseError!voi
         }
 
         const full_path = test_path.items;
-        var scr_ctx: ParseErrorCtx = .{ .detected_cpu_arch = undefined };
         self.parseLibrary(.{
             .needed = scr_obj.needed,
             .path = full_path,
-        }, false, &scr_ctx) catch |err| try self.handleAndReportParseError(full_path, err, &scr_ctx);
+        }, false) catch |err| switch (err) {
+            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            else => |e| try self.reportParseError(
+                full_path,
+                "unexpected error: parsing library failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
     }
 }
 
 fn accessLibPath(
     self: *Elf,
+    arena: Allocator,
     test_path: *std.ArrayList(u8),
     checked_paths: ?*std.ArrayList([]const u8),
     lib_dir_path: []const u8,
@@ -1964,12 +1885,12 @@ fn accessLibPath(
     link_mode: ?std.builtin.LinkMode,
 ) !bool {
     const sep = fs.path.sep_str;
-    const target = self.base.options.target;
+    const target = self.base.comp.root_mod.resolved_target.result;
     test_path.clearRetainingCapacity();
     const prefix = if (link_mode != null) "lib" else "";
     const suffix = if (link_mode) |mode| switch (mode) {
-        .Static => target.staticLibSuffix(),
-        .Dynamic => target.dynamicLibSuffix(),
+        .static => target.staticLibSuffix(),
+        .dynamic => target.dynamicLibSuffix(),
     } else "";
     try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
         lib_dir_path,
@@ -1978,7 +1899,7 @@ fn accessLibPath(
         suffix,
     });
     if (checked_paths) |cpaths| {
-        try cpaths.append(try self.base.allocator.dupe(u8, test_path.items));
+        try cpaths.append(try arena.dupe(u8, test_path.items));
     }
     fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
@@ -1994,7 +1915,7 @@ fn accessLibPath(
 /// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
-fn resolveSymbols(self: *Elf) void {
+pub fn resolveSymbols(self: *Elf) void {
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
     if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
@@ -2045,7 +1966,7 @@ fn resolveSymbols(self: *Elf) void {
             const cg = self.comdatGroup(cg_index);
             const cg_owner = self.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) {
-                for (object.comdatGroupMembers(cg.shndx)) |shndx| {
+                for (cg.comdatGroupMembers(self)) |shndx| {
                     const atom_index = object.atoms.items[shndx];
                     if (self.atom(atom_index)) |atom_ptr| {
                         atom_ptr.flags.alive = false;
@@ -2078,7 +1999,7 @@ fn markLive(self: *Elf) void {
     }
 }
 
-fn markEhFrameAtomsDead(self: *Elf) void {
+pub fn markEhFrameAtomsDead(self: *Elf) void {
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
@@ -2107,7 +2028,7 @@ fn markImportsExports(self: *Elf) void {
                 }
                 if (file_ptr.index() == file_index) {
                     global.flags.@"export" = true;
-                    if (elf_file.isDynLib() and vis != .PROTECTED) {
+                    if (elf_file.isEffectivelyDynLib() and vis != .PROTECTED) {
                         global.flags.import = true;
                     }
                 }
@@ -2115,7 +2036,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }.mark;
 
-    if (!self.isDynLib()) {
+    if (!self.isEffectivelyDynLib()) {
         for (self.shared_objects.items) |index| {
             for (self.file(index).?.globals()) |global_index| {
                 const global = self.symbol(global_index);
@@ -2144,21 +2065,12 @@ fn claimUnresolved(self: *Elf) void {
     }
 }
 
-fn claimUnresolvedObject(self: *Elf) void {
-    if (self.zigObjectPtr()) |zig_object| {
-        zig_object.claimUnresolvedObject(self);
-    }
-    for (self.objects.items) |index| {
-        self.file(index).?.object.claimUnresolvedObject(self);
-    }
-}
-
 /// In scanRelocs we will go over all live atoms and scan their relocs.
 /// This will help us work out what synthetics to emit, GOT indirection, etc.
 /// This is also the point where we will report undefined symbols for any
 /// alloc sections.
 fn scanRelocs(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
     defer {
@@ -2169,15 +2081,27 @@ fn scanRelocs(self: *Elf) !void {
         undefs.deinit();
     }
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.scanRelocs(self, &undefs);
-    }
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        try object.scanRelocs(self, &undefs);
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
+    defer objects.deinit();
+    if (self.zigObjectPtr()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(self.objects.items);
+
+    var has_reloc_errors = false;
+    for (objects.items) |index| {
+        self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
+            error.RelaxFailure => unreachable,
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            error.RelocFailure => has_reloc_errors = true,
+            else => |e| return e,
+        };
     }
 
-    try self.reportUndefined(&undefs);
+    try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 
     for (self.symbols.items, 0..) |*sym, i| {
         const index = @as(u32, @intCast(i));
@@ -2216,7 +2140,6 @@ fn scanRelocs(self: *Elf) !void {
         }
         if (sym.flags.needs_tlsdesc) {
             log.debug("'{s}' needs TLSDESC", .{sym.name(self)});
-            try self.dynsym.addSymbol(index, self);
             try self.got.addTlsDescSymbol(index, self);
         }
     }
@@ -2227,26 +2150,25 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
-fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
 
-    const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
+    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (self.base.options.module != null) blk: {
-        try self.flushModule(comp, prog_node);
+    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+        try self.flushModule(arena, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, self.base.intermediary_basename.? });
+            break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
         } else {
-            break :blk self.base.intermediary_basename.?;
+            break :blk self.base.zcu_object_sub_path.?;
         }
     } else null;
 
@@ -2255,16 +2177,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     sub_prog_node.context.refresh();
     defer sub_prog_node.end();
 
-    const is_obj = self.base.options.output_mode == .Obj;
-    const is_lib = self.base.options.output_mode == .Lib;
-    const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
-    const have_dynamic_linker = self.base.options.link_libc and
-        self.base.options.link_mode == .Dynamic and is_exe_or_dyn_lib;
-    const target = self.base.options.target;
-    const gc_sections = self.base.options.gc_sections orelse !is_obj;
-    const stack_size = self.base.options.stack_size_override orelse 16777216;
-    const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
+    const output_mode = comp.config.output_mode;
+    const is_obj = output_mode == .Obj;
+    const is_lib = output_mode == .Lib;
+    const link_mode = comp.config.link_mode;
+    const is_dyn_lib = link_mode == .dynamic and is_lib;
+    const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
+    const have_dynamic_linker = comp.config.link_libc and
+        link_mode == .dynamic and is_exe_or_dyn_lib;
+    const target = comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -2282,21 +2203,23 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const id_symlink_basename = "lld.id";
 
     var man: Cache.Manifest = undefined;
-    defer if (!self.base.options.disable_lld_caching) man.deinit();
+    defer if (!self.base.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         man = comp.cache_parent.obtain();
 
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 10);
+        comptime assert(Compilation.link_hash_implementation_version == 13);
 
-        try man.addOptionalFile(self.base.options.linker_script);
-        try man.addOptionalFile(self.base.options.version_script);
-        for (self.base.options.objects) |obj| {
+        try man.addOptionalFile(self.linker_script);
+        try man.addOptionalFile(self.version_script);
+        man.hash.add(self.allow_undefined_version);
+        man.hash.addOptional(self.enable_new_dtags);
+        for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
             man.hash.add(obj.loption);
@@ -2309,52 +2232,50 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
-        man.hash.addOptionalBytes(self.base.options.entry);
-        man.hash.addOptional(self.base.options.image_base_override);
-        man.hash.add(gc_sections);
-        man.hash.addOptional(self.base.options.sort_section);
-        man.hash.add(self.base.options.eh_frame_hdr);
-        man.hash.add(self.base.options.emit_relocs);
-        man.hash.add(self.base.options.rdynamic);
-        man.hash.addListOfBytes(self.base.options.lib_dirs);
-        man.hash.addListOfBytes(self.base.options.rpath_list);
-        man.hash.add(self.base.options.each_lib_rpath);
-        if (self.base.options.output_mode == .Exe) {
-            man.hash.add(stack_size);
-            man.hash.add(self.base.options.build_id);
+        man.hash.addOptionalBytes(self.entry_name);
+        man.hash.add(self.image_base);
+        man.hash.add(self.base.gc_sections);
+        man.hash.addOptional(self.sort_section);
+        man.hash.add(comp.link_eh_frame_hdr);
+        man.hash.add(self.emit_relocs);
+        man.hash.add(comp.config.rdynamic);
+        man.hash.addListOfBytes(self.lib_dirs);
+        man.hash.addListOfBytes(self.base.rpath_list);
+        if (output_mode == .Exe) {
+            man.hash.add(self.base.stack_size);
+            man.hash.add(self.base.build_id);
         }
-        man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
-        man.hash.add(self.base.options.skip_linker_dependencies);
-        man.hash.add(self.base.options.z_nodelete);
-        man.hash.add(self.base.options.z_notext);
-        man.hash.add(self.base.options.z_defs);
-        man.hash.add(self.base.options.z_origin);
-        man.hash.add(self.base.options.z_nocopyreloc);
-        man.hash.add(self.base.options.z_now);
-        man.hash.add(self.base.options.z_relro);
-        man.hash.add(self.base.options.z_common_page_size orelse 0);
-        man.hash.add(self.base.options.z_max_page_size orelse 0);
-        man.hash.add(self.base.options.hash_style);
+        man.hash.addListOfBytes(self.symbol_wrap_set.keys());
+        man.hash.add(comp.skip_linker_dependencies);
+        man.hash.add(self.z_nodelete);
+        man.hash.add(self.z_notext);
+        man.hash.add(self.z_defs);
+        man.hash.add(self.z_origin);
+        man.hash.add(self.z_nocopyreloc);
+        man.hash.add(self.z_now);
+        man.hash.add(self.z_relro);
+        man.hash.add(self.z_common_page_size orelse 0);
+        man.hash.add(self.z_max_page_size orelse 0);
+        man.hash.add(self.hash_style);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        if (self.base.options.link_libc) {
-            man.hash.add(self.base.options.libc_installation != null);
-            if (self.base.options.libc_installation) |libc_installation| {
+        if (comp.config.link_libc) {
+            man.hash.add(comp.libc_installation != null);
+            if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
             if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(self.base.options.dynamic_linker);
+                man.hash.addOptionalBytes(target.dynamic_linker.get());
             }
         }
-        man.hash.addOptionalBytes(self.base.options.soname);
-        man.hash.addOptional(self.base.options.version);
-        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
-        man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
-        man.hash.add(allow_shlib_undefined);
-        man.hash.add(self.base.options.bind_global_refs_locally);
-        man.hash.add(self.base.options.compress_debug_sections);
-        man.hash.add(self.base.options.tsan);
-        man.hash.addOptionalBytes(self.base.options.sysroot);
-        man.hash.add(self.base.options.linker_optimization);
+        man.hash.addOptionalBytes(self.soname);
+        man.hash.addOptional(comp.version);
+        try link.hashAddSystemLibs(&man, comp.system_libs);
+        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
+        man.hash.add(self.base.allow_shlib_undefined);
+        man.hash.add(self.bind_global_refs_locally);
+        man.hash.add(self.compress_debug_sections);
+        man.hash.add(comp.config.any_sanitize_thread);
+        man.hash.addOptionalBytes(comp.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -2389,15 +2310,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     // copy when generating relocatables. Normally, we would expect `lld -r` to work.
     // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
     // before even generating the relocatable.
-    if (self.base.options.output_mode == .Obj and
-        (self.base.options.lto or target.isBpfFreestanding()))
+    if (output_mode == .Obj and
+        (comp.config.lto or target.isBpfFreestanding()))
     {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
         const the_object_path = blk: {
-            if (self.base.options.objects.len != 0)
-                break :blk self.base.options.objects[0].path;
+            if (comp.objects.len != 0)
+                break :blk comp.objects[0].path;
 
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
@@ -2416,7 +2337,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(self.base.allocator);
+        var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -2429,46 +2350,49 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         try argv.append("--error-limit=0");
 
-        if (self.base.options.sysroot) |sysroot| {
+        if (comp.sysroot) |sysroot| {
             try argv.append(try std.fmt.allocPrint(arena, "--sysroot={s}", .{sysroot}));
         }
 
-        if (self.base.options.lto) {
-            switch (self.base.options.optimize_mode) {
+        if (comp.config.lto) {
+            switch (comp.root_mod.optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("--lto-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }
         }
-        try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
-            self.base.options.linker_optimization,
-        }));
-
-        if (self.base.options.entry) |entry| {
-            try argv.append("--entry");
-            try argv.append(entry);
+        switch (comp.root_mod.optimize_mode) {
+            .Debug => {},
+            .ReleaseSmall => try argv.append("-O2"),
+            .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),
         }
 
-        for (self.base.options.force_undefined_symbols.keys()) |sym| {
+        if (self.entry_name) |name| {
+            try argv.appendSlice(&.{ "--entry", name });
+        }
+
+        for (comp.force_undefined_symbols.keys()) |sym| {
             try argv.append("-u");
             try argv.append(sym);
         }
 
-        switch (self.base.options.hash_style) {
+        switch (self.hash_style) {
             .gnu => try argv.append("--hash-style=gnu"),
             .sysv => try argv.append("--hash-style=sysv"),
             .both => {}, // this is the default
         }
 
-        if (self.base.options.output_mode == .Exe) {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+        if (output_mode == .Exe) {
+            try argv.appendSlice(&.{
+                "-z",
+                try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
+            });
 
-            switch (self.base.options.build_id) {
+            switch (self.base.build_id) {
                 .none => {},
                 .fast, .uuid, .sha1, .md5 => {
                     try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
-                        @tagName(self.base.options.build_id),
+                        @tagName(self.base.build_id),
                     }));
                 },
                 .hexstring => |hs| {
@@ -2479,85 +2403,83 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
         }
 
-        if (self.base.options.image_base_override) |image_base| {
-            try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
-        }
+        try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{self.image_base}));
 
-        if (self.base.options.linker_script) |linker_script| {
+        if (self.linker_script) |linker_script| {
             try argv.append("-T");
             try argv.append(linker_script);
         }
 
-        if (self.base.options.sort_section) |how| {
+        if (self.sort_section) |how| {
             const arg = try std.fmt.allocPrint(arena, "--sort-section={s}", .{@tagName(how)});
             try argv.append(arg);
         }
 
-        if (gc_sections) {
+        if (self.base.gc_sections) {
             try argv.append("--gc-sections");
         }
 
-        if (self.base.options.print_gc_sections) {
+        if (self.base.print_gc_sections) {
             try argv.append("--print-gc-sections");
         }
 
-        if (self.base.options.print_icf_sections) {
+        if (self.print_icf_sections) {
             try argv.append("--print-icf-sections");
         }
 
-        if (self.base.options.print_map) {
+        if (self.print_map) {
             try argv.append("--print-map");
         }
 
-        if (self.base.options.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             try argv.append("--eh-frame-hdr");
         }
 
-        if (self.base.options.emit_relocs) {
+        if (self.emit_relocs) {
             try argv.append("--emit-relocs");
         }
 
-        if (self.base.options.rdynamic) {
+        if (comp.config.rdynamic) {
             try argv.append("--export-dynamic");
         }
 
-        if (self.base.options.strip) {
+        if (comp.config.debug_format == .strip) {
             try argv.append("-s");
         }
 
-        if (self.base.options.z_nodelete) {
+        if (self.z_nodelete) {
             try argv.append("-z");
             try argv.append("nodelete");
         }
-        if (self.base.options.z_notext) {
+        if (self.z_notext) {
             try argv.append("-z");
             try argv.append("notext");
         }
-        if (self.base.options.z_defs) {
+        if (self.z_defs) {
             try argv.append("-z");
             try argv.append("defs");
         }
-        if (self.base.options.z_origin) {
+        if (self.z_origin) {
             try argv.append("-z");
             try argv.append("origin");
         }
-        if (self.base.options.z_nocopyreloc) {
+        if (self.z_nocopyreloc) {
             try argv.append("-z");
             try argv.append("nocopyreloc");
         }
-        if (self.base.options.z_now) {
+        if (self.z_now) {
             // LLD defaults to -zlazy
             try argv.append("-znow");
         }
-        if (!self.base.options.z_relro) {
+        if (!self.z_relro) {
             // LLD defaults to -zrelro
             try argv.append("-znorelro");
         }
-        if (self.base.options.z_common_page_size) |size| {
+        if (self.z_common_page_size) |size| {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "common-page-size={d}", .{size}));
         }
-        if (self.base.options.z_max_page_size) |size| {
+        if (self.z_max_page_size) |size| {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "max-page-size={d}", .{size}));
         }
@@ -2572,17 +2494,20 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(arg);
         }
 
-        if (self.base.options.link_mode == .Static) {
+        if (link_mode == .static) {
             if (target.cpu.arch.isArmOrThumb()) {
                 try argv.append("-Bstatic");
             } else {
                 try argv.append("-static");
             }
-        } else if (is_dyn_lib) {
+        } else if (switch (target.os.tag) {
+            else => is_dyn_lib,
+            .haiku => is_exe_or_dyn_lib,
+        }) {
             try argv.append("-shared");
         }
 
-        if (self.base.options.pie and self.base.options.output_mode == .Exe) {
+        if (comp.config.pie and output_mode == .Exe) {
             try argv.append("-pie");
         }
 
@@ -2599,63 +2524,38 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         try argv.append(full_out_path);
 
         // csu prelude
-        const csu = try CsuObjects.init(arena, self.base.options, comp);
+        const csu = try CsuObjects.init(arena, comp);
         if (csu.crt0) |v| try argv.append(v);
         if (csu.crti) |v| try argv.append(v);
         if (csu.crtbegin) |v| try argv.append(v);
 
         // rpaths
-        var rpath_table = std.StringHashMap(void).init(self.base.allocator);
+        var rpath_table = std.StringHashMap(void).init(gpa);
         defer rpath_table.deinit();
-        for (self.base.options.rpath_list) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             if ((try rpath_table.fetchPut(rpath, {})) == null) {
                 try argv.append("-rpath");
                 try argv.append(rpath);
             }
         }
 
-        for (self.base.options.symbol_wrap_set.keys()) |symbol_name| {
+        for (self.symbol_wrap_set.keys()) |symbol_name| {
             try argv.appendSlice(&.{ "-wrap", symbol_name });
         }
 
-        if (self.base.options.each_lib_rpath) {
-            var test_path = std.ArrayList(u8).init(arena);
-            for (self.base.options.lib_dirs) |lib_dir_path| {
-                for (self.base.options.system_libs.keys()) |link_lib| {
-                    if (!(try self.accessLibPath(&test_path, null, lib_dir_path, link_lib, .Dynamic)))
-                        continue;
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
-            for (self.base.options.objects) |obj| {
-                if (Compilation.classifyFileExt(obj.path) == .shared_library) {
-                    const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
-                    if (obj.loption) continue;
-
-                    if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
-                        try argv.append("-rpath");
-                        try argv.append(lib_dir_path);
-                    }
-                }
-            }
-        }
-
-        for (self.base.options.lib_dirs) |lib_dir| {
+        for (self.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
         }
 
-        if (self.base.options.link_libc) {
-            if (self.base.options.libc_installation) |libc_installation| {
+        if (comp.config.link_libc) {
+            if (comp.libc_installation) |libc_installation| {
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
 
             if (have_dynamic_linker) {
-                if (self.base.options.dynamic_linker) |dynamic_linker| {
+                if (target.dynamic_linker.get()) |dynamic_linker| {
                     try argv.append("-dynamic-linker");
                     try argv.append(dynamic_linker);
                 }
@@ -2663,19 +2563,31 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
 
         if (is_dyn_lib) {
-            if (self.base.options.soname) |soname| {
+            if (self.soname) |soname| {
                 try argv.append("-soname");
                 try argv.append(soname);
             }
-            if (self.base.options.version_script) |version_script| {
+            if (self.version_script) |version_script| {
                 try argv.append("-version-script");
                 try argv.append(version_script);
+            }
+            if (self.allow_undefined_version) {
+                try argv.append("--undefined-version");
+            } else {
+                try argv.append("--no-undefined-version");
+            }
+            if (self.enable_new_dtags) |enable_new_dtags| {
+                if (enable_new_dtags) {
+                    try argv.append("--enable-new-dtags");
+                } else {
+                    try argv.append("--disable-new-dtags");
+                }
             }
         }
 
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
-        for (self.base.options.objects) |obj| {
+        for (comp.objects) |obj| {
             if (obj.must_link and !whole_archive) {
                 try argv.append("-whole-archive");
                 whole_archive = true;
@@ -2703,15 +2615,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(p);
         }
 
-        // TSAN
-        if (self.base.options.tsan) {
+        if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         // libc
         if (is_exe_or_dyn_lib and
-            !self.base.options.skip_linker_dependencies and
-            !self.base.options.link_libc)
+            !comp.skip_linker_dependencies and
+            !comp.config.link_libc)
         {
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
@@ -2720,8 +2631,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            const system_libs = self.base.options.system_libs.keys();
-            const system_libs_values = self.base.options.system_libs.values();
+            const system_libs = comp.system_libs.keys();
+            const system_libs_values = comp.system_libs.values();
 
             // Worst-case, we need an --as-needed argument for every lib, as well
             // as one before and one after.
@@ -2756,21 +2667,21 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             // libc++ dep
-            if (self.base.options.link_libcpp) {
+            if (comp.config.link_libcpp) {
                 try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
                 try argv.append(comp.libcxx_static_lib.?.full_object_path);
             }
 
             // libunwind dep
-            if (self.base.options.link_libunwind) {
+            if (comp.config.link_libunwind) {
                 try argv.append(comp.libunwind_static_lib.?.full_object_path);
             }
 
             // libc dep
-            self.error_flags.missing_libc = false;
-            if (self.base.options.link_libc) {
-                if (self.base.options.libc_installation != null) {
-                    const needs_grouping = self.base.options.link_mode == .Static;
+            comp.link_error_flags.missing_libc = false;
+            if (comp.config.link_libc) {
+                if (comp.libc_installation != null) {
+                    const needs_grouping = link_mode == .static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
                     if (needs_grouping) try argv.append("--end-group");
@@ -2783,13 +2694,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     }
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
-                    try argv.append(try comp.get_libc_crt_file(arena, switch (self.base.options.link_mode) {
-                        .Static => "libc.a",
-                        .Dynamic => "libc.so",
+                    try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
+                        .static => "libc.a",
+                        .dynamic => "libc.so",
                     }));
                 } else {
-                    self.error_flags.missing_libc = true;
-                    return error.FlushFailure;
+                    comp.link_error_flags.missing_libc = true;
                 }
             }
         }
@@ -2805,21 +2715,21 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (csu.crtend) |v| try argv.append(v);
         if (csu.crtn) |v| try argv.append(v);
 
-        if (allow_shlib_undefined) {
+        if (self.base.allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
         }
 
-        switch (self.base.options.compress_debug_sections) {
+        switch (self.compress_debug_sections) {
             .none => {},
             .zlib => try argv.append("--compress-debug-sections=zlib"),
             .zstd => try argv.append("--compress-debug-sections=zstd"),
         }
 
-        if (self.base.options.bind_global_refs_locally) {
+        if (self.bind_global_refs_locally) {
             try argv.append("-Bsymbolic");
         }
 
-        if (self.base.options.verbose_link) {
+        if (comp.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }
@@ -2889,7 +2799,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
     }
 
-    if (!self.base.options.disable_lld_caching) {
+    if (!self.base.disable_lld_caching) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
@@ -2906,16 +2816,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 }
 
 fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target_endian = self.base.options.target.cpu.arch.endian();
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
         .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
     }
 }
 
-fn writeShdrTable(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    const target_endian = self.base.options.target.cpu.arch.endian();
+pub fn writeShdrTable(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const shsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -2945,6 +2857,7 @@ fn writeShdrTable(self: *Elf) !void {
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
+                assert(self.shdrs.items[i].sh_offset != math.maxInt(u64));
                 shdr.* = shdrTo32(self.shdrs.items[i]);
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
@@ -2957,6 +2870,7 @@ fn writeShdrTable(self: *Elf) !void {
             defer gpa.free(buf);
 
             for (buf, 0..) |*shdr, i| {
+                assert(self.shdrs.items[i].sh_offset != math.maxInt(u64));
                 shdr.* = self.shdrs.items[i];
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
@@ -2968,8 +2882,9 @@ fn writeShdrTable(self: *Elf) !void {
 }
 
 fn writePhdrTable(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    const target_endian = self.base.options.target.cpu.arch.endian();
+    const gpa = self.base.comp.gpa;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const target_endian = target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
 
@@ -3006,7 +2921,10 @@ fn writePhdrTable(self: *Elf) !void {
     }
 }
 
-fn writeElfHeader(self: *Elf) !void {
+pub fn writeElfHeader(self: *Elf) !void {
+    const comp = self.base.comp;
+    if (comp.link_errors.items.len > 0) return; // We had errors, so skip flushing to render the output unusable
+
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
@@ -3019,7 +2937,8 @@ fn writeElfHeader(self: *Elf) !void {
     };
     index += 1;
 
-    const endian = self.base.options.target.cpu.arch.endian();
+    const target = comp.root_mod.resolved_target.result;
+    const endian = target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
         .little => elf.ELFDATA2LSB,
         .big => elf.ELFDATA2MSB,
@@ -3037,18 +2956,20 @@ fn writeElfHeader(self: *Elf) !void {
 
     assert(index == 16);
 
-    const elf_type: elf.ET = switch (self.base.options.output_mode) {
-        .Exe => if (self.base.options.pie) .DYN else .EXEC,
+    const output_mode = comp.config.output_mode;
+    const link_mode = comp.config.link_mode;
+    const elf_type: elf.ET = switch (output_mode) {
+        .Exe => if (comp.config.pie or target.os.tag == .haiku) .DYN else .EXEC,
         .Obj => .REL,
-        .Lib => switch (self.base.options.link_mode) {
-            .Static => @as(elf.ET, .REL),
-            .Dynamic => .DYN,
+        .Lib => switch (link_mode) {
+            .static => @as(elf.ET, .REL),
+            .dynamic => .DYN,
         },
     };
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
     index += 2;
 
-    const machine = self.base.options.target.cpu.arch.toElfMachine();
+    const machine = target.cpu.arch.toElfMachine();
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(machine), endian);
     index += 2;
 
@@ -3056,7 +2977,10 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
     index += 4;
 
-    const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).value else 0;
+    const e_entry = if (self.entry_index) |entry_index|
+        @as(u64, @intCast(self.symbol(entry_index).address(.{}, self)))
+    else
+        0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
         .p32 => {
@@ -3119,7 +3043,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
     index += 2;
 
-    mem.writeInt(u16, hdr_buf[index..][0..2], self.shstrtab_section_index.?, endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intCast(self.shstrtab_section_index.?), endian);
     index += 2;
 
     assert(index == e_ehsize);
@@ -3152,8 +3076,8 @@ pub fn updateDecl(
     return self.zigObjectPtr().?.updateDecl(self, mod, decl_index);
 }
 
-pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    return self.zigObjectPtr().?.lowerUnnamedConst(self, typed_value, decl_index);
+pub fn lowerUnnamedConst(self: *Elf, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return self.zigObjectPtr().?.lowerUnnamedConst(self, val, decl_index);
 }
 
 pub fn updateExports(
@@ -3166,7 +3090,6 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    if (self.base.options.emit == null) return;
     return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
 }
 
@@ -3185,6 +3108,9 @@ pub fn deleteDeclExport(
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+
     const linker_defined_index = self.linker_defined_index orelse return;
     const linker_defined = self.file(linker_defined_index).?.linker_defined;
     self.dynamic_index = try linker_defined.addGlobal("_DYNAMIC", self);
@@ -3199,7 +3125,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
     self.plt_index = try linker_defined.addGlobal("_PROCEDURE_LINKAGE_TABLE_", self);
     self.end_index = try linker_defined.addGlobal("_end", self);
 
-    if (self.base.options.eh_frame_hdr) {
+    if (comp.link_eh_frame_hdr) {
         self.gnu_eh_frame_hdr_index = try linker_defined.addGlobal("__GNU_EH_FRAME_HDR", self);
     }
 
@@ -3213,7 +3139,6 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
 
     for (self.shdrs.items) |shdr| {
         if (self.getStartStopBasename(shdr)) |name| {
-            const gpa = self.base.allocator;
             try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
 
             const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
@@ -3226,22 +3151,29 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
+    if (self.getTarget().cpu.arch == .riscv64 and self.isEffectivelyDynLib()) {
+        self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
+    }
+
     linker_defined.resolveSymbols(self);
 }
 
 fn allocateLinkerDefinedSymbols(self: *Elf) void {
+    const comp = self.base.comp;
+    const link_mode = comp.config.link_mode;
+
     // _DYNAMIC
     if (self.dynamic_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.dynamic_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
     // __ehdr_start
     {
         const symbol_ptr = self.symbol(self.ehdr_start_index.?);
-        symbol_ptr.value = self.calcImageBase();
+        symbol_ptr.value = @intCast(self.image_base);
         symbol_ptr.output_section_index = 1;
     }
 
@@ -3251,9 +3183,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.init_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // __fini_array_start, __fini_array_end
@@ -3262,9 +3194,9 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.fini_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // __preinit_array_start, __preinit_array_end
@@ -3273,24 +3205,33 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_sym = self.symbol(self.preinit_array_end_index.?);
         const shdr = &self.shdrs.items[shndx];
         start_sym.output_section_index = shndx;
-        start_sym.value = shdr.sh_addr;
+        start_sym.value = @intCast(shdr.sh_addr);
         end_sym.output_section_index = shndx;
-        end_sym.value = shdr.sh_addr + shdr.sh_size;
+        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
     }
 
     // _GLOBAL_OFFSET_TABLE_
-    if (self.got_plt_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.got_index.?);
-        symbol_ptr.value = shdr.sh_addr;
-        symbol_ptr.output_section_index = shndx;
+    if (self.getTarget().cpu.arch == .x86_64) {
+        if (self.got_plt_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = @intCast(shdr.sh_addr);
+            sym.output_section_index = shndx;
+        }
+    } else {
+        if (self.got_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = @intCast(shdr.sh_addr);
+            sym.output_section_index = shndx;
+        }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
     if (self.plt_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.plt_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
@@ -3298,7 +3239,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.dso_handle_index) |index| {
         const shdr = &self.shdrs.items[1];
         const symbol_ptr = self.symbol(index);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = 0;
     }
 
@@ -3306,21 +3247,21 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     if (self.eh_frame_hdr_section_index) |shndx| {
         const shdr = &self.shdrs.items[shndx];
         const symbol_ptr = self.symbol(self.gnu_eh_frame_hdr_index.?);
-        symbol_ptr.value = shdr.sh_addr;
+        symbol_ptr.value = @intCast(shdr.sh_addr);
         symbol_ptr.output_section_index = shndx;
     }
 
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
-        if (self.base.options.link_mode != .Static or self.base.options.pie) break :blk;
+        if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
         const start_sym = self.symbol(self.rela_iplt_start_index.?);
         const end_sym = self.symbol(self.rela_iplt_end_index.?);
-        start_sym.value = start_addr;
+        start_sym.value = @intCast(start_addr);
         start_sym.output_section_index = shndx;
-        end_sym.value = end_addr;
+        end_sym.value = @intCast(end_addr);
         end_sym.output_section_index = shndx;
     }
 
@@ -3329,7 +3270,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
         const end_symbol = self.symbol(self.end_index.?);
         for (self.shdrs.items, 0..) |shdr, shndx| {
             if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
-                end_symbol.value = shdr.sh_addr + shdr.sh_size;
+                end_symbol.value = @intCast(shdr.sh_addr + shdr.sh_size);
                 end_symbol.output_section_index = @intCast(shndx);
             }
         }
@@ -3344,11 +3285,134 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             const stop = self.symbol(self.start_stop_indexes.items[index + 1]);
             const shndx = self.sectionByName(name["__start_".len..]).?;
             const shdr = &self.shdrs.items[shndx];
-            start.value = shdr.sh_addr;
+            start.value = @intCast(shdr.sh_addr);
             start.output_section_index = shndx;
-            stop.value = shdr.sh_addr + shdr.sh_size;
+            stop.value = @intCast(shdr.sh_addr + shdr.sh_size);
             stop.output_section_index = shndx;
         }
+    }
+
+    // __global_pointer$
+    if (self.global_pointer_index) |index| {
+        const sym = self.symbol(index);
+        if (self.sectionByName(".sdata")) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            sym.value = @intCast(shdr.sh_addr + 0x800);
+            sym.output_section_index = shndx;
+        } else {
+            sym.value = 0;
+            sym.output_section_index = 0;
+        }
+    }
+}
+
+fn checkDuplicates(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+
+    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    defer {
+        for (dupes.values()) |*list| {
+            list.deinit(gpa);
+        }
+        dupes.deinit();
+    }
+
+    if (self.zigObjectPtr()) |zig_object| {
+        try zig_object.checkDuplicates(&dupes, self);
+    }
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.checkDuplicates(&dupes, self);
+    }
+
+    try self.reportDuplicates(dupes);
+}
+
+pub fn addCommentString(self: *Elf) !void {
+    const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
+    const msec = self.mergeSection(msec_index);
+    const res = try msec.insertZ(self.base.comp.gpa, "zig " ++ builtin.zig_version_string);
+    if (res.found_existing) return;
+    const msub_index = try self.addMergeSubsection();
+    const msub = self.mergeSubsection(msub_index);
+    msub.merge_section_index = msec_index;
+    msub.string_index = res.key.pos;
+    msub.alignment = .@"1";
+    msub.size = res.key.len;
+    msub.entsize = 1;
+    msub.alive = true;
+    res.sub.* = msub_index;
+}
+
+pub fn resolveMergeSections(self: *Elf) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var has_errors = false;
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        file_ptr.object.initMergeSections(self) catch |err| switch (err) {
+            error.MalformedObject => has_errors = true,
+            else => |e| return e,
+        };
+    }
+
+    if (has_errors) return error.FlushFailure;
+
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        file_ptr.object.resolveMergeSubsections(self) catch |err| switch (err) {
+            error.MalformedObject => has_errors = true,
+            else => |e| return e,
+        };
+    }
+
+    if (has_errors) return error.FlushFailure;
+}
+
+pub fn finalizeMergeSections(self: *Elf) !void {
+    for (self.merge_sections.items) |*msec| {
+        try msec.finalize(self);
+    }
+}
+
+pub fn updateMergeSectionSizes(self: *Elf) !void {
+    for (self.merge_sections.items) |*msec| {
+        const shdr = &self.shdrs.items[msec.output_section_index];
+        for (msec.subsections.items) |msub_index| {
+            const msub = self.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const offset = msub.alignment.forward(shdr.sh_size);
+            const padding = offset - shdr.sh_size;
+            msub.value = @intCast(offset);
+            shdr.sh_size += padding + msub.size;
+            shdr.sh_addralign = @max(shdr.sh_addralign, msub.alignment.toByteUnits() orelse 1);
+        }
+    }
+}
+
+pub fn writeMergeSections(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    for (self.merge_sections.items) |msec| {
+        const shdr = self.shdrs.items[msec.output_section_index];
+        const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        try buffer.ensureTotalCapacity(size);
+        buffer.appendNTimesAssumeCapacity(0, size);
+
+        for (msec.subsections.items) |msub_index| {
+            const msub = self.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const string = msub.getString(self);
+            const off = math.cast(usize, msub.value) orelse return error.Overflow;
+            @memcpy(buffer.items[off..][0..string.len], string);
+        }
+
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        buffer.clearRetainingCapacity();
     }
 }
 
@@ -3358,7 +3422,30 @@ fn initOutputSections(self: *Elf) !void {
     }
 }
 
+pub fn initMergeSections(self: *Elf) !void {
+    for (self.merge_sections.items) |*msec| {
+        if (msec.subsections.items.len == 0) continue;
+        const name = msec.name(self);
+        const shndx = self.sectionByName(name) orelse try self.addSection(.{
+            .name = name,
+            .type = msec.type,
+            .flags = msec.flags,
+        });
+        msec.output_section_index = shndx;
+
+        var entsize = self.mergeSubsection(msec.subsections.items[0]).entsize;
+        for (msec.subsections.items) |index| {
+            const msub = self.mergeSubsection(index);
+            entsize = @min(entsize, msub.entsize);
+        }
+        const shdr = &self.shdrs.items[shndx];
+        shdr.sh_entsize = entsize;
+    }
+}
+
 fn initSyntheticSections(self: *Elf) !void {
+    const comp = self.base.comp;
+    const target = comp.root_mod.resolved_target.result;
     const ptr_size = self.ptrWidthBytes();
 
     const needs_eh_frame = for (self.objects.items) |index| {
@@ -3373,7 +3460,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
 
-        if (self.base.options.eh_frame_hdr) {
+        if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = ".eh_frame_hdr",
                 .type = elf.SHT_PROGBITS,
@@ -3467,8 +3554,8 @@ fn initSyntheticSections(self: *Elf) !void {
         // In this case, if we do generate .interp section and segment, we will get
         // a segfault in the dynamic linker trying to load a binary that is static
         // and doesn't contain .dynamic section.
-        if (self.isStatic() and !self.base.options.pie) break :blk false;
-        break :blk self.base.options.dynamic_linker != null;
+        if (self.base.isStatic() and !comp.config.pie) break :blk false;
+        break :blk target.dynamic_linker.get() != null;
     };
     if (needs_interp) {
         self.interp_section_index = try self.addSection(.{
@@ -3480,7 +3567,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.isDynLib() or self.shared_objects.items.len > 0 or self.base.options.pie) {
+    if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
             .name = ".dynstr",
             .flags = elf.SHF_ALLOC,
@@ -3549,61 +3636,7 @@ fn initSyntheticSections(self: *Elf) !void {
     try self.initShStrtab();
 }
 
-fn initSectionsObject(self: *Elf) !void {
-    const ptr_size = self.ptrWidthBytes();
-
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        try object.initOutputSections(self);
-        try object.initRelaSections(self);
-    }
-
-    const needs_eh_frame = for (self.objects.items) |index| {
-        if (self.file(index).?.object.cies.items.len > 0) break true;
-    } else false;
-    if (needs_eh_frame) {
-        self.eh_frame_section_index = try self.addSection(.{
-            .name = ".eh_frame",
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC,
-            .addralign = ptr_size,
-            .offset = std.math.maxInt(u64),
-        });
-        self.eh_frame_rela_section_index = try self.addRelaShdr(".rela.eh_frame", self.eh_frame_section_index.?);
-    }
-
-    try self.initComdatGroups();
-    try self.initSymtab();
-    try self.initShStrtab();
-}
-
-fn initComdatGroups(self: *Elf) !void {
-    const gpa = self.base.allocator;
-
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-
-        for (object.comdat_groups.items) |cg_index| {
-            const cg = self.comdatGroup(cg_index);
-            const cg_owner = self.comdatGroupOwner(cg.owner);
-            if (cg_owner.file != index) continue;
-
-            const cg_sec = try self.comdat_group_sections.addOne(gpa);
-            cg_sec.* = .{
-                .shndx = try self.addSection(.{
-                    .name = ".group",
-                    .type = elf.SHT_GROUP,
-                    .entsize = @sizeOf(u32),
-                    .addralign = @alignOf(u32),
-                    .offset = std.math.maxInt(u64),
-                }),
-                .cg_index = cg_index,
-            };
-        }
-    }
-}
-
-fn initSymtab(self: *Elf) !void {
+pub fn initSymtab(self: *Elf) !void {
     const small_ptr = switch (self.ptr_width) {
         .p32 => true,
         .p64 => false,
@@ -3628,7 +3661,7 @@ fn initSymtab(self: *Elf) !void {
     }
 }
 
-fn initShStrtab(self: *Elf) !void {
+pub fn initShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index == null) {
         self.shstrtab_section_index = try self.addSection(.{
             .name = ".shstrtab",
@@ -3665,7 +3698,7 @@ fn initSpecialPhdrs(self: *Elf) !void {
     self.phdr_gnu_stack_index = try self.addPhdr(.{
         .type = elf.PT_GNU_STACK,
         .flags = elf.PF_W | elf.PF_R,
-        .memsz = self.base.options.stack_size_override orelse 0,
+        .memsz = self.base.stack_size,
         .@"align" = 1,
     });
 
@@ -3697,7 +3730,7 @@ fn initSpecialPhdrs(self: *Elf) !void {
 /// Ties are broken by the file prority which corresponds to the inclusion of input sections in this output section
 /// we are about to sort.
 fn sortInitFini(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const Entry = struct {
         priority: i32,
@@ -3711,7 +3744,7 @@ fn sortInitFini(self: *Elf) !void {
         }
     };
 
-    for (self.shdrs.items, 0..) |*shdr, shndx| {
+    for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
 
         var is_init_fini = false;
@@ -3771,8 +3804,8 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
         try self.dynamic.addNeeded(shared_object, self);
     }
 
-    if (self.isDynLib()) {
-        if (self.base.options.soname) |soname| {
+    if (self.isEffectivelyDynLib()) {
+        if (self.soname) |soname| {
             try self.dynamic.setSoname(soname, self);
         }
     }
@@ -3786,8 +3819,9 @@ fn sortDynamicSymtab(self: *Elf) void {
 }
 
 fn setVersionSymtab(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
     if (self.versym_section_index == null) return;
-    try self.versym.resize(self.base.allocator, self.dynsym.count());
+    try self.versym.resize(gpa, self.dynsym.count());
     self.versym.items[0] = elf.VER_NDX_LOCAL;
     for (self.dynsym.entries.items, 1..) |entry, i| {
         const sym = self.symbol(entry.symbol_index);
@@ -3837,7 +3871,7 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
         }
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.phdrs.items.len);
     defer entries.deinit();
     for (0..self.phdrs.items.len) |phndx| {
@@ -3885,7 +3919,7 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
     }
 }
 
-fn shdrRank(self: *Elf, shndx: u16) u8 {
+fn shdrRank(self: *Elf, shndx: u32) u8 {
     const shdr = self.shdrs.items[shndx];
     const name = self.getShString(shdr.sh_name);
     const flags = shdr.sh_flags;
@@ -3933,28 +3967,28 @@ fn shdrRank(self: *Elf, shndx: u16) u8 {
     }
 }
 
-fn sortShdrs(self: *Elf) !void {
+pub fn sortShdrs(self: *Elf) !void {
     const Entry = struct {
-        shndx: u16,
+        shndx: u32,
 
         pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
             return elf_file.shdrRank(lhs.shndx) < elf_file.shdrRank(rhs.shndx);
         }
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.shdrs.items.len);
     defer entries.deinit();
     for (0..self.shdrs.items.len) |shndx| {
-        entries.appendAssumeCapacity(.{ .shndx = @as(u16, @intCast(shndx)) });
+        entries.appendAssumeCapacity(.{ .shndx = @intCast(shndx) });
     }
 
     mem.sort(Entry, entries.items, self, Entry.lessThan);
 
-    const backlinks = try gpa.alloc(u16, entries.items.len);
+    const backlinks = try gpa.alloc(u32, entries.items.len);
     defer gpa.free(backlinks);
     for (entries.items, 0..) |entry, i| {
-        backlinks[entry.shndx] = @as(u16, @intCast(i));
+        backlinks[entry.shndx] = @intCast(i);
     }
 
     const slice = try self.shdrs.toOwnedSlice(gpa);
@@ -3968,10 +4002,10 @@ fn sortShdrs(self: *Elf) !void {
     try self.resetShdrIndexes(backlinks);
 }
 
-fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
-    const gpa = self.base.allocator;
+fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
+    const gpa = self.base.comp.gpa;
 
-    for (&[_]*?u16{
+    for (&[_]*?u32{
         &self.eh_frame_section_index,
         &self.eh_frame_rela_section_index,
         &self.eh_frame_hdr_section_index,
@@ -4075,6 +4109,10 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
         }
     }
 
+    for (self.merge_sections.items) |*msec| {
+        msec.output_section_index = backlinks[msec.output_section_index];
+    }
+
     {
         var output_rela_sections = try self.output_rela_sections.clone(gpa);
         defer output_rela_sections.deinit(gpa);
@@ -4152,16 +4190,30 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
 }
 
 fn updateSectionSizes(self: *Elf) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         const shdr = &self.shdrs.items[shndx];
+        if (atom_list.items.len == 0) continue;
+        if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         for (atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
-            atom_ptr.value = offset;
+            atom_ptr.value = @intCast(offset);
             shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
+        }
+    }
+
+    if (self.requiresThunks()) {
+        for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
+            const shdr = self.shdrs.items[shndx];
+            if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
+            if (atom_list.items.len == 0) continue;
+
+            // Create jump/branch range extenders if needed.
+            try thunks.createThunks(shndx, self);
         }
     }
 
@@ -4178,7 +4230,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt.size();
+        self.shdrs.items[index].sh_size = self.plt.size(self);
     }
 
     if (self.got_plt_section_index) |index| {
@@ -4186,7 +4238,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_got_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt_got.size();
+        self.shdrs.items[index].sh_size = self.plt_got.size(self);
     }
 
     if (self.rela_dyn_section_index) |shndx| {
@@ -4209,7 +4261,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.interp_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.base.options.dynamic_linker.?.len + 1;
+        self.shdrs.items[index].sh_size = target.dynamic_linker.get().?.len + 1;
     }
 
     if (self.hash_section_index) |index| {
@@ -4244,58 +4296,7 @@ fn updateSectionSizes(self: *Elf) !void {
     self.updateShStrtabSize();
 }
 
-fn updateSectionSizesObject(self: *Elf) !void {
-    for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
-        const shdr = &self.shdrs.items[shndx];
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const offset = atom_ptr.alignment.forward(shdr.sh_size);
-            const padding = offset - shdr.sh_size;
-            atom_ptr.value = offset;
-            shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
-        }
-    }
-
-    for (self.output_rela_sections.values()) |sec| {
-        const shdr = &self.shdrs.items[sec.shndx];
-        for (sec.atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            const relocs = atom_ptr.relocs(self);
-            shdr.sh_size += shdr.sh_entsize * relocs.len;
-        }
-
-        if (shdr.sh_size == 0) shdr.sh_offset = 0;
-    }
-
-    if (self.eh_frame_section_index) |index| {
-        self.shdrs.items[index].sh_size = try eh_frame.calcEhFrameSize(self);
-    }
-    if (self.eh_frame_rela_section_index) |index| {
-        const shdr = &self.shdrs.items[index];
-        shdr.sh_size = eh_frame.calcEhFrameRelocs(self) * shdr.sh_entsize;
-    }
-
-    try self.updateSymtabSize();
-    self.updateComdatGroupsSizes();
-    self.updateShStrtabSize();
-}
-
-fn updateComdatGroupsSizes(self: *Elf) void {
-    for (self.comdat_group_sections.items) |cg| {
-        const shdr = &self.shdrs.items[cg.shndx];
-        shdr.sh_size = cg.size(self);
-        shdr.sh_link = self.symtab_section_index.?;
-
-        const sym = self.symbol(cg.symbol(self));
-        shdr.sh_info = sym.outputSymtabIndex(self) orelse
-            self.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
-    }
-}
-
-fn updateShStrtabSize(self: *Elf) void {
+pub fn updateShStrtabSize(self: *Elf) void {
     if (self.shstrtab_section_index) |index| {
         self.shdrs.items[index].sh_size = self.shstrtab.items.len;
     }
@@ -4380,7 +4381,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
 
 /// Allocates alloc sections and creates load segments for sections
 /// extracted from input object files.
-fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
+pub fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // We use this struct to track maximum alignment of all TLS sections.
     // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
     // in-file offsets have to be aligned against the start of TLS program header.
@@ -4417,8 +4418,8 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // virtual and file offsets. However, the simple one will do for one
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
-    const Cover = std.ArrayList(u16);
-    const gpa = self.base.allocator;
+    const Cover = std.ArrayList(u32);
+    const gpa = self.base.comp.gpa;
     var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
         cover.* = Cover.init(gpa);
@@ -4527,27 +4528,8 @@ fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     }
 }
 
-/// Allocates alloc sections when merging relocatable objects files together.
-fn allocateAllocSectionsObject(self: *Elf) !void {
-    for (self.shdrs.items) |*shdr| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) {
-            shdr.sh_offset = 0;
-            continue;
-        }
-        const needed_size = shdr.sh_size;
-        if (needed_size > self.allocatedSize(shdr.sh_offset)) {
-            shdr.sh_size = 0;
-            const new_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
-            shdr.sh_offset = new_offset;
-            shdr.sh_size = needed_size;
-        }
-    }
-}
-
 /// Allocates non-alloc sections (debug info, symtabs, etc.).
-fn allocateNonAllocSections(self: *Elf) !void {
+pub fn allocateNonAllocSections(self: *Elf) !void {
     for (self.shdrs.items, 0..) |*shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC != 0) continue;
@@ -4592,7 +4574,7 @@ fn allocateNonAllocSections(self: *Elf) !void {
 }
 
 fn allocateSpecialPhdrs(self: *Elf) void {
-    for (&[_]struct { ?u16, ?u16 }{
+    for (&[_]struct { ?u16, ?u32 }{
         .{ self.phdr_interp_index, self.interp_section_index },
         .{ self.phdr_dynamic_index, self.dynamic_section_index },
         .{ self.phdr_gnu_eh_frame_index, self.eh_frame_hdr_section_index },
@@ -4615,7 +4597,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     if (self.phdr_tls_index) |index| {
         const slice = self.shdrs.items;
         const phdr = &self.phdrs.items[index];
-        var shndx: u16 = 0;
+        var shndx: u32 = 0;
         while (shndx < slice.len) {
             const shdr = slice[shndx];
             if (shdr.sh_flags & elf.SHF_TLS == 0) {
@@ -4646,17 +4628,8 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     }
 }
 
-fn allocateAtoms(self: *Elf) void {
-    if (self.zigObjectPtr()) |zig_object| {
-        zig_object.allocateTlvAtoms(self);
-    }
-    for (self.objects.items) |index| {
-        self.file(index).?.object.allocateAtoms(self);
-    }
-}
-
 fn writeAtoms(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
     defer {
@@ -4666,6 +4639,8 @@ fn writeAtoms(self: *Elf) !void {
         }
         undefs.deinit();
     }
+
+    var has_reloc_errors = false;
 
     // TODO iterate over `output_sections` directly
     for (self.shdrs.items, 0..) |shdr, shndx| {
@@ -4698,7 +4673,7 @@ fn writeAtoms(self: *Elf) !void {
         const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
+            shdr.sh_flags & elf.SHF_EXECINSTR != 0 and self.getTarget().cpu.arch == .x86_64)
             0xcc // int3
         else
             0;
@@ -4708,7 +4683,7 @@ fn writeAtoms(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
+            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
@@ -4724,100 +4699,50 @@ fn writeAtoms(self: *Elf) !void {
             defer gpa.free(in_code);
             @memcpy(out_code, in_code);
 
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) {
-                try atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs);
-            } else {
-                atom_ptr.resolveRelocsAlloc(self, out_code) catch |err| switch (err) {
-                    // TODO
-                    error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                        log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                    },
-                    else => |e| return e,
-                };
-            }
-        }
-
-        try self.base.file.?.pwriteAll(buffer, sh_offset);
-    }
-
-    try self.reportUndefined(&undefs);
-}
-
-fn writeAtomsObject(self: *Elf) !void {
-    const gpa = self.base.allocator;
-
-    // TODO iterate over `output_sections` directly
-    for (self.shdrs.items, 0..) |shdr, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
-
-        const atom_list = self.output_sections.get(@intCast(shndx)) orelse continue;
-        if (atom_list.items.len == 0) continue;
-
-        log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
-
-        // TODO really, really handle debug section separately
-        const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
-            const zig_object = self.zigObjectPtr().?;
-            if (shndx == self.debug_info_section_index.?)
-                break :blk zig_object.debug_info_section_zig_size;
-            if (shndx == self.debug_abbrev_section_index.?)
-                break :blk zig_object.debug_abbrev_section_zig_size;
-            if (shndx == self.debug_str_section_index.?)
-                break :blk zig_object.debug_str_section_zig_size;
-            if (shndx == self.debug_aranges_section_index.?)
-                break :blk zig_object.debug_aranges_section_zig_size;
-            if (shndx == self.debug_line_section_index.?)
-                break :blk zig_object.debug_line_section_zig_size;
-            unreachable;
-        } else 0;
-        const sh_offset = shdr.sh_offset + base_offset;
-        const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
-
-        const buffer = try gpa.alloc(u8, sh_size);
-        defer gpa.free(buffer);
-        const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
-            0xcc // int3
-        else
-            0;
-        @memset(buffer, padding_byte);
-
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
-            assert(atom_ptr.flags.alive);
-
-            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
-                return error.Overflow;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-
-            log.debug("writing atom({d}) from 0x{x} to 0x{x}", .{
-                atom_index,
-                sh_offset + offset,
-                sh_offset + offset + size,
-            });
-
-            // TODO decompress directly into provided buffer
-            const out_code = buffer[offset..][0..size];
-            const in_code = switch (atom_ptr.file(self).?) {
-                .object => |x| try x.codeDecompressAlloc(self, atom_index),
-                .zig_object => |x| try x.codeAlloc(self, atom_index),
-                else => unreachable,
+            const res = if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(self, out_code);
+            _ = res catch |err| switch (err) {
+                error.UnsupportedCpuArch => {
+                    try self.reportUnsupportedCpuArch();
+                    return error.FlushFailure;
+                },
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
+                else => |e| return e,
             };
-            defer gpa.free(in_code);
-            @memcpy(out_code, in_code);
         }
 
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
+
+    if (self.requiresThunks()) {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        for (self.thunks.items) |th| {
+            const thunk_size = th.size(self);
+            try buffer.ensureUnusedCapacity(thunk_size);
+            const shdr = self.shdrs.items[th.output_section_index];
+            const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
+            try th.write(self, buffer.writer());
+            assert(buffer.items.len == thunk_size);
+            try self.base.file.?.pwriteAll(buffer.items, offset);
+            buffer.clearRetainingCapacity();
+        }
+    }
+
+    try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 }
 
-fn updateSymtabSize(self: *Elf) !void {
+pub fn updateSymtabSize(self: *Elf) !void {
     var nlocals: u32 = 0;
     var nglobals: u32 = 0;
     var strsize: u32 = 0;
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + self.shared_objects.items.len + 2);
@@ -4834,6 +4759,14 @@ fn updateSymtabSize(self: *Elf) !void {
     if (self.eh_frame_section_index) |_| {
         nlocals += 1;
     }
+    nlocals += @intCast(self.merge_sections.items.len);
+
+    if (self.requiresThunks()) for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.ilocal = nlocals + 1;
+        th.calcSymtabSize(self);
+        nlocals += th.output_symtab_ctx.nlocals;
+        strsize += th.output_symtab_ctx.strsize;
+    };
 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
@@ -4900,17 +4833,18 @@ fn updateSymtabSize(self: *Elf) !void {
 }
 
 fn writeSyntheticSections(self: *Elf) !void {
-    const gpa = self.base.allocator;
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const gpa = self.base.comp.gpa;
 
     if (self.interp_section_index) |shndx| {
+        var buffer: [256]u8 = undefined;
+        const interp = target.dynamic_linker.get().?;
+        @memcpy(buffer[0..interp.len], interp);
+        buffer[interp.len] = 0;
+        const contents = buffer[0 .. interp.len + 1];
         const shdr = self.shdrs.items[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try gpa.alloc(u8, sh_size);
-        defer gpa.free(buffer);
-        const dylinker = self.base.options.dynamic_linker.?;
-        @memcpy(buffer[0..dylinker.len], dylinker);
-        buffer[dylinker.len] = 0;
-        try self.base.file.?.pwriteAll(buffer, shdr.sh_offset);
+        assert(shdr.sh_size == contents.len);
+        try self.base.file.?.pwriteAll(contents, shdr.sh_offset);
     }
 
     if (self.hash_section_index) |shndx| {
@@ -4997,7 +4931,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
         try self.plt.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
@@ -5013,7 +4947,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_got_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
         try self.plt_got.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
@@ -5029,94 +4963,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     try self.writeShStrtab();
 }
 
-fn writeSyntheticSectionsObject(self: *Elf) !void {
-    const gpa = self.base.allocator;
-
-    for (self.output_rela_sections.values()) |sec| {
-        if (sec.atom_list.items.len == 0) continue;
-
-        const shdr = self.shdrs.items[sec.shndx];
-
-        const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
-            return error.Overflow;
-        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
-        defer relocs.deinit();
-
-        for (sec.atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
-            try atom_ptr.writeRelocs(self, &relocs);
-        }
-        assert(relocs.items.len == num_relocs);
-
-        const SortRelocs = struct {
-            pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-                _ = ctx;
-                return lhs.r_offset < rhs.r_offset;
-            }
-        };
-
-        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
-
-        log.debug("writing {s} from 0x{x} to 0x{x}", .{
-            self.getShString(shdr.sh_name),
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
-        });
-
-        try self.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
-    }
-
-    if (self.eh_frame_section_index) |shndx| {
-        const shdr = self.shdrs.items[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
-        defer buffer.deinit();
-        try eh_frame.writeEhFrameObject(self, buffer.writer());
-        log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
-        });
-        assert(buffer.items.len == sh_size);
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
-    }
-    if (self.eh_frame_rela_section_index) |shndx| {
-        const shdr = self.shdrs.items[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
-        defer buffer.deinit();
-        try eh_frame.writeEhFrameRelocs(self, buffer.writer());
-        assert(buffer.items.len == sh_size);
-        log.debug("writing .rela.eh_frame from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
-        });
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
-    }
-
-    try self.writeComdatGroups();
-    try self.writeSymtab();
-    try self.writeShStrtab();
-}
-
-fn writeComdatGroups(self: *Elf) !void {
-    const gpa = self.base.allocator;
-    for (self.comdat_group_sections.items) |cgs| {
-        const shdr = self.shdrs.items[cgs.shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
-        defer buffer.deinit();
-        try cgs.write(self, buffer.writer());
-        assert(buffer.items.len == sh_size);
-        log.debug("writing COMDAT group from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
-        });
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
-    }
-}
-
-fn writeShStrtab(self: *Elf) !void {
+pub fn writeShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index) |index| {
         const shdr = self.shdrs.items[index];
         log.debug("writing .shstrtab from 0x{x} to 0x{x}", .{ shdr.sh_offset, shdr.sh_offset + shdr.sh_size });
@@ -5124,8 +4971,9 @@ fn writeShStrtab(self: *Elf) !void {
     }
 }
 
-fn writeSymtab(self: *Elf) !void {
-    const gpa = self.base.allocator;
+pub fn writeSymtab(self: *Elf) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
+    const gpa = self.base.comp.gpa;
     const symtab_shdr = self.shdrs.items[self.symtab_section_index.?];
     const strtab_shdr = self.shdrs.items[self.strtab_section_index.?];
     const sym_size: u64 = switch (self.ptr_width) {
@@ -5149,6 +4997,10 @@ fn writeSymtab(self: *Elf) !void {
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     self.writeSectionSymbols();
+
+    if (self.requiresThunks()) for (self.thunks.items) |th| {
+        th.writeSymtab(self);
+    };
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5185,7 +5037,7 @@ fn writeSymtab(self: *Elf) !void {
         self.plt_got.writeSymtab(self);
     }
 
-    const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    const foreign_endian = target.cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => {
             const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
@@ -5244,17 +5096,35 @@ fn writeSectionSymbols(self: *Elf) void {
         };
         ilocal += 1;
     }
+
+    for (self.merge_sections.items) |msec| {
+        const shdr = self.shdrs.items[msec.output_section_index];
+        const out_sym = &self.symtab.items[ilocal];
+        out_sym.* = .{
+            .st_name = 0,
+            .st_value = shdr.sh_addr,
+            .st_info = elf.STT_SECTION,
+            .st_shndx = @intCast(msec.output_section_index),
+            .st_size = 0,
+            .st_other = 0,
+        };
+        ilocal += 1;
+    }
 }
 
 pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
     if (self.eh_frame_section_index) |index| {
         if (index == shndx) return @intCast(self.output_sections.keys().len + 1);
     }
+    const base: usize = if (self.eh_frame_section_index == null) 0 else 1;
+    for (self.merge_sections.items, 0..) |msec, index| {
+        if (msec.output_section_index == shndx) return @intCast(self.output_sections.keys().len + 1 + index + base);
+    }
     return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
 
 /// Always 4 or 8 depending on whether this is 32-bit ELF or 64-bit ELF.
-fn ptrWidthBytes(self: Elf) u8 {
+pub fn ptrWidthBytes(self: Elf) u8 {
     return switch (self.ptr_width) {
         .p32 => 4,
         .p64 => 8,
@@ -5264,7 +5134,8 @@ fn ptrWidthBytes(self: Elf) u8 {
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
 pub fn archPtrWidthBytes(self: Elf) u8 {
-    return @as(u8, @intCast(@divExact(self.base.options.target.ptrBitWidth(), 8)));
+    const target = self.base.comp.root_mod.resolved_target.result;
+    return @intCast(@divExact(target.ptrBitWidth(), 8));
 }
 
 fn phdrTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
@@ -5358,9 +5229,11 @@ const CsuObjects = struct {
     crtend: ?[]const u8 = null,
     crtn: ?[]const u8 = null,
 
-    fn init(arena: mem.Allocator, link_options: link.Options, comp: *const Compilation) !CsuObjects {
+    const InitArgs = struct {};
+
+    fn init(arena: Allocator, comp: *const Compilation) !CsuObjects {
         // crt objects are only required for libc.
-        if (!link_options.link_libc) return CsuObjects{};
+        if (!comp.config.link_libc) return .{};
 
         var result: CsuObjects = .{};
 
@@ -5371,19 +5244,21 @@ const CsuObjects = struct {
             dynamic_pie,
             static_exe,
             static_pie,
-        } = switch (link_options.output_mode) {
+        } = switch (comp.config.output_mode) {
             .Obj => return CsuObjects{},
-            .Lib => switch (link_options.link_mode) {
-                .Dynamic => .dynamic_lib,
-                .Static => return CsuObjects{},
+            .Lib => switch (comp.config.link_mode) {
+                .dynamic => .dynamic_lib,
+                .static => return CsuObjects{},
             },
-            .Exe => switch (link_options.link_mode) {
-                .Dynamic => if (link_options.pie) .dynamic_pie else .dynamic_exe,
-                .Static => if (link_options.pie) .static_pie else .static_exe,
+            .Exe => switch (comp.config.link_mode) {
+                .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+                .static => if (comp.config.pie) .static_pie else .static_exe,
             },
         };
 
-        if (link_options.target.isAndroid()) {
+        const target = comp.root_mod.resolved_target.result;
+
+        if (target.isAndroid()) {
             switch (mode) {
                 // zig fmt: off
                 .dynamic_lib => result.set( null, null, "crtbegin_so.o",      "crtend_so.o",      null ),
@@ -5394,7 +5269,7 @@ const CsuObjects = struct {
                 // zig fmt: on
             }
         } else {
-            switch (link_options.target.os.tag) {
+            switch (target.os.tag) {
                 .linux => {
                     switch (mode) {
                         // zig fmt: off
@@ -5405,7 +5280,7 @@ const CsuObjects = struct {
                         .static_pie  => result.set( "rcrt1.o", "crti.o", "crtbeginS.o", "crtendS.o", "crtn.o" ),
                         // zig fmt: on
                     }
-                    if (link_options.libc_installation) |_| {
+                    if (comp.libc_installation) |_| {
                         // hosted-glibc provides crtbegin/end objects in platform/compiler-specific dirs
                         // and they are not known at comptime. For now null-out crtbegin/end objects;
                         // there is no feature loss, zig has never linked those objects in before.
@@ -5413,7 +5288,7 @@ const CsuObjects = struct {
                         result.crtend = null;
                     } else {
                         // Bundled glibc only has Scrt1.o .
-                        if (result.crt0 != null and link_options.target.isGnuLibC()) result.crt0 = "Scrt1.o";
+                        if (result.crt0 != null and target.isGnuLibC()) result.crt0 = "Scrt1.o";
                     }
                 },
                 .dragonfly => switch (mode) {
@@ -5475,16 +5350,16 @@ const CsuObjects = struct {
         }
 
         // Convert each object to a full pathname.
-        if (link_options.libc_installation) |lci| {
+        if (comp.libc_installation) |lci| {
             const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCRTDir;
-            switch (link_options.target.os.tag) {
+            switch (target.os.tag) {
                 .dragonfly => {
                     if (result.crt0) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crti) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
                     if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
 
                     var gccv: []const u8 = undefined;
-                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
+                    if (target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
                         gccv = "gcc80";
                     } else {
                         gccv = "gcc54";
@@ -5541,41 +5416,18 @@ const CsuObjects = struct {
     }
 };
 
-pub fn calcImageBase(self: Elf) u64 {
-    if (self.isDynLib()) return 0;
-    if (self.isExe() and self.base.options.pie) return 0;
-    return self.base.options.image_base_override orelse switch (self.ptr_width) {
-        .p32 => 0x1000,
-        .p64 => 0x1000000,
+/// If a target compiles other output modes as dynamic libraries,
+/// this function returns true for those too.
+pub fn isEffectivelyDynLib(self: Elf) bool {
+    if (self.base.isDynLib()) return true;
+    return switch (self.getTarget().os.tag) {
+        .haiku => self.base.isExe(),
+        else => false,
     };
 }
 
-pub fn isStatic(self: Elf) bool {
-    return self.base.options.link_mode == .Static;
-}
-
-pub fn isObject(self: Elf) bool {
-    return self.base.options.output_mode == .Obj;
-}
-
-pub fn isExe(self: Elf) bool {
-    return self.base.options.output_mode == .Exe;
-}
-
-pub fn isStaticLib(self: Elf) bool {
-    return self.base.options.output_mode == .Lib and self.isStatic();
-}
-
-pub fn isRelocatable(self: Elf) bool {
-    return self.isObject() or self.isStaticLib();
-}
-
-pub fn isDynLib(self: Elf) bool {
-    return self.base.options.output_mode == .Lib and !self.isStatic();
-}
-
-pub fn isZigSection(self: Elf, shndx: u16) bool {
-    inline for (&[_]?u16{
+pub fn isZigSection(self: Elf, shndx: u32) bool {
+    inline for (&[_]?u32{
         self.zig_text_section_index,
         self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
@@ -5589,8 +5441,8 @@ pub fn isZigSection(self: Elf, shndx: u16) bool {
     return false;
 }
 
-pub fn isDebugSection(self: Elf, shndx: u16) bool {
-    inline for (&[_]?u16{
+pub fn isDebugSection(self: Elf, shndx: u32) bool {
+    inline for (&[_]?u32{
         self.debug_info_section_index,
         self.debug_abbrev_section_index,
         self.debug_str_section_index,
@@ -5613,8 +5465,9 @@ fn addPhdr(self: *Elf, opts: struct {
     filesz: u64 = 0,
     memsz: u64 = 0,
 }) error{OutOfMemory}!u16 {
+    const gpa = self.base.comp.gpa;
     const index = @as(u16, @intCast(self.phdrs.items.len));
-    try self.phdrs.append(self.base.allocator, .{
+    try self.phdrs.append(gpa, .{
         .p_type = opts.type,
         .p_flags = opts.flags,
         .p_offset = opts.offset,
@@ -5627,7 +5480,7 @@ fn addPhdr(self: *Elf, opts: struct {
     return index;
 }
 
-fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u16) !u16 {
+pub fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u32) !u32 {
     const entsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Rela),
         .p64 => @sizeOf(elf.Elf64_Rela),
@@ -5658,9 +5511,9 @@ pub const AddSectionOpts = struct {
     offset: u64 = 0,
 };
 
-pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
-    const gpa = self.base.allocator;
-    const index = @as(u16, @intCast(self.shdrs.items.len));
+pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
+    const gpa = self.base.comp.gpa;
+    const index = @as(u32, @intCast(self.shdrs.items.len));
     const shdr = try self.shdrs.addOne(gpa);
     shdr.* = .{
         .sh_name = try self.insertShString(opts.name),
@@ -5677,10 +5530,10 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
     return index;
 }
 
-pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
+pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u32 {
     for (self.shdrs.items, 0..) |*shdr, i| {
         const this_name = self.getShString(shdr.sh_name);
-        if (mem.eql(u8, this_name, name)) return @as(u16, @intCast(i));
+        if (mem.eql(u8, this_name, name)) return @intCast(i);
     } else return null;
 }
 
@@ -5706,24 +5559,26 @@ pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
 
 fn sortRelaDyn(self: *Elf) void {
     const Sort = struct {
-        fn rank(rel: elf.Elf64_Rela) u2 {
-            return switch (rel.r_type()) {
-                elf.R_X86_64_RELATIVE => 0,
-                elf.R_X86_64_IRELATIVE => 2,
+        fn rank(rel: elf.Elf64_Rela, ctx: *Elf) u2 {
+            const cpu_arch = ctx.getTarget().cpu.arch;
+            const r_type = rel.r_type();
+            const r_kind = relocation.decode(r_type, cpu_arch).?;
+            return switch (r_kind) {
+                .rel => 0,
+                .irel => 2,
                 else => 1,
             };
         }
 
-        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-            _ = ctx;
-            if (rank(lhs) == rank(rhs)) {
+        pub fn lessThan(ctx: *Elf, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            if (rank(lhs, ctx) == rank(rhs, ctx)) {
                 if (lhs.r_sym() == rhs.r_sym()) return lhs.r_offset < rhs.r_offset;
                 return lhs.r_sym() < rhs.r_sym();
             }
-            return rank(lhs) < rank(rhs);
+            return rank(lhs, ctx) < rank(rhs, ctx);
         }
     };
-    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, {}, Sort.lessThan);
+    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, self, Sort.lessThan);
 }
 
 fn calcNumIRelativeRelocs(self: *Elf) usize {
@@ -5763,10 +5618,67 @@ pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
 }
 
 pub fn addAtom(self: *Elf) !Atom.Index {
+    const gpa = self.base.comp.gpa;
     const index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom_ptr = try self.atoms.addOne(self.base.allocator);
+    const atom_ptr = try self.atoms.addOne(gpa);
     atom_ptr.* = .{ .atom_index = index };
     return index;
+}
+
+pub fn addAtomExtra(self: *Elf, extra: Atom.Extra) !u32 {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    try self.atoms_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
+    return self.addAtomExtraAssumeCapacity(extra);
+}
+
+pub fn addAtomExtraAssumeCapacity(self: *Elf, extra: Atom.Extra) u32 {
+    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn atomExtra(self: *Elf, index: u32) ?Atom.Extra {
+    if (index == 0) return null;
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Atom.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.atoms_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setAtomExtra(self: *Elf, index: u32, extra: Atom.Extra) void {
+    assert(index > 0);
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
+}
+
+pub fn addThunk(self: *Elf) !Thunk.Index {
+    const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
+    const th = try self.thunks.addOne(self.base.comp.gpa);
+    th.* = .{};
+    return index;
+}
+
+pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
+    assert(index < self.thunks.items.len);
+    return &self.thunks.items[index];
 }
 
 pub fn file(self: *Elf, index: File.Index) ?File {
@@ -5780,20 +5692,34 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     };
 }
 
+pub fn addFileHandle(self: *Elf, handle: fs.File) !File.HandleIndex {
+    const gpa = self.base.comp.gpa;
+    const index: File.HandleIndex = @intCast(self.file_handles.items.len);
+    const fh = try self.file_handles.addOne(gpa);
+    fh.* = handle;
+    return index;
+}
+
+pub fn fileHandle(self: Elf, index: File.HandleIndex) File.Handle {
+    assert(index < self.file_handles.items.len);
+    return self.file_handles.items[index];
+}
+
 /// Returns pointer-to-symbol described at sym_index.
 pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
     return &self.symbols.items[sym_index];
 }
 
 pub fn addSymbol(self: *Elf) !Symbol.Index {
-    try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+    const gpa = self.base.comp.gpa;
+    try self.symbols.ensureUnusedCapacity(gpa, 1);
     const index = blk: {
         if (self.symbols_free_list.popOrNull()) |index| {
             log.debug("  (reusing symbol index {d})", .{index});
             break :blk index;
         } else {
             log.debug("  (allocating symbol index {d})", .{self.symbols.items.len});
-            const index = @as(Symbol.Index, @intCast(self.symbols.items.len));
+            const index: Symbol.Index = @intCast(self.symbols.items.len);
             _ = self.symbols.addOneAssumeCapacity();
             break :blk index;
         }
@@ -5803,8 +5729,9 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *Elf, extra: Symbol.Extra) !u32 {
+    const gpa = self.base.comp.gpa;
     const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    try self.symbols_extra.ensureUnusedCapacity(self.base.allocator, fields.len);
+    try self.symbols_extra.ensureUnusedCapacity(gpa, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
@@ -5852,11 +5779,12 @@ const GetOrPutGlobalResult = struct {
 };
 
 pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const name_off = try self.strings.insert(gpa, name);
     const gop = try self.resolver.getOrPut(gpa, name_off);
     if (!gop.found_existing) {
         const index = try self.addSymbol();
+        log.debug("added symbol '{s}' at index {d}", .{ name, index });
         const global = self.symbol(index);
         global.name_offset = name_off;
         global.flags.global = true;
@@ -5888,11 +5816,11 @@ const GetOrCreateComdatGroupOwnerResult = struct {
 };
 
 pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateComdatGroupOwnerResult {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const off = try self.strings.insert(gpa, name);
     const gop = try self.comdat_groups_table.getOrPut(gpa, off);
     if (!gop.found_existing) {
-        const index = @as(ComdatGroupOwner.Index, @intCast(self.comdat_groups_owners.items.len));
+        const index: ComdatGroupOwner.Index = @intCast(self.comdat_groups_owners.items.len);
         const owner = try self.comdat_groups_owners.addOne(gpa);
         owner.* = .{};
         gop.value_ptr.* = index;
@@ -5904,8 +5832,9 @@ pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateC
 }
 
 pub fn addComdatGroup(self: *Elf) !ComdatGroup.Index {
+    const gpa = self.base.comp.gpa;
     const index = @as(ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
-    _ = try self.comdat_groups.addOne(self.base.allocator);
+    _ = try self.comdat_groups.addOne(gpa);
     return index;
 }
 
@@ -5919,24 +5848,92 @@ pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupO
     return &self.comdat_groups_owners.items[index];
 }
 
-pub fn tpAddress(self: *Elf) u64 {
-    const index = self.phdr_tls_index orelse return 0;
-    const phdr = self.phdrs.items[index];
-    return mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align);
+pub fn addInputMergeSection(self: *Elf) !InputMergeSection.Index {
+    const index: InputMergeSection.Index = @intCast(self.merge_input_sections.items.len);
+    const msec = try self.merge_input_sections.addOne(self.base.comp.gpa);
+    msec.* = .{};
+    return index;
 }
 
-pub fn dtpAddress(self: *Elf) u64 {
-    return self.tlsAddress();
+pub fn inputMergeSection(self: *Elf, index: InputMergeSection.Index) ?*InputMergeSection {
+    if (index == 0) return null;
+    return &self.merge_input_sections.items[index];
 }
 
-pub fn tlsAddress(self: *Elf) u64 {
+pub fn addMergeSubsection(self: *Elf) !MergeSubsection.Index {
+    const index: MergeSubsection.Index = @intCast(self.merge_subsections.items.len);
+    const msec = try self.merge_subsections.addOne(self.base.comp.gpa);
+    msec.* = .{};
+    return index;
+}
+
+pub fn mergeSubsection(self: *Elf, index: MergeSubsection.Index) *MergeSubsection {
+    assert(index < self.merge_subsections.items.len);
+    return &self.merge_subsections.items[index];
+}
+
+pub fn getOrCreateMergeSection(self: *Elf, name: []const u8, flags: u64, @"type": u32) !MergeSection.Index {
+    const gpa = self.base.comp.gpa;
+    const out_name = name: {
+        if (self.base.isRelocatable()) break :name name;
+        if (mem.eql(u8, name, ".rodata") or mem.startsWith(u8, name, ".rodata"))
+            break :name if (flags & elf.SHF_STRINGS != 0) ".rodata.str" else ".rodata.cst";
+        break :name name;
+    };
+    const out_off = try self.strings.insert(gpa, out_name);
+    const out_flags = flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP);
+    for (self.merge_sections.items, 0..) |msec, index| {
+        if (msec.name_offset == out_off) return @intCast(index);
+    }
+    const index = @as(MergeSection.Index, @intCast(self.merge_sections.items.len));
+    const msec = try self.merge_sections.addOne(gpa);
+    msec.* = .{
+        .name_offset = out_off,
+        .flags = out_flags,
+        .type = @"type",
+    };
+    return index;
+}
+
+pub fn mergeSection(self: *Elf, index: MergeSection.Index) *MergeSection {
+    assert(index < self.merge_sections.items.len);
+    return &self.merge_sections.items[index];
+}
+
+pub fn gotAddress(self: *Elf) i64 {
+    const shndx = blk: {
+        if (self.getTarget().cpu.arch == .x86_64 and self.got_plt_section_index != null)
+            break :blk self.got_plt_section_index.?;
+        break :blk if (self.got_section_index) |shndx| shndx else null;
+    };
+    return if (shndx) |index| @intCast(self.shdrs.items[index].sh_addr) else 0;
+}
+
+pub fn tpAddress(self: *Elf) i64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return phdr.p_vaddr;
+    const addr = switch (self.getTarget().cpu.arch) {
+        .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
+        .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
+        else => @panic("TODO implement getTpAddress for this arch"),
+    };
+    return @intCast(addr);
+}
+
+pub fn dtpAddress(self: *Elf) i64 {
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return @intCast(phdr.p_vaddr);
+}
+
+pub fn tlsAddress(self: *Elf) i64 {
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return @intCast(phdr.p_vaddr);
 }
 
 const ErrorWithNotes = struct {
-    /// Allocated index in misc_errors array.
+    /// Allocated index in comp.link_errors array.
     index: usize,
 
     /// Next available note slot.
@@ -5948,8 +5945,9 @@ const ErrorWithNotes = struct {
         comptime format: []const u8,
         args: anytype,
     ) error{OutOfMemory}!void {
-        const gpa = elf_file.base.allocator;
-        const err_msg = &elf_file.misc_errors.items[err.index];
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const err_msg = &comp.link_errors.items[err.index];
         err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
     }
 
@@ -5959,8 +5957,9 @@ const ErrorWithNotes = struct {
         comptime format: []const u8,
         args: anytype,
     ) error{OutOfMemory}!void {
-        const gpa = elf_file.base.allocator;
-        const err_msg = &elf_file.misc_errors.items[err.index];
+        const comp = elf_file.base.comp;
+        const gpa = comp.gpa;
+        const err_msg = &comp.link_errors.items[err.index];
         assert(err.note_slot < err_msg.notes.len);
         err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
         err.note_slot += 1;
@@ -5968,14 +5967,18 @@ const ErrorWithNotes = struct {
 };
 
 pub fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    try self.misc_errors.ensureUnusedCapacity(self.base.allocator, 1);
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    try comp.link_errors.ensureUnusedCapacity(gpa, 1);
     return self.addErrorWithNotesAssumeCapacity(note_count);
 }
 
 fn addErrorWithNotesAssumeCapacity(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const index = self.misc_errors.items.len;
-    const err = self.misc_errors.addOneAssumeCapacity();
-    err.* = .{ .msg = undefined, .notes = try self.base.allocator.alloc(link.File.ErrorMsg, note_count) };
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const index = comp.link_errors.items.len;
+    const err = comp.link_errors.addOneAssumeCapacity();
+    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
     return .{ .index = index };
 }
 
@@ -5985,9 +5988,10 @@ pub fn getShString(self: Elf, off: u32) [:0]const u8 {
 }
 
 pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
+    const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.shstrtab.items.len));
-    try self.shstrtab.ensureUnusedCapacity(self.base.allocator, name.len + 1);
-    self.shstrtab.writer(self.base.allocator).print("{s}\x00", .{name}) catch unreachable;
+    try self.shstrtab.ensureUnusedCapacity(gpa, name.len + 1);
+    self.shstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
@@ -5997,17 +6001,19 @@ pub fn getDynString(self: Elf, off: u32) [:0]const u8 {
 }
 
 pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
+    const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.dynstrtab.items.len));
-    try self.dynstrtab.ensureUnusedCapacity(self.base.allocator, name.len + 1);
-    self.dynstrtab.writer(self.base.allocator).print("{s}\x00", .{name}) catch unreachable;
+    try self.dynstrtab.ensureUnusedCapacity(gpa, name.len + 1);
+    self.dynstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
-fn reportUndefined(self: *Elf, undefs: anytype) !void {
-    const gpa = self.base.allocator;
+fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const max_notes = 4;
 
-    try self.misc_errors.ensureUnusedCapacity(gpa, undefs.count());
+    try comp.link_errors.ensureUnusedCapacity(gpa, undefs.count());
 
     var it = undefs.iterator();
     while (it.next()) |entry| {
@@ -6032,6 +6038,36 @@ fn reportUndefined(self: *Elf, undefs: anytype) !void {
     }
 }
 
+fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+    const max_notes = 3;
+    var has_dupes = false;
+    var it = dupes.iterator();
+    while (it.next()) |entry| {
+        const sym = self.symbol(entry.key_ptr.*);
+        const notes = entry.value_ptr.*;
+        const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
+
+        var err = try self.addErrorWithNotes(nnotes + 1);
+        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.name(self)});
+        try err.addNote(self, "defined by {}", .{sym.file(self).?.fmtPath()});
+
+        var inote: usize = 0;
+        while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
+            const file_ptr = self.file(notes.items[inote]).?;
+            try err.addNote(self, "defined by {}", .{file_ptr.fmtPath()});
+        }
+
+        if (notes.items.len > max_notes) {
+            const remaining = notes.items.len - max_notes;
+            try err.addNote(self, "defined {d} more times", .{remaining});
+        }
+
+        has_dupes = true;
+    }
+
+    if (has_dupes) return error.HasDuplicates;
+}
+
 fn reportMissingLibraryError(
     self: *Elf,
     checked_paths: []const []const u8,
@@ -6045,33 +6081,14 @@ fn reportMissingLibraryError(
     }
 }
 
-const ParseErrorCtx = struct {
-    detected_cpu_arch: std.Target.Cpu.Arch,
-};
-
-fn handleAndReportParseError(
-    self: *Elf,
-    path: []const u8,
-    err: ParseError,
-    ctx: *const ParseErrorCtx,
-) error{OutOfMemory}!void {
-    const cpu_arch = self.base.options.target.cpu.arch;
-    switch (err) {
-        error.UnknownFileType => try self.reportParseError(path, "unknown file type", .{}),
-        error.InvalidCpuArch => try self.reportParseError(
-            path,
-            "invalid cpu architecture: expected '{s}', but found '{s}'",
-            .{ @tagName(cpu_arch), @tagName(ctx.detected_cpu_arch) },
-        ),
-        else => |e| try self.reportParseError(
-            path,
-            "unexpected error: parsing object failed with error {s}",
-            .{@errorName(e)},
-        ),
-    }
+pub fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(0);
+    try err.addMsg(self, "fatal linker error: unsupported CPU architecture {s}", .{
+        @tagName(self.getTarget().cpu.arch),
+    });
 }
 
-fn reportParseError(
+pub fn reportParseError(
     self: *Elf,
     path: []const u8,
     comptime format: []const u8,
@@ -6080,6 +6097,17 @@ fn reportParseError(
     var err = try self.addErrorWithNotes(1);
     try err.addMsg(self, format, args);
     try err.addNote(self, "while parsing {s}", .{path});
+}
+
+pub fn reportParseError2(
+    self: *Elf,
+    file_index: File.Index,
+    comptime format: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(1);
+    try err.addMsg(self, format, args);
+    try err.addNote(self, "while parsing {}", .{self.file(file_index).?.fmtPath()});
 }
 
 const FormatShdrCtx = struct {
@@ -6212,7 +6240,7 @@ fn formatPhdr(
     });
 }
 
-fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
+pub fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
     return .{ .data = self };
 }
 
@@ -6262,6 +6290,14 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
+
+    if (self.requiresThunks()) {
+        try writer.writeAll("thunks\n");
+        for (self.thunks.items, 0..) |th, index| {
+            try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+        }
+    }
+
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
@@ -6269,6 +6305,11 @@ fn fmtDumpState(
     try writer.writeAll("Output COMDAT groups\n");
     for (self.comdat_group_sections.items) |cg| {
         try writer.print("  shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
+    }
+
+    try writer.writeAll("\nOutput merge sections\n");
+    for (self.merge_sections.items) |msec| {
+        try writer.print("  shdr({d}) : {}\n", .{ msec.output_section_index, msec.fmt(self) });
     }
 
     try writer.writeAll("\nOutput shdrs\n");
@@ -6283,6 +6324,15 @@ fn fmtDumpState(
     for (self.phdrs.items, 0..) |phdr, phndx| {
         try writer.print("  phdr{d} : {}\n", .{ phndx, self.fmtPhdr(phdr) });
     }
+}
+
+/// Caller owns the memory.
+pub fn preadAllAlloc(allocator: Allocator, handle: fs.File, offset: u64, size: u64) ![]u8 {
+    const buffer = try allocator.alloc(u8, math.cast(usize, size) orelse return error.Overflow);
+    errdefer allocator.free(buffer);
+    const amt = try handle.preadAll(buffer, offset);
+    if (amt != size) return error.InputOutput;
+    return buffer;
 }
 
 /// Binary search
@@ -6316,6 +6366,18 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
     return i;
 }
 
+pub fn getTarget(self: Elf) std.Target {
+    return self.base.comp.root_mod.resolved_target.result;
+}
+
+fn requiresThunks(self: Elf) bool {
+    return switch (self.getTarget().cpu.arch) {
+        .aarch64 => true,
+        .x86_64, .riscv64 => false,
+        else => @panic("TODO unimplemented architecture"),
+    };
+}
+
 /// The following three values are only observed at compile-time and used to emit a compile error
 /// to remind the programmer to update expected maximum numbers of different program header types
 /// so that we reserve enough space for the program header table up-front.
@@ -6331,12 +6393,22 @@ pub const base_tag: link.File.Tag = .elf;
 
 const ComdatGroupOwner = struct {
     file: File.Index = 0,
+
     const Index = u32;
 };
 
 pub const ComdatGroup = struct {
     owner: ComdatGroupOwner.Index,
-    shndx: u16,
+    file: File.Index,
+    shndx: u32,
+    members_start: u32,
+    members_len: u32,
+
+    pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
+        const object = elf_file.file(cg.file).?.object;
+        return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
+    }
+
     pub const Index = u32;
 };
 
@@ -6404,8 +6476,16 @@ const RelaSection = struct {
 };
 const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
-pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
-pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;
+// TODO: add comptime check we don't clobber any reloc for any ISA
+pub const R_ZIG_GOT32: u32 = 0xff00;
+pub const R_ZIG_GOTPCREL: u32 = 0xff01;
+
+fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
+    return switch (cpu_arch) {
+        .mips, .mipsel, .mips64, .mips64el => "__start",
+        else => "_start",
+    };
+}
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -6424,8 +6504,12 @@ const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
+const merge_section = @import("Elf/merge_section.zig");
 const musl = @import("../musl.zig");
+const relocatable = @import("Elf/relocatable.zig");
+const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
+const thunks = @import("Elf/thunks.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
@@ -6446,10 +6530,13 @@ const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
+const InputMergeSection = merge_section.InputMergeSection;
 const LdScript = @import("Elf/LdScript.zig");
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
+const MergeSection = merge_section.MergeSection;
+const MergeSubsection = merge_section.MergeSubsection;
 const Module = @import("../Module.zig");
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
@@ -6458,7 +6545,8 @@ const PltGotSection = synthetic_sections.PltGotSection;
 const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("StringTable.zig");
-const TypedValue = @import("../TypedValue.zig");
+const Thunk = thunks.Thunk;
+const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;
 const ZigObject = @import("Elf/ZigObject.zig");

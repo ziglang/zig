@@ -18,10 +18,11 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
+        .target = b.host,
         .optimize = optimize,
     });
-    exe.addCSourceFile(.{ .file = .{ .path = "test.c" }, .flags = &[_][]const u8{"-std=c11"} });
+    exe.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[_][]const u8{"-std=c11"} });
     exe.linkLibC();
 
     const run_cmd = b.addRunArtifact(exe);

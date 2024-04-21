@@ -5,24 +5,24 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target: std.zig.CrossTarget = .{};
+    const target = b.host;
 
     const obj1 = b.addStaticLibrary(.{
         .name = "obj1",
-        .root_source_file = .{ .path = "obj1.zig" },
+        .root_source_file = b.path("obj1.zig"),
         .optimize = optimize,
         .target = target,
     });
 
     const obj2 = b.addStaticLibrary(.{
         .name = "obj2",
-        .root_source_file = .{ .path = "obj2.zig" },
+        .root_source_file = b.path("obj2.zig"),
         .optimize = optimize,
         .target = target,
     });
 
     const main = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
     });
     main.linkLibrary(obj1);

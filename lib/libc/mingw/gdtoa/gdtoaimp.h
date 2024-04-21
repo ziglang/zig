@@ -200,6 +200,12 @@ extern void *MALLOC (size_t);
 #define MALLOC malloc
 #endif
 
+#ifdef REALLOC
+extern void *REALLOC (void*, size_t);
+#else
+#define REALLOC realloc
+#endif
+
 #undef IEEE_Arith
 #undef Avoid_Underflow
 #ifdef IEEE_MC68k
@@ -457,10 +463,13 @@ extern double rnd_prod(double, double), rnd_quot(double, double);
 #define ALL_ON 0xffff
 #endif
 
-#ifndef MULTIPLE_THREADS
+#ifdef MULTIPLE_THREADS /*{{*/
+extern void ACQUIRE_DTOA_LOCK (unsigned int);
+extern void FREE_DTOA_LOCK (unsigned int);
+#else /*}{*/
 #define ACQUIRE_DTOA_LOCK(n)	/*nothing*/
 #define FREE_DTOA_LOCK(n)	/*nothing*/
-#endif
+#endif /*}}*/
 
 #define Kmax 9
 
@@ -501,12 +510,15 @@ __hi0bits_D2A (ULong y)
 
 #define Balloc __Balloc_D2A
 #define Bfree __Bfree_D2A
+#define InfName __InfName_D2A
+#define NanName __NanName_D2A
 #define ULtoQ __ULtoQ_D2A
 #define ULtof __ULtof_D2A
 #define ULtod __ULtod_D2A
 #define ULtodd __ULtodd_D2A
 #define ULtox __ULtox_D2A
 #define ULtoxL __ULtoxL_D2A
+#define add_nanbits __add_nanbits_D2A
 #define any_on __any_on_D2A
 #define b2d __b2d_D2A
 #define bigtens __bigtens_D2A
@@ -548,9 +560,11 @@ __hi0bits_D2A (ULong y)
 
 #define hexdig_init_D2A __mingw_hexdig_init_D2A
 
+extern char *add_nanbits (char*, size_t, ULong*, int);
 extern char *dtoa_result;
 extern const double bigtens[], tens[], tinytens[];
 extern unsigned char hexdig[];
+extern const char *InfName[6], *NanName[3];
 
 extern Bigint *Balloc (int);
 extern void Bfree (Bigint*);
@@ -567,9 +581,9 @@ extern void copybits (ULong*, int, Bigint*);
 extern Bigint *d2b (double, int*, int*);
 extern void decrement (Bigint*);
 extern Bigint *diff (Bigint*, Bigint*);
-extern int gethex (const char**, FPI*, Long*, Bigint**, int);
+extern int gethex (const char**, const FPI*, Long*, Bigint**, int);
 extern void hexdig_init_D2A(void);
-extern int hexnan (const char**, FPI*, ULong*);
+extern int hexnan (const char**, const FPI*, ULong*);
 extern int hi0bits_D2A (ULong);
 extern Bigint *i2b (int);
 extern Bigint *increment (Bigint*);

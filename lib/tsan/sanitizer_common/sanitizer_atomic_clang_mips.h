@@ -18,7 +18,7 @@ namespace __sanitizer {
 
 // MIPS32 does not support atomics > 4 bytes. To address this lack of
 // functionality, the sanitizer library provides helper methods which use an
-// internal spin lock mechanism to emulate atomic oprations when the size is
+// internal spin lock mechanism to emulate atomic operations when the size is
 // 8 bytes.
 static void __spin_lock(volatile int *lock) {
   while (__sync_lock_test_and_set(lock, 1))

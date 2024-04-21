@@ -506,9 +506,9 @@ extern "C" {
   RPCRTAPI RPC_STATUS RPC_ENTRY RpcCancelThreadEx(void *Thread,__LONG32 Timeout);
   RPCRTAPI RPC_STATUS RPC_ENTRY UuidCreate(UUID *Uuid);
   RPCRTAPI RPC_STATUS RPC_ENTRY UuidCreateSequential(UUID *Uuid);
-  RPCRTAPI RPC_STATUS RPC_ENTRY UuidToStringA(UUID *Uuid,RPC_CSTR *StringUuid);
+  RPCRTAPI RPC_STATUS RPC_ENTRY UuidToStringA(const UUID *Uuid,RPC_CSTR *StringUuid);
   RPCRTAPI RPC_STATUS RPC_ENTRY UuidFromStringA(RPC_CSTR StringUuid,UUID *Uuid);
-  RPCRTAPI RPC_STATUS RPC_ENTRY UuidToStringW(UUID *Uuid,RPC_WSTR *StringUuid);
+  RPCRTAPI RPC_STATUS RPC_ENTRY UuidToStringW(const UUID *Uuid,RPC_WSTR *StringUuid);
   RPCRTAPI RPC_STATUS RPC_ENTRY UuidFromStringW(RPC_WSTR StringUuid,UUID *Uuid);
   RPCRTAPI signed int RPC_ENTRY UuidCompare(UUID *Uuid1,UUID *Uuid2,RPC_STATUS *Status);
   RPCRTAPI RPC_STATUS RPC_ENTRY UuidCreateNil(UUID *NilUuid);

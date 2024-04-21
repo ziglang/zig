@@ -48,7 +48,6 @@ D3DKMTSetContextSchedulingPriority
 D3DKMTSetDisplayMode
 D3DKMTSetGammaRamp
 D3DKMTSetVidPnSourceOwner
-D3DKMTWaitForSynchronizationObject
 D3DKMTWaitForVerticalBlankEvent
 DXGID3D10CreateDevice
 DXGID3D10CreateLayeredDevice

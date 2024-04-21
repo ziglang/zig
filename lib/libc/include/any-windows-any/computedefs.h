@@ -46,7 +46,9 @@ typedef enum HCS_EVENT_TYPE {
   HcsEventSystemGuestConnectionClosed = 0x00000006,
   HcsEventProcessExited = 0x00010000,
   HcsEventOperationCallback = 0x01000000,
-  HcsEventServiceDisconnect = 0x02000000
+  HcsEventServiceDisconnect = 0x02000000,
+  HcsEventGroupVmLifecycle = 0x80000002,
+  HcsEventGroupOperationInfo = 0xC0000001
 } HCS_EVENT_TYPE;
 
 typedef struct HCS_EVENT {
@@ -57,12 +59,26 @@ typedef struct HCS_EVENT {
 
 typedef enum HCS_EVENT_OPTIONS {
   HcsEventOptionNone = 0x00000000,
-  HcsEventOptionEnableOperationCallbacks = 0x00000001
+  HcsEventOptionEnableOperationCallbacks = 0x00000001,
+  HcsEventOptionEnableVmLifecycle = 0x00000002
 } HCS_EVENT_OPTIONS;
 
 DEFINE_ENUM_FLAG_OPERATORS(HCS_EVENT_OPTIONS);
 
+typedef enum HCS_OPERATION_OPTIONS {
+  HcsOperationOptionNone = 0x00000000,
+  HcsOperationOptionProgressUpdate = 0x00000001
+} HCS_OPERATION_OPTIONS;
+
+DEFINE_ENUM_FLAG_OPERATORS(HCS_OPERATION_OPTIONS);
+
 typedef void (CALLBACK *HCS_EVENT_CALLBACK)(HCS_EVENT *event, void *context);
+
+typedef enum HCS_RESOURCE_TYPE {
+  HcsResourceTypeNone = 0,
+  HcsResourceTypeFile = 1,
+  HcsResourceTypeJob = 2
+} HCS_RESOURCE_TYPE;
 
 typedef enum HCS_NOTIFICATION_FLAGS {
   HcsNotificationFlagSuccess = 0x00000000,
@@ -88,6 +104,7 @@ typedef enum HCS_NOTIFICATIONS {
   HcsNotificationSystemGuestConnectionClosed = 0x0000000E,
   HcsNotificationSystemOperationCompletion = 0x0000000F,
   HcsNotificationSystemPassThru = 0x00000010,
+  HcsNotificationOperationProgressUpdate = 0x00000100,
   HcsNotificationProcessExited = 0x00010000,
   HcsNotificationServiceDisconnect = 0x01000000,
   HcsNotificationFlagsReserved = 0xF0000000

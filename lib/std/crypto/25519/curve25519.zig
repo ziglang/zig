@@ -137,7 +137,7 @@ test "non-affine edwards25519 to curve25519 projection" {
     try std.testing.expectEqualSlices(u8, &xp.toBytes(), &expected);
 }
 
-test "curve25519 small order check" {
+test "small order check" {
     var s: [32]u8 = [_]u8{1} ++ [_]u8{0} ** 31;
     const small_order_ss: [7][32]u8 = .{
         .{

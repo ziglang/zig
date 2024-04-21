@@ -1,0 +1,9 @@
+LIBRARY WINSTRM.DLL
+EXPORTS
+OpenStream@4
+getmsg@16
+poll@12
+putmsg@16
+s_ioctl@12
+s_open@12
+s_perror@8

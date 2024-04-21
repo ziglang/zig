@@ -115,11 +115,19 @@ static void ioctl_table_fill() {
   // _(SOUND_MIXER_WRITE_MUTE, WRITE, sizeof(int)); // same as ...WRITE_ENHANCE
   _(BLKFLSBUF, NONE, 0);
   _(BLKGETSIZE, WRITE, sizeof(uptr));
-  _(BLKRAGET, WRITE, sizeof(int));
+  _(BLKRAGET, WRITE, sizeof(uptr));
   _(BLKRASET, NONE, 0);
   _(BLKROGET, WRITE, sizeof(int));
   _(BLKROSET, READ, sizeof(int));
   _(BLKRRPART, NONE, 0);
+  _(BLKFRASET, NONE, 0);
+  _(BLKFRAGET, WRITE, sizeof(uptr));
+  _(BLKSECTSET, READ, sizeof(short));
+  _(BLKSECTGET, WRITE, sizeof(short));
+  _(BLKSSZGET, WRITE, sizeof(int));
+  _(BLKBSZGET, WRITE, sizeof(int));
+  _(BLKBSZSET, READ, sizeof(uptr));
+  _(BLKGETSIZE64, WRITE, sizeof(u64));
   _(CDROMEJECT, NONE, 0);
   _(CDROMEJECT_SW, NONE, 0);
   _(CDROMMULTISESSION, WRITE, struct_cdrom_multisession_sz);

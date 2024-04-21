@@ -6,6 +6,7 @@ const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
+const Module = @import("Package/Module.zig");
 
 pub const AbiVersion = enum(u2) {
     @"1" = 1,
@@ -114,8 +115,8 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
     const root_name = "c++";
     const output_mode = .Lib;
-    const link_mode = .Static;
-    const target = comp.getTarget();
+    const link_mode = .static;
+    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -137,6 +138,52 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         @intFromEnum(comp.libcxx_abi_version),
     });
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+        .lto = comp.config.lto,
+        .any_sanitize_thread = comp.config.any_sanitize_thread,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = comp.config.any_sanitize_thread,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .pic = comp.root_mod.pic,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
+    });
+
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
@@ -154,7 +201,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             if (std.mem.startsWith(u8, cxx_src, "src/support/win32/thread_win32.cpp")) {
                 continue;
             }
@@ -185,6 +232,13 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         if (target.abi.isMusl()) {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
+        }
+
+        if (target.isGnuLibC()) {
+            // glibc 2.16 introduced aligned_alloc
+            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            }
         }
 
         if (target.os.tag == .wasi) {
@@ -223,49 +277,32 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", cxx_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
+            .owner = root_mod,
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .cache_mode = .whole,
-        .target = target,
-        .root_name = root_name,
-        .main_mod = null,
-        .output_mode = output_mode,
-        .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .link_mode = link_mode,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = comp.bin_file.options.tsan,
-        .want_pic = comp.bin_file.options.pic,
-        .want_pie = null,
-        .want_lto = comp.bin_file.options.lto,
-        .function_sections = comp.bin_file.options.function_sections,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
+        .cache_mode = .whole,
+        .config = config,
+        .root_mod = root_mod,
+        .root_name = root_name,
+        .thread_pool = comp.thread_pool,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = emit_bin,
+        .emit_h = null,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .link_libc = true,
         .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
@@ -273,12 +310,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -295,8 +327,8 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
     const root_name = "c++abi";
     const output_mode = .Lib;
-    const link_mode = .Static;
-    const target = comp.getTarget();
+    const link_mode = .static;
+    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -318,6 +350,55 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
         @intFromEnum(comp.libcxx_abi_version),
     });
+
+    const optimize_mode = comp.compilerRtOptMode();
+    const strip = comp.compilerRtStrip();
+    const unwind_tables = true;
+
+    const config = try Compilation.Config.resolve(.{
+        .output_mode = output_mode,
+        .link_mode = link_mode,
+        .resolved_target = comp.root_mod.resolved_target,
+        .is_test = false,
+        .have_zcu = false,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .root_strip = strip,
+        .link_libc = true,
+        .any_unwind_tables = unwind_tables,
+        .lto = comp.config.lto,
+        .any_sanitize_thread = comp.config.any_sanitize_thread,
+    });
+
+    const root_mod = try Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root_src_path = "",
+        },
+        .fully_qualified_name = "root",
+        .inherited = .{
+            .resolved_target = comp.root_mod.resolved_target,
+            .strip = strip,
+            .stack_check = false,
+            .stack_protector = 0,
+            .sanitize_c = false,
+            .sanitize_thread = comp.config.any_sanitize_thread,
+            .red_zone = comp.root_mod.red_zone,
+            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .valgrind = false,
+            .optimize_mode = optimize_mode,
+            .structured_cfg = comp.root_mod.structured_cfg,
+            .unwind_tables = unwind_tables,
+            .pic = comp.root_mod.pic,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
+    });
+
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
@@ -332,14 +413,15 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         }
 
         // WASM targets are single threaded.
-        if (comp.bin_file.options.single_threaded) {
+        if (!comp.config.any_non_single_threaded) {
             if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp")) {
                 continue;
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
+            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+                try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
         try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
@@ -360,12 +442,18 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
         }
 
+        if (target.isGnuLibC()) {
+            // glibc 2.16 introduced aligned_alloc
+            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+            }
+        }
+
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
         try cflags.append("-nostdinc++");
         try cflags.append("-fstrict-aliasing");
-        try cflags.append("-funwind-tables");
         try cflags.append("-std=c++20");
 
         // These depend on only the zig lib directory file path, which is
@@ -386,49 +474,32 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", cxxabi_src }),
             .extra_flags = cflags.items,
             .cache_exempt_flags = cache_exempt_flags.items,
+            .owner = root_mod,
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, .{
+    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
-        .cache_mode = .whole,
-        .target = target,
-        .root_name = root_name,
-        .main_mod = null,
-        .output_mode = output_mode,
-        .thread_pool = comp.thread_pool,
-        .libc_installation = comp.bin_file.options.libc_installation,
-        .emit_bin = emit_bin,
-        .optimize_mode = comp.compilerRtOptMode(),
-        .link_mode = link_mode,
-        .want_sanitize_c = false,
-        .want_stack_check = false,
-        .want_stack_protector = 0,
-        .want_red_zone = comp.bin_file.options.red_zone,
-        .omit_frame_pointer = comp.bin_file.options.omit_frame_pointer,
-        .want_valgrind = false,
-        .want_tsan = comp.bin_file.options.tsan,
-        .want_pic = comp.bin_file.options.pic,
-        .want_pie = null,
-        .want_lto = comp.bin_file.options.lto,
-        .function_sections = comp.bin_file.options.function_sections,
-        .emit_h = null,
-        .strip = comp.compilerRtStrip(),
-        .is_native_os = comp.bin_file.options.is_native_os,
-        .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
+        .cache_mode = .whole,
+        .config = config,
+        .root_mod = root_mod,
+        .root_name = root_name,
+        .thread_pool = comp.thread_pool,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = emit_bin,
+        .emit_h = null,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
-        .verbose_link = comp.bin_file.options.verbose_link,
+        .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .link_libc = true,
         .skip_linker_dependencies = true,
     });
     defer sub_compilation.destroy();
@@ -436,10 +507,5 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = Compilation.CRTFile{
-        .full_object_path = try sub_compilation.bin_file.options.emit.?.directory.join(comp.gpa, &[_][]const u8{
-            sub_compilation.bin_file.options.emit.?.sub_path,
-        }),
-        .lock = sub_compilation.bin_file.toOwnedLock(),
-    };
+    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
 }

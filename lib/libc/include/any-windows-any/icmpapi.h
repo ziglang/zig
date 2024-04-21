@@ -17,9 +17,11 @@ extern "C" {
 
 #ifdef PIO_APC_ROUTINE_DEFINED
   DWORD WINAPI IcmpSendEcho2(HANDLE IcmpHandle,HANDLE Event,PIO_APC_ROUTINE ApcRoutine,PVOID ApcContext,IPAddr DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
+  DWORD WINAPI IcmpSendEcho2Ex(HANDLE IcmpHandle,HANDLE Event,PIO_APC_ROUTINE ApcRoutine,PVOID ApcContext,IPAddr SourceAddress,IPAddr DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
   DWORD WINAPI Icmp6SendEcho2(HANDLE IcmpHandle,HANDLE Event,PIO_APC_ROUTINE ApcRoutine,PVOID ApcContext,struct sockaddr_in6 *SourceAddress,struct sockaddr_in6 *DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
 #else
   DWORD WINAPI IcmpSendEcho2(HANDLE IcmpHandle,HANDLE Event,FARPROC ApcRoutine,PVOID ApcContext,IPAddr DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
+  DWORD WINAPI IcmpSendEcho2Ex(HANDLE IcmpHandle,HANDLE Event,FARPROC ApcRoutine,PVOID ApcContext,IPAddr SourceAddress,IPAddr DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
   DWORD WINAPI Icmp6SendEcho2(HANDLE IcmpHandle,HANDLE Event,FARPROC ApcRoutine,PVOID ApcContext,struct sockaddr_in6 *SourceAddress,struct sockaddr_in6 *DestinationAddress,LPVOID RequestData,WORD RequestSize,PIP_OPTION_INFORMATION RequestOptions,LPVOID ReplyBuffer,DWORD ReplySize,DWORD Timeout);
 #endif
 

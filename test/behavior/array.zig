@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -149,9 +150,9 @@ test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     const ptr = &arr;
     try expect(arr.len == 4);
-    try comptime expect(arr.len == 4);
+    comptime assert(arr.len == 4);
     try expect(ptr.len == 4);
-    try comptime expect(ptr.len == 4);
+    comptime assert(ptr.len == 4);
     try expect(@TypeOf(arr.len) == usize);
 }
 
@@ -708,7 +709,7 @@ test "pointer to array has ptr field" {
     try std.testing.expect(arr.ptr[1] == 20);
     try std.testing.expect(arr.ptr[2] == 30);
     try std.testing.expect(arr.ptr[3] == 40);
-    try std.testing.expect(arr.ptr[4] == 50);
+    try std.testing.expect((&arr.ptr).*[4] == 50);
 }
 
 test "discarded array init preserves result location" {
@@ -767,8 +768,6 @@ test "array init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known array init" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var side_effects: u4 = 0;
     const init = [4]u4{
         blk: {
@@ -805,6 +804,52 @@ test "slice initialized through reference to anonymous array init provides resul
     try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
 }
 
+test "sentinel-terminated slice initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [:999]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSentinel(u16, 999, &.{ 123, 456, 123, 456 }, foo);
+}
+
+test "many-item pointer initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [*]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try expectEqual(123, foo[0]);
+    try expectEqual(456, foo[1]);
+    try expectEqual(123, foo[2]);
+    try expectEqual(456, foo[3]);
+}
+
+test "many-item sentinel-terminated pointer initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [*:999]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try expectEqual(123, foo[0]);
+    try expectEqual(456, foo[1]);
+    try expectEqual(123, foo[2]);
+    try expectEqual(456, foo[3]);
+    try expectEqual(999, foo[4]);
+}
+
 test "pointer to array initialized through reference to anonymous array init provides result types" {
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
@@ -818,6 +863,19 @@ test "pointer to array initialized through reference to anonymous array init pro
     try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
 }
 
+test "pointer to sentinel-terminated array initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: *const [4:999]u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSentinel(u16, 999, &.{ 123, 456, 123, 456 }, foo);
+}
+
 test "tuple initialized through reference to anonymous array init provides result types" {
     const Tuple = struct { u64, *const u32 };
     const foo: *const Tuple = &.{
@@ -826,4 +884,135 @@ test "tuple initialized through reference to anonymous array init provides resul
     };
     try expect(foo[0] == 12345);
     try expect(@intFromPtr(foo[1]) == 0x1000);
+}
+
+test "copied array element doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var x: [10][10]u32 = undefined;
+
+    x[0][1] = 0;
+    const a = x[0];
+    x[0][1] = 15;
+
+    try expect(a[1] == 0);
+}
+
+test "array initialized with string literal" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+        c: [5]u8,
+    };
+    const U = union {
+        s: S,
+    };
+    const s_1 = S{
+        .a = undefined,
+        .c = "12345".*, // this caused problems
+    };
+
+    var u_2 = U{ .s = s_1 };
+    _ = &u_2;
+    try std.testing.expectEqualStrings("12345", &u_2.s.c);
+}
+
+test "array initialized with array with sentinel" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: u32,
+        c: [5]u8,
+    };
+    const U = union {
+        s: S,
+    };
+    const c = [5:0]u8{ 1, 2, 3, 4, 5 };
+    const s_1 = S{
+        .a = undefined,
+        .c = c, // this caused problems
+    };
+    var u_2 = U{ .s = s_1 };
+    _ = &u_2;
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5 }, &u_2.s.c);
+}
+
+test "store array of array of structs at comptime" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn storeArrayOfArrayOfStructs() u8 {
+            const S = struct {
+                x: u8,
+            };
+
+            var cases = [_][1]S{
+                [_]S{
+                    S{ .x = 15 },
+                },
+            };
+            _ = &cases;
+            return cases[0][0].x;
+        }
+    };
+
+    try expect(S.storeArrayOfArrayOfStructs() == 15);
+    comptime assert(S.storeArrayOfArrayOfStructs() == 15);
+}
+
+test "accessing multidimensional global array at comptime" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const array = [_][]const []const u8{
+            &.{"hello"},
+            &.{ "world", "hello" },
+        };
+    };
+
+    try std.testing.expect(S.array[0].len == 1);
+    try std.testing.expectEqualStrings("hello", S.array[0][0]);
+}
+
+test "union that needs padding bytes inside an array" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const B = union(enum) {
+        D: u8,
+        E: u16,
+    };
+    const A = union(enum) {
+        B: B,
+        C: u8,
+    };
+    var as = [_]A{
+        A{ .B = B{ .D = 1 } },
+        A{ .B = B{ .D = 1 } },
+    };
+    _ = &as;
+
+    const a = as[0].B;
+    try std.testing.expect(a.D == 1);
+}
+
+test "runtime index of array of zero-bit values" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var runtime: struct { array: [1]void, index: usize } = undefined;
+    runtime = .{ .array = .{{}}, .index = 0 };
+    const result = struct { index: usize, value: void }{
+        .index = runtime.index,
+        .value = runtime.array[runtime.index],
+    };
+    try std.testing.expect(result.index == 0);
+    try std.testing.expect(result.value == {});
 }

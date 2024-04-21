@@ -80,9 +80,9 @@ typedef struct _IFP
     const char *str;
   };
   int bch[1024];
-  int is_string : 1;
+  unsigned int is_string : 1;
   int back_top;
-  int seen_eof : 1;
+  unsigned int seen_eof : 1;
 } _IFP;
 
 static void *

@@ -16,7 +16,7 @@
 #if SANITIZER_LINUX &&                                                   \
     (defined(__x86_64__) || defined(__mips__) || defined(__aarch64__) || \
      defined(__powerpc64__) || defined(__s390__) || defined(__i386__) || \
-     defined(__arm__) || SANITIZER_RISCV64)
+     defined(__arm__) || SANITIZER_RISCV64 || SANITIZER_LOONGARCH64)
 
 #include "sanitizer_stoptheworld.h"
 
@@ -31,7 +31,8 @@
 #include <sys/types.h> // for pid_t
 #include <sys/uio.h> // for iovec
 #include <elf.h> // for NT_PRSTATUS
-#if (defined(__aarch64__) || SANITIZER_RISCV64) && !SANITIZER_ANDROID
+#if (defined(__aarch64__) || SANITIZER_RISCV64 || SANITIZER_LOONGARCH64) && \
+     !SANITIZER_ANDROID
 // GLIBC 2.20+ sys/user does not include asm/ptrace.h
 # include <asm/ptrace.h>
 #endif
@@ -108,7 +109,7 @@ struct TracerThreadArgument {
   void *callback_argument;
   // The tracer thread waits on this mutex while the parent finishes its
   // preparations.
-  BlockingMutex mutex;
+  Mutex mutex;
   // Tracer thread signals its completion by setting done.
   atomic_uintptr_t done;
   uptr parent_pid;
@@ -514,6 +515,12 @@ typedef struct user_pt_regs regs_struct;
 static constexpr uptr kExtraRegs[] = {0};
 #define ARCH_IOVEC_FOR_GETREGSET
 
+#elif defined(__loongarch__)
+typedef struct user_pt_regs regs_struct;
+#define REG_SP regs[3]
+static constexpr uptr kExtraRegs[] = {0};
+#define ARCH_IOVEC_FOR_GETREGSET
+
 #elif SANITIZER_RISCV64
 typedef struct user_regs_struct regs_struct;
 // sys/ucontext.h already defines REG_SP as 2. Undefine it first.
@@ -621,3 +628,4 @@ PtraceRegistersStatus SuspendedThreadsListLinux::GetRegistersAndSP(
 #endif  // SANITIZER_LINUX && (defined(__x86_64__) || defined(__mips__)
         // || defined(__aarch64__) || defined(__powerpc64__)
         // || defined(__s390__) || defined(__i386__) || defined(__arm__)
+        // || SANITIZER_LOONGARCH64

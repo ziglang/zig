@@ -738,8 +738,6 @@ RemoveFontResourceExA@12
 RemoveFontResourceExW@12
 RemoveFontResourceTracking@8
 RemoveFontResourceW@4
-RemoveFontResourceExA@12
-RemoveFontResourceExW@12
 ResetDCA@8
 ResetDCW@8
 ResizePalette@8

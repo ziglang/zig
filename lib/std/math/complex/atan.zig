@@ -11,8 +11,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-tangent of z.
-pub fn atan(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => atan32(z),
         f64 => atan64(z),
@@ -54,7 +54,7 @@ fn atan32(z: Complex(f32)) Complex(f32) {
         return Complex(f32).init(maxnum, maxnum);
     }
 
-    var t = 0.5 * math.atan2(f32, 2.0 * x, a);
+    var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif32(t);
 
     t = y - 1.0;
@@ -103,7 +103,7 @@ fn atan64(z: Complex(f64)) Complex(f64) {
         return Complex(f64).init(maxnum, maxnum);
     }
 
-    var t = 0.5 * math.atan2(f64, 2.0 * x, a);
+    var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif64(t);
 
     t = y - 1.0;
@@ -120,7 +120,7 @@ fn atan64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.catan32" {
+test atan32 {
     const a = Complex(f32).init(5, 3);
     const c = atan(a);
 
@@ -128,7 +128,7 @@ test "complex.catan32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
 }
 
-test "complex.catan64" {
+test atan64 {
     const a = Complex(f64).init(5, 3);
     const c = atan(a);
 

@@ -1,5 +1,5 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.2087+e9a18010b"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\..\$ZIG_LLVM_CLANG_LLD_NAME"
@@ -24,7 +24,6 @@ function CheckLastExitCode {
 
 # Make the `zig version` number consistent.
 # This will affect the `zig build` command below which uses `git describe`.
-git config core.abbrev 9
 git fetch --tags
 
 if ((git rev-parse --is-shallow-repository) -eq "true") {

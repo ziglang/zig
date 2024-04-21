@@ -1,3 +1,4 @@
+path: []const u8,
 cpu_arch: ?std.Target.Cpu.Arch = null,
 args: std.ArrayListUnmanaged(Elf.SystemLib) = .{},
 
@@ -6,14 +7,15 @@ pub fn deinit(scr: *LdScript, allocator: Allocator) void {
 }
 
 pub const Error = error{
-    InvalidScript,
+    InvalidLdScript,
     UnexpectedToken,
     UnknownCpuArch,
     OutOfMemory,
 };
 
 pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var tokenizer = Tokenizer{ .source = data };
     var tokens = std.ArrayList(Token).init(gpa);
     defer tokens.deinit();
@@ -30,13 +32,12 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         try line_col.append(.{ .line = line, .column = column });
         switch (tok.id) {
             .invalid => {
-                // TODO errors
-                // elf_file.base.fatal("invalid token in ld script: '{s}' ({d}:{d})", .{
-                //     tok.get(data),
-                //     line,
-                //     column,
-                // });
-                return error.InvalidScript;
+                try elf_file.reportParseError(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
+                    std.fmt.fmtSliceEscapeLower(tok.get(data)),
+                    line,
+                    column,
+                });
+                return error.InvalidLdScript;
             },
             .new_line => {
                 line += 1;
@@ -55,17 +56,16 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         .args = &args,
     }) catch |err| switch (err) {
         error.UnexpectedToken => {
-            // const last_token_id = parser.it.pos - 1;
-            // const last_token = parser.it.get(last_token_id);
-            // const lcol = line_col.items[last_token_id];
-            // TODO errors
-            // elf_file.base.fatal("unexpected token in ld script: {s} : '{s}' ({d}:{d})", .{
-            //     @tagName(last_token.id),
-            //     last_token.get(data),
-            //     lcol.line,
-            //     lcol.column,
-            // });
-            return error.InvalidScript;
+            const last_token_id = parser.it.pos - 1;
+            const last_token = parser.it.get(last_token_id);
+            const lcol = line_col.items[last_token_id];
+            try elf_file.reportParseError(scr.path, "unexpected token in LD script: {s}: '{s}' ({d}:{d})", .{
+                @tagName(last_token.id),
+                last_token.get(data),
+                lcol.line,
+                lcol.column,
+            });
+            return error.InvalidLdScript;
         },
         else => |e| return e,
     };
@@ -109,11 +109,14 @@ const Command = enum {
 
     fn fromString(s: []const u8) ?Command {
         inline for (@typeInfo(Command).Enum.fields) |field| {
-            comptime var buf: [field.name.len]u8 = undefined;
-            inline for (field.name, 0..) |c, i| {
-                buf[i] = comptime std.ascii.toUpper(c);
-            }
-            if (std.mem.eql(u8, &buf, s)) return @field(Command, field.name);
+            const upper_name = n: {
+                comptime var buf: [field.name.len]u8 = undefined;
+                inline for (field.name, 0..) |c, i| {
+                    buf[i] = comptime std.ascii.toUpper(c);
+                }
+                break :n buf;
+            };
+            if (std.mem.eql(u8, &upper_name, s)) return @field(Command, field.name);
         }
         return null;
     }
@@ -139,6 +142,7 @@ const Parser = struct {
             } else return error.UnexpectedToken;
         };
         if (std.mem.eql(u8, value, "elf64-x86-64")) return .x86_64;
+        if (std.mem.eql(u8, value, "elf64-littleaarch64")) return .aarch64;
         return error.UnknownCpuArch;
     }
 

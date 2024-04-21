@@ -9,7 +9,7 @@
 // This file is shared between AddressSanitizer and ThreadSanitizer
 // run-time libraries.
 //
-// Implemention of fast stack unwinding for Sparc.
+// Implementation of fast stack unwinding for Sparc.
 //===----------------------------------------------------------------------===//
 
 #if defined(__sparc__)
@@ -30,13 +30,7 @@ void BufferedStackTrace::UnwindFast(uptr pc, uptr bp, uptr stack_top,
   // TODO(yln): add arg sanity check for stack_top/stack_bottom
   CHECK_GE(max_depth, 2);
   const uptr kPageSize = GetPageSizeCached();
-#if defined(__GNUC__)
-  // __builtin_return_address returns the address of the call instruction
-  // on the SPARC and not the return address, so we need to compensate.
-  trace_buffer[0] = GetNextInstructionPc(pc);
-#else
   trace_buffer[0] = pc;
-#endif
   size = 1;
   if (stack_top < 4096) return;  // Sanity check for stack top.
   // Flush register windows to memory

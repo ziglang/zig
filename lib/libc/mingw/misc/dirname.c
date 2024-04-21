@@ -1,183 +1,277 @@
-/* dirname.c
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <stdlib.h>
+#include <libgen.h>
+#include <windows.h>
+
+/* A 'directory separator' is a byte that equals 0x2F ('solidus' or more
+ * commonly 'forward slash') or 0x5C ('reverse solidus' or more commonly
+ * 'backward slash'). The byte 0x5C may look different from a backward slash
+ * in some locales; for example, it looks the same as a Yen sign in Japanese
+ * locales and a Won sign in Korean locales. Despite its appearance, it still
+ * functions as a directory separator.
  *
- * $Id: dirname.c,v 1.2 2007/03/08 23:15:58 keithmarshall Exp $
+ * A 'path' comprises an optional DOS drive letter with a colon, and then an
+ * arbitrary number of possibily empty components, separated by non-empty
+ * sequences of directory separators (in other words, consecutive directory
+ * separators are treated as a single one). A path that comprises an empty
+ * component denotes the current working directory.
  *
- * Provides an implementation of the "dirname" function, conforming
- * to SUSv3, with extensions to accommodate Win32 drive designators,
- * and suitable for use on native Microsoft(R) Win32 platforms.
+ * An 'absolute path' comprises at least two components, the first of which
+ * is empty.
  *
- * Written by Keith Marshall <keithmarshall@users.sourceforge.net>
+ * A 'relative path' is a path that is not an absolute path. In other words,
+ * it either comprises an empty component, or begins with a non-empty
+ * component.
  *
- * This is free software.  You may redistribute and/or modify it as you
- * see fit, without restriction of copyright.
+ * POSIX doesn't have a concept about DOS drives. A path that does not have a
+ * drive letter starts from the same drive as the current working directory.
  *
- * This software is provided "as is", in the hope that it may be useful,
- * but WITHOUT WARRANTY OF ANY KIND, not even any implied warranty of
- * MERCHANTABILITY, nor of FITNESS FOR ANY PARTICULAR PURPOSE.  At no
- * time will the author accept any form of liability for any damages,
- * however caused, resulting from the use of this software.
+ * For example:
+ * (Examples without drive letters match POSIX.)
  *
+ *   Argument                 dirname() returns        basename() returns
+ *   --------                 -----------------        ------------------
+ *   `` or NULL               `.`                      `.`
+ *   `usr`                    `.`                      `usr`
+ *   `usr\`                   `.`                      `usr`
+ *   `\`                      `\`                      `\`
+ *   `\usr`                   `\`                      `usr`
+ *   `\usr\lib`               `\usr`                   `lib`
+ *   `\home\\dwc\\test`       `\home\\dwc`             `test`
+ *   `\\host\usr`             `\\host\.`               `usr`
+ *   `\\host\usr\lib`         `\\host\usr`             `lib`
+ *   `\\host\\usr`            `\\host\\`               `usr`
+ *   `\\host\\usr\lib`        `\\host\\usr`            `lib`
+ *   `C:`                     `C:.`                    `.`
+ *   `C:usr`                  `C:.`                    `usr`
+ *   `C:usr\`                 `C:.`                    `usr`
+ *   `C:\`                    `C:\`                    `\`
+ *   `C:\\`                   `C:\`                    `\`
+ *   `C:\\\`                  `C:\`                    `\`
+ *   `C:\usr`                 `C:\`                    `usr`
+ *   `C:\usr\lib`             `C:\usr`                 `lib`
+ *   `C:\\usr\\lib\\`         `C:\\usr`                `lib`
+ *   `C:\home\\dwc\\test`     `C:\home\\dwc`           `test`
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <libgen.h>
-#include <locale.h>
+struct path_info
+  {
+    /* This points to end of the UNC prefix and drive letter, if any.  */
+    char* prefix_end;
 
-#ifndef __cdecl  /* If compiling on any non-Win32 platform ... */
-#define __cdecl  /* this may not be defined.                   */
-#endif
+    /* These point to the directory separator in front of the last non-empty
+     * component.  */
+    char* base_sep_begin;
+    char* base_sep_end;
 
-char * __cdecl
-dirname(char *path)
-{
-  static char *retfail = NULL;
-  size_t len;
-  /* to handle path names for files in multibyte character locales,
-   * we need to set up LC_CTYPE to match the host file system locale.  */
-  char *locale = setlocale (LC_CTYPE, NULL);
+    /* This points to the last directory separator sequence if no other
+     * non-separator characters follow it.  */
+    char* term_sep_begin;
 
-  if (locale != NULL)
-    locale = strdup (locale);
-  setlocale (LC_CTYPE, "");
+    /* This points to the end of the string.  */
+    char* path_end;
+  };
 
-  if (path && *path)
-    {
-      /* allocate sufficient local storage space,
-       * in which to create a wide character reference copy of path.  */
-      wchar_t refcopy[1 + (len = mbstowcs (NULL, path, 0))];
-      /* create the wide character reference copy of path */
-      wchar_t *refpath = refcopy;
+#define IS_DIR_SEP(c)  ((c) == '/' || (c) == '\\')
 
-      len = mbstowcs (refpath, path, len);
-      refcopy[len] = L'\0';
-      /* SUSv3 identifies a special case, where path is exactly equal to "//";
-       * (we will also accept "\\" in the Win32 context, but not "/\" or "\/",
-       *  and neither will we consider paths with an initial drive designator).
-       * For this special case, SUSv3 allows the implementation to choose to
-       * return "/" or "//", (or "\" or "\\", since this is Win32); we will
-       * simply return the path unchanged, (i.e. "//" or "\\").  */
-      if (len > 1 && (refpath[0] == L'/' || refpath[0] == L'\\'))
-        {
-	  if (refpath[1] == refpath[0] && refpath[2] == L'\0')
-	    {
-	      setlocale (LC_CTYPE, locale);
-	      free (locale);
-	      return path;
-	    }
+static
+void
+do_get_path_info(struct path_info* info, char* path)
+  {
+    char* pos = path;
+    int unc_ncoms = 0;
+    DWORD cp;
+    int dbcs_tb, prev_dir_sep, dir_sep;
+
+    /* Get the code page for paths in the same way as `fopen()`.  */
+    cp = AreFileApisANSI() ? CP_ACP : CP_OEMCP;
+
+    /* Set the structure to 'no data'.  */
+    info->prefix_end = NULL;
+    info->base_sep_begin = NULL;
+    info->base_sep_end = NULL;
+    info->term_sep_begin = NULL;
+
+    if(IS_DIR_SEP(pos[0]) && IS_DIR_SEP(pos[1])) {
+      /* The path is UNC.  */
+      pos += 2;
+
+      /* Seek to the end of the share/device name.  */
+      dbcs_tb = 0;
+      prev_dir_sep = 0;
+
+      while(*pos != 0) {
+        dir_sep = 0;
+
+        if(dbcs_tb)
+          dbcs_tb = 0;
+        else if(IsDBCSLeadByteEx(cp, *pos))
+          dbcs_tb = 1;
+        else
+          dir_sep = IS_DIR_SEP(*pos);
+
+        /* If a separator has been encountered and the previous character
+         * was not, mark this as the end of the current component.  */
+        if(dir_sep && !prev_dir_sep) {
+          unc_ncoms ++;
+
+          /* The first component is the host name, and the second is the
+           * share name. So  we stop at the end of the second component.  */
+          if(unc_ncoms == 2)
+            break;
         }
-      /* For all other cases ...
-       * step over the drive designator, if present ...  */
-      else if (len > 1 && refpath[1] == L':')
-        {
-	  /* FIXME: maybe should confirm *refpath is a valid drive designator.  */
-	  refpath += 2;
-        }
-      /* check again, just to ensure we still have a non-empty path name ... */
-      if (*refpath)
-        {
-#	undef  basename
-#	define basename __the_basename		/* avoid shadowing. */
-	  /* reproduce the scanning logic of the "basename" function
-	   * to locate the basename component of the current path string,
-	   * (but also remember where the dirname component starts).  */
-	  wchar_t *refname, *basename;
-	  for (refname = basename = refpath; *refpath; ++refpath)
-	    {
-	      if (*refpath == L'/' || *refpath == L'\\')
-	        {
-		  /* we found a dir separator ...
-		   * step over it, and any others which immediately follow it.  */
-		  while (*refpath == L'/' || *refpath == L'\\')
-		    ++refpath;
-		  /* if we didn't reach the end of the path string ... */
-		  if (*refpath)
-		    /* then we have a new candidate for the base name.  */
-		    basename = refpath;
-		  else
-		    /* we struck an early termination of the path string,
-		     * with trailing dir separators following the base name,
-		     * so break out of the for loop, to avoid overrun.  */
-		    break;
-	        }
-	    }
-	  /* now check,
-	   * to confirm that we have distinct dirname and basename components.  */
-	  if (basename > refname)
-	    {
-	      /* and, when we do ...
-	       * backtrack over all trailing separators on the dirname component,
-	       * (but preserve exactly two initial dirname separators, if identical),
-	       * and add a NUL terminator in their place.  */
-	      do --basename;
-	      while (basename > refname && (*basename == L'/' || *basename == L'\\'));
-	      if (basename == refname && (refname[0] == L'/' || refname[0] == L'\\')
-		  && refname[1] == refname[0] && refname[2] != L'/' && refname[2] != L'\\')
-		++basename;
-	      *++basename = L'\0';
-	      /* if the resultant dirname begins with EXACTLY two dir separators,
-	       * AND both are identical, then we preserve them.  */
-	      refpath = refcopy;
-	      while ((*refpath == L'/' || *refpath == L'\\'))
-		++refpath;
-	      if ((refpath - refcopy) > 2 || refcopy[1] != refcopy[0])
-		refpath = refcopy;
-	      /* and finally ...
-	       * we remove any residual, redundantly duplicated separators from the dirname,
-	       * reterminate, and return it.  */
-	      refname = refpath;
-	      while (*refpath)
-	        {
-		  if ((*refname++ = *refpath) == L'/' || *refpath++ == L'\\')
-		    {
-		      while (*refpath == L'/' || *refpath == L'\\')
-			++refpath;
-		    }
-	        }
-	      *refname = L'\0';
-	      /* finally ...
-	       * transform the resolved dirname back into the multibyte char domain,
-	       * restore the caller's locale, and return the resultant dirname.  */
-	      if ((len = wcstombs( path, refcopy, len )) != (size_t)(-1))
-		path[len] = '\0';
-	    }
-	  else
-	    {
-	      /* either there were no dirname separators in the path name,
-	       * or there was nothing else ...  */
-	      if (*refname == L'/' || *refname == L'\\')
-	        {
-		  /* it was all separators, so return one.  */
-		  ++refname;
-	        }
-	      else
-	        {
-		  /* there were no separators, so return '.'.  */
-		  *refname++ = L'.';
-	        }
-	      /* add a NUL terminator, in either case,
-	       * then transform to the multibyte char domain,
-	       * using our own buffer.  */
-	      *refname = L'\0';
-	      retfail = realloc (retfail, len = 1 + wcstombs (NULL, refcopy, 0));
-	      wcstombs (path = retfail, refcopy, len);
-	    }
-	  /* restore caller's locale, clean up, and return the resolved dirname.  */
-	  setlocale (LC_CTYPE, locale);
-	  free (locale);
-	  return path;
-        }
-#	undef  basename
+
+        prev_dir_sep = dir_sep;
+        pos ++;
+      }
+
+      /* The UNC prefix terminates here. The terminating directory separator
+       * is not part of the prefix, and initiates a new absolute path.  */
+      info->prefix_end = pos;
     }
-  /* path is NULL, or an empty string; default return value is "." ...
-   * return this in our own buffer, regenerated by wide char transform,
-   * in case the caller trashed it after a previous call.
-   */
-  retfail = realloc (retfail, len = 1 + wcstombs (NULL, L".", 0));
-  wcstombs (retfail, L".", len);
-  /* restore caller's locale, clean up, and return the default dirname.  */
-  setlocale (LC_CTYPE, locale);
-  free (locale);
-  return retfail;
-}
+    else if((pos[0] >= 'A' && pos[0] <= 'Z' && pos[1] == ':')
+            || (pos[0] >= 'a' && pos[0] <= 'z' && pos[1] == ':')) {
+      /* The path contains a DOS drive letter in the beginning.  */
+      pos += 2;
+
+      /* The DOS drive prefix terminates here. Unlike UNC paths, the remaing
+       * part can be relative. For example, `C:foo` denotes `foo` in the
+       * working directory of drive `C:`.  */
+      info->prefix_end = pos;
+    }
+
+    /* The remaining part of the path is almost the same as POSIX.  */
+    dbcs_tb = 0;
+    prev_dir_sep = 0;
+
+    while(*pos != 0) {
+      dir_sep = 0;
+
+      if(dbcs_tb)
+        dbcs_tb = 0;
+      else if(IsDBCSLeadByteEx(cp, *pos))
+        dbcs_tb = 1;
+      else
+        dir_sep = IS_DIR_SEP(*pos);
+
+      /* If a separator has been encountered and the previous character
+       * was not, mark this as the beginning of the terminating separator
+       * sequence.  */
+      if(dir_sep && !prev_dir_sep)
+        info->term_sep_begin = pos;
+
+      /* If a non-separator character has been encountered and a previous
+       * terminating separator sequence exists, start a new component.  */
+      if(!dir_sep && prev_dir_sep) {
+        info->base_sep_begin = info->term_sep_begin;
+        info->base_sep_end = pos;
+        info->term_sep_begin = NULL;
+      }
+
+      prev_dir_sep = dir_sep;
+      pos ++;
+    }
+
+    /* Store the end of the path for convenience.  */
+    info->path_end = pos;
+  }
+
+char*
+dirname(char* path)
+  {
+    struct path_info info;
+    char* upath;
+    const char* top;
+    static char* static_path_copy;
+
+    if(path == NULL || path[0] == 0)
+      return (char*) ".";
+
+    do_get_path_info(&info, path);
+    upath = info.prefix_end ? info.prefix_end : path;
+    top = (IS_DIR_SEP(path[0]) || IS_DIR_SEP(upath[0])) ? "\\" : ".";
+
+    /* If a non-terminating directory separator exists, it terminates the
+     * dirname. Truncate the path there.  */
+    if(info.base_sep_begin) {
+      info.base_sep_begin[0] = 0;
+
+      /* If the unprefixed path has not been truncated to empty, it is now
+       * the dirname, so return it.  */
+      if(upath[0])
+        return path;
+    }
+
+    /* The dirname is empty. In principle we return `<prefix>.` if the
+     * path is relative and `<prefix>\` if it is absolute. This can be
+     * optimized if there is no prefix.  */
+    if(upath == path)
+      return (char*) top;
+
+    /* When there is a prefix, we must append a character to the prefix.
+     * If there is enough room in the original path, we just reuse its
+     * storage.  */
+    if(upath != info.path_end) {
+      upath[0] = *top;
+      upath[1] = 0;
+      return path;
+    }
+
+    /* This is only the last resort. If there is no room, we have to copy
+     * the prefix elsewhere.  */
+    upath = realloc(static_path_copy, info.prefix_end - path + 2);
+    if(!upath)
+      return (char*) top;
+
+    static_path_copy = upath;
+    memcpy(upath, path, info.prefix_end - path);
+    upath += info.prefix_end - path;
+    upath[0] = *top;
+    upath[1] = 0;
+    return static_path_copy;
+  }
+
+char*
+basename(char* path)
+  {
+    struct path_info info;
+    char* upath;
+
+    if(path == NULL || path[0] == 0)
+      return (char*) ".";
+
+    do_get_path_info(&info, path);
+    upath = info.prefix_end ? info.prefix_end : path;
+
+    /* If the path is non-UNC and empty, then it's relative. POSIX says '.'
+     * shall be returned.  */
+    if(IS_DIR_SEP(path[0]) == 0 && upath[0] == 0)
+      return (char*) ".";
+
+    /* If a terminating separator sequence exists, it is not part of the
+     * name and shall be truncated.  */
+    if(info.term_sep_begin)
+      info.term_sep_begin[0] = 0;
+
+    /* If some other separator sequence has been found, the basename
+     * immediately follows it.  */
+    if(info.base_sep_end)
+      return info.base_sep_end;
+
+    /* If removal of the terminating separator sequence has caused the
+     * unprefixed path to become empty, it must have comprised only
+     * separators. POSIX says `/` shall be returned, but on Windows, we
+     * return `\` instead.  */
+    if(upath[0] == 0)
+      return (char*) "\\";
+
+    /* Return the unprefixed path.  */
+    return upath;
+  }

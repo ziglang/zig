@@ -51,7 +51,7 @@ This is computed from the file contents of the directory of files that is
 obtained after fetching `url` and applying the inclusion rules given by
 `paths`.
 
-This field is the source of truth; packages do not come from an `url`; they
+This field is the source of truth; packages do not come from a `url`; they
 come from a `hash`. `url` is just one of many possible mirrors for how to
 obtain a package matching this `hash`.
 
@@ -61,7 +61,14 @@ String.
 
 When this is provided, the package is found in a directory relative to the
 build root. In this case the package's hash is irrelevant and therefore not
-computed.
+computed. This field and `url` are mutually exclusive.
+
+#### `lazy`
+
+Boolean.
+
+When this is set to `true`, a package is declared to be lazily fetched. This
+makes the dependency only get fetched if it is actually used.
 
 ### `paths`
 

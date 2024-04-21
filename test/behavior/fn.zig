@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -180,7 +181,6 @@ test "function with complex callconv and return type expressions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(fComplexCallconvRet(3).x == 9);
 }
@@ -207,7 +207,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    try comptime expect(@TypeOf(pt) == Point);
+    comptime assert(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -428,7 +428,7 @@ test "implicit cast function to function ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const S1 = struct {
         export fn someFunctionThatReturnsAValue() c_int {
@@ -582,7 +582,6 @@ test "pass and return comptime-only types" {
 test "pointer to alias behaves same as pointer to function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
@@ -594,4 +593,27 @@ test "pointer to alias behaves same as pointer to function" {
     var a = &S.bar;
     _ = &a;
     try std.testing.expect(S.foo() == a());
+}
+
+test "comptime parameters don't have to be marked comptime if only called at comptime" {
+    const S = struct {
+        fn foo(x: comptime_int, y: comptime_int) u32 {
+            return x + y;
+        }
+    };
+    comptime std.debug.assert(S.foo(5, 6) == 11);
+}
+
+test "inline function with comptime-known comptime-only return type called at runtime" {
+    const S = struct {
+        inline fn foo(x: *i32, y: *const i32) type {
+            x.* = y.*;
+            return f32;
+        }
+    };
+    var a: i32 = 0;
+    const b: i32 = 111;
+    const T = S.foo(&a, &b);
+    try expectEqual(111, a);
+    try expectEqual(f32, T);
 }

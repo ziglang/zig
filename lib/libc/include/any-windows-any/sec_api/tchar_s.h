@@ -45,6 +45,9 @@ extern "C" {
 #define _stscanf_s_l _swscanf_s_l
 #define _sntscanf_s _snwscanf_s
 #define _sntscanf_s_l _snwscanf_s_l
+#define _vtscanf_s vwscanf_s
+#define _vftscanf_s vfwscanf_s
+#define _vstscanf_s vswscanf_s
 
 #define _cgetts_s _cgetws_s
 #define _getts_s _getws_s
@@ -137,6 +140,9 @@ extern "C" {
 #define _stscanf_s_l _sscanf_s_l
 #define _sntscanf_s _snscanf_s
 #define _sntscanf_s_l _snscanf_s_l
+#define _vtscanf_s vscanf_s
+#define _vftscanf_s vfscanf_s
+#define _vstscanf_s vsscanf_s
 
 #define _getts_s gets_s
 #define _cgetts_s _cgets_s

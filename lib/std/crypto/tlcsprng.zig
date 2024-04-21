@@ -6,16 +6,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
-const os = std.os;
+const native_os = builtin.os.tag;
+const posix = std.posix;
 
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
-pub const interface = std.rand.Random{
+pub const interface = std.Random{
     .ptr = undefined,
     .fillFn = tlsCsprngFill,
 };
 
-const os_has_fork = switch (builtin.os.tag) {
+const os_has_fork = switch (native_os) {
     .dragonfly,
     .freebsd,
     .ios,
@@ -35,15 +36,15 @@ const os_has_fork = switch (builtin.os.tag) {
 };
 const os_has_arc4random = builtin.link_libc and @hasDecl(std.c, "arc4random_buf");
 const want_fork_safety = os_has_fork and !os_has_arc4random and
-    (std.meta.globalOption("crypto_fork_safety", bool) orelse true);
+    std.options.crypto_fork_safety;
 const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
     .major = 4,
     .minor = 14,
     .patch = 0,
 }) orelse true;
-const is_haiku = builtin.os.tag == .haiku;
+const is_haiku = native_os == .haiku;
 
-const Rng = std.rand.DefaultCsprng;
+const Rng = std.Random.DefaultCsprng;
 
 const Context = struct {
     init_state: enum(u8) { uninitialized = 0, initialized, failed },
@@ -79,11 +80,11 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
         if (want_fork_safety and maybe_have_wipe_on_fork or is_haiku) {
             // Allocate a per-process page, madvise operates with page
             // granularity.
-            wipe_mem = os.mmap(
+            wipe_mem = posix.mmap(
                 null,
                 @sizeOf(Context),
-                os.PROT.READ | os.PROT.WRITE,
-                os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+                posix.PROT.READ | posix.PROT.WRITE,
+                .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
                 -1,
                 0,
             ) catch {
@@ -115,11 +116,11 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
                 // Qemu user-mode emulation ignores any valid/invalid madvise
                 // hint and returns success. Check if this is the case by
                 // passing bogus parameters, we expect EINVAL as result.
-                if (os.madvise(wipe_mem.ptr, 0, 0xffffffff)) |_| {
+                if (posix.madvise(wipe_mem.ptr, 0, 0xffffffff)) |_| {
                     break :wof;
                 } else |_| {}
 
-                if (os.madvise(wipe_mem.ptr, wipe_mem.len, os.MADV.WIPEONFORK)) |_| {
+                if (posix.madvise(wipe_mem.ptr, wipe_mem.len, posix.MADV.WIPEONFORK)) |_| {
                     return initAndFill(buffer);
                 } else |_| {}
             }
@@ -164,7 +165,7 @@ fn fillWithCsprng(buffer: []u8) void {
 }
 
 pub fn defaultRandomSeed(buffer: []u8) void {
-    os.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
+    posix.getrandom(buffer) catch @panic("getrandom() failed to provide entropy");
 }
 
 fn initAndFill(buffer: []u8) void {

@@ -27,6 +27,16 @@
 typedef LONG NTSTATUS;
 #endif
 
+#ifndef PSSTDAPI
+#ifdef _PROPSYS_
+#define PSSTDAPI          STDAPI
+#define PSSTDAPI_(type)   STDAPI_(type)
+#else
+#define PSSTDAPI          DECLSPEC_IMPORT STDAPI
+#define PSSTDAPI_(type)   DECLSPEC_IMPORT STDAPI_(type)
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -68,32 +78,37 @@ enum tagPROPVAR_COMPARE_FLAGS
 
 typedef int PROPVAR_COMPARE_FLAGS;
 
-HRESULT WINAPI PropVariantChangeType(PROPVARIANT *ppropvarDest, REFPROPVARIANT propvarSrc,
+PSSTDAPI PropVariantChangeType(PROPVARIANT *ppropvarDest, REFPROPVARIANT propvarSrc,
                                      PROPVAR_CHANGE_FLAGS flags, VARTYPE vt);
-HRESULT WINAPI InitPropVariantFromGUIDAsString(REFGUID guid, PROPVARIANT *ppropvar);
-HRESULT WINAPI InitVariantFromGUIDAsString(REFGUID guid, VARIANT *pvar);
-HRESULT WINAPI InitPropVariantFromBuffer(const VOID *pv, UINT cb, PROPVARIANT *ppropvar);
-HRESULT WINAPI InitPropVariantFromCLSID(REFCLSID clsid, PROPVARIANT *ppropvar);
-HRESULT WINAPI InitVariantFromBuffer(const VOID *pv, UINT cb, VARIANT *pvar);
-HRESULT WINAPI PropVariantToGUID(const PROPVARIANT *ppropvar, GUID *guid);
-HRESULT WINAPI VariantToGUID(const VARIANT *pvar, GUID *guid);
-INT WINAPI PropVariantCompareEx(REFPROPVARIANT propvar1, REFPROPVARIANT propvar2,
+PSSTDAPI InitPropVariantFromGUIDAsString(REFGUID guid, PROPVARIANT *ppropvar);
+PSSTDAPI InitVariantFromFileTime(const FILETIME *ft, VARIANT *var);
+PSSTDAPI InitVariantFromGUIDAsString(REFGUID guid, VARIANT *pvar);
+PSSTDAPI InitPropVariantFromBuffer(const VOID *pv, UINT cb, PROPVARIANT *ppropvar);
+PSSTDAPI InitPropVariantFromCLSID(REFCLSID clsid, PROPVARIANT *ppropvar);
+PSSTDAPI InitVariantFromBuffer(const VOID *pv, UINT cb, VARIANT *pvar);
+PSSTDAPI PropVariantToGUID(const PROPVARIANT *ppropvar, GUID *guid);
+PSSTDAPI VariantToGUID(const VARIANT *pvar, GUID *guid);
+PSSTDAPI_(INT) PropVariantCompareEx(REFPROPVARIANT propvar1, REFPROPVARIANT propvar2,
                                 PROPVAR_COMPARE_UNIT uint, PROPVAR_COMPARE_FLAGS flags);
-HRESULT WINAPI InitPropVariantFromFileTime(const FILETIME *pftIn, PROPVARIANT *ppropvar);
+PSSTDAPI InitPropVariantFromFileTime(const FILETIME *pftIn, PROPVARIANT *ppropvar);
+PSSTDAPI InitPropVariantFromStringVector(PCWSTR *strs, ULONG count, PROPVARIANT *ppropvar);
 
-HRESULT WINAPI PropVariantToDouble(REFPROPVARIANT propvarIn, double *ret);
-HRESULT WINAPI PropVariantToInt16(REFPROPVARIANT propvarIn, SHORT *ret);
-HRESULT WINAPI PropVariantToInt32(REFPROPVARIANT propvarIn, LONG *ret);
-HRESULT WINAPI PropVariantToInt64(REFPROPVARIANT propvarIn, LONGLONG *ret);
-HRESULT WINAPI PropVariantToUInt16(REFPROPVARIANT propvarIn, USHORT *ret);
-HRESULT WINAPI PropVariantToUInt32(REFPROPVARIANT propvarIn, ULONG *ret);
-HRESULT WINAPI PropVariantToUInt64(REFPROPVARIANT propvarIn, ULONGLONG *ret);
-HRESULT WINAPI PropVariantToBoolean(REFPROPVARIANT propvarIn, WINBOOL *ret);
-HRESULT WINAPI PropVariantToBuffer(REFPROPVARIANT propvarIn, void *ret, UINT cb);
-HRESULT WINAPI PropVariantToString(REFPROPVARIANT propvarIn, PWSTR ret, UINT cch);
-PCWSTR WINAPI PropVariantToStringWithDefault(REFPROPVARIANT propvarIn, LPCWSTR pszDefault);
+PSSTDAPI PropVariantToDouble(REFPROPVARIANT propvarIn, double *ret);
+PSSTDAPI PropVariantToInt16(REFPROPVARIANT propvarIn, SHORT *ret);
+PSSTDAPI PropVariantToInt32(REFPROPVARIANT propvarIn, LONG *ret);
+PSSTDAPI PropVariantToInt64(REFPROPVARIANT propvarIn, LONGLONG *ret);
+PSSTDAPI PropVariantToUInt16(REFPROPVARIANT propvarIn, USHORT *ret);
+PSSTDAPI PropVariantToUInt32(REFPROPVARIANT propvarIn, ULONG *ret);
+PSSTDAPI_(ULONG) PropVariantToUInt32WithDefault(REFPROPVARIANT propvarIn, ULONG uLDefault);
+PSSTDAPI PropVariantToUInt64(REFPROPVARIANT propvarIn, ULONGLONG *ret);
+PSSTDAPI PropVariantToBoolean(REFPROPVARIANT propvarIn, WINBOOL *ret);
+PSSTDAPI PropVariantToBuffer(REFPROPVARIANT propvarIn, void *ret, UINT cb);
+PSSTDAPI PropVariantToString(REFPROPVARIANT propvarIn, PWSTR ret, UINT cch);
+PSSTDAPI_(PCWSTR) PropVariantToStringWithDefault(REFPROPVARIANT propvarIn, LPCWSTR pszDefault);
+PSSTDAPI_(PCWSTR) VariantToStringWithDefault(const VARIANT *pvar, LPCWSTR pszDefault);
+PSSTDAPI VariantToString(REFVARIANT var, PWSTR ret, UINT cch);
 
-HRESULT WINAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
+PSSTDAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
 
 #ifdef __cplusplus
 
@@ -203,6 +218,8 @@ inline WINBOOL IsPropVariantString(REFPROPVARIANT propvar)
 #endif /* NO_PROPVAR_INLINES */
 #endif /* __cplusplus */
 
+PSSTDAPI StgSerializePropVariant(const PROPVARIANT *ppropvar, SERIALIZEDPROPERTYVALUE **ppprop, ULONG *pcb);
+PSSTDAPI StgDeserializePropVariant(const SERIALIZEDPROPERTYVALUE *pprop, ULONG cbmax, PROPVARIANT *ppropvar);
 
 #ifdef __cplusplus
 }

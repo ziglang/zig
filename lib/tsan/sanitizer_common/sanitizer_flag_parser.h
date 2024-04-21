@@ -13,9 +13,9 @@
 #ifndef SANITIZER_FLAG_REGISTRY_H
 #define SANITIZER_FLAG_REGISTRY_H
 
+#include "sanitizer_common.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_libc.h"
-#include "sanitizer_common.h"
 
 namespace __sanitizer {
 
@@ -138,7 +138,7 @@ inline bool FlagHandler<uptr>::Parse(const char *value) {
 
 template <>
 inline bool FlagHandler<uptr>::Format(char *buffer, uptr size) {
-  uptr num_symbols_should_write = internal_snprintf(buffer, size, "%p", *t_);
+  uptr num_symbols_should_write = internal_snprintf(buffer, size, "0x%zx", *t_);
   return num_symbols_should_write < size;
 }
 

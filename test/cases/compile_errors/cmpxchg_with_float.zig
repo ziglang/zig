@@ -1,6 +1,6 @@
 export fn entry() void {
     var x: f32 = 0;
-    _ = @cmpxchgWeak(f32, &x, 1, 2, .SeqCst, .SeqCst);
+    _ = @cmpxchgWeak(f32, &x, 1, 2, .seq_cst, .seq_cst);
 }
 
 // error

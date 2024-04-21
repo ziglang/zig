@@ -131,6 +131,31 @@ pub const Time = extern struct {
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
+
+    fn daysInYear(year: u16, maxMonth: u4) u32 {
+        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
+        var days: u32 = 0;
+        var month: u4 = 0;
+        while (month < maxMonth) : (month += 1) {
+            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+        }
+        return days;
+    }
+
+    pub fn toEpoch(self: std.os.uefi.Time) u64 {
+        var year: u16 = 0;
+        var days: u32 = 0;
+
+        while (year < (self.year - 1971)) : (year += 1) {
+            days += daysInYear(year + 1970, 12);
+        }
+
+        days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
+        const hours = self.hour + (days * 24);
+        const minutes = self.minute + (hours * 60);
+        const seconds = self.second + (minutes * std.time.s_per_min);
+        return self.nanosecond + (seconds * std.time.ns_per_s);
+    }
 };
 
 /// Capabilities of the clock device

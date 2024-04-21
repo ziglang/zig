@@ -11,25 +11,47 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_stacktrace_printer.h"
+
 #include "sanitizer_file.h"
+#include "sanitizer_flags.h"
 #include "sanitizer_fuchsia.h"
 
 namespace __sanitizer {
 
-// sanitizer_symbolizer_markup.cpp implements these differently.
-#if !SANITIZER_SYMBOLIZER_MARKUP
-
-static const char *StripFunctionName(const char *function, const char *prefix) {
-  if (!function) return nullptr;
-  if (!prefix) return function;
-  uptr prefix_len = internal_strlen(prefix);
-  if (0 == internal_strncmp(function, prefix, prefix_len))
-    return function + prefix_len;
+const char *StripFunctionName(const char *function) {
+  if (!common_flags()->demangle)
+    return function;
+  if (!function)
+    return nullptr;
+  auto try_strip = [function](const char *prefix) -> const char * {
+    const uptr prefix_len = internal_strlen(prefix);
+    if (!internal_strncmp(function, prefix, prefix_len))
+      return function + prefix_len;
+    return nullptr;
+  };
+  if (SANITIZER_APPLE) {
+    if (const char *s = try_strip("wrap_"))
+      return s;
+  } else if (SANITIZER_WINDOWS) {
+    if (const char *s = try_strip("__asan_wrap_"))
+      return s;
+  } else {
+    if (const char *s = try_strip("___interceptor_"))
+      return s;
+    if (const char *s = try_strip("__interceptor_"))
+      return s;
+  }
   return function;
 }
 
+// sanitizer_symbolizer_markup.cpp implements these differently.
+#if !SANITIZER_SYMBOLIZER_MARKUP
+
 static const char *DemangleFunctionName(const char *function) {
-  if (!function) return nullptr;
+  if (!common_flags()->demangle)
+    return function;
+  if (!function)
+    return nullptr;
 
   // NetBSD uses indirection for old threading functions for historical reasons
   // The mangled names are internal implementation detail and should not be
@@ -104,11 +126,24 @@ static const char *DemangleFunctionName(const char *function) {
   return function;
 }
 
+static void MaybeBuildIdToBuffer(const AddressInfo &info, bool PrefixSpace,
+                                 InternalScopedString *buffer) {
+  if (info.uuid_size) {
+    if (PrefixSpace)
+      buffer->append(" ");
+    buffer->append("(BuildId: ");
+    for (uptr i = 0; i < info.uuid_size; ++i) {
+      buffer->append("%02x", info.uuid[i]);
+    }
+    buffer->append(")");
+  }
+}
+
 static const char kDefaultFormat[] = "    #%n %p %F %L";
 
 void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
                  uptr address, const AddressInfo *info, bool vs_style,
-                 const char *strip_path_prefix, const char *strip_func_prefix) {
+                 const char *strip_path_prefix) {
   // info will be null in the case where symbolization is not needed for the
   // given format. This ensures that the code below will get a hard failure
   // rather than print incorrect information in case RenderNeedsSymbolization
@@ -129,7 +164,7 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       break;
     // Frame number and all fields of AddressInfo structure.
     case 'n':
-      buffer->append("%zu", frame_no);
+      buffer->append("%u", frame_no);
       break;
     case 'p':
       buffer->append("0x%zx", address);
@@ -140,9 +175,12 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
     case 'o':
       buffer->append("0x%zx", info->module_offset);
       break;
+    case 'b':
+      MaybeBuildIdToBuffer(*info, /*PrefixSpace=*/false, buffer);
+      break;
     case 'f':
-      buffer->append("%s", DemangleFunctionName(StripFunctionName(
-                               info->function, strip_func_prefix)));
+      buffer->append("%s",
+                     DemangleFunctionName(StripFunctionName(info->function)));
       break;
     case 'q':
       buffer->append("0x%zx", info->function_offset != AddressInfo::kUnknown
@@ -162,8 +200,8 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
     case 'F':
       // Function name and offset, if file is unknown.
       if (info->function) {
-        buffer->append("in %s", DemangleFunctionName(StripFunctionName(
-                                    info->function, strip_func_prefix)));
+        buffer->append("in %s",
+                       DemangleFunctionName(StripFunctionName(info->function)));
         if (!info->file && info->function_offset != AddressInfo::kUnknown)
           buffer->append("+0x%zx", info->function_offset);
       }
@@ -181,6 +219,10 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
       } else if (info->module) {
         RenderModuleLocation(buffer, info->module, info->module_offset,
                              info->module_arch, strip_path_prefix);
+
+#if !SANITIZER_APPLE
+        MaybeBuildIdToBuffer(*info, /*PrefixSpace=*/true, buffer);
+#endif
       } else {
         buffer->append("(<unknown module>)");
       }
@@ -193,13 +235,16 @@ void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
         // Always strip the module name for %M.
         RenderModuleLocation(buffer, StripModuleName(info->module),
                              info->module_offset, info->module_arch, "");
+#if !SANITIZER_APPLE
+        MaybeBuildIdToBuffer(*info, /*PrefixSpace=*/true, buffer);
+#endif
       } else {
         buffer->append("(%p)", (void *)address);
       }
       break;
     default:
-      Report("Unsupported specifier in stack frame format: %c (0x%zx)!\n", *p,
-             *p);
+      Report("Unsupported specifier in stack frame format: %c (%p)!\n", *p,
+             (void *)p);
       Die();
     }
   }
@@ -244,14 +289,14 @@ void RenderData(InternalScopedString *buffer, const char *format,
         buffer->append("%s", StripPathPrefix(DI->file, strip_path_prefix));
         break;
       case 'l':
-        buffer->append("%d", DI->line);
+        buffer->append("%zu", DI->line);
         break;
       case 'g':
         buffer->append("%s", DI->name);
         break;
       default:
-        Report("Unsupported specifier in stack frame format: %c (0x%zx)!\n", *p,
-               *p);
+        Report("Unsupported specifier in stack frame format: %c (%p)!\n", *p,
+               (void *)p);
         Die();
     }
   }

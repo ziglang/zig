@@ -1,0 +1,89 @@
+LIBRARY api-ms-win-crt-time-l1-1-0
+
+EXPORTS
+
+__daylight
+__dstbias
+__timezone
+__tzname
+_ctime32
+_ctime32_s
+_ctime64
+_ctime64_s
+_difftime32
+_difftime64
+_ftime == _ftime64
+_ftime32
+_ftime32_s
+_ftime64
+_ftime64_s
+_futime == _futime64
+_futime32
+_futime64
+_get_daylight
+_get_dstbias
+_get_timezone
+_get_tzname
+_getsystime
+_Getdays
+_Getmonths
+_Gettnames
+_gmtime32
+_gmtime32_s
+_gmtime64
+_gmtime64_s
+_localtime32
+_localtime32_s
+_localtime64
+_localtime64_s
+_mkgmtime32
+_mkgmtime64
+_mktime32
+_mktime64
+_setsystime
+_strdate
+_strdate_s
+_Strftime
+_strftime_l
+_strtime
+_strtime_s
+_time32
+_time64
+_timespec32_get
+_timespec64_get
+; This is wrapped in the compat code.
+_tzset DATA
+_utime == _utime64
+utime == _utime64
+_utime32
+_utime64
+_W_Getdays
+_W_Getmonths
+_W_Gettnames
+_wasctime
+_wasctime_s
+_Wcsftime
+_wcsftime_l
+_wctime32
+_wctime32_s
+_wctime64
+_wctime64_s
+_wstrdate
+_wstrdate_s
+_wstrtime
+_wstrtime_s
+_wutime == _wutime64
+_wutime32
+_wutime64
+asctime
+asctime_s
+clock
+strftime
+wcsftime
+; These functions may satisfy configure scripts.
+ctime == _ctime64
+gmtime == _gmtime64
+localtime == _localtime64
+mktime == _mktime64
+time == _time64
+timespec_get == _timespec64_get

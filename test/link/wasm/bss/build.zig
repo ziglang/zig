@@ -16,32 +16,33 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     {
         const lib = b.addExecutable(.{
             .name = "lib",
-            .root_source_file = .{ .path = "lib.zig" },
-            .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
+            .strip = false,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
-        lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
 
         // since we import memory, make sure it exists with the correct naming
-        check_lib.checkStart();
+        check_lib.checkInHeaders();
         check_lib.checkExact("Section import");
         check_lib.checkExact("entries 1");
         check_lib.checkExact("module env"); // default module name is "env"
         check_lib.checkExact("name memory"); // as per linker specification
 
         // since we are importing memory, ensure it's not exported
-        check_lib.checkStart();
+        check_lib.checkInHeaders();
         check_lib.checkNotPresent("Section export");
 
         // validate the name of the stack pointer
-        check_lib.checkStart();
+        check_lib.checkInHeaders();
         check_lib.checkExact("Section custom");
         check_lib.checkExact("type data_segment");
         check_lib.checkExact("names 2");
@@ -63,19 +64,20 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     {
         const lib = b.addExecutable(.{
             .name = "lib",
-            .root_source_file = .{ .path = "lib2.zig" },
-            .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+            .root_source_file = b.path("lib2.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
+            .strip = false,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
-        lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
+        lib.link_gc_sections = false;
 
         const check_lib = lib.checkObject();
-        check_lib.checkStart();
+        check_lib.checkInHeaders();
         check_lib.checkExact("Section custom");
         check_lib.checkExact("type data_segment");
         check_lib.checkExact("names 2");

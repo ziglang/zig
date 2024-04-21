@@ -2255,13 +2255,13 @@ PRE_SYSCALL(getcontext)(void *ucp_) { /* Nothing to do */ }
 POST_SYSCALL(getcontext)(long long res, void *ucp_) { /* Nothing to do */ }
 PRE_SYSCALL(setcontext)(void *ucp_) {
   if (ucp_) {
-    PRE_READ(ucp_, ucontext_t_sz);
+    PRE_READ(ucp_, ucontext_t_sz(ucp_));
   }
 }
 POST_SYSCALL(setcontext)(long long res, void *ucp_) {}
 PRE_SYSCALL(_lwp_create)(void *ucp_, long long flags_, void *new_lwp_) {
   if (ucp_) {
-    PRE_READ(ucp_, ucontext_t_sz);
+    PRE_READ(ucp_, ucontext_t_sz(ucp_));
   }
 }
 POST_SYSCALL(_lwp_create)

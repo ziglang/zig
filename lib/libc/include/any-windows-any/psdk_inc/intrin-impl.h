@@ -410,10 +410,10 @@ Parameters: (FunctionName, DataType, RegisterNumber)
    InstructionSize: b, w, d, q
 
    */
-#define __buildmov(x, y, z) void x(y *Destination, y const *Source, size_t Count) \
+#define __buildmov(x, y, z, a) void x(y *Destination, y const *Source, size_t Count) \
 { \
   __asm__ __volatile__ ( \
-    "rep movs" z \
+    "rep movs{" z "|" a "}" \
        : "=D" (Destination), "=S" (Source), "=c" (Count) \
        : "0" (Destination), "1" (Source), "2" (Count) \
        : "memory"); \
@@ -1015,7 +1015,7 @@ __build_writecr(__writecr8, unsigned __int64, "8")
 __MINGW_EXTENSION void __movsq(unsigned __int64 *Dest, unsigned __int64 const *Source, size_t Count);
 #if !__has_builtin(__movsq)
 __MINGW_EXTENSION __INTRINSICS_USEINLINE
-__buildmov(__movsq, unsigned __int64, "q")
+__buildmov(__movsq, unsigned __int64, "q", "q")
 #endif
 #define __INTRINSIC_DEFINED___movsq
 #endif /* __INTRINSIC_PROLOG */
@@ -2023,7 +2023,7 @@ void __cpuid(int CPUInfo[4], int InfoType) {
 #define __INTRINSIC_DEFINED___cpuid
 #endif /* __INTRINSIC_PROLOG */
 
-#if (!defined(__GNUC__) || __GNUC__ < 11)
+#if (!defined(__GNUC__) || __GNUC__ < 11) && (!defined(__clang__) || __clang_major__ < 18)
 #if __INTRINSIC_PROLOG(__cpuidex)
 void __cpuidex(int CPUInfo[4], int, int);
 #if !__has_builtin(__cpuidex)
@@ -2082,7 +2082,7 @@ void __writemsr(unsigned __LONG32 msr, unsigned __int64 Value)
 void __movsb(unsigned char *Destination, unsigned char const *Source, size_t Count);
 #if !__has_builtin(__movsb)
 __INTRINSICS_USEINLINE
-__buildmov(__movsb, unsigned char, "b")
+__buildmov(__movsb, unsigned char, "b", "b")
 #endif
 #define __INTRINSIC_DEFINED___movsb
 #endif /* __INTRINSIC_PROLOG */
@@ -2091,7 +2091,7 @@ __buildmov(__movsb, unsigned char, "b")
 void __movsw(unsigned short *Dest, unsigned short const *Source, size_t Count);
 #if !__has_builtin(__movsw)
 __INTRINSICS_USEINLINE
-__buildmov(__movsw, unsigned short, "w")
+__buildmov(__movsw, unsigned short, "w", "w")
 #endif
 #define __INTRINSIC_DEFINED___movsw
 #endif /* __INTRINSIC_PROLOG */
@@ -2100,7 +2100,7 @@ __buildmov(__movsw, unsigned short, "w")
 void __movsd(unsigned __LONG32 *Dest, unsigned __LONG32 const *Source, size_t Count);
 #if !__has_builtin(__movsd)
 __INTRINSICS_USEINLINE
-__buildmov(__movsd, unsigned __LONG32, "d")
+__buildmov(__movsd, unsigned __LONG32, "l", "d")
 #endif
 #define __INTRINSIC_DEFINED___movsd
 #endif /* __INTRINSIC_PROLOG */

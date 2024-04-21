@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-sysinfo-l1-2-1
+
+EXPORTS
+
+DnsHostnameToComputerNameExW
+GetPhysicallyInstalledSystemMemory
+InstallELAMCertificateInfo
+SetComputerNameEx2W
+SetSystemTimeAdjustment

@@ -1,0 +1,14 @@
+LIBRARY api-ms-win-core-processsnapshot-l1-1-0
+
+EXPORTS
+
+PssCaptureSnapshot
+PssDuplicateSnapshot
+PssFreeSnapshot
+PssQuerySnapshot
+PssWalkMarkerCreate
+PssWalkMarkerFree
+PssWalkMarkerGetPosition
+PssWalkMarkerSeekToBeginning
+PssWalkMarkerSetPosition
+PssWalkSnapshot

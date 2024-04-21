@@ -2230,6 +2230,10 @@ test "zig fmt: switch cases trailing comma" {
         \\        1,2,3 => {},
         \\        4,5, => {},
         \\        6... 8, => {},
+        \\        9 ...
+        \\        10 => {},
+        \\        11 => {},
+        \\        12, => {},
         \\        else => {},
         \\    }
         \\}
@@ -2240,7 +2244,12 @@ test "zig fmt: switch cases trailing comma" {
         \\        4,
         \\        5,
         \\        => {},
-        \\        6...8 => {},
+        \\        6...8,
+        \\        => {},
+        \\        9...10 => {},
+        \\        11 => {},
+        \\        12,
+        \\        => {},
         \\        else => {},
         \\    }
         \\}
@@ -2900,6 +2909,25 @@ test "zig fmt: test declaration" {
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: destructure" {
+    try testCanonical(
+        \\comptime {
+        \\    var w: u8, var x: u8 = .{ 1, 2 };
+        \\    w, var y: u8 = .{ 3, 4 };
+        \\    var z: u8, x = .{ 5, 6 };
+        \\    y, z = .{ 7, 8 };
+        \\}
+        \\
+        \\comptime {
+        \\    comptime var w, var x = .{ 1, 2 };
+        \\    comptime w, var y = .{ 3, 4 };
+        \\    comptime var z, x = .{ 5, 6 };
+        \\    comptime y, z = .{ 7, 8 };
         \\}
         \\
     );
@@ -4270,6 +4298,69 @@ test "zig fmt: remove newlines surrounding doc comment" {
     );
 }
 
+test "zig fmt: remove newlines surrounding doc comment between members" {
+    try testTransform(
+        \\f1: i32,
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\f2: i32,
+        \\
+    ,
+        \\f1: i32,
+        \\
+        \\/// doc comment
+        \\f2: i32,
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (1)" {
+    try testTransform(
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\
+        \\    fn bar() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\
+        \\    /// doc comment
+        \\    fn bar() void {}
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (2)" {
+    try testTransform(
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\    /// doc comment 1
+        \\
+        \\    /// doc comment 2
+        \\
+        \\    fn bar() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\    /// doc comment 1
+        \\    /// doc comment 2
+        \\    fn bar() void {}
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: remove newlines surrounding doc comment within container decl" {
     try testTransform(
         \\const Foo = struct {
@@ -4311,6 +4402,21 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
         .comptime_doc_comment,
         .test_doc_comment,
     });
+}
+
+test "zig fmt: else comptime expr" {
+    try testCanonical(
+        \\comptime {
+        \\    if (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    while (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else comptime foo();
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: invalid else branch statement" {

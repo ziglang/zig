@@ -5,18 +5,18 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const target = .{
+    const target = b.resolveTargetQuery(.{
         .cpu_arch = .thumb,
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_m4 },
         .os_tag = .freestanding,
         .abi = .gnueabihf,
-    };
+    });
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const elf = b.addExecutable(.{
         .name = "zig-nrf52-blink.elf",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
     });

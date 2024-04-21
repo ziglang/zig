@@ -134,7 +134,7 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
-        _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .Monotonic);
+        _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .monotonic);
         self.context.maybeRefresh();
     }
 
@@ -180,12 +180,12 @@ pub const Node = struct {
 
     /// Thread-safe. 0 means unknown.
     pub fn setEstimatedTotalItems(self: *Node, count: usize) void {
-        @atomicStore(usize, &self.unprotected_estimated_total_items, count, .Monotonic);
+        @atomicStore(usize, &self.unprotected_estimated_total_items, count, .monotonic);
     }
 
     /// Thread-safe.
     pub fn setCompletedItems(self: *Node, completed_items: usize) void {
-        @atomicStore(usize, &self.unprotected_completed_items, completed_items, .Monotonic);
+        @atomicStore(usize, &self.unprotected_completed_items, completed_items, .monotonic);
     }
 };
 

@@ -338,7 +338,6 @@ GetDpiForSystem
 GetDpiForWindow
 GetFocus
 GetForegroundWindow
-GetGUIThreadInfo
 GetGestureConfig
 GetGestureExtraArgs
 GetGestureInfo

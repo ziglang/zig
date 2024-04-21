@@ -91,6 +91,8 @@ extern "C" {
   extern const CLSID CLSID_Picture_Dib;
   extern const GUID GUID_TRISTATE;
 
+  extern const CLSID CLSID_ContextSwitcher;
+
 #ifdef __cplusplus
 }
 #endif

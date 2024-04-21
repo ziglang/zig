@@ -1,5 +1,5 @@
 const Foo = extern struct {
-    f: *const fn() void,
+    f: *const fn () void,
 };
 
 export fn entry() void {

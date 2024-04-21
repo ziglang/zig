@@ -2,15 +2,16 @@ LIBRARY api-ms-win-appmodel-runtime-l1-1-1
 
 EXPORTS
 
+FindPackagesByPackageFamily@28
 FormatApplicationUserModelId@16
-GetCurrentApplicationUserModelId@8
-GetCurrentPackageFamilyName@8
-GetCurrentPackageId@8
-PackageFamilyNameFromFullName@12
-PackageFamilyNameFromId@12
-PackageFullNameFromId@12
-PackageIdFromFullName@16
-PackageNameAndPublisherIdFromFamilyName@20
+GetApplicationUserModelIdFromToken@12
+GetPackageApplicationIds@16
+GetPackageFamilyNameFromToken@12
+GetPackageFullNameFromToken@12
+GetPackagePathByFullName@12
+GetStagedPackageOrigin@8
+GetStagedPackagePathByFullName@12
+OpenPackageInfoByFullNameForUser@16
 ParseApplicationUserModelId@20
 VerifyApplicationUserModelId@4
 VerifyPackageFamilyName@4

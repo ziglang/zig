@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 const Foo = @import("hasdecl/foo.zig");
@@ -18,4 +19,13 @@ test "@hasDecl" {
     try expect(@hasDecl(Bar, "hi"));
     try expect(@hasDecl(Bar, "blah"));
     try expect(!@hasDecl(Bar, "nope"));
+}
+
+test "@hasDecl using a sliced string literal" {
+    try expect(@hasDecl(@This(), "std") == true);
+    try expect(@hasDecl(@This(), "std"[0..0]) == false);
+    try expect(@hasDecl(@This(), "std"[0..1]) == false);
+    try expect(@hasDecl(@This(), "std"[0..2]) == false);
+    try expect(@hasDecl(@This(), "std"[0..3]) == true);
+    try expect(@hasDecl(@This(), "std"[0..]) == true);
 }

@@ -408,7 +408,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
     };
 }
 
-test "SegmentedList basic usage" {
+test "basic usage" {
     try testSegmentedList(0);
     try testSegmentedList(1);
     try testSegmentedList(2);
@@ -507,7 +507,7 @@ fn testSegmentedList(comptime prealloc: usize) !void {
     try list.setCapacity(testing.allocator, 0);
 }
 
-test "std.segmented_list clearRetainingCapacity" {
+test "clearRetainingCapacity" {
     var list = SegmentedList(i32, 1){};
     defer list.deinit(testing.allocator);
 

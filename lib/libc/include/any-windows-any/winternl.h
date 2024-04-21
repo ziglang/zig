@@ -1012,6 +1012,10 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
      ThreadHideFromDebugger
   } THREADINFOCLASS;
 
+  typedef struct _THREAD_NAME_INFORMATION {
+    UNICODE_STRING ThreadName;
+  } THREAD_NAME_INFORMATION, *PTHREAD_NAME_INFORMATION;
+
 #define CODEINTEGRITY_OPTION_ENABLED 0x01
 #define CODEINTEGRITY_OPTION_TESTSIGN 0x02
 #define CODEINTEGRITY_OPTION_UMCI_ENABLED 0x04
@@ -1044,7 +1048,9 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
     SystemInterruptInformation = 23,
     SystemExceptionInformation = 33,
     SystemRegistryQuotaInformation = 37,
-    SystemLookasideInformation = 45
+    SystemLookasideInformation = 45,
+    SystemCodeIntegrityInformation = 103,
+    SystemPolicyInformation = 134
   } SYSTEM_INFORMATION_CLASS;
 
   typedef enum _OBJECT_INFORMATION_CLASS {
@@ -1094,10 +1100,12 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
   ULONG NTAPI RtlNtStatusToDosError (NTSTATUS Status);
   NTSTATUS NTAPI NtQueryInformationProcess(HANDLE ProcessHandle,PROCESSINFOCLASS ProcessInformationClass,PVOID ProcessInformation,ULONG ProcessInformationLength,PULONG ReturnLength);
   NTSTATUS NTAPI NtQueryInformationThread(HANDLE ThreadHandle,THREADINFOCLASS ThreadInformationClass,PVOID ThreadInformation,ULONG ThreadInformationLength,PULONG ReturnLength);
+  NTSTATUS NTAPI NtSetInformationThread(HANDLE ThreadHandle,THREADINFOCLASS ThreadInformationClass,PVOID ThreadInformation,ULONG ThreadInformationLength);
   NTSTATUS NTAPI NtQueryInformationFile(HANDLE hFile,PIO_STATUS_BLOCK io,PVOID ptr,ULONG len,FILE_INFORMATION_CLASS FileInformationClass);
   NTSTATUS NTAPI NtQueryObject(HANDLE Handle,OBJECT_INFORMATION_CLASS ObjectInformationClass,PVOID ObjectInformation,ULONG ObjectInformationLength,PULONG ReturnLength);
   NTSTATUS NTAPI NtQuerySystemInformation(SYSTEM_INFORMATION_CLASS SystemInformationClass,PVOID SystemInformation,ULONG SystemInformationLength,PULONG ReturnLength);
   NTSTATUS NTAPI NtQuerySystemTime(PLARGE_INTEGER SystemTime);
+  NTSTATUS NTAPI NtQueryTimerResolution(PULONG MaximumTime,PULONG MinimumTime,PULONG CurrentTime);
   NTSTATUS NTAPI NtQueryVolumeInformationFile(HANDLE hFile,PIO_STATUS_BLOCK io,PVOID ptr,ULONG len,FS_INFORMATION_CLASS FsInformationClass);
   NTSTATUS NTAPI NtSetInformationFile(HANDLE hFile,PIO_STATUS_BLOCK io,PVOID ptr,ULONG len,FILE_INFORMATION_CLASS FileInformationClass);
   NTSTATUS NTAPI NtSetInformationProcess(HANDLE ProcessHandle, PROCESSINFOCLASS ProcessInformationClass, PVOID ProcessInformation, ULONG ProcessInformationLength);
