@@ -601,7 +601,10 @@ fn outputType(elf_file: *Elf) u2 {
     return switch (elf_file.base.comp.config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
-        .Exe => if (comp.config.pie) 1 else 2,
+        .Exe => switch (elf_file.getTarget().os.tag) {
+            .haiku => 0,
+            else => if (comp.config.pie) 1 else 2,
+        },
     };
 }
 
