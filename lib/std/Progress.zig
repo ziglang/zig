@@ -375,8 +375,8 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) v
     var end = end_ptr.*;
     var need_ellipse = false;
 
-    const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-    const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+    const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
+    const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
     const current_item = completed_items + 1;
 
     if (node.name.len != 0 or eti > 0) {
