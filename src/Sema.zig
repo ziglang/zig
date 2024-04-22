@@ -35405,7 +35405,7 @@ pub fn resolveUnionAlignment(
         const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
         if (!(try sema.typeHasRuntimeBits(field_ty))) continue;
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -35465,7 +35465,7 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
             else => return err,
         });
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
