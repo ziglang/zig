@@ -228,6 +228,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
 pub fn maybeRefresh(self: *Progress) void {
     if (self.timer) |*timer| {
+        self.max_columns = determineTerminalWidth(self) orelse 0;
         if (!self.update_mutex.tryLock()) return;
         defer self.update_mutex.unlock();
         maybeRefreshWithHeldLock(self, timer);
