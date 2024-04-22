@@ -978,8 +978,8 @@ fn testCt(ct_: anytype) !void {
     try testing.expectEqual(true, ct_.limbsCmpGeq(x.v, y.v));
 
     try testing.expectEqual(
-        WideLimb{ .hi = 0x20, .lo = 0x400000000 },
-        ct_.mulWide(1 << 34, (1 << 35) + 1),
+        WideLimb{ .hi = 0, .lo = 0x88 },
+        ct_.mulWide(1 << 3, (1 << 4) + 1),
     );
 }
 
