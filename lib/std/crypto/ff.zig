@@ -843,7 +843,7 @@ const ct_protected = struct {
 
     // Compares two big integers in constant time, returning true if x >= y.
     fn limbsCmpGeq(x: anytype, y: @TypeOf(x)) bool {
-        return !ct.limbsCmpLt(x, y);
+        return !limbsCmpLt(x, y);
     }
 
     // Multiplies two limbs and returns the result as a wide limb.
@@ -894,7 +894,7 @@ const ct_unprotected = struct {
 
     // Compares two big integers in constant time, returning true if x >= y.
     fn limbsCmpGeq(x: anytype, y: @TypeOf(x)) bool {
-        return !ct.limbsCmpLt(x, y);
+        return !limbsCmpLt(x, y);
     }
 
     // Multiplies two limbs and returns the result as a wide limb.
@@ -960,4 +960,30 @@ test "finite field arithmetic" {
     try testing.expect(x_sq.eql(x_sq3));
     try testing.expect(x_sq3.eql(x_sq4));
     try m.fromMontgomery(&x);
+}
+
+fn testCt(ct_: anytype) !void {
+    const l0: Limb = 0;
+    const l1: Limb = 1;
+    try testing.expectEqual(l1, ct_.select(true, l1, l0));
+    try testing.expectEqual(l0, ct_.select(false, l1, l0));
+    try testing.expectEqual(false, ct_.eql(l1, l0));
+    try testing.expectEqual(true, ct_.eql(l1, l1));
+
+    const M = Modulus(256);
+    const m = try M.fromPrimitive(u256, 3429938563481314093726330772853735541133072814650493833233);
+    const x = try M.Fe.fromPrimitive(u256, m, 80169837251094269539116136208111827396136208141182357733);
+    const y = try M.Fe.fromPrimitive(u256, m, 24620149608466364616251608466389896540098571);
+    try testing.expectEqual(false, ct_.limbsCmpLt(x.v, y.v));
+    try testing.expectEqual(true, ct_.limbsCmpGeq(x.v, y.v));
+
+    try testing.expectEqual(
+        WideLimb{ .hi = 0x20, .lo = 0x400000000 },
+        ct_.mulWide(1 << 34, (1 << 35) + 1),
+    );
+}
+
+test ct {
+    try testCt(ct_protected);
+    try testCt(ct_unprotected);
 }
