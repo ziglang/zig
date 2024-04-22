@@ -878,11 +878,11 @@ const ct_unprotected = struct {
 
     // Compares two big integers in constant time, returning true if x < y.
     fn limbsCmpLt(x: anytype, y: @TypeOf(x)) bool {
-        assert(x.limbs_count() == y.limbs_count());
-        const x_limbs = x.limbs.constSlice();
-        const y_limbs = y.limbs.constSlice();
+        const x_limbs = x.limbsConst();
+        const y_limbs = y.limbsConst();
+        assert(x_limbs.len == y_limbs.len);
 
-        var i = x.limbs_count();
+        var i = x_limbs.len;
         while (i != 0) {
             i -= 1;
             if (x_limbs[i] != y_limbs[i]) {
