@@ -719,7 +719,7 @@ pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
             return field_info.type;
     }
 
-    unreachable;
+    @compileError("no field '" ++ tag_name ++ "' in union '" ++ @typeName(U) ++ "'");
 }
 
 /// Given a tagged union type, and an enum, return the type of the union field
