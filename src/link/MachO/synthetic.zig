@@ -267,7 +267,7 @@ pub const StubsSection = struct {
                 },
                 .aarch64 => {
                     // TODO relax if possible
-                    const pages = try aarch64.calcNumberOfPages(source, target);
+                    const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
                     const off = try math.divExact(u12, @truncate(target), 8);
                     try writer.writeInt(
@@ -411,7 +411,7 @@ pub const StubsHelperSection = struct {
             .aarch64 => {
                 {
                     // TODO relax if possible
-                    const pages = try aarch64.calcNumberOfPages(sect.addr, dyld_private_addr);
+                    const pages = try aarch64.calcNumberOfPages(@intCast(sect.addr), @intCast(dyld_private_addr));
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x17, pages).toU32(), .little);
                     const off: u12 = @truncate(dyld_private_addr);
                     try writer.writeInt(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32(), .little);
@@ -424,7 +424,7 @@ pub const StubsHelperSection = struct {
                 ).toU32(), .little);
                 {
                     // TODO relax if possible
-                    const pages = try aarch64.calcNumberOfPages(sect.addr + 12, dyld_stub_binder_addr);
+                    const pages = try aarch64.calcNumberOfPages(@intCast(sect.addr + 12), @intCast(dyld_stub_binder_addr));
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
                     const off = try math.divExact(u12, @truncate(dyld_stub_binder_addr), 8);
                     try writer.writeInt(u32, aarch64.Instruction.ldr(
@@ -679,7 +679,7 @@ pub const ObjcStubsSection = struct {
                     {
                         const target = sym.getObjcSelrefsAddress(macho_file);
                         const source = addr;
-                        const pages = try aarch64.calcNumberOfPages(source, target);
+                        const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
                         try writer.writeInt(u32, aarch64.Instruction.adrp(.x1, pages).toU32(), .little);
                         const off = try math.divExact(u12, @truncate(target), 8);
                         try writer.writeInt(
@@ -692,7 +692,7 @@ pub const ObjcStubsSection = struct {
                         const target_sym = macho_file.getSymbol(macho_file.objc_msg_send_index.?);
                         const target = target_sym.getGotAddress(macho_file);
                         const source = addr + 2 * @sizeOf(u32);
-                        const pages = try aarch64.calcNumberOfPages(source, target);
+                        const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
                         try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
                         const off = try math.divExact(u12, @truncate(target), 8);
                         try writer.writeInt(
