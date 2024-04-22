@@ -1647,12 +1647,6 @@ test readVarInt {
 
 /// Loads an integer from packed memory with provided bit_count, bit_offset, and signedness.
 /// Asserts that T is large enough to store the read value.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
-///
 pub fn readVarPackedInt(
     comptime T: type,
     bytes: []const u8,
@@ -1713,6 +1707,13 @@ pub fn readVarPackedInt(
         .signed => return @as(T, @intCast((@as(iN, @bitCast(int)) << pad) >> pad)),
         .unsigned => return @as(T, @intCast((@as(uN, @bitCast(int)) << pad) >> pad)),
     }
+}
+
+test readVarPackedInt {
+     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
+     var st = T{ .a = 1, .b = 2, .c = 4 };
+     const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
+     try std.testing.expectEqual(st.b, b_field);
 }
 
 /// Reads an integer from memory with bit count specified by T.
@@ -1811,17 +1812,18 @@ pub const readPackedIntForeign = switch (native_endian) {
 
 /// Loads an integer from packed memory.
 /// Asserts that buffer contains at least bit_offset + @bitSizeOf(T) bits.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
-///
 pub fn readPackedInt(comptime T: type, bytes: []const u8, bit_offset: usize, endian: Endian) T {
     switch (endian) {
         .little => return readPackedIntLittle(T, bytes, bit_offset),
         .big => return readPackedIntBig(T, bytes, bit_offset),
     }
+}
+
+test readPackedInt {
+     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
+     var st = T{ .a = 1, .b = 2, .c = 4 };
+     const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
+     try std.testing.expectEqual(st.b, b_field);
 }
 
 test "comptime read/write int" {
@@ -1963,13 +1965,6 @@ pub const writePackedIntForeign = switch (native_endian) {
 
 /// Stores an integer to packed memory.
 /// Asserts that buffer contains at least bit_offset + @bitSizeOf(T) bits.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     // st.b = 0x7f;
-///     writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
-///
 pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T, endian: Endian) void {
     switch (endian) {
         .little => writePackedIntLittle(T, bytes, bit_offset, value),
@@ -1977,16 +1972,15 @@ pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T
     }
 }
 
-/// Stores an integer to packed memory with provided bit_count, bit_offset, and signedness.
+test writePackedInt {
+     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
+     var st = T{ .a = 1, .b = 2, .c = 4 };
+     writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
+     try std.testing.expectEqual(T{ .a = 1, .b = 0x7f, .c = 4 }, st);
+}
+
+/// Stores an integer to packed memory with provided bit_offset, bit_count, and signedness.
 /// If negative, the written value is sign-extended.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     // st.b = 0x7f;
-///     var value: u64 = 0x7f;
-///     writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
-///
 pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value: anytype, endian: std.builtin.Endian) void {
     const T = @TypeOf(value);
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -1999,7 +1993,9 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     };
     const write_bytes = bytes[lowest_byte..][0..write_size];
 
-    if (write_size == 1) {
+    if (write_size == 0) {
+        return;
+    } else if (write_size == 1) {
         // Single byte writes are handled specially, since we need to mask bits
         // on both ends of the byte.
         const mask = (@as(u8, 0xff) >> @as(u3, @intCast(8 - bit_count)));
@@ -2037,6 +2033,14 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     const tail_mask = (@as(u8, 0xff) << following_bits) >> following_bits;
     write_bytes[@as(usize, @intCast(i))] &= ~tail_mask;
     write_bytes[@as(usize, @intCast(i))] |= @as(u8, @intCast(@as(uN, @bitCast(remaining)) & tail_mask));
+}
+
+test writeVarPackedInt {
+     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
+     var st = T{ .a = 1, .b = 2, .c = 4 };
+     const value: u64 = 0x7f;
+     writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
+     try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
 }
 
 /// Swap the byte order of all the members of the fields of a struct
