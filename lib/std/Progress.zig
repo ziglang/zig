@@ -457,7 +457,7 @@ fn bufWriteLineTruncate(self: *Progress, end: *usize, comptime format: []const u
     const truncated_end_index = start_index + @min(self.max_columns - self.columns_written, actual_columns_written);
     if (self.max_columns > 0) end.* = truncated_end_index;
     self.columns_written += truncated_end_index - start_index;
-    if (self.max_columns > 0 and actual_columns_written + self.columns_written > self.max_columns) {
+    if (self.max_columns > 0 and actual_columns_written + self.columns_written > self.max_columns and end.* >= ellipse.len) {
         @memcpy(self.output_buffer[end.* - ellipse.len .. end.*], ellipse);
     }
 }
