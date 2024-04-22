@@ -20,6 +20,8 @@ pub const Sha224 = Sha2x32(iv224, 224);
 pub const Sha256 = Sha2x32(iv256, 256);
 pub const Sha384 = Sha2x64(iv384, 384);
 pub const Sha512 = Sha2x64(iv512, 512);
+pub const Sha512_224 = Sha512Truncated(224);
+pub const Sha512_256 = Sha512Truncated(256);
 /// This may be more performant than SHA224 and SHA256.
 pub fn Sha512Truncated(digest_bits: comptime_int) type {
     const iv = sha512iv(digest_bits);
@@ -835,10 +837,9 @@ test "sha512 aligned final" {
     h.final(out[0..]);
 }
 
-test "Sha512Truncated(224)" {
-    const Sha512_224 = Sha512Truncated(224);
-    // const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
-    // try htest.assertEqualHash(Sha512_224, h1, "");
+test Sha512_224 {
+    const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
+    try htest.assertEqualHash(Sha512_224, h1, "");
 
     const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
     try htest.assertEqualHash(Sha512_224, h2, "abc");
@@ -847,8 +848,7 @@ test "Sha512Truncated(224)" {
     try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
-test "Sha512Truncated(256)" {
-    const Sha512_256 = Sha512Truncated(256);
+test Sha512_256 {
     const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
     try htest.assertEqualHash(Sha512_256, h1, "");
 
