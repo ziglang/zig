@@ -1501,9 +1501,9 @@ pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
 }
 
 test parseInt {
-    try std.testing.expect((try parseInt(i32, "-10", 10)) == -10);
-    try std.testing.expect((try parseInt(i32, "+10", 10)) == 10);
-    try std.testing.expect((try parseInt(u32, "+10", 10)) == 10);
+    try std.testing.expectEqual(-10, try parseInt(i32, "-10", 10));
+    try std.testing.expectEqual(10, try parseInt(i32, "+10", 10));
+    try std.testing.expectEqual(10, try parseInt(u32, "+10", 10));
     try std.testing.expectError(error.Overflow, parseInt(u32, "-10", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, " 10", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "10 ", 10));
@@ -1511,17 +1511,17 @@ test parseInt {
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10_", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x10_", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10", 10));
-    try std.testing.expect((try parseInt(u8, "255", 10)) == 255);
+    try std.testing.expectEqual(255, try parseInt(u8, "255", 10));
     try std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
 
     // +0 and -0 should work for unsigned
-    try std.testing.expect((try parseInt(u8, "-0", 10)) == 0);
-    try std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
+    try std.testing.expectEqual(0, try parseInt(u8, "-0", 10));
+    try std.testing.expectEqual(0, try parseInt(u8, "+0", 10));
 
     // ensure minInt is parsed correctly
-    try std.testing.expect((try parseInt(i1, "-1", 10)) == math.minInt(i1));
-    try std.testing.expect((try parseInt(i8, "-128", 10)) == math.minInt(i8));
-    try std.testing.expect((try parseInt(i43, "-4398046511104", 10)) == math.minInt(i43));
+    try std.testing.expectEqual(math.minInt(i1), try parseInt(i1, "-1", 10));
+    try std.testing.expectEqual(math.minInt(i8), try parseInt(i8, "-128", 10));
+    try std.testing.expectEqual(math.minInt(i43), try parseInt(i43, "-4398046511104", 10));
 
     // empty string or bare +- is invalid
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "", 10));
@@ -1532,22 +1532,22 @@ test parseInt {
     try std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
 
     // autodectect the base
-    try std.testing.expect((try parseInt(i32, "111", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0B111", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0b1_11", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0O111", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0o11_1", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
-    try std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
-    try std.testing.expect((try parseInt(i32, "-0b11_1", 0)) == -7);
-    try std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
-    try std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
-    try std.testing.expect((try parseInt(i32, "-0X111", 0)) == -273);
-    try std.testing.expect((try parseInt(i32, "-0x1_11", 0)) == -273);
+    try std.testing.expectEqual(111, try parseInt(i32, "111", 0));
+    try std.testing.expectEqual(111, try parseInt(i32, "1_1_1", 0));
+    try std.testing.expectEqual(111, try parseInt(i32, "1_1_1", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0b111", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0B111", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0b1_11", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0o111", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0O111", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0o11_1", 0));
+    try std.testing.expectEqual(273, try parseInt(i32, "+0x111", 0));
+    try std.testing.expectEqual(-7, try parseInt(i32, "-0b111", 0));
+    try std.testing.expectEqual(-7, try parseInt(i32, "-0b11_1", 0));
+    try std.testing.expectEqual(-73, try parseInt(i32, "-0o111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0x111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0X111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0x1_11", 0));
 
     // bare binary/octal/decimal prefix is invalid
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
@@ -1643,31 +1643,31 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!
 }
 
 test parseUnsigned {
-    try std.testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
-    try std.testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
-    try std.testing.expect((try parseUnsigned(u16, "65_535", 10)) == 65535);
+    try std.testing.expectEqual(50124, try parseUnsigned(u16, "050124", 10));
+    try std.testing.expectEqual(65535, try parseUnsigned(u16, "65535", 10));
+    try std.testing.expectEqual(65535, try parseUnsigned(u16, "65_535", 10));
     try std.testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
 
-    try std.testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
-    try std.testing.expect((try parseUnsigned(u64, "0f_fff_fff_fff_fff_fff", 16)) == 0xffffffffffffffff);
+    try std.testing.expectEqual(0xffffffffffffffff, try parseUnsigned(u64, "0ffffffffffffffff", 16));
+    try std.testing.expectEqual(0xffffffffffffffff, try parseUnsigned(u64, "0f_fff_fff_fff_fff_fff", 16));
     try std.testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
 
-    try std.testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
+    try std.testing.expectEqual(0xDEADBEEF, try parseUnsigned(u32, "DeadBeef", 16));
 
-    try std.testing.expect((try parseUnsigned(u7, "1", 10)) == 1);
-    try std.testing.expect((try parseUnsigned(u7, "1000", 2)) == 8);
+    try std.testing.expectEqual(1, try parseUnsigned(u7, "1", 10));
+    try std.testing.expectEqual(8, try parseUnsigned(u7, "1000", 2));
 
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u32, "f", 10));
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "109", 8));
 
-    try std.testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
+    try std.testing.expectEqual(1442151747, try parseUnsigned(u32, "NUMBER", 36));
 
     // these numbers should fit even though the base itself doesn't fit in the destination type
-    try std.testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
-    try std.testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
+    try std.testing.expectEqual(0, try parseUnsigned(u1, "0", 10));
+    try std.testing.expectEqual(1, try parseUnsigned(u1, "1", 10));
     try std.testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
-    try std.testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
-    try std.testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
+    try std.testing.expectEqual(1, try parseUnsigned(u1, "001", 16));
+    try std.testing.expectEqual(3, try parseUnsigned(u2, "3", 16));
     try std.testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
 
     // parseUnsigned does not expect a sign
@@ -1717,15 +1717,15 @@ pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
 }
 
 test parseIntSizeSuffix {
-    try std.testing.expect(try parseIntSizeSuffix("2", 10) == 2);
-    try std.testing.expect(try parseIntSizeSuffix("2B", 10) == 2);
-    try std.testing.expect(try parseIntSizeSuffix("2kB", 10) == 2000);
-    try std.testing.expect(try parseIntSizeSuffix("2k", 10) == 2000);
-    try std.testing.expect(try parseIntSizeSuffix("2KiB", 10) == 2048);
-    try std.testing.expect(try parseIntSizeSuffix("2Ki", 10) == 2048);
-    try std.testing.expect(try parseIntSizeSuffix("aKiB", 16) == 10240);
-    try std.testing.expect(parseIntSizeSuffix("", 10) == error.InvalidCharacter);
-    try std.testing.expect(parseIntSizeSuffix("2iB", 10) == error.InvalidCharacter);
+    try std.testing.expectEqual(2, try parseIntSizeSuffix("2", 10));
+    try std.testing.expectEqual(2, try parseIntSizeSuffix("2B", 10));
+    try std.testing.expectEqual(2000, try parseIntSizeSuffix("2kB", 10));
+    try std.testing.expectEqual(2000, try parseIntSizeSuffix("2k", 10));
+    try std.testing.expectEqual(2048, try parseIntSizeSuffix("2KiB", 10));
+    try std.testing.expectEqual(2048, try parseIntSizeSuffix("2Ki", 10));
+    try std.testing.expectEqual(10240, try parseIntSizeSuffix("aKiB", 16));
+    try std.testing.expectError(error.InvalidCharacter, parseIntSizeSuffix("", 10));
+    try std.testing.expectError(error.InvalidCharacter, parseIntSizeSuffix("2iB", 10));
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
@@ -1854,7 +1854,7 @@ test "parse u64 digit too big" {
 
 test "parse unsigned comptime" {
     comptime {
-        try std.testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
+        try std.testing.expectEqual(2, try parseUnsigned(usize, "2", 10));
     }
 }
 
@@ -1963,15 +1963,15 @@ test "buffer" {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
         try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
+        try std.testing.expectEqualStrings("1234", fbs.getWritten());
 
         fbs.reset();
         try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
+        try std.testing.expectEqualStrings("a", fbs.getWritten());
 
         fbs.reset();
         try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
+        try std.testing.expectEqualStrings("1100", fbs.getWritten());
     }
 }
 
@@ -2372,10 +2372,10 @@ test "union" {
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    try std.testing.expect(mem.eql(u8, uu_result[0..18], "fmt.test.union.UU@"));
+    try std.testing.expectEqualStrings("fmt.test.union.UU@", uu_result[0..18]);
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expect(mem.eql(u8, eu_result[0..18], "fmt.test.union.EU@"));
+    try std.testing.expectEqualStrings("fmt.test.union.EU@", eu_result[0..18]);
 }
 
 test "struct.self-referential" {
@@ -2476,7 +2476,7 @@ test "formatIntValue with comptime_int" {
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatIntValue(value, "", FormatOptions{}, fbs.writer());
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
+    try std.testing.expectEqualStrings("123456789123456789", fbs.getWritten());
 }
 
 test "formatFloatValue with comptime_float" {
@@ -2542,19 +2542,19 @@ test "formatType max_depth" {
     var buf: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 0);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ ... }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ ... }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 1);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 2);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 }
 
 test "positional" {
