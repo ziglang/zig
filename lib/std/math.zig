@@ -1588,6 +1588,31 @@ pub const Order = enum {
         try testing.expect(Order.invert(order(-1, 0)) == .gt);
     }
 
+    pub fn differ(self: Order) ?Order {
+        return if (self != .eq) self else null;
+    }
+
+    test differ {
+        const neg: i32 = -1;
+        const zero: i32 = 0;
+        const pos: i32 = 1;
+        try testing.expect(order(zero, neg).differ() orelse
+            order(pos, zero) == .gt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(zero, zero) == .eq);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(neg, zero) == .lt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(pos, neg).differ() orelse
+            order(neg, zero) == .gt);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(pos, pos).differ() orelse
+            order(neg, neg) == .eq);
+        try testing.expect(order(zero, pos).differ() orelse
+            order(neg, pos).differ() orelse
+            order(pos, neg) == .lt);
+    }
+
     pub fn compare(self: Order, op: CompareOperator) bool {
         return switch (self) {
             .lt => switch (op) {

@@ -12249,10 +12249,10 @@ fn genCall(self: *Self, info: union(enum) {
             const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
             switch (switch (func_key) {
                 else => func_key,
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
-                },
+                } else func_key,
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
@@ -17877,8 +17877,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(mod),
+        lhs_ty.fmt(mod),                                    rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod, null),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }

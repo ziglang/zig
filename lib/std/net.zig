@@ -271,7 +271,7 @@ pub const Ip4Address = extern struct {
     sa: posix.sockaddr.in,
 
     pub fn parse(buf: []const u8, port: u16) IPv4ParseError!Ip4Address {
-        var result = Ip4Address{
+        var result: Ip4Address = .{
             .sa = .{
                 .port = mem.nativeToBig(u16, port),
                 .addr = undefined,
