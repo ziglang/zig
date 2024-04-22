@@ -614,6 +614,10 @@ pub fn isStaticLibrary(self: *const Compile) bool {
     return self.kind == .lib and self.linkage != .dynamic;
 }
 
+pub fn isDll(self: *Compile) bool {
+    return self.isDynamicLibrary() and self.rootModuleTarget().os.tag == .windows;
+}
+
 pub fn producesPdbFile(self: *Compile) bool {
     const target = self.rootModuleTarget();
     // TODO: Is this right? Isn't PDB for *any* PE/COFF file?
@@ -632,7 +636,7 @@ pub fn producesPdbFile(self: *Compile) bool {
 }
 
 pub fn producesImplib(self: *Compile) bool {
-    return self.isDynamicLibrary() and self.rootModuleTarget().os.tag == .windows;
+    return self.isDll();
 }
 
 pub fn linkLibC(self: *Compile) void {
