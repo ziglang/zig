@@ -1259,10 +1259,16 @@ pub const StandardOptimizeOptionOptions = struct {
 
 pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
     if (options.preferred_optimize_mode) |mode| {
-        if (b.option(bool, "release", "optimize for end users") orelse (b.release_mode != .off)) {
+        if (b.option(bool, "release", "optimize for end users") == true) {
             return mode;
         } else {
-            return .Debug;
+            return switch (b.release_mode) {
+                .off => .Debug,
+                .any => mode,
+                .fast => .ReleaseFast,
+                .safe => .ReleaseSafe,
+                .small => .ReleaseSmall,
+            };
         }
     }
 
