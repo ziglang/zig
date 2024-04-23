@@ -22,37 +22,43 @@ pub const Sha256 = Sha2x32(iv256, 256);
 pub const Sha384 = Sha2x64(iv384, 384);
 pub const Sha512 = Sha2x64(iv512, 512);
 
-// Truncated variants that save space but reduce security.
-// T = original IV
-// _ = changed IV
-/// SHA-256 truncated to 192 bits per FIPS 800-208.
-pub const Sha256T192 = Sha2x32(iv256, 256);
+/// Truncating the output of SHA2-based hash functions improves security by mitigating
+/// length-extension attacks. Collision attacks remain impractical for all the types defined here.
+/// T: original hash function, whose output is simply truncated.
+///    A truncated output is just the first bytes of a longer output.
+/// _: hash function with context separation.
+///    Different lengths produce completely different outputs.
+pub const truncated = struct {
+    pub const Sha256T192 = Sha2x32(iv256, 256);
 
-/// SHA-512 truncated to 224 bits per FIPS 180.
-pub const Sha512_224 = Sha512Truncated(224, IvStrategy.change);
-/// SHA-512 truncated to 224 bits.
-pub const Sha512T224 = Sha512Truncated(224, IvStrategy.keep);
+    pub const Sha512_224 = Sha2x64(sha512Iv(224), 224);
+    pub const Sha512_256 = Sha2x64(sha512Iv(iv512), 256);
 
-/// SHA-512 truncated to 256 bits per FIPS 180.
-pub const Sha512_256 = Sha512Truncated(256, IvStrategy.change);
-/// SHA-512 truncated to 256 bits.
-pub const Sha512T256 = Sha512Truncated(256, IvStrategy.keep);
+    pub const Sha512T224 = Sha2x64(iv512, 224);
+    pub const Sha512T256 = Sha2x64(iv512, 256);
 
-const IvStrategy = enum {
-    /// Change the IV per NIST FIPS 180 (released 2012).
-    change,
-    /// Use the original IV (released 2001).
-    keep,
+    test Sha512_224 {
+        const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
+        try htest.assertEqualHash(Sha512_224, h1, "");
+
+        const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
+        try htest.assertEqualHash(Sha512_224, h2, "abc");
+
+        const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
+        try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    }
+
+    test Sha512_256 {
+        const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
+        try htest.assertEqualHash(Sha512_256, h1, "");
+
+        const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
+        try htest.assertEqualHash(Sha512_256, h2, "abc");
+
+        const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
+        try htest.assertEqualHash(Sha512_256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    }
 };
-/// SHA-512 truncated to length `digest_bits` using `iv_strategy`.
-/// This may be more performant than SHA224 and SHA256.
-fn Sha512Truncated(digest_bits: comptime_int, comptime iv_strategy: IvStrategy) type {
-    const iv = switch (iv_strategy) {
-        .change => sha512iv(digest_bits),
-        .keep => iv512,
-    };
-    return Sha2x64(iv, digest_bits);
-}
 
 /// Low 32 bits of iv384.
 const iv224 = Iv32{
@@ -215,12 +221,12 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
             }
 
             if (!@inComptime()) {
-                const v4u32 = @Vector(4, u32);
+                const V4u32 = @Vector(4, u32);
                 switch (builtin.cpu.arch) {
                     .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
-                        var x: v4u32 = d.s[0..4].*;
-                        var y: v4u32 = d.s[4..8].*;
-                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
+                        var x: V4u32 = d.s[0..4].*;
+                        var y: V4u32 = d.s[4..8].*;
+                        const s_v = @as(*[16]V4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -228,7 +234,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                 s_v[k] = asm (
                                     \\sha256su0.4s %[w0_3], %[w4_7]
                                     \\sha256su1.4s %[w0_3], %[w8_11], %[w12_15]
-                                    : [w0_3] "=w" (-> v4u32),
+                                    : [w0_3] "=w" (-> V4u32),
                                     : [_] "0" (s_v[k - 4]),
                                       [w4_7] "w" (s_v[k - 3]),
                                       [w8_11] "w" (s_v[k - 2]),
@@ -236,7 +242,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                 );
                             }
 
-                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            const w: V4u32 = s_v[k] +% @as(V4u32, W[4 * k ..][0..4].*);
                             asm volatile (
                                 \\mov.4s v0, %[x]
                                 \\sha256h.4s %[x], %[y], %[w]
@@ -250,15 +256,15 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                             );
                         }
 
-                        d.s[0..4].* = x +% @as(v4u32, d.s[0..4].*);
-                        d.s[4..8].* = y +% @as(v4u32, d.s[4..8].*);
+                        d.s[0..4].* = x +% @as(V4u32, d.s[0..4].*);
+                        d.s[4..8].* = y +% @as(V4u32, d.s[4..8].*);
                         return;
                     },
                     // C backend doesn't currently support passing vectors to inline asm.
                     .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
-                        var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
-                        var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
-                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
+                        var x: V4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
+                        var y: V4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
+                        const s_v = @as(*[16]V4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -270,7 +276,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                     \\ paddd %[tmp], %[result]
                                     \\ sha256msg2 %[w12_15], %[result]
                                     : [tmp] "=&x" (tmp),
-                                      [result] "=&x" (-> v4u32),
+                                      [result] "=&x" (-> V4u32),
                                     : [_] "0" (tmp),
                                       [w4_7] "x" (s_v[k + 1]),
                                       [w8_11] "x" (s_v[k + 2]),
@@ -278,19 +284,19 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                 );
                             }
 
-                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            const w: V4u32 = s_v[k] +% @as(V4u32, W[4 * k ..][0..4].*);
                             y = asm ("sha256rnds2 %[x], %[y]"
-                                : [y] "=x" (-> v4u32),
+                                : [y] "=x" (-> V4u32),
                                 : [_] "0" (y),
                                   [x] "x" (x),
                                   [_] "{xmm0}" (w),
                             );
 
                             x = asm ("sha256rnds2 %[y], %[x]"
-                                : [x] "=x" (-> v4u32),
+                                : [x] "=x" (-> V4u32),
                                 : [_] "0" (x),
                                   [y] "x" (y),
-                                  [_] "{xmm0}" (@as(v4u32, @bitCast(@as(u128, @bitCast(w)) >> 64))),
+                                  [_] "{xmm0}" (@as(V4u32, @bitCast(@as(u128, @bitCast(w)) >> 64))),
                             );
                         }
 
@@ -734,11 +740,12 @@ fn roundParam512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: 
     };
 }
 
-/// FIPS 180 Section 5.3.6
-fn sha512iv(digest_len: comptime_int) Iv64 {
-    if (digest_len < 1 or digest_len >= 512 or digest_len == 384) {
-        @compileError("digest_len must be between 1 and 512 but not 384");
-    }
+/// Compute the IV for a truncated version of SHA512 per FIPS 180 Section 5.3.6
+fn sha512Iv(digest_len: comptime_int) Iv64 {
+    const assert = std.debug.assert;
+    comptime assert(digest_len > 1);
+    comptime assert(digest_len <= 512);
+    comptime assert(digest_len != 384); // NIST specially defines this (see `iv384`)
 
     comptime var gen_params = iv512;
     inline for (&gen_params) |*iv| {
@@ -762,7 +769,7 @@ fn sha512iv(digest_len: comptime_int) Iv64 {
     };
 }
 
-test sha512iv {
+test sha512Iv {
     // Section 5.3.6.1
     try std.testing.expectEqual(Iv64{
         0x8C3D37C819544DA2,
@@ -773,7 +780,7 @@ test sha512iv {
         0x77E36F7304C48942,
         0x3F9D85A86A1D36C8,
         0x1112E6AD91D692A1,
-    }, sha512iv(224));
+    }, sha512Iv(224));
     // Section 5.3.6.2
     try std.testing.expectEqual(Iv64{
         0x22312194FC2BF72C,
@@ -784,7 +791,7 @@ test sha512iv {
         0xBE5E1E2553863992,
         0x2B0199FC2C85B8AA,
         0x0EB72DDC81C52CA2,
-    }, sha512iv(256));
+    }, sha512Iv(256));
 }
 
 test Sha384 {
@@ -862,26 +869,4 @@ test "sha512 aligned final" {
     var h = Sha512.init(.{});
     h.update(&block);
     h.final(out[0..]);
-}
-
-test Sha512_224 {
-    const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
-    try htest.assertEqualHash(Sha512_224, h1, "");
-
-    const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
-    try htest.assertEqualHash(Sha512_224, h2, "abc");
-
-    const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
-    try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
-}
-
-test Sha512_256 {
-    const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
-    try htest.assertEqualHash(Sha512_256, h1, "");
-
-    const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
-    try htest.assertEqualHash(Sha512_256, h2, "abc");
-
-    const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
-    try htest.assertEqualHash(Sha512_256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
