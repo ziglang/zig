@@ -1,15 +1,17 @@
 //! Secure Hashing Algorithm 2 (SHA2)
 //!
-//! A suite of 5 secure hash functions with varying digest lengths:
-//! * Sha224
-//! * Sha256
-//! * Sha384
-//! * Sha512
-//! * Sha512/digest_len, where 1 < `digest_len` < 512 and `digest_len` != 384
+//! Published by the National Institue of Standards and Technology (NIST) [1] [2].
 //!
-//! Published by the National Institue of Standards and Technology (NIST):
-//! https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
-//! https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-208.pdf
+//! Truncation mitigates length-extension attacks but increases vulnerability to collision
+//! attacks. Collision attacks remain impractical for all types defined here.
+//!
+//! T: original hash function, whose output is simply truncated.
+//!    A truncated output is just the first bytes of a longer output.
+//! _: hash function with context separation.
+//!    Different lengths produce completely different outputs.
+//!
+//! [1] https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+//! [2] https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-208.pdf
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -22,43 +24,13 @@ pub const Sha256 = Sha2x32(iv256, 256);
 pub const Sha384 = Sha2x64(iv384, 384);
 pub const Sha512 = Sha2x64(iv512, 512);
 
-/// Truncating the output of SHA2-based hash functions improves security by mitigating
-/// length-extension attacks. Collision attacks remain impractical for all the types defined here.
-/// T: original hash function, whose output is simply truncated.
-///    A truncated output is just the first bytes of a longer output.
-/// _: hash function with context separation.
-///    Different lengths produce completely different outputs.
-pub const truncated = struct {
-    pub const Sha256T192 = Sha2x32(iv256, 256);
+pub const Sha256T192 = Sha2x32(iv256, 256);
 
-    pub const Sha512_224 = Sha2x64(sha512Iv(224), 224);
-    pub const Sha512_256 = Sha2x64(sha512Iv(256), 256);
+pub const Sha512T224 = Sha2x64(iv512, 224);
+pub const Sha512T256 = Sha2x64(iv512, 256);
 
-    pub const Sha512T224 = Sha2x64(iv512, 224);
-    pub const Sha512T256 = Sha2x64(iv512, 256);
-
-    test Sha512_224 {
-        const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
-        try htest.assertEqualHash(Sha512_224, h1, "");
-
-        const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
-        try htest.assertEqualHash(Sha512_224, h2, "abc");
-
-        const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
-        try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
-    }
-
-    test Sha512_256 {
-        const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
-        try htest.assertEqualHash(Sha512_256, h1, "");
-
-        const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
-        try htest.assertEqualHash(Sha512_256, h2, "abc");
-
-        const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
-        try htest.assertEqualHash(Sha512_256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
-    }
-};
+pub const Sha512_224 = Sha2x64(truncatedSha512Iv(224), 224);
+pub const Sha512_256 = Sha2x64(truncatedSha512Iv(256), 256);
 
 /// Low 32 bits of iv384.
 const iv224 = Iv32{
@@ -741,7 +713,7 @@ fn roundParam512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: 
 }
 
 /// Compute the IV for a truncated version of SHA512 per FIPS 180 Section 5.3.6
-fn sha512Iv(digest_len: comptime_int) Iv64 {
+fn truncatedSha512Iv(digest_len: comptime_int) Iv64 {
     const assert = std.debug.assert;
     comptime assert(digest_len > 1);
     comptime assert(digest_len <= 512);
@@ -769,7 +741,7 @@ fn sha512Iv(digest_len: comptime_int) Iv64 {
     };
 }
 
-test sha512Iv {
+test truncatedSha512Iv {
     // Section 5.3.6.1
     try std.testing.expectEqual(Iv64{
         0x8C3D37C819544DA2,
@@ -780,7 +752,7 @@ test sha512Iv {
         0x77E36F7304C48942,
         0x3F9D85A86A1D36C8,
         0x1112E6AD91D692A1,
-    }, sha512Iv(224));
+    }, truncatedSha512Iv(224));
     // Section 5.3.6.2
     try std.testing.expectEqual(Iv64{
         0x22312194FC2BF72C,
@@ -791,7 +763,7 @@ test sha512Iv {
         0xBE5E1E2553863992,
         0x2B0199FC2C85B8AA,
         0x0EB72DDC81C52CA2,
-    }, sha512Iv(256));
+    }, truncatedSha512Iv(256));
 }
 
 test Sha384 {
@@ -869,4 +841,26 @@ test "sha512 aligned final" {
     var h = Sha512.init(.{});
     h.update(&block);
     h.final(out[0..]);
+}
+
+test Sha512_224 {
+    const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
+    try htest.assertEqualHash(Sha512_224, h1, "");
+
+    const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
+    try htest.assertEqualHash(Sha512_224, h2, "abc");
+
+    const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
+    try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test Sha512_256 {
+    const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
+    try htest.assertEqualHash(Sha512_256, h1, "");
+
+    const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
+    try htest.assertEqualHash(Sha512_256, h2, "abc");
+
+    const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
+    try htest.assertEqualHash(Sha512_256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
