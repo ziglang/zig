@@ -1570,7 +1570,7 @@ pub const RequestOptions = struct {
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+    const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },

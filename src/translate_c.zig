@@ -671,7 +671,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, var_name, node);
 }
 
-const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
+const builtin_typedef_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
     .{ "uint16_t", "u16" },

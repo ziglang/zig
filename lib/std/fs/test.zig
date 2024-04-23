@@ -1641,7 +1641,7 @@ test "walker" {
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
-    const expected_paths = std.ComptimeStringMap(void, .{
+    const expected_paths = std.StaticStringMap(void).initComptime(.{
         .{"dir1"},
         .{"dir2"},
         .{"dir3"},
@@ -1651,7 +1651,7 @@ test "walker" {
         .{"dir3" ++ fs.path.sep_str ++ "sub2" ++ fs.path.sep_str ++ "subsub1"},
     });
 
-    const expected_basenames = std.ComptimeStringMap(void, .{
+    const expected_basenames = std.StaticStringMap(void).initComptime(.{
         .{"dir1"},
         .{"dir2"},
         .{"dir3"},
@@ -1661,8 +1661,8 @@ test "walker" {
         .{"subsub1"},
     });
 
-    for (expected_paths.kvs) |kv| {
-        try tmp.dir.makePath(kv.key);
+    for (expected_paths.keys()) |key| {
+        try tmp.dir.makePath(key);
     }
 
     var walker = try tmp.dir.walk(testing.allocator);

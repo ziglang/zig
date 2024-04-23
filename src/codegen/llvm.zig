@@ -1384,7 +1384,7 @@ pub const Object = struct {
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
         const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
-        const target = zcu.getTarget();
+        const target = owner_mod.resolved_target.result;
         const ip = &zcu.intern_pool;
 
         var dg: DeclGen = .{
@@ -1456,7 +1456,7 @@ pub const Object = struct {
         var llvm_arg_i: u32 = 0;
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
-        const sret = firstParamSRet(fn_info, zcu);
+        const sret = firstParamSRet(fn_info, zcu, target);
         const ret_ptr: Builder.Value = if (sret) param: {
             const param = wip.arg(llvm_arg_i);
             llvm_arg_i += 1;
@@ -2755,7 +2755,7 @@ pub const Object = struct {
 
                 // Return type goes first.
                 if (Type.fromInterned(fn_info.return_type).hasRuntimeBitsIgnoreComptime(mod)) {
-                    const sret = firstParamSRet(fn_info, mod);
+                    const sret = firstParamSRet(fn_info, mod, target);
                     const ret_ty = if (sret) Type.void else Type.fromInterned(fn_info.return_type);
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ret_ty));
 
@@ -2881,7 +2881,7 @@ pub const Object = struct {
         assert(decl.has_tv);
         const fn_info = zcu.typeToFunc(zig_fn_type).?;
         const target = owner_mod.resolved_target.result;
-        const sret = firstParamSRet(fn_info, zcu);
+        const sret = firstParamSRet(fn_info, zcu, target);
 
         const is_extern = decl.isExtern(zcu);
         const function_index = try o.builder.addFunction(
@@ -3604,7 +3604,7 @@ pub const Object = struct {
         var llvm_params = std.ArrayListUnmanaged(Builder.Type){};
         defer llvm_params.deinit(o.gpa);
 
-        if (firstParamSRet(fn_info, mod)) {
+        if (firstParamSRet(fn_info, mod, target)) {
             try llvm_params.append(o.gpa, .ptr);
         }
 
@@ -5130,7 +5130,7 @@ pub const FuncGen = struct {
         const return_type = Type.fromInterned(fn_info.return_type);
         const llvm_fn = try self.resolveInst(pl_op.operand);
         const target = mod.getTarget();
-        const sret = firstParamSRet(fn_info, mod);
+        const sret = firstParamSRet(fn_info, mod, target);
 
         var llvm_args = std.ArrayList(Builder.Value).init(self.gpa);
         defer llvm_args.deinit();
@@ -10865,38 +10865,38 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, targ
     };
 }
 
-fn firstParamSRet(fn_info: InternPool.Key.FuncType, mod: *Module) bool {
+fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Target) bool {
     const return_type = Type.fromInterned(fn_info.return_type);
-    if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) return false;
+    if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
-    const target = mod.getTarget();
-    switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(return_type, mod),
+    return switch (fn_info.cc) {
+        .Unspecified, .Inline => isByRef(return_type, zcu),
         .C => switch (target.cpu.arch) {
-            .mips, .mipsel => return false,
+            .mips, .mipsel => false,
+            .x86 => isByRef(return_type, zcu),
             .x86_64 => switch (target.os.tag) {
-                .windows => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
-                else => return firstParamSRetSystemV(return_type, mod),
+                .windows => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+                else => firstParamSRetSystemV(return_type, zcu, target),
             },
-            .wasm32 => return wasm_c_abi.classifyType(return_type, mod)[0] == .indirect,
-            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(return_type, mod) == .memory,
-            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, mod, .ret)) {
-                .memory, .i64_array => return true,
-                .i32_array => |size| return size != 1,
-                .byval => return false,
+            .wasm32 => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+            .aarch64, .aarch64_be => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
+            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+                .memory, .i64_array => true,
+                .i32_array => |size| size != 1,
+                .byval => false,
             },
-            .riscv32, .riscv64 => return riscv_c_abi.classifyType(return_type, mod) == .memory,
-            else => return false, // TODO investigate C ABI for other architectures
+            .riscv32, .riscv64 => riscv_c_abi.classifyType(return_type, zcu) == .memory,
+            else => false, // TODO investigate C ABI for other architectures
         },
-        .SysV => return firstParamSRetSystemV(return_type, mod),
-        .Win64 => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
-        .Stdcall => return !isScalar(mod, return_type),
-        else => return false,
-    }
+        .SysV => firstParamSRetSystemV(return_type, zcu, target),
+        .Win64 => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+        .Stdcall => !isScalar(zcu, return_type),
+        else => false,
+    };
 }
 
-fn firstParamSRetSystemV(ty: Type, mod: *Module) bool {
-    const class = x86_64_abi.classifySystemV(ty, mod, .ret);
+fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: std.Target) bool {
+    const class = x86_64_abi.classifySystemV(ty, zcu, target, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
     return false;
@@ -10922,6 +10922,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
         .C => {
             switch (target.cpu.arch) {
                 .mips, .mipsel => return o.lowerType(return_type),
+                .x86 => return if (isByRef(return_type, mod)) .void else o.lowerType(return_type),
                 .x86_64 => switch (target.os.tag) {
                     .windows => return lowerWin64FnRetTy(o, fn_info),
                     else => return lowerSystemVFnRetTy(o, fn_info),
@@ -11014,7 +11015,8 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
     if (isScalar(mod, return_type)) {
         return o.lowerType(return_type);
     }
-    const classes = x86_64_abi.classifySystemV(return_type, mod, .ret);
+    const target = mod.getTarget();
+    const classes = x86_64_abi.classifySystemV(return_type, mod, target, .ret);
     if (classes[0] == .memory) return .void;
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
@@ -11098,8 +11100,8 @@ const ParamTypeIterator = struct {
 
     pub fn next(it: *ParamTypeIterator) Allocator.Error!?Lowering {
         if (it.zig_index >= it.fn_info.param_types.len) return null;
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
         const ty = it.fn_info.param_types.get(ip)[it.zig_index];
         it.byval_attr = false;
         return nextInner(it, Type.fromInterned(ty));
@@ -11107,8 +11109,8 @@ const ParamTypeIterator = struct {
 
     /// `airCall` uses this instead of `next` so that it can take into account variadic functions.
     pub fn nextCall(it: *ParamTypeIterator, fg: *FuncGen, args: []const Air.Inst.Ref) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
         if (it.zig_index >= it.fn_info.param_types.len) {
             if (it.zig_index >= args.len) {
                 return null;
@@ -11121,10 +11123,10 @@ const ParamTypeIterator = struct {
     }
 
     fn nextInner(it: *ParamTypeIterator, ty: Type) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const target = mod.getTarget();
+        const zcu = it.object.module;
+        const target = zcu.getTarget();
 
-        if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             it.zig_index += 1;
             return .no_bits;
         }
@@ -11132,12 +11134,12 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (ty.isSlice(mod) or
-                    (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(mod).isSlice(mod) and !ty.ptrAllowsZero(mod)))
+                if (ty.isSlice(zcu) or
+                    (ty.zigTypeTag(zcu) == .Optional and ty.optionalChild(zcu).isSlice(zcu) and !ty.ptrAllowsZero(zcu)))
                 {
                     it.llvm_index += 1;
                     return .slice;
-                } else if (isByRef(ty, mod)) {
+                } else if (isByRef(ty, zcu)) {
                     return .byref;
                 } else {
                     return .byval;
@@ -11146,87 +11148,85 @@ const ParamTypeIterator = struct {
             .Async => {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
-            .C => {
-                switch (target.cpu.arch) {
-                    .mips, .mipsel => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
+            .C => switch (target.cpu.arch) {
+                .mips, .mipsel => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                },
+                .x86_64 => switch (target.os.tag) {
+                    .windows => return it.nextWin64(ty),
+                    else => return it.nextSystemV(ty),
+                },
+                .wasm32 => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    if (isScalar(zcu, ty)) {
                         return .byval;
-                    },
-                    .x86_64 => switch (target.os.tag) {
-                        .windows => return it.nextWin64(ty),
-                        else => return it.nextSystemV(ty),
-                    },
-                    .wasm32 => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        if (isScalar(mod, ty)) {
-                            return .byval;
-                        }
-                        const classes = wasm_c_abi.classifyType(ty, mod);
-                        if (classes[0] == .indirect) {
+                    }
+                    const classes = wasm_c_abi.classifyType(ty, zcu);
+                    if (classes[0] == .indirect) {
+                        return .byref;
+                    }
+                    return .abi_sized_int;
+                },
+                .aarch64, .aarch64_be => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    switch (aarch64_c_abi.classifyType(ty, zcu)) {
+                        .memory => return .byref_mut,
+                        .float_array => |len| return Lowering{ .float_array = len },
+                        .byval => return .byval,
+                        .integer => {
+                            it.types_len = 1;
+                            it.types_buffer[0] = .i64;
+                            return .multiple_llvm_types;
+                        },
+                        .double_integer => return Lowering{ .i64_array = 2 },
+                    }
+                },
+                .arm, .armeb => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
+                        .memory => {
+                            it.byval_attr = true;
                             return .byref;
-                        }
-                        return .abi_sized_int;
-                    },
-                    .aarch64, .aarch64_be => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        switch (aarch64_c_abi.classifyType(ty, mod)) {
-                            .memory => return .byref_mut,
-                            .float_array => |len| return Lowering{ .float_array = len },
-                            .byval => return .byval,
-                            .integer => {
-                                it.types_len = 1;
-                                it.types_buffer[0] = .i64;
-                                return .multiple_llvm_types;
-                            },
-                            .double_integer => return Lowering{ .i64_array = 2 },
-                        }
-                    },
-                    .arm, .armeb => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        switch (arm_c_abi.classifyType(ty, mod, .arg)) {
-                            .memory => {
-                                it.byval_attr = true;
-                                return .byref;
-                            },
-                            .byval => return .byval,
-                            .i32_array => |size| return Lowering{ .i32_array = size },
-                            .i64_array => |size| return Lowering{ .i64_array = size },
-                        }
-                    },
-                    .riscv32, .riscv64 => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        if (ty.toIntern() == .f16_type and
-                            !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
-                        switch (riscv_c_abi.classifyType(ty, mod)) {
-                            .memory => return .byref_mut,
-                            .byval => return .byval,
-                            .integer => return .abi_sized_int,
-                            .double_integer => return Lowering{ .i64_array = 2 },
-                            .fields => {
-                                it.types_len = 0;
-                                for (0..ty.structFieldCount(mod)) |field_index| {
-                                    const field_ty = ty.structFieldType(field_index, mod);
-                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                    it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
-                                    it.types_len += 1;
-                                }
-                                it.llvm_index += it.types_len - 1;
-                                return .multiple_llvm_types;
-                            },
-                        }
-                    },
-                    // TODO investigate C ABI for other architectures
-                    else => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        return .byval;
-                    },
-                }
+                        },
+                        .byval => return .byval,
+                        .i32_array => |size| return Lowering{ .i32_array = size },
+                        .i64_array => |size| return Lowering{ .i64_array = size },
+                    }
+                },
+                .riscv32, .riscv64 => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    if (ty.toIntern() == .f16_type and
+                        !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
+                    switch (riscv_c_abi.classifyType(ty, zcu)) {
+                        .memory => return .byref_mut,
+                        .byval => return .byval,
+                        .integer => return .abi_sized_int,
+                        .double_integer => return Lowering{ .i64_array = 2 },
+                        .fields => {
+                            it.types_len = 0;
+                            for (0..ty.structFieldCount(zcu)) |field_index| {
+                                const field_ty = ty.structFieldType(field_index, zcu);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                                it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                                it.types_len += 1;
+                            }
+                            it.llvm_index += it.types_len - 1;
+                            return .multiple_llvm_types;
+                        },
+                    }
+                },
+                // TODO investigate C ABI for other architectures
+                else => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                },
             },
             .Win64 => return it.nextWin64(ty),
             .SysV => return it.nextSystemV(ty),
@@ -11234,7 +11234,7 @@ const ParamTypeIterator = struct {
                 it.zig_index += 1;
                 it.llvm_index += 1;
 
-                if (isScalar(mod, ty)) {
+                if (isScalar(zcu, ty)) {
                     return .byval;
                 } else {
                     it.byval_attr = true;
@@ -11250,10 +11250,10 @@ const ParamTypeIterator = struct {
     }
 
     fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
-        const mod = it.object.module;
-        switch (x86_64_abi.classifyWindows(ty, mod)) {
+        const zcu = it.object.module;
+        switch (x86_64_abi.classifyWindows(ty, zcu)) {
             .integer => {
-                if (isScalar(mod, ty)) {
+                if (isScalar(zcu, ty)) {
                     it.zig_index += 1;
                     it.llvm_index += 1;
                     return .byval;
@@ -11283,16 +11283,17 @@ const ParamTypeIterator = struct {
     }
 
     fn nextSystemV(it: *ParamTypeIterator, ty: Type) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
-        const classes = x86_64_abi.classifySystemV(ty, mod, .arg);
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
+        const target = zcu.getTarget();
+        const classes = x86_64_abi.classifySystemV(ty, zcu, target, .arg);
         if (classes[0] == .memory) {
             it.zig_index += 1;
             it.llvm_index += 1;
             it.byval_attr = true;
             return .byref;
         }
-        if (isScalar(mod, ty)) {
+        if (isScalar(zcu, ty)) {
             it.zig_index += 1;
             it.llvm_index += 1;
             return .byval;
