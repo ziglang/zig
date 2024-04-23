@@ -49,7 +49,7 @@ const IvStrategy = enum {
 fn Sha512Truncated(digest_bits: comptime_int, comptime iv_strategy: IvStrategy) type {
     const iv = switch (iv_strategy) {
         .change => sha512iv(digest_bits),
-        .keep => iv256,
+        .keep => iv512,
     };
     return Sha2x64(iv, digest_bits);
 }
