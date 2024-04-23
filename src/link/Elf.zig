@@ -690,7 +690,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off % self.page_size) + @as(u64, if (ptr_bit_width >= 32) 0x4000000 else 0x4000),
+                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0x4000000 else 0x4000),
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -705,7 +705,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off % self.page_size) + @as(u64, if (ptr_bit_width >= 32) 0xc000000 else 0xa000),
+                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0xc000000 else 0xa000),
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -720,7 +720,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off % self.page_size) + @as(u64, if (ptr_bit_width >= 32) 0x10000000 else 0xc000),
+                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0x10000000 else 0xc000),
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -728,7 +728,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_zerofill_index == null) {
-            const alignment = @as(u16, ptr_size);
+            const alignment = self.page_size;
             self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
@@ -970,7 +970,11 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
         shdr.sh_size = 0;
         // Must move the entire section.
         const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
-        const new_offset = self.findFreeSpace(needed_size, alignment);
+        const new_offset_min = self.findFreeSpace(needed_size, alignment);
+        var new_offset = new_offset_min + (shdr.sh_addr & (self.page_size - 1)) - (new_offset_min & (self.page_size - 1));
+        if (new_offset < shdr.sh_offset) {
+            new_offset += self.page_size;
+        }
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.getShString(shdr.sh_name),
@@ -4502,7 +4506,7 @@ pub fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         const phndx = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .offset = off,
-            .addr = (off % self.page_size) + @as(u64, first.sh_addr),
+            .addr = first.sh_addr,
             .memsz = memsz,
             .filesz = filesz,
             .@"align" = @"align",
