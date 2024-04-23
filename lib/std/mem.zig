@@ -1710,10 +1710,10 @@ pub fn readVarPackedInt(
 }
 
 test readVarPackedInt {
-     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-     var st = T{ .a = 1, .b = 2, .c = 4 };
-     const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
-     try std.testing.expectEqual(st.b, b_field);
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
+    try std.testing.expectEqual(st.b, b_field);
 }
 
 /// Reads an integer from memory with bit count specified by T.
@@ -1820,10 +1820,10 @@ pub fn readPackedInt(comptime T: type, bytes: []const u8, bit_offset: usize, end
 }
 
 test readPackedInt {
-     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-     var st = T{ .a = 1, .b = 2, .c = 4 };
-     const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
-     try std.testing.expectEqual(st.b, b_field);
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
+    try std.testing.expectEqual(st.b, b_field);
 }
 
 test "comptime read/write int" {
@@ -1973,10 +1973,10 @@ pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T
 }
 
 test writePackedInt {
-     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-     var st = T{ .a = 1, .b = 2, .c = 4 };
-     writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
-     try std.testing.expectEqual(T{ .a = 1, .b = 0x7f, .c = 4 }, st);
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
+    try std.testing.expectEqual(T{ .a = 1, .b = 0x7f, .c = 4 }, st);
 }
 
 /// Stores an integer to packed memory with provided bit_offset, bit_count, and signedness.
@@ -2036,11 +2036,11 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 }
 
 test writeVarPackedInt {
-     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-     var st = T{ .a = 1, .b = 2, .c = 4 };
-     const value: u64 = 0x7f;
-     writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
-     try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const value: u64 = 0x7f;
+    writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
+    try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
 }
 
 /// Swap the byte order of all the members of the fields of a struct
