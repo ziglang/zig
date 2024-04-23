@@ -3590,22 +3590,42 @@ fn genCall(
                             const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                             const sym = elf_file.symbol(sym_index);
 
-                            _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                            const got_addr = sym.zigGotAddress(elf_file);
-                            try self.genSetReg(Type.usize, .ra, .{ .memory = @intCast(got_addr) });
+                            if (self.mod.pic) {
+                                return self.fail("TODO: genCall pic", .{});
+                            } else {
+                                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                                const got_addr = sym.zigGotAddress(elf_file);
+                                try self.genSetReg(Type.usize, .ra, .{ .memory = @intCast(got_addr) });
 
+                                _ = try self.addInst(.{
+                                    .tag = .jalr,
+                                    .ops = .rri,
+                                    .data = .{ .i_type = .{
+                                        .rd = .ra,
+                                        .rs1 = .ra,
+                                        .imm12 = Immediate.s(0),
+                                    } },
+                                });
+                            }
+                        } else unreachable; // not a valid riscv64 format
+                    },
+                    .extern_func => |extern_func| {
+                        const owner_decl = zcu.declPtr(extern_func.decl);
+                        const lib_name = extern_func.lib_name.toSlice(&zcu.intern_pool);
+                        const decl_name = owner_decl.name.toSlice(&zcu.intern_pool);
+                        const atom_index = try self.symbolIndex();
+
+                        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                             _ = try self.addInst(.{
-                                .tag = .jalr,
-                                .ops = .rri,
-                                .data = .{ .i_type = .{
-                                    .rd = .ra,
-                                    .rs1 = .ra,
-                                    .imm12 = Immediate.s(0),
+                                .tag = .pseudo,
+                                .ops = .pseudo_extern_fn_reloc,
+                                .data = .{ .reloc = .{
+                                    .atom_index = atom_index,
+                                    .sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name),
                                 } },
                             });
-                        } else unreachable;
+                        } else unreachable; // not a valid riscv64 format
                     },
-                    .extern_func => return self.fail("TODO: extern func calls", .{}),
                     else => return self.fail("TODO implement calling bitcasted functions", .{}),
                 }
             } else {
@@ -3613,6 +3633,7 @@ fn genCall(
                 const addr_reg, const addr_lock = try self.allocReg();
                 defer self.register_manager.unlockReg(addr_lock);
                 try self.genSetReg(Type.usize, addr_reg, .{ .air_ref = callee });
+
                 _ = try self.addInst(.{
                     .tag = .jalr,
                     .ops = .rri,

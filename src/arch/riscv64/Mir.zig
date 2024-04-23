@@ -202,6 +202,11 @@ pub const Inst = struct {
                 lte,
             },
         },
+
+        reloc: struct {
+            atom_index: u32,
+            sym_index: u32,
+        },
     };
 
     pub const Ops = enum {
@@ -214,10 +219,7 @@ pub const Inst = struct {
 
         /// Two registers + immediate, uses the i_type payload.
         rri,
-        /// Two registers + Two Immediates
-        rrii,
-
-        /// Two registers + another instruction.
+        //extern_fn_reloc/ Two registers + another instruction.
         rr_inst,
 
         /// Register + Memory
@@ -283,6 +285,9 @@ pub const Inst = struct {
 
         pseudo_compare,
         pseudo_not,
+
+        /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
+        pseudo_extern_fn_reloc,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.

@@ -70,6 +70,19 @@ pub fn emitMir(emit: *Emit) Error!void {
                         });
                     } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
                 },
+                .call_extern_fn_reloc => |symbol| {
+                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                        const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+
+                        const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
+
+                        try atom_ptr.addReloc(elf_file, .{
+                            .r_offset = start_offset,
+                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
+                            .r_addend = 0,
+                        });
+                    } else return emit.fail("TODO: call_extern_fn_reloc non-ELF", .{});
+                },
             };
         }
         std.debug.assert(lowered_relocs.len == 0);

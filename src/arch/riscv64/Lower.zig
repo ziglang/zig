@@ -32,8 +32,10 @@ pub const Reloc = struct {
     const Target = union(enum) {
         inst: Mir.Inst.Index,
 
-        /// Relocs the lowered_inst_index and the next one.
+        /// Relocs the lowered_inst_index and the next instruction.
         load_symbol_reloc: bits.Symbol,
+        /// Relocs the lowered_inst_index and the next instruction.
+        call_extern_fn_reloc: bits.Symbol,
     };
 };
 
@@ -244,6 +246,26 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = rr.rd },
                     .{ .reg = rr.rs },
                     .{ .imm = Immediate.s(1) },
+                });
+            },
+
+            .pseudo_extern_fn_reloc => {
+                const inst_reloc = inst.data.reloc;
+
+                try lower.emit(.auipc, &.{
+                    .{ .reg = .ra },
+                    .{ .imm = lower.reloc(
+                        .{ .call_extern_fn_reloc = .{
+                            .atom_index = inst_reloc.atom_index,
+                            .sym_index = inst_reloc.sym_index,
+                        } },
+                    ) },
+                });
+
+                try lower.emit(.jalr, &.{
+                    .{ .reg = .ra },
+                    .{ .reg = .ra },
+                    .{ .imm = Immediate.s(0) },
                 });
             },
 

@@ -22,6 +22,7 @@ pub const Mnemonic = enum {
 
     // U Type
     lui,
+    auipc,
 
     // S Type
     sd,
@@ -78,6 +79,7 @@ pub const Mnemonic = enum {
             .srai   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null,   .offset = 1 << 10  },
 
             .lui    => .{ .opcode = 0b0110111, .funct3 = null,  .funct7 = null      },
+            .auipc  => .{ .opcode = 0b0010111, .funct3 = null,  .funct7 = null      },
 
             .sd     => .{ .opcode = 0b0100011, .funct3 = 0b011, .funct7 = null      },
             .sw     => .{ .opcode = 0b0100011, .funct3 = 0b010, .funct7 = null      },
@@ -133,6 +135,7 @@ pub const InstEnc = enum {
             => .I,
 
             .lui,
+            .auipc,
             => .U,
 
             .sd,
