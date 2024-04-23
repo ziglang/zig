@@ -32,7 +32,7 @@ pub const truncated = struct {
     pub const Sha256T192 = Sha2x32(iv256, 256);
 
     pub const Sha512_224 = Sha2x64(sha512Iv(224), 224);
-    pub const Sha512_256 = Sha2x64(sha512Iv(iv512), 256);
+    pub const Sha512_256 = Sha2x64(sha512Iv(256), 256);
 
     pub const Sha512T224 = Sha2x64(iv512, 224);
     pub const Sha512T256 = Sha2x64(iv512, 256);
