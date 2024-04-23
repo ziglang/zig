@@ -774,7 +774,7 @@ pub fn generate(
     );
 
     const fn_info = zcu.typeToFunc(fn_type).?;
-    var call_info = function.resolveCallingConventionValues(fn_info) catch |err| switch (err) {
+    var call_info = function.resolveCallingConventionValues(fn_info, &.{}) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
@@ -3552,7 +3552,14 @@ fn genCall(
     };
 
     const fn_info = zcu.typeToFunc(fn_ty).?;
-    var call_info = try self.resolveCallingConventionValues(fn_info);
+
+    const allocator = self.gpa;
+
+    const var_args = try allocator.alloc(Type, args.len - fn_info.param_types.len);
+    defer allocator.free(var_args);
+    for (var_args, arg_tys[fn_info.param_types.len..]) |*var_arg, arg_ty| var_arg.* = arg_ty;
+
+    var call_info = try self.resolveCallingConventionValues(fn_info, var_args);
     defer call_info.deinit(self);
 
     // We need a properly aligned and sized call frame to be able to call this function.
@@ -5318,16 +5325,19 @@ const CallMCValues = struct {
 fn resolveCallingConventionValues(
     self: *Self,
     fn_info: InternPool.Key.FuncType,
+    var_args: []const Type,
 ) !CallMCValues {
     const zcu = self.bin_file.comp.module.?;
     const ip = &zcu.intern_pool;
 
-    const param_types = try self.gpa.alloc(Type, fn_info.param_types.len);
+    const param_types = try self.gpa.alloc(Type, fn_info.param_types.len + var_args.len);
     defer self.gpa.free(param_types);
 
     for (param_types[0..fn_info.param_types.len], fn_info.param_types.get(ip)) |*dest, src| {
         dest.* = Type.fromInterned(src);
     }
+    for (param_types[fn_info.param_types.len..], var_args) |*param_ty, arg_ty|
+        param_ty.* = self.promoteVarArg(arg_ty);
 
     const cc = fn_info.cc;
     var result: CallMCValues = .{
@@ -5512,5 +5522,35 @@ pub fn errUnionErrorOffset(payload_ty: Type, zcu: *Module) u64 {
         return error_align.forward(payload_ty.abiSize(zcu));
     } else {
         return 0;
+    }
+}
+
+fn promoteInt(self: *Self, ty: Type) Type {
+    const mod = self.bin_file.comp.module.?;
+    const int_info: InternPool.Key.IntType = switch (ty.toIntern()) {
+        .bool_type => .{ .signedness = .unsigned, .bits = 1 },
+        else => if (ty.isAbiInt(mod)) ty.intInfo(mod) else return ty,
+    };
+    for ([_]Type{
+        Type.c_int,      Type.c_uint,
+        Type.c_long,     Type.c_ulong,
+        Type.c_longlong, Type.c_ulonglong,
+    }) |promote_ty| {
+        const promote_info = promote_ty.intInfo(mod);
+        if (int_info.signedness == .signed and promote_info.signedness == .unsigned) continue;
+        if (int_info.bits + @intFromBool(int_info.signedness == .unsigned and
+            promote_info.signedness == .signed) <= promote_info.bits) return promote_ty;
+    }
+    return ty;
+}
+
+fn promoteVarArg(self: *Self, ty: Type) Type {
+    if (!ty.isRuntimeFloat()) return self.promoteInt(ty);
+    switch (ty.floatBits(self.target.*)) {
+        32, 64 => return Type.f64,
+        else => |float_bits| {
+            assert(float_bits == self.target.c_type_bit_size(.longdouble));
+            return Type.c_longdouble;
+        },
     }
 }
