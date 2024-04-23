@@ -9,6 +9,7 @@
 //!
 //! Published by the National Institue of Standards and Technology (NIST):
 //! https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+//! https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-208.pdf
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -20,16 +21,41 @@ pub const Sha224 = Sha2x32(iv224, 224);
 pub const Sha256 = Sha2x32(iv256, 256);
 pub const Sha384 = Sha2x64(iv384, 384);
 pub const Sha512 = Sha2x64(iv512, 512);
-pub const Sha512_224 = Sha512Truncated(224);
-pub const Sha512_256 = Sha512Truncated(256);
+
+// Truncated variants that save space but reduce security.
+// T = original IV
+// _ = changed IV
+/// SHA-256 truncated to 192 bits per FIPS 800-208.
+pub const Sha256T192 = Sha2x32(iv256, 256);
+
+/// SHA-512 truncated to 224 bits per FIPS 180.
+pub const Sha512_224 = Sha512Truncated(224, IvStrategy.change);
+/// SHA-512 truncated to 224 bits.
+pub const Sha512T224 = Sha512Truncated(224, IvStrategy.keep);
+
+/// SHA-512 truncated to 256 bits per FIPS 180.
+pub const Sha512_256 = Sha512Truncated(256, IvStrategy.change);
+/// SHA-512 truncated to 256 bits.
+pub const Sha512T256 = Sha512Truncated(256, IvStrategy.keep);
+
+const IvStrategy = enum {
+    /// Change the IV per NIST FIPS 180 (released 2012).
+    change,
+    /// Use the original IV (released 2001).
+    keep,
+};
+/// SHA-512 truncated to length `digest_bits` using `iv_strategy`.
 /// This may be more performant than SHA224 and SHA256.
-pub fn Sha512Truncated(digest_bits: comptime_int) type {
-    const iv = sha512iv(digest_bits);
+fn Sha512Truncated(digest_bits: comptime_int, comptime iv_strategy: IvStrategy) type {
+    const iv = switch (iv_strategy) {
+        .change => sha512iv(digest_bits),
+        .keep => iv256,
+    };
     return Sha2x64(iv, digest_bits);
 }
 
 /// Low 32 bits of iv384.
-const iv224 = IV32{
+const iv224 = Iv32{
     0xC1059ED8,
     0x367CD507,
     0x3070DD17,
@@ -41,7 +67,7 @@ const iv224 = IV32{
 };
 /// First thirty-two bits of the fractional parts of the square
 /// roots of the first eight prime numbers.
-const iv256 = IV32{
+const iv256 = Iv32{
     0x6A09E667,
     0xBB67AE85,
     0x3C6EF372,
@@ -54,7 +80,7 @@ const iv256 = IV32{
 
 /// First sixty-four bits of the fractional parts of the square
 /// roots of the ninth through sixteenth prime numbers.
-const iv384 = IV64{
+const iv384 = Iv64{
     0xCBBB9D5DC1059ED8,
     0x629A292A367CD507,
     0x9159015A3070DD17,
@@ -66,7 +92,7 @@ const iv384 = IV64{
 };
 /// First sixty-four bits of the fractional parts of the square
 /// roots of the first eight prime numbers.
-const iv512 = IV64{
+const iv512 = Iv64{
     0x6A09E667F3BCC908,
     0xBB67AE8584CAA73B,
     0x3C6EF372FE94F82B,
@@ -77,8 +103,8 @@ const iv512 = IV64{
     0x5BE0CD19137E2179,
 };
 
-const IV32 = [8]u32;
-fn Sha2x32(comptime iv: IV32, digest_bits: comptime_int) type {
+const Iv32 = [8]u32;
+fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
     return struct {
         const Self = @This();
         pub const block_length = 64;
@@ -467,15 +493,15 @@ test "sha256 aligned final" {
     h.final(out[0..]);
 }
 
-const IV64 = [8]u64;
-fn Sha2x64(comptime iv: IV64, digest_bits: comptime_int) type {
+const Iv64 = [8]u64;
+fn Sha2x64(comptime iv: Iv64, digest_bits: comptime_int) type {
     return struct {
         const Self = @This();
         pub const block_length = 128;
         pub const digest_length = std.math.divCeil(comptime_int, digest_bits, 8) catch unreachable;
         pub const Options = struct {};
 
-        s: IV64,
+        s: Iv64,
         // Streaming Cache
         buf: [128]u8 = undefined,
         buf_len: u8 = 0,
@@ -708,7 +734,8 @@ fn roundParam512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: 
     };
 }
 
-fn sha512iv(digest_len: comptime_int) IV64 {
+/// FIPS 180 Section 5.3.6
+fn sha512iv(digest_len: comptime_int) Iv64 {
     if (digest_len < 1 or digest_len >= 512 or digest_len == 384) {
         @compileError("digest_len must be between 1 and 512 but not 384");
     }
@@ -719,11 +746,11 @@ fn sha512iv(digest_len: comptime_int) IV64 {
     }
     const GenHash = Sha2x64(gen_params, 512);
 
-    var params: [@sizeOf(IV64)]u8 = undefined;
+    var params: [@sizeOf(Iv64)]u8 = undefined;
     const algo_str = std.fmt.comptimePrint("SHA-512/{d}", .{digest_len});
     GenHash.hash(algo_str, &params, .{});
 
-    return IV64{
+    return Iv64{
         std.mem.readInt(u64, params[0..8], .big),
         std.mem.readInt(u64, params[8..16], .big),
         std.mem.readInt(u64, params[16..24], .big),
@@ -737,7 +764,7 @@ fn sha512iv(digest_len: comptime_int) IV64 {
 
 test sha512iv {
     // Section 5.3.6.1
-    try std.testing.expectEqual(IV64{
+    try std.testing.expectEqual(Iv64{
         0x8C3D37C819544DA2,
         0x73E1996689DCD4D6,
         0x1DFAB7AE32FF9C82,
@@ -748,7 +775,7 @@ test sha512iv {
         0x1112E6AD91D692A1,
     }, sha512iv(224));
     // Section 5.3.6.2
-    try std.testing.expectEqual(IV64{
+    try std.testing.expectEqual(Iv64{
         0x22312194FC2BF72C,
         0x9F555FA3C84C64C2,
         0x2393B86B6F53B151,
