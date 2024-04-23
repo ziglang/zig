@@ -963,6 +963,8 @@ test "finite field arithmetic" {
 }
 
 fn testCt(ct_: anytype) !void {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     const l0: Limb = 0;
     const l1: Limb = 1;
     try testing.expectEqual(l1, ct_.select(true, l1, l0));
@@ -977,10 +979,7 @@ fn testCt(ct_: anytype) !void {
     try testing.expectEqual(false, ct_.limbsCmpLt(x.v, y.v));
     try testing.expectEqual(true, ct_.limbsCmpGeq(x.v, y.v));
 
-    try testing.expectEqual(
-        WideLimb{ .hi = 0, .lo = 0x88 },
-        ct_.mulWide(1 << 3, (1 << 4) + 1),
-    );
+    try testing.expectEqual(WideLimb{ .hi = 0, .lo = 0x88 }, ct_.mulWide(1 << 3, (1 << 4) + 1));
 }
 
 test ct {
