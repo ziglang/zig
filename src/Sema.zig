@@ -39713,41 +39713,35 @@ pub const RuntimeSafety = struct {
                 const decl_ptr: *Decl = sema.mod.declPtr(decl);
                 const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
                 try sema.resolveTypeFully(decl_ty);
-                return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
+                return (try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod))) - ptr_key.byte_offset;
             },
-            //.mut_decl => |mut_decl| {
-            //    const decl_ptr: *Decl = sema.mod.declPtr(mut_decl.decl);
-            //    const decl_ty: Type = decl_ptr.ty;
-            //    try sema.resolveTypeFully(decl_ty);
-            //    return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
-            //},
             .anon_decl => |anon_decl| {
                 const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
                 try sema.resolveTypeFully(decl_ty);
-                return try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod));
+                return (try sema.usizeCast(block, src, Type.abiSize(decl_ty, sema.mod))) - ptr_key.byte_offset;
             },
             .field => |field| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(field.base))) |memsz| {
                 const index: usize = try sema.usizeCast(block, src, field.index);
                 const container_ty: Type = Type.childType(Type.fromInterned(sema.mod.intern_pool.typeOf(field.base)), sema.mod);
                 const field_offset: usize = try sema.usizeCast(block, src, container_ty.structFieldOffset(index, sema.mod));
-                return memsz - field_offset;
+                return (memsz - field_offset) - ptr_key.byte_offset;
             },
             .arr_elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
                 const index: usize = try sema.usizeCast(block, src, elem.index);
                 const elem_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
                 try sema.resolveTypeFully(elem_ty);
                 const elem_ty_size: usize = try sema.usizeCast(block, src, elem_ty.abiSize(sema.mod));
-                return memsz - (elem_ty_size * index);
+                return (memsz - (elem_ty_size * index)) - ptr_key.byte_offset;
             },
             .comptime_field => |comptime_field| {
                 const field_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(comptime_field));
                 try sema.resolveTypeFully(field_ty);
-                return try sema.usizeCast(block, src, field_ty.abiSize(sema.mod));
+                return (try sema.usizeCast(block, src, field_ty.abiSize(sema.mod))) - ptr_key.byte_offset;
             },
             .comptime_alloc => |comptime_alloc| {
                 const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
                 try sema.resolveTypeFully(val_ty);
-                return try sema.usizeCast(block, src, val_ty.abiSize(sema.mod));
+                return try sema.usizeCast(block, src, val_ty.abiSize(sema.mod)) - ptr_key.byte_offset;
             },
             .eu_payload, .opt_payload => {
                 return sema.fail(block, src, "TODO: comptime slice manyptr from [eu|opt]_payload", .{});
