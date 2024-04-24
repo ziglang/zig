@@ -1681,8 +1681,9 @@ fn analyzeInstSwitchBr(
             var air_extra_index: usize = switch_br.end;
             for (0..ncases) |_| {
                 const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
+                air_extra_index = case.end + case.data.items_len + 2 * case.data.ranges_len;
+                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..case.data.body_len]);
+                air_extra_index += case_body.len;
                 try analyzeBody(a, pass, data, case_body);
             }
             { // else
@@ -1707,8 +1708,9 @@ fn analyzeInstSwitchBr(
             var air_extra_index: usize = switch_br.end;
             for (case_live_sets[0..ncases]) |*live_set| {
                 const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
+                air_extra_index = case.end + case.data.items_len + 2 * case.data.ranges_len;
+                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..case.data.body_len]);
+                air_extra_index += case_body.len;
                 try analyzeBody(a, pass, data, case_body);
                 live_set.* = data.live_set.move();
             }

@@ -1132,17 +1132,19 @@ pub const CondBr = struct {
 };
 
 /// Trailing:
-/// * 0. `Case` for each `cases_len`
-/// * 1. the else body, according to `else_body_len`.
+/// * 0. case: Case // for each `cases_len`.
+/// * 1. else_body_inst: Inst.Index // for each `else_body_len`.
 pub const SwitchBr = struct {
     cases_len: u32,
     else_body_len: u32,
 
     /// Trailing:
     /// * item: Inst.Ref // for each `items_len`.
-    /// * instruction index for each `body_len`.
+    /// * { range_start: Inst.Ref, range_end: Inst.Ref } // for each `ranges_len`.
+    /// * body_inst: Inst.Index // for each `body_len`.
     pub const Case = struct {
         items_len: u32,
+        ranges_len: u32,
         body_len: u32,
     };
 };

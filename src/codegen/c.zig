@@ -5049,14 +5049,16 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.data.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
-    // On the final iteration we do not need to fix any state. This is because, like in the `else`
-    // branch of a `cond_br`, our parent has to do it for this entire body anyway.
-    const last_case_i = switch_br.data.cases_len - @intFromBool(switch_br.data.else_body_len == 0);
-
+    var any_range_cases = false;
     var extra_index: usize = switch_br.end;
     for (0..switch_br.data.cases_len) |case_i| {
         const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[case.end..][0..case.data.items_len]));
+        if (case.data.ranges_len != 0) {
+            any_range_cases = true;
+            extra_index = case.end + case.data.items_len + case.data.ranges_len * 2 + case.data.body_len;
+            continue;
+        }
+        const items: []const Air.Inst.Ref = @ptrCast(f.air.extra[case.end..][0..case.data.items_len]);
         const case_body: []const Air.Inst.Index =
             @ptrCast(f.air.extra[case.end + items.len ..][0..case.data.body_len]);
         extra_index = case.end + case.data.items_len + case_body.len;
@@ -5079,30 +5081,69 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(' ');
 
-        if (case_i != last_case_i) {
-            try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
-        } else {
-            for (liveness.deaths[case_i]) |death| {
-                try die(f, inst, death.toRef());
-            }
-            try genBody(f, case_body);
-        }
+        try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
 
         // The case body must be noreturn so we don't need to insert a break.
     }
 
     const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra_index..][0..switch_br.data.else_body_len]);
     try f.object.indent_writer.insertNewline();
+
+    try writer.writeAll("default: ");
+    if (any_range_cases) {
+        // We will iterate the cases again to handle those with ranges, and generate
+        // code using conditionals rather than switch cases for such cases.
+        extra_index = switch_br.end;
+        for (0..switch_br.data.cases_len) |case_i| {
+            const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
+            if (case.data.ranges_len == 0) {
+                // No ranges, so handled above - skip this case.
+                extra_index = case.end + case.data.items_len + case.data.body_len;
+                continue;
+            }
+            extra_index = case.end;
+            const items: []const Air.Inst.Ref = @ptrCast(f.air.extra[extra_index..][0..case.data.items_len]);
+            extra_index += items.len;
+            // TODO: this can be written more cleanly once Sema allows @ptrCast on slices where the length changes.
+            const ranges: []const [2]Air.Inst.Ref = @as([*]const [2]Air.Inst.Ref, @ptrCast(f.air.extra[extra_index..].ptr))[0..case.data.ranges_len];
+            extra_index += ranges.len * 2;
+            const case_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra_index..][0..case.data.body_len]);
+            extra_index += case_body.len;
+            try writer.writeAll("if (");
+            for (items, 0..) |item, item_i| {
+                if (item_i != 0) try writer.writeAll(" || ");
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" == ");
+                try f.object.dg.renderValue(writer, (try f.air.value(item, zcu)).?, .Other);
+            }
+            for (ranges, 0..) |range, range_i| {
+                if (items.len != 0 or range_i != 0) try writer.writeAll(" || ");
+                // "(x >= lower && x <= upper)"
+                try writer.writeByte('(');
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" >= ");
+                try f.object.dg.renderValue(writer, (try f.air.value(range[0], zcu)).?, .Other);
+                try writer.writeAll(" && ");
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" <= ");
+                try f.object.dg.renderValue(writer, (try f.air.value(range[1], zcu)).?, .Other);
+                try writer.writeByte(')');
+            }
+            try writer.writeAll(") ");
+            try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
+        }
+    }
     if (else_body.len > 0) {
-        // Note that this must be the last case (i.e. the `last_case_i` case was not hit above)
+        // Note that this must be the last case, so we do not need to use `caseBodyResolveState` since
+        // the parent block will do it (because the case body is noreturn).
         for (liveness.deaths[liveness.deaths.len - 1]) |death| {
             try die(f, inst, death.toRef());
         }
-        try writer.writeAll("default: ");
         try genBody(f, else_body);
     } else {
-        try writer.writeAll("default: zig_unreachable();");
+        try writer.writeAll("zig_unreachable();");
     }
+
     try f.object.indent_writer.insertNewline();
 
     f.object.indent_writer.popIndent();

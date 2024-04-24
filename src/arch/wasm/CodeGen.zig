@@ -4015,6 +4015,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     var highest_maybe: ?i32 = null;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = func.air.extraData(Air.SwitchBr.Case, extra_index);
+        if (case.data.ranges_len != 0) return func.fail("TODO: switch with ranges", .{});
         const items: []const Air.Inst.Ref = @ptrCast(func.air.extra[case.end..][0..case.data.items_len]);
         const case_body: []const Air.Inst.Index = @ptrCast(func.air.extra[case.end + items.len ..][0..case.data.body_len]);
         extra_index = case.end + items.len + case_body.len;

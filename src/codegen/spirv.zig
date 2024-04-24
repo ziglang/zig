@@ -5456,6 +5456,7 @@ const DeclGen = struct {
             var num_conditions: u32 = 0;
             for (0..num_cases) |_| {
                 const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+                if (case.data.ranges_len != 0) return self.fail("TODO: switch with ranges", .{});
                 const case_body = self.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
                 num_conditions += case.data.items_len;

@@ -6096,10 +6096,17 @@ pub const FuncGen = struct {
             cond;
 
         var extra_index: usize = switch_br.end;
-        var case_i: u32 = 0;
+        var any_range_cases = false;
         var llvm_cases_len: u32 = 0;
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        for (0..switch_br.data.cases_len) |_| {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+            if (case.data.ranges_len != 0) {
+                // TODO: for ranges, we could still define any scalar cases in the same prong within
+                // the switch, just directing it to the same bb as the range check.
+                any_range_cases = true;
+                extra_index = case.end + case.data.items_len + case.data.ranges_len * 2 + case.data.body_len;
+                continue;
+            }
             const items: []const Air.Inst.Ref =
                 @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
@@ -6112,9 +6119,12 @@ pub const FuncGen = struct {
         defer wip_switch.finish(&self.wip);
 
         extra_index = switch_br.end;
-        case_i = 0;
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+        for (0..switch_br.data.cases_len) |_| {
             const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+            if (case.data.ranges_len != 0) {
+                extra_index = case.end + case.data.items_len + case.data.ranges_len * 2 + case.data.body_len;
+                continue;
+            }
             const items: []const Air.Inst.Ref =
                 @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
             const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
@@ -6137,6 +6147,60 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = else_block };
         const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+        if (any_range_cases) {
+            // We will iterate the cases again to handle those with ranges, and generate
+            // code using conditionals rather than switch cases for such cases.
+            const cond_ty = self.typeOf(pl_op.operand);
+            extra_index = switch_br.end;
+            for (0..switch_br.data.cases_len) |_| {
+                const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+                if (case.data.ranges_len == 0) {
+                    // No ranges, so handled above - skip this case.
+                    extra_index = case.end + case.data.items_len + case.data.body_len;
+                    continue;
+                }
+                extra_index = case.end;
+                const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_index..][0..case.data.items_len]);
+                extra_index += items.len;
+                // TODO: this can be written more cleanly once Sema allows @ptrCast on slices where the length changes.
+                const ranges: []const [2]Air.Inst.Ref = @as([*]const [2]Air.Inst.Ref, @ptrCast(self.air.extra[extra_index..].ptr))[0..case.data.ranges_len];
+                extra_index += ranges.len * 2;
+                const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..case.data.body_len]);
+                extra_index += case_body.len;
+
+                var range_cond: ?Builder.Value = null;
+
+                for (items) |item| {
+                    const llvm_item = try self.resolveInst(item);
+                    const cond_part = try self.cmp(.normal, .eq, cond_ty, cond, llvm_item);
+                    if (range_cond) |old| {
+                        range_cond = try self.wip.bin(.@"or", old, cond_part, "");
+                    } else range_cond = cond_part;
+                }
+                for (ranges) |range| {
+                    const llvm_min = try self.resolveInst(range[0]);
+                    const llvm_max = try self.resolveInst(range[1]);
+                    const cond_part = try self.wip.bin(
+                        .@"and",
+                        try self.cmp(.normal, .gte, cond_ty, cond, llvm_min),
+                        try self.cmp(.normal, .lte, cond_ty, cond, llvm_max),
+                        "",
+                    );
+                    if (range_cond) |old| {
+                        range_cond = try self.wip.bin(.@"or", old, cond_part, "");
+                    } else range_cond = cond_part;
+                }
+
+                const range_case_block = try self.wip.block(1, "RangeCase");
+                const range_else_block = try self.wip.block(1, "RangeDefault");
+
+                _ = try self.wip.brCond(range_cond.?, range_case_block, range_else_block);
+
+                self.wip.cursor = .{ .block = range_case_block };
+                try self.genBodyDebugScope(null, case_body);
+                self.wip.cursor = .{ .block = range_else_block };
+            }
+        }
         if (else_body.len != 0) {
             try self.genBodyDebugScope(null, else_body);
         } else {

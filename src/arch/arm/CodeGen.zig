@@ -5022,6 +5022,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+        if (case.data.ranges_len > 0) return self.fail("TODO: switch with ranges", .{});
         const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
         assert(items.len > 0);
         const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);

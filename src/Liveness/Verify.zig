@@ -526,12 +526,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 while (case_i < switch_br.data.cases_len) : (case_i += 1) {
                     const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                    const items = @as(
-                        []const Air.Inst.Ref,
-                        @ptrCast(self.air.extra[case.end..][0..case.data.items_len]),
-                    );
-                    const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-                    extra_index = case.end + items.len + case_body.len;
+                    extra_index = case.end + case.data.items_len + case.data.ranges_len * 2;
+                    const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..case.data.body_len]);
+                    extra_index += case_body.len;
 
                     self.live.deinit(self.gpa);
                     self.live = try live.clone(self.gpa);
