@@ -683,7 +683,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_got_index == null) {
-            const alignment = @as(u16, ptr_size);
+            const alignment = self.page_size; //@as(u16, ptr_size);
             const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
@@ -698,7 +698,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_ro_index == null) {
-            const alignment = @as(u16, ptr_size);
+            const alignment = self.page_size; //@as(u16, ptr_size);
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
@@ -713,7 +713,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_rw_index == null) {
-            const alignment = @as(u16, ptr_size);
+            const alignment = self.page_size; //@as(u16, ptr_size);
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
