@@ -1,159 +1,1143 @@
-buffer: []const u8,
-index: u32,
+//! RFC 5280: Internet X.509 Public Key Infrastructure (PKI) Certificate
+//!
+//! Certificate Revocation Lists (CRLs) currently unimplemented
+//! because they need frequent updates and there is no standard
+//! installation location.
 
-pub const Bundle = @import("Certificate/Bundle.zig");
+version: Version,
+/// The To Be Signed part of the certificate.
+/// This is the start of serial number to end of extensions.
+tbs_bytes: []const u8,
+/// Unique for each certificate issued by a given CA
+serial_number: []const u8,
+issuer: Name,
+validity: Validity,
+subject: Name,
+pub_key: PubKey,
 
-pub const Version = enum { v1, v2, v3 };
+// Extensions. These are still left unimplemented from RFC 5280:
+//   - Authority key identifier
+//   - Policy constraints
+//   - Policy mappings
+//   - Issuer alternative name
+//   - Subject directory attributes
+//   - Name constraints
+//   - CRL distribution points
+//   - Inhibit anyPolicy
+//   - Freshest CRL
+subject_key_identifier: ?[]const u8 = null,
+key_usage: KeyUsage = .{},
+basic_constraints: BasicConstraints = .{},
+/// See `policiesIter`.
+policies: ?[]const u8 = null,
+key_usage_ext: KeyUsageExt = .{},
+/// See `subjectAliasesIter`.
+subject_aliases: ?[]const u8 = null,
 
-pub const Algorithm = enum {
-    sha1WithRSAEncryption,
-    sha224WithRSAEncryption,
-    sha256WithRSAEncryption,
-    sha384WithRSAEncryption,
-    sha512WithRSAEncryption,
-    ecdsa_with_SHA224,
-    ecdsa_with_SHA256,
-    ecdsa_with_SHA384,
-    ecdsa_with_SHA512,
-    md2WithRSAEncryption,
-    md5WithRSAEncryption,
-    curveEd25519,
+/// Algorithm family and parameters.
+/// Does NOT include signature's public key type.
+signature_algo: Signature.Algorithm,
+/// The type is not `Signature` because we cannot infer the type from the length becuase
+/// different ECDSA curves have equal lengths.
+signature: der.BitString,
 
-    pub const map = std.StaticStringMap(Algorithm).initComptime(.{
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05 }, .sha1WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B }, .sha256WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C }, .sha384WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D }, .sha512WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0E }, .sha224WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01 }, .ecdsa_with_SHA224 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02 }, .ecdsa_with_SHA256 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03 }, .ecdsa_with_SHA384 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04 }, .ecdsa_with_SHA512 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x02 }, .md2WithRSAEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04 }, .md5WithRSAEncryption },
-        .{ &[_]u8{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
-    });
+pub const Flag = enum {
+    ignore,
+    set,
+    set_or_null,
 
-    pub fn Hash(comptime algorithm: Algorithm) type {
-        return switch (algorithm) {
-            .sha1WithRSAEncryption => crypto.hash.Sha1,
-            .ecdsa_with_SHA224, .sha224WithRSAEncryption => crypto.hash.sha2.Sha224,
-            .ecdsa_with_SHA256, .sha256WithRSAEncryption => crypto.hash.sha2.Sha256,
-            .ecdsa_with_SHA384, .sha384WithRSAEncryption => crypto.hash.sha2.Sha384,
-            .ecdsa_with_SHA512, .sha512WithRSAEncryption, .curveEd25519 => crypto.hash.sha2.Sha512,
-            .md2WithRSAEncryption => @compileError("unimplemented"),
-            .md5WithRSAEncryption => crypto.hash.Md5,
-        };
+    pub fn verify(self: Flag, value: ?bool) bool {
+        switch (self) {
+            .ignore => {},
+            .set => return value == true,
+            .set_or_null => if (value) |v| return v,
+        }
+        return true;
     }
 };
 
-pub const AlgorithmCategory = enum {
-    rsaEncryption,
-    X9_62_id_ecPublicKey,
-    curveEd25519,
+pub fn verifyHostName(sub: Cert, host_name: []const u8) !void {
+    var iter = sub.subjectAliasesIter();
+    if (iter.parser.bytes.len > 0) {
+        while (try iter.next()) |alias| {
+            if (checkHostName(host_name, alias)) return;
+        }
+    } else {
+        if (checkHostName(host_name, sub.subject.common_name.data)) return;
+    }
 
-    pub const map = std.StaticStringMap(AlgorithmCategory).initComptime(.{
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01 }, .rsaEncryption },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 }, .X9_62_id_ecPublicKey },
-        .{ &[_]u8{ 0x2B, 0x65, 0x70 }, .curveEd25519 },
-    });
+    return error.CertificateHostMismatch;
+}
+
+/// Check `host_name` matches `dns_name` with single-domain wildcard support
+/// according to RFC 4952.
+fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
+    var it_host = std.mem.splitScalar(u8, host_name, '.');
+    var it_dns = std.mem.splitScalar(u8, dns_name, '.');
+
+    while (true) {
+        const host = it_host.next();
+        const dns = it_dns.next();
+        // done?
+        if (host == null and dns == null) return true;
+        // len mismatch?
+        if (host == null or dns == null) return false;
+        // wildcard?
+        if (std.mem.eql(u8, "*", dns.?)) continue;
+        // match?
+        if (!std.mem.eql(u8, host.?, dns.?)) return false;
+    }
+}
+
+test checkHostName {
+    try testing.expectEqual(true, checkHostName("foo.a.com", "*.a.com"));
+    try testing.expectEqual(false, checkHostName("bar.foo.a.com", "*.a.com"));
+
+    try testing.expectEqual(false, checkHostName("bar.com", "f*.com"));
+    // rfc2818 says this should match, but rfc4952 disagrees.
+    // since rfc4952 came later and CAs tend to follow it, prefer its rules
+    try testing.expectEqual(false, checkHostName("foo.com", "f*.com"));
+}
+
+/// Creates references to `bytes` which must outlive returned `Cert`.
+pub fn fromDer(bytes: []const u8) !Cert {
+    var parser = der.Parser{ .bytes = bytes };
+    var res = Cert{
+        .version = undefined,
+        .serial_number = undefined,
+        .issuer = undefined,
+        .validity = undefined,
+        .subject = undefined,
+        .pub_key = undefined,
+        .tbs_bytes = undefined,
+        .signature_algo = undefined,
+        .signature = undefined,
+    };
+
+    {
+        const cert = try parser.expectSequence();
+        defer parser.seek(cert.slice.end);
+
+        {
+            const cert_tbs = try parser.expectSequence();
+            defer parser.seek(cert_tbs.slice.end);
+            res.tbs_bytes = parser.bytes[cert.slice.start..cert_tbs.slice.end];
+
+            {
+                const version_seq = try parser.expect(.context_specific, true, @enumFromInt(0));
+                defer parser.seek(version_seq.slice.end);
+
+                const version = try parser.expectInt(u8);
+                res.version = @enumFromInt(version);
+            }
+
+            const serial_number = try parser.expectPrimitive(.integer);
+            res.serial_number = parser.view(serial_number);
+            res.signature_algo = try Signature.Algorithm.fromDer(&parser);
+
+            res.issuer = try Name.fromDer(&parser);
+            res.validity = try Validity.fromDer(&parser);
+            res.subject = try Name.fromDer(&parser);
+            res.pub_key = try PubKey.fromDer(&parser);
+
+            while (parser.index != cert_tbs.slice.end) {
+                const optional_ele = try parser.expect(.context_specific, null, null);
+                defer parser.seek(optional_ele.slice.end);
+
+                switch (@intFromEnum(optional_ele.identifier.tag)) {
+                    1, 2 => {
+                        // skip issuerUniqueID or subjectUniqueID
+                        _ = try parser.expectBitstring();
+                    },
+                    3 => {
+                        try parseExtensions(&res, &parser);
+                    },
+                    else => return error.InvalidOptionalField,
+                }
+            }
+        }
+
+        // this field MUST match the earlier `signature` field
+        const sig_algo2 = try Signature.Algorithm.fromDer(&parser);
+        if (!std.meta.eql(res.signature_algo, sig_algo2)) return error.SigAlgoMismatch;
+
+        res.signature = try parser.expectBitstring();
+    }
+
+    return res;
+}
+
+fn parseExtensions(res: *Cert, parser: *der.Parser) !void {
+    // the extensions we parse are focused on client-side validation
+    const ExtensionTag = enum {
+        // RFC 5280 extensions
+        /// Fingerprint to identify CA's public key.
+        authority_key_identifier,
+        /// Fingerprint to identify public key (unused).
+        subject_key_identifier,
+        /// Purpose of key (see `KeyUsage`).
+        key_usage,
+        /// Policies that cert was issued under (domain verification, etc.) (unused).
+        certificate_policies,
+        /// Map of issuing CA policy considered equivalent to subject policy (unused).
+        policy_mappings,
+        /// Alternative names besides specified `subject`. Usually DNS entries.
+        subject_alt_name,
+        /// Alternative names besides specified `issuer` (unused).
+        /// S4.2.1.7 states: Issuer alternative names are not
+        /// processed as part of the certification path validation algorithm in
+        /// Section 6.
+        issuer_alt_name,
+        /// Nationality of subject
+        subject_directory_attributes,
+        /// Identify if is CA and maximum depth of valid cert paths including this cert.
+        basic_constraints,
+        /// For CA certificates, indicates a name space within which all subject names in
+        /// subsequent certificates in a certification path MUST be located (unused).
+        name_constraints,
+        /// For CA certificates, can be used to prohibit policy mapping or require
+        /// that each certificate in a path contain an acceptable policy
+        /// identifier.
+        policy_constraints,
+        /// Purpose of key (see `KeyUsageExt`).
+        key_usage_ext,
+        /// Where to find Certificate Revocation List (unused).
+        crl_distribution_points,
+        /// For CA certificates, indicates that the special anyPolicy OID is NOT
+        /// considered an explicit match for other certificate policies.
+        inhibit_anypolicy,
+
+        unknown,
+
+        pub const oids = std.StaticStringMap(@This()).initComptime(.{
+            .{ &comptimeOid("2.5.29.1"), .authority_key_identifier }, // deprecated
+            .{ &comptimeOid("2.5.29.14"), .subject_key_identifier },
+            .{ &comptimeOid("2.5.29.15"), .key_usage },
+            .{ &comptimeOid("2.5.29.17"), .subject_alt_name },
+            .{ &comptimeOid("2.5.29.18"), .issuer_alt_name },
+            .{ &comptimeOid("2.5.29.19"), .basic_constraints },
+            .{ &comptimeOid("2.5.29.25"), .crl_distribution_points }, // deprecated
+            .{ &comptimeOid("2.5.29.29"), .subject_directory_attributes },
+            .{ &comptimeOid("2.5.29.30"), .name_constraints },
+            .{ &comptimeOid("2.5.29.31"), .crl_distribution_points },
+            .{ &comptimeOid("2.5.29.32"), .certificate_policies },
+            .{ &comptimeOid("2.5.29.33"), .policy_mappings },
+            .{ &comptimeOid("2.5.29.34"), .policy_constraints },
+            .{ &comptimeOid("2.5.29.35"), .authority_key_identifier },
+            .{ &comptimeOid("2.5.29.37"), .key_usage_ext },
+            .{ &comptimeOid("2.5.29.54"), .inhibit_anypolicy },
+        });
+    };
+    const extensions_seq = try parser.expectSequence();
+    defer parser.seek(extensions_seq.slice.end);
+
+    while (parser.index != extensions_seq.slice.end) {
+        const extension_seq = try parser.expectSequence();
+        defer parser.seek(extension_seq.slice.end);
+
+        const oid = try parser.expectOid();
+        const tag = ExtensionTag.oids.get(oid) orelse .unknown;
+        const critical = parser.expectBool() catch |err| switch (err) {
+            error.UnexpectedElement => false,
+            else => return err,
+        };
+        const doc = try parser.expectPrimitive(.octetstring);
+        const doc_bytes = parser.view(doc);
+        var doc_parser = der.Parser{ .bytes = doc_bytes };
+        switch (tag) {
+            .key_usage => {
+                res.key_usage = try KeyUsage.fromDer(doc_bytes);
+            },
+            .key_usage_ext => {
+                res.key_usage_ext = try KeyUsageExt.fromDer(doc_bytes);
+            },
+            .subject_alt_name => {
+                const seq = try doc_parser.expectSequence();
+                res.subject_aliases = doc_parser.view(seq);
+            },
+            .basic_constraints => {
+                res.basic_constraints = try BasicConstraints.fromDer(doc_bytes);
+            },
+            .subject_key_identifier => {
+                const string = try doc_parser.expectPrimitive(.octetstring);
+                res.subject_key_identifier = doc_parser.view(string);
+            },
+            .certificate_policies => {
+                const seq = try doc_parser.expectSequence();
+                res.policies = doc_parser.view(seq);
+            },
+            .authority_key_identifier, .policy_mappings, .issuer_alt_name, .subject_directory_attributes, .name_constraints, .policy_constraints, .crl_distribution_points, .inhibit_anypolicy, .unknown => {
+                var buffer: [256]u8 = undefined;
+                var stream = std.io.fixedBufferStream(&buffer);
+                oid_mod.decode(oid, stream.writer()) catch {};
+
+                if (critical) {
+                    log.err("critical unknown extension {s}", .{stream.getWritten()});
+                    return error.UnimplementedCriticalExtension;
+                } else if (tag == .unknown) {
+                    log.debug("skipping unknown extension {s}", .{stream.getWritten()});
+                }
+            },
+        }
+    }
+}
+
+/// Validates:
+///   - Key usage matches basic constraints.
+///   - Signature algorithm is secure.
+///   - Time validity.
+pub fn validate(self: Cert, now_sec: i64) !void {
+    if (self.key_usage.key_cert_sign and !self.basic_constraints.is_ca) return error.KeySignAndNotCA;
+    try self.signature_algo.validate();
+    // This check should optimally be at the end so that `Bundle.parseCert` does not add
+    // certs that may be valid in the future but fail the above checks.
+    //
+    // Such certs would fail all `PathValidator.validate` checks.
+    try self.validity.validate(now_sec);
+}
+
+pub const SubjectAliasesIter = struct {
+    parser: der.Parser,
+
+    /// Next dnsName (RFC 5280 S4.2.1.6)
+    pub fn next(it: *@This()) !?[]const u8 {
+        while (true) {
+            const ele = it.parser.expect(.context_specific, null, null) catch |err| switch (err) {
+                error.EndOfStream => return null,
+                else => return err,
+            };
+            switch (@intFromEnum(ele.identifier.tag)) {
+                2 => return it.parser.view(ele),
+                else => {
+                    // We don't support the rest of the spec here since we currently only care
+                    // about verifying HTTPS.
+                },
+            }
+        }
+        return null;
+    }
 };
 
-pub const Attribute = enum {
-    commonName,
-    serialNumber,
-    countryName,
-    localityName,
-    stateOrProvinceName,
-    streetAddress,
-    organizationName,
-    organizationalUnitName,
-    postalCode,
-    organizationIdentifier,
-    pkcs9_emailAddress,
-    domainComponent,
+pub fn subjectAliasesIter(c: Cert) SubjectAliasesIter {
+    const bytes = if (c.subject_aliases) |b| b else "";
+    return SubjectAliasesIter{ .parser = der.Parser{ .bytes = bytes } };
+}
 
-    pub const map = std.StaticStringMap(Attribute).initComptime(.{
-        .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
-        .{ &[_]u8{ 0x55, 0x04, 0x05 }, .serialNumber },
-        .{ &[_]u8{ 0x55, 0x04, 0x06 }, .countryName },
-        .{ &[_]u8{ 0x55, 0x04, 0x07 }, .localityName },
-        .{ &[_]u8{ 0x55, 0x04, 0x08 }, .stateOrProvinceName },
-        .{ &[_]u8{ 0x55, 0x04, 0x09 }, .streetAddress },
-        .{ &[_]u8{ 0x55, 0x04, 0x0A }, .organizationName },
-        .{ &[_]u8{ 0x55, 0x04, 0x0B }, .organizationalUnitName },
-        .{ &[_]u8{ 0x55, 0x04, 0x11 }, .postalCode },
-        .{ &[_]u8{ 0x55, 0x04, 0x61 }, .organizationIdentifier },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x01 }, .pkcs9_emailAddress },
-        .{ &[_]u8{ 0x09, 0x92, 0x26, 0x89, 0x93, 0xF2, 0x2C, 0x64, 0x01, 0x19 }, .domainComponent },
-    });
+pub const Policy = struct {
+    oid: []const u8,
+    /// This field allows reporting to the user what qualifiers have been accepted.
+    /// See `qualifiersIter`.
+    qualifiers: ?[]const u8 = null,
+
+    pub const any = Policy{ .oid = &comptimeOid("2.5.29.32.0") };
+
+    pub const Qualifier = union(enum) {
+        uri: DisplayText,
+        notice: Notice,
+
+        pub const Notice = struct {
+            ref: ?[]const u8,
+            text: ?[]const u8,
+        };
+
+        pub fn fromDer(parser: *der.Parser) !Qualifier {
+            const tag = try parser.expectEnum(Tag);
+            switch (tag) {
+                .uri => {
+                    const uri = try parser.expect(.universal, false, .string_ia5);
+                    return .{ .uri = uri };
+                },
+                .notice => {
+                    const seq = try parser.expectSequence();
+                    defer parser.seek(seq.slice.end);
+
+                    const next = try parser.expect(null, null, null);
+                    switch (next.identifier.tag) {
+                        .sequence => {},
+                        .string_ia5,
+                        .string_visible,
+                        .string_bmp,
+                        .string_utf8,
+                        => {
+                            const uri = try DisplayText.fromDer(parser);
+                            return .{ .uri = uri };
+                        },
+                        else => return error.InvalidNotice,
+                    }
+                },
+            }
+        }
+
+        const Tag = enum {
+            uri,
+            notice,
+
+            pub const oids = std.StaticStringMap(@This()).initComptime(.{
+                .{ &comptimeOid("1.3.6.1.5.5.7.2.1"), .uri },
+                .{ &comptimeOid("1.3.6.1.5.5.7.2.2"), .notice },
+            });
+        };
+    };
+
+    pub const QualifiersIter = struct {
+        parser: der.Parser,
+
+        /// Next dnsName (RFC 5280 S4.2.1.6)
+        pub fn next(it: *@This()) !?Qualifier {
+            while (true) {
+                const ele = it.parser.expect(.context_specific, null, null) catch |err| switch (err) {
+                    error.EndOfStream => return null,
+                    else => return err,
+                };
+                switch (@intFromEnum(ele.identifier.tag)) {
+                    2 => return it.parser.view(ele),
+                    else => {
+                        // We don't support the rest of the spec here since we currently only care
+                        // about verifying HTTPS.
+                    },
+                }
+            }
+            return null;
+        }
+    };
+
+    pub fn qualifiersIter(self: Policy) QualifiersIter {
+        const bytes = if (self.qualifiers) |b| b else "";
+        return PoliciesIter{ .parser = der.Parser{ .bytes = bytes } };
+    }
+
+    pub fn fromDer(parser: *der.Parser) !Policy {
+        const seq = try parser.expectSequence();
+        defer parser.seek(seq.slice.end);
+
+        const oid = try parser.expectOid();
+        var qualifiers: ?[]const u8 = null;
+        if (parser.index != seq.slice.end) {
+            const seq2 = try parser.expectSequence();
+            qualifiers = parser.view(seq2);
+        }
+
+        return Policy{ .oid = oid, .qualifiers = qualifiers };
+    }
 };
 
-pub const NamedCurve = enum {
+pub const PoliciesIter = struct {
+    parser: der.Parser,
+
+    pub fn next(it: *@This()) !?Policy {
+        while (true) {
+            return Policy.fromDer(&it.parser) catch |err| switch (err) {
+                error.EndOfStream => return null,
+                else => return err,
+            };
+        }
+        return null;
+    }
+};
+
+pub fn policiesIter(c: Cert) PoliciesIter {
+    const bytes = if (c.policies) |b| b else "";
+    return PoliciesIter{ .parser = der.Parser{ .bytes = bytes } };
+}
+
+inline fn fmtCert(cert: Cert) []const u8 {
+    var buf: [256]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const writer = stream.writer();
+
+    cert.print(writer) catch {};
+
+    return stream.getWritten();
+}
+
+pub fn print(self: Cert, writer: anytype) !void {
+    try writer.writeAll("Cert{ ");
+
+    // Name + serial number = unique certificate.
+    try writer.writeAll(" Issuer{ ");
+    try self.issuer.print(writer);
+    try writer.writeAll(" }");
+
+    // spec says up to 20 bytes.
+    try writer.writeAll(", SN: ");
+    for (0..@min(20, self.serial_number.len)) |i| {
+        try writer.print("{x:0>2}", .{self.serial_number[i]});
+    }
+
+    // Finally, this is useful for debugging.
+    try writer.print(", Time: {d} to {d}", .{ self.validity.not_before, self.validity.not_after });
+
+    try writer.writeAll(", Subject{ ");
+    try self.subject.print(writer);
+    // These fields are useful for tracking down the certificate on aggregators.
+    if (self.subject_key_identifier) |s| {
+        try writer.writeAll(", SKI: ");
+        for (s) |c| {
+            try writer.print("{x:0>2}", .{c});
+        }
+    }
+    try writer.writeAll(" }");
+    try writer.writeAll(" }");
+}
+
+const PubKeyTag = enum {
+    rsa2048,
+    rsa3072,
+    rsa4096,
+    ecdsa_p256,
+    ecdsa_p384,
+    ecdsa_secp256,
+    ed25519,
+};
+
+pub const PubKey = union(PubKeyTag) {
+    rsa2048: Rsa2048.PublicKey,
+    rsa3072: Rsa3072.PublicKey,
+    rsa4096: Rsa4096.PublicKey,
+    ecdsa_p256: EcdsaP256.PublicKey,
+    ecdsa_p384: EcdsaP384.PublicKey,
+    ecdsa_secp256: EcdsaSecP256.PublicKey,
+    ed25519: Ed25519.PublicKey,
+
+    const Algo = enum {
+        rsa,
+        ecdsa,
+        ed25519,
+
+        pub const oids = std.StaticStringMap(Algo).initComptime(.{
+            .{ &comptimeOid("1.2.840.113549.1.1.1"), .rsa },
+            .{ &comptimeOid("1.2.840.10045.2.1"), .ecdsa },
+            .{ &comptimeOid("1.3.101.112"), .ed25519 },
+        });
+    };
+
+    pub fn fromDer(parser: *der.Parser) !PubKey {
+        const seq = try parser.expectSequence();
+        defer parser.seek(seq.slice.end);
+        const seq2 = try parser.expectSequence();
+        defer parser.seek(seq2.slice.end);
+
+        const tag = try parser.expectEnum(Algo);
+        switch (tag) {
+            .rsa => {
+                _ = try parser.expectPrimitive(.null);
+                const bitstring = try parser.expectBitstring();
+                if (bitstring.right_padding != 0) return error.InvalidKeyLength;
+
+                var parser2 = der.Parser{ .bytes = bitstring.bytes };
+                _ = try parser2.expectSequence();
+
+                const mod = try rsa.parseModulus(&parser2);
+                const elem = try parser2.expectPrimitive(.integer);
+                const pub_exp = parser2.view(elem);
+                return switch (mod.len * 8) {
+                    2048 => return .{ .rsa2048 = try Rsa2048.PublicKey.fromBytes(mod, pub_exp) },
+                    3072 => return .{ .rsa3072 = try Rsa3072.PublicKey.fromBytes(mod, pub_exp) },
+                    4096 => return .{ .rsa4096 = try Rsa4096.PublicKey.fromBytes(mod, pub_exp) },
+                    else => return error.InvalidRsaLength,
+                };
+            },
+            .ecdsa => {
+                const curve = try parser.expectEnum(NamedCurve);
+                const bitstring = try parser.expectBitstring();
+                if (bitstring.right_padding != 0) return error.InvalidKeyLength;
+
+                return switch (curve) {
+                    .prime256v1 => .{ .ecdsa_p256 = try EcdsaP256.PublicKey.fromSec1(bitstring.bytes) },
+                    .secp384r1 => .{ .ecdsa_p384 = try EcdsaP384.PublicKey.fromSec1(bitstring.bytes) },
+                    .secp521r1 => return error.CurveUnsupported,
+                    .secp256k1 => .{ .ecdsa_secp256 = try EcdsaSecP256.PublicKey.fromSec1(bitstring.bytes) },
+                };
+            },
+            .ed25519 => {
+                _ = try parser.expectPrimitive(.null);
+                const bitstring = try parser.expectBitstring();
+                if (bitstring.right_padding != 0) return error.InvalidKeyLength;
+                const expected_len = Ed25519.PublicKey.encoded_length;
+                if (bitstring.bytes.len != expected_len) return error.InvalidKeyLength;
+                const key = try Ed25519.PublicKey.fromBytes(bitstring.bytes[0..expected_len].*);
+
+                return .{ .ed25519 = key };
+            },
+        }
+    }
+};
+
+pub const Validity = struct {
+    not_before: i64,
+    not_after: i64,
+
+    pub fn fromDer(parser: *der.Parser) !Validity {
+        const seq = try parser.expectSequence();
+        defer parser.seek(seq.slice.end);
+
+        var res: Validity = undefined;
+        res.not_before = try parser.expectDateTime();
+        res.not_after = try parser.expectDateTime();
+        return res;
+    }
+
+    pub fn validate(self: Validity, sec: i64) !void {
+        if (sec < self.not_before) return error.CertificateNotYetValid;
+        if (sec > self.not_after) return error.CertificateExpired;
+    }
+};
+
+pub const Name = struct {
+    // must implement
+    country: DirectoryString = empty,
+    organization: DirectoryString = empty,
+    organizational_unit: DirectoryString = empty,
+    distinguished_name: DirectoryString = empty,
+    state_or_province: DirectoryString = empty,
+    common_name: DirectoryString = empty,
+    serial_number: DirectoryString = empty,
+    domain_component: []const u8 = "",
+
+    // may implement
+    locality: DirectoryString = empty,
+    title: DirectoryString = empty,
+    surname: DirectoryString = empty,
+    given_name: DirectoryString = empty,
+    initials: DirectoryString = empty,
+    pseudonym: DirectoryString = empty,
+    generation_qualifier: DirectoryString = empty,
+
+    // not in RFC but found in real CA certs
+    organization_id: DirectoryString = empty,
+    /// deprecated in favor of altName extension
+    email_address: []const u8 = "",
+
+    /// for unknown fields. holds opaque sequence.
+    kvs: KVs = [_][]const u8{""} ** unknown_len,
+    kvs_len: u8 = 0,
+
+    const empty = DirectoryString.empty;
+    const unknown_len = 7;
+
+    pub const KVs = [unknown_len][]const u8;
+
+    pub fn fromDer(parser: *der.Parser) !Name {
+        var res = Name{};
+        const seq = try parser.expectSequence();
+
+        while (parser.index != seq.slice.end) {
+            const kv = try parser.expectSequenceOf();
+            defer parser.index = kv.slice.end;
+
+            const seq2 = try parser.expectSequence();
+            const key = parser.expectEnum(Attribute) catch |err| switch (err) {
+                error.UnknownObjectId => {
+                    if (res.kvs_len < res.kvs.len) {
+                        res.kvs_len += 1;
+                        res.kvs[res.kvs_len] = parser.view(seq2);
+                        continue;
+                    } else {
+                        return error.NameAttributeOverflow;
+                    }
+                },
+                else => return err,
+            };
+            switch (key) {
+                inline .domain_component, .email_address => |t| {
+                    const ele = try parser.expect(.universal, false, null);
+                    if (ele.identifier.tag != .string_ia5) return error.InvalidDomainComponent;
+                    @field(res, @tagName(t)) = parser.view(ele);
+                },
+                inline else => |t| {
+                    @field(res, @tagName(t)) = try DirectoryString.fromDer(parser);
+                },
+            }
+        }
+
+        return res;
+    }
+
+    // match field names for easy `inline else`
+    const Attribute = enum {
+        country,
+        organization,
+        organizational_unit,
+        distinguished_name,
+        state_or_province,
+        common_name,
+        serial_number,
+        domain_component,
+        locality,
+        title,
+        surname,
+        given_name,
+        initials,
+        pseudonym,
+        generation_qualifier,
+        organization_id,
+        email_address,
+
+        pub const oids = std.StaticStringMap(Attribute).initComptime(.{
+            .{ &comptimeOid("0.9.2342.19200300.100.1.25"), .domain_component },
+            .{ &comptimeOid("1.2.840.113549.1.9.1"), .email_address },
+            .{ &comptimeOid("2.5.4.3"), .common_name },
+            .{ &comptimeOid("2.5.4.4"), .surname },
+            .{ &comptimeOid("2.5.4.5"), .serial_number },
+            .{ &comptimeOid("2.5.4.6"), .country },
+            .{ &comptimeOid("2.5.4.7"), .locality },
+            .{ &comptimeOid("2.5.4.8"), .state_or_province },
+            .{ &comptimeOid("2.5.4.10"), .organization },
+            .{ &comptimeOid("2.5.4.11"), .organizational_unit },
+            .{ &comptimeOid("2.5.4.12"), .title },
+            .{ &comptimeOid("2.5.4.42"), .given_name },
+            .{ &comptimeOid("2.5.4.43"), .initials },
+            .{ &comptimeOid("2.5.4.44"), .generation_qualifier },
+            .{ &comptimeOid("2.5.4.49"), .distinguished_name },
+            .{ &comptimeOid("2.5.4.65"), .pseudonym },
+            .{ &comptimeOid("2.5.4.97"), .organization_id },
+        });
+
+        comptime {
+            std.debug.assert(std.meta.fields(@This()).len == oids.kvs.len);
+        }
+    };
+
+    /// TODO: Use unicode mapping, lowering, and normalization in section 7.1.
+    /// Will require unicode mapping tables from RFC 4818 and RFC 3454.
+    ///
+    /// This version is stricter but less internationalized.
+    pub fn eql(self: Name, other: Name) bool {
+        inline for (@typeInfo(Name).Struct.fields) |field| {
+            const v1 = @field(self, field.name);
+            const v2 = @field(other, field.name);
+            if (field.type == DirectoryString) {
+                if (!v1.cmp(v2)) return false;
+            } else if (field.type == []const u8) {
+                if (!mem.eql(u8, v1, v2)) return false;
+            } else if (field.type == u8) {
+                if (v1 != v2) return false;
+            } else if (field.type == [7][]const u8) {
+                for (v1, v2) |s1, s2| {
+                    if (!mem.eql(u8, s1, s2)) return false;
+                }
+            } else {
+                @compileError("add else if for " ++ @typeName(field.type));
+            }
+        }
+        return true;
+    }
+
+    pub fn print(name: Name, writer: anytype) !void {
+        if (name.organization.data.len > 0) try writer.print("O: {s}, ", .{name.organization.data});
+        if (name.country.data.len > 0) try writer.print("C: {s}, ", .{name.country.data});
+        if (name.common_name.data.len > 0) try writer.print("CN: {s} ", .{name.common_name.data});
+    }
+};
+
+pub const Version = enum(u8) {
+    v1 = 0,
+    v2 = 1,
+    v3 = 2,
+};
+
+const NamedCurve = enum {
+    prime256v1,
+    secp256k1,
     secp384r1,
     secp521r1,
-    X9_62_prime256v1,
 
-    pub const map = std.StaticStringMap(NamedCurve).initComptime(.{
-        .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x22 }, .secp384r1 },
-        .{ &[_]u8{ 0x2B, 0x81, 0x04, 0x00, 0x23 }, .secp521r1 },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07 }, .X9_62_prime256v1 },
+    pub const oids = std.StaticStringMap(@This()).initComptime(.{
+        .{ &comptimeOid("1.2.840.10045.3.1.7"), .prime256v1 },
+        .{ &comptimeOid("1.3.132.0.10"), .secp256k1 },
+        .{ &comptimeOid("1.3.132.0.34"), .secp384r1 },
+        .{ &comptimeOid("1.3.132.0.35"), .secp521r1 },
+    });
+};
+
+const AlgorithmTag = enum {
+    rsa_pkcs_sha1,
+    rsa_pkcs_sha224,
+    rsa_pkcs_sha256,
+    rsa_pkcs_sha384,
+    rsa_pkcs_sha512,
+    rsa_pss,
+    ecdsa_sha224,
+    ecdsa_sha256,
+    ecdsa_sha384,
+    ecdsa_sha512,
+    ed25519,
+
+    pub const oids = std.StaticStringMap(AlgorithmTag).initComptime(.{
+        .{ &comptimeOid("1.2.840.113549.1.1.5"), .rsa_pkcs_sha1 },
+        .{ &comptimeOid("1.2.840.113549.1.1.10"), .rsa_pss },
+        .{ &comptimeOid("1.2.840.113549.1.1.11"), .rsa_pkcs_sha256 },
+        .{ &comptimeOid("1.2.840.113549.1.1.12"), .rsa_pkcs_sha384 },
+        .{ &comptimeOid("1.2.840.113549.1.1.13"), .rsa_pkcs_sha512 },
+        .{ &comptimeOid("1.2.840.113549.1.1.14"), .rsa_pkcs_sha224 },
+        .{ &comptimeOid("1.2.840.10045.4.3.1"), .ecdsa_sha224 },
+        .{ &comptimeOid("1.2.840.10045.4.3.2"), .ecdsa_sha256 },
+        .{ &comptimeOid("1.2.840.10045.4.3.3"), .ecdsa_sha384 },
+        .{ &comptimeOid("1.2.840.10045.4.3.4"), .ecdsa_sha512 },
+        .{ &comptimeOid("1.3.101.112"), .ed25519 },
+    });
+};
+
+const HashTag = enum {
+    sha1,
+    sha224,
+    sha256,
+    sha384,
+    sha512,
+
+    pub const oids = std.StaticStringMap(@This()).initComptime(.{
+        .{ &comptimeOid("1.3.14.3.2.26"), .sha1 },
+        .{ &comptimeOid("2.16.840.1.101.3.4.2.1"), .sha256 },
+        .{ &comptimeOid("2.16.840.1.101.3.4.2.2"), .sha384 },
+        .{ &comptimeOid("2.16.840.1.101.3.4.2.3"), .sha512 },
+        .{ &comptimeOid("2.16.840.1.101.3.4.2.4"), .sha224 },
     });
 
-    pub fn Curve(comptime curve: NamedCurve) type {
-        return switch (curve) {
-            .X9_62_prime256v1 => crypto.ecc.P256,
-            .secp384r1 => crypto.ecc.P384,
-            .secp521r1 => @compileError("unimplemented"),
+    pub fn Hash(comptime self: HashTag) type {
+        return switch (self) {
+            .sha1 => return crypto.hash.Sha1,
+            .sha224 => return crypto.hash.sha2.Sha224,
+            .sha256 => return crypto.hash.sha2.Sha256,
+            .sha384 => return crypto.hash.sha2.Sha384,
+            .sha512 => return crypto.hash.sha2.Sha512,
         };
+    }
+
+    pub fn verify(self: HashTag) !void {
+        switch (self) {
+            .sha1 => return error.InsecureHash,
+            .sha224, .sha256, .sha384, .sha512 => {},
+        }
     }
 };
 
-pub const ExtensionId = enum {
-    subject_key_identifier,
-    key_usage,
-    private_key_usage_period,
-    subject_alt_name,
-    issuer_alt_name,
-    basic_constraints,
-    crl_number,
-    certificate_policies,
-    authority_key_identifier,
-    msCertsrvCAVersion,
-    commonName,
-    ext_key_usage,
-    crl_distribution_points,
-    info_access,
-    entrustVersInfo,
-    enroll_certtype,
-    pe_logotype,
-    netscape_cert_type,
-    netscape_comment,
+pub const Signature = struct {
+    algo: Algorithm,
+    value: Value,
 
-    pub const map = std.StaticStringMap(ExtensionId).initComptime(.{
-        .{ &[_]u8{ 0x55, 0x04, 0x03 }, .commonName },
-        .{ &[_]u8{ 0x55, 0x1D, 0x01 }, .authority_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x07 }, .subject_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0E }, .subject_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0F }, .key_usage },
-        .{ &[_]u8{ 0x55, 0x1D, 0x0A }, .basic_constraints },
-        .{ &[_]u8{ 0x55, 0x1D, 0x10 }, .private_key_usage_period },
-        .{ &[_]u8{ 0x55, 0x1D, 0x11 }, .subject_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x12 }, .issuer_alt_name },
-        .{ &[_]u8{ 0x55, 0x1D, 0x13 }, .basic_constraints },
-        .{ &[_]u8{ 0x55, 0x1D, 0x14 }, .crl_number },
-        .{ &[_]u8{ 0x55, 0x1D, 0x1F }, .crl_distribution_points },
-        .{ &[_]u8{ 0x55, 0x1D, 0x20 }, .certificate_policies },
-        .{ &[_]u8{ 0x55, 0x1D, 0x23 }, .authority_key_identifier },
-        .{ &[_]u8{ 0x55, 0x1D, 0x25 }, .ext_key_usage },
-        .{ &[_]u8{ 0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x15, 0x01 }, .msCertsrvCAVersion },
-        .{ &[_]u8{ 0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x01 }, .info_access },
-        .{ &[_]u8{ 0x2A, 0x86, 0x48, 0x86, 0xF6, 0x7D, 0x07, 0x41, 0x00 }, .entrustVersInfo },
-        .{ &[_]u8{ 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02 }, .enroll_certtype },
-        .{ &[_]u8{ 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x01, 0x0c }, .pe_logotype },
-        .{ &[_]u8{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x01 }, .netscape_cert_type },
-        .{ &[_]u8{ 0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x01, 0x0d }, .netscape_comment },
-    });
+    pub const Algorithm = union(enum) {
+        rsa_pkcs: HashTag,
+        rsa_pss: RsaPss,
+        ecdsa: Ecdsa,
+        ed25519: void,
+
+        // RFC 4055 S3.1
+        const RsaPss = struct {
+            hash: HashTag,
+            mask_gen: MaskGen = .{ .tag = .mgf1, .hash = .sha256 },
+            salt_len: u8 = 32,
+
+            pub fn fromDer(parser: *der.Parser) !RsaPss {
+                const body = try parser.expectSequence();
+                defer parser.seek(body.slice.end);
+
+                const hash = brk: {
+                    const seq = try parser.expectSequence();
+                    defer parser.seek(seq.slice.end);
+                    const hash = try parser.expectEnum(HashTag);
+                    _ = try parser.expectPrimitive(.null);
+                    break :brk hash;
+                };
+
+                const mask_gen = try MaskGen.fromDer(parser);
+                const salt_len = try parser.expectInt(i8);
+                if (salt_len < 0) return error.InvalidSaltLength;
+
+                return .{ .hash = hash, .mask_gen = mask_gen, .salt_len = @bitCast(salt_len) };
+            }
+
+            const MaskGen = struct {
+                tag: Tag,
+                hash: HashTag,
+
+                pub fn fromDer(parser: *der.Parser) !MaskGen {
+                    const seq = try parser.expectSequence();
+                    defer parser.seek(seq.slice.end);
+
+                    const tag = try parser.expectEnum(Tag);
+                    const hash = try parser.expectEnum(HashTag);
+                    return .{ .tag = tag, .hash = hash };
+                }
+
+                const Tag = enum {
+                    mgf1,
+
+                    pub const oids = std.StaticStringMap(@This()).initComptime(.{
+                        .{ &comptimeOid("1.2.840.113549.1.1.8"), .mgf1 },
+                    });
+                };
+            };
+        };
+
+        const Ecdsa = struct {
+            hash: HashTag,
+            curve: ?NamedCurve,
+        };
+
+        fn fromDer(parser: *der.Parser) !Algorithm {
+            const seq = try parser.expectSequence();
+            defer parser.seek(seq.slice.end);
+
+            const algo = try parser.expectEnum(AlgorithmTag);
+            switch (algo) {
+                inline .rsa_pkcs_sha1,
+                .rsa_pkcs_sha224,
+                .rsa_pkcs_sha256,
+                .rsa_pkcs_sha384,
+                .rsa_pkcs_sha512,
+                => |t| {
+                    _ = try parser.expectPrimitive(.null);
+                    const hash = std.meta.stringToEnum(HashTag, @tagName(t)["rsa_pkcs_".len..]).?;
+                    return .{ .rsa_pkcs = hash };
+                },
+                .rsa_pss => return .{ .rsa_pss = try RsaPss.fromDer(parser) },
+                inline .ecdsa_sha224,
+                .ecdsa_sha256,
+                .ecdsa_sha384,
+                .ecdsa_sha512,
+                => |t| {
+                    const curve = if (parser.index != seq.slice.end) try parser.expectEnum(NamedCurve) else null;
+                    return .{ .ecdsa = Ecdsa{
+                        .hash = std.meta.stringToEnum(HashTag, @tagName(t)["ecdsa_".len..]).?,
+                        .curve = curve,
+                    } };
+                },
+                .ed25519 => return .{ .ed25519 = {} },
+            }
+        }
+
+        pub fn validate(self: @This()) !void {
+            switch (self) {
+                .rsa_pkcs => |h| try h.verify(),
+                .rsa_pss => |info| try info.hash.verify(),
+                .ecdsa => |info| try info.hash.verify(),
+                .ed25519 => {},
+            }
+        }
+    };
+
+    pub const Value = union(PubKeyTag) {
+        rsa2048: Rsa2048.Signature,
+        rsa3072: Rsa3072.Signature,
+        rsa4096: Rsa4096.Signature,
+        ecdsa_p256: EcdsaP256.Signature,
+        ecdsa_p384: EcdsaP384.Signature,
+        ecdsa_secp256: EcdsaSecP256.Signature,
+        ed25519: Ed25519.Signature,
+
+        pub fn fromBitString(tag: PubKeyTag, bitstring: der.BitString) !Value {
+            if (bitstring.right_padding != 0) return error.InvalidSignature;
+
+            switch (tag) {
+                inline else => |t| {
+                    const T = std.meta.FieldType(@This(), t);
+                    const value = try T.fromDer(bitstring.bytes);
+                    return @unionInit(Value, @tagName(t), value);
+                },
+            }
+        }
+    };
+
+    /// Verifies that this signature matches from `message` signed by `pub_key`
+    pub fn verify(self: Signature, message: []const u8, pub_key: PubKey) !void {
+        if (std.meta.activeTag(pub_key) != std.meta.activeTag(self.value)) return error.PublicKeyMismatch;
+
+        switch (self.value) {
+            inline .rsa2048, .rsa3072, .rsa4096 => |sig, t| {
+                const pk = @field(pub_key, @tagName(t));
+                switch (self.algo) {
+                    .rsa_pkcs => |hash| {
+                        switch (hash) {
+                            inline else => |h| {
+                                try sig.pkcsv1_5(h.Hash()).verify(message, pk);
+                            },
+                        }
+                    },
+                    .rsa_pss => |opts| {
+                        if (opts.mask_gen.tag != .mgf1 or opts.mask_gen.hash != .sha256) {
+                            return error.UnsupportedMaskGenerationFunction;
+                        }
+                        switch (opts.hash) {
+                            inline else => |h| {
+                                try sig.pss(h.Hash()).verify(message, pk, opts.salt_len);
+                            },
+                        }
+                    },
+                    else => return error.AlgorithmMismatch,
+                }
+            },
+            inline .ecdsa_p256, .ecdsa_p384, .ecdsa_secp256 => |sig, t| {
+                const pk = @field(pub_key, @tagName(t));
+                switch (self.algo) {
+                    .ecdsa => |opts| {
+                        switch (opts.hash) {
+                            inline else => |h| {
+                                try sig.verify(h.Hash(), message, pk);
+                            },
+                        }
+                    },
+                    else => return error.AlgorithmMismatch,
+                }
+            },
+            .ed25519 => |sig| {
+                switch (self.algo) {
+                    .ed25519 => try sig.verify(message, pub_key.ed25519),
+                    else => return error.AlgorithmMismatch,
+                }
+            },
+        }
+    }
+
+    const sha2 = crypto.hash.sha2;
+};
+
+pub const PathLen = u16;
+/// Extension specifying if certificate is a CA and maximum number
+/// of non self-issued intermediate certificates that may follow this
+/// Certificate in a valid certification path.
+pub const BasicConstraints = struct {
+    is_ca: bool = false,
+    /// MUST NOT include unless `is_ca`.
+    max_path_len: ?PathLen = null,
+
+    pub fn fromDer(bytes: []const u8) !BasicConstraints {
+        var res: BasicConstraints = .{};
+
+        var parser = der.Parser{ .bytes = bytes };
+        _ = try parser.expectSequence();
+        if (!parser.eof()) {
+            res.is_ca = try parser.expectBool();
+            if (!parser.eof()) {
+                res.max_path_len = try parser.expectInt(PathLen);
+                if (!res.is_ca) return error.NotCA;
+            }
+        }
+
+        return res;
+    }
+
+    pub fn validate(self: BasicConstraints, path_len: u16) !void {
+        if (self.is_ca) {
+            if (self.max_path_len) |l| {
+                if (path_len > l) return error.MaxPathLenExceeded;
+            }
+        }
+    }
+};
+
+fn MakeValidator(comptime T: type) type {
+    // map each field to a flag
+    const to_copy = std.meta.fields(T);
+    var fields: [to_copy.len]std.builtin.Type.StructField = undefined;
+    for (&fields, to_copy) |*f, f2| {
+        f.* = f2;
+        f.type = Flag;
+        f.default_value = @ptrCast(&Flag.ignore);
+    }
+    return @Type(.{ .Struct = .{
+        .layout = .auto,
+        .fields = &fields,
+        .decls = &.{},
+        .is_tuple = false,
+    } });
+}
+
+/// How `pub_key` may be used.
+pub const KeyUsage = packed struct {
+    // fields are in reverse bit order because of how zig packs structs
+    encipher_only: bool = false,
+    crl_sign: bool = false,
+    // MUST be false when basic_constraints.is_ca == false
+    key_cert_sign: bool = false,
+    key_agreement: bool = false,
+    data_encipherment: bool = false,
+    key_encipherment: bool = false,
+    content_commitment: bool = false,
+    digital_signature: bool = false,
+
+    decipher_only: bool = false,
+
+    pub fn fromDer(bytes: []const u8) !KeyUsage {
+        var parser = der.Parser{ .bytes = bytes };
+        const key_usage = try parser.expectBitstring();
+        if (key_usage.bytes.len > @sizeOf(KeyUsage)) return error.InvalidKeyUsage;
+
+        var res = KeyUsage{};
+        var res_bytes = mem.asBytes(&res);
+        @memcpy(res_bytes[0..key_usage.bytes.len], key_usage.bytes);
+
+        return res;
+    }
+
+    pub const Validator = MakeValidator(KeyUsage);
+    pub fn validate(self: KeyUsage, validator: Validator) !void {
+        inline for (std.meta.fields(KeyUsage)) |f| {
+            const expected = @field(validator, f.name);
+            const actual = @field(self, f.name);
+            if (!expected.verify(actual)) return error.InvalidKeyUsage;
+        }
+    }
+};
+
+/// Further specifies how `pub_key` may be used.
+pub const KeyUsageExt = packed struct {
+    server_auth: bool = false,
+    client_auth: bool = false,
+    code_signing: bool = false,
+    email_protection: bool = false,
+    time_stamping: bool = false,
+    ocsp_signing: bool = false,
+
+    pub const Tag = enum {
+        server_auth,
+        client_auth,
+        code_signing,
+        email_protection,
+        time_stamping,
+        ocsp_signing,
+
+        pub const oids = std.StaticStringMap(Tag).initComptime(.{
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.1"), .server_auth },
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.2"), .client_auth },
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.3"), .code_signing },
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.4"), .email_protection },
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.8"), .time_stamping },
+            .{ &comptimeOid("1.3.6.1.5.5.7.3.9"), .ocsp_signing },
+        });
+    };
+
+    pub fn fromDer(bytes: []const u8) !KeyUsageExt {
+        var res: KeyUsageExt = .{};
+
+        var parser = der.Parser{ .bytes = bytes };
+        const seq = try parser.expectSequence();
+        defer parser.seek(seq.slice.end);
+        while (parser.index != parser.bytes.len) {
+            const tag = parser.expectEnum(KeyUsageExt.Tag) catch |err| switch (err) {
+                error.UnknownObjectId => continue,
+                else => return err,
+            };
+            switch (tag) {
+                .server_auth => res.server_auth = true,
+                .client_auth => res.client_auth = true,
+                .code_signing => res.code_signing = true,
+                .email_protection => res.email_protection = true,
+                .time_stamping => res.time_stamping = true,
+                .ocsp_signing => res.ocsp_signing = true,
+            }
+        }
+
+        return res;
+    }
+
+    pub const Validator = MakeValidator(KeyUsageExt);
+    pub fn validate(self: KeyUsageExt, validator: Validator) !void {
+        inline for (std.meta.fields(KeyUsageExt)) |f| {
+            const expected = @field(validator, f.name);
+            const actual = @field(self, f.name);
+            if (!expected.verify(actual)) return error.InvalidKeyUsage;
+        }
+    }
 };
 
 pub const GeneralNameTag = enum(u5) {
@@ -169,997 +1153,163 @@ pub const GeneralNameTag = enum(u5) {
     _,
 };
 
-pub const Parsed = struct {
-    certificate: Certificate,
-    issuer_slice: Slice,
-    subject_slice: Slice,
-    common_name_slice: Slice,
-    signature_slice: Slice,
-    signature_algorithm: Algorithm,
-    pub_key_algo: PubKeyAlgo,
-    pub_key_slice: Slice,
-    message_slice: Slice,
-    subject_alt_name_slice: Slice,
-    validity: Validity,
-    version: Version,
+pub const DirectoryString = struct {
+    tag: der.String.Tag,
+    data: []const u8,
 
-    pub const PubKeyAlgo = union(AlgorithmCategory) {
-        rsaEncryption: void,
-        X9_62_id_ecPublicKey: NamedCurve,
-        curveEd25519: void,
-    };
+    const Self = @This();
 
-    pub const Validity = struct {
-        not_before: u64,
-        not_after: u64,
-    };
+    pub fn fromDer(parser: *der.Parser) !Self {
+        const string = try parser.expectString(std.EnumSet(der.String.Tag).initMany(&[_]der.String.Tag{
+            .teletex,
+            .printable,
+            .universal,
+            .utf8,
+            .bmp,
+        }));
 
-    pub const Slice = der.Element.Slice;
-
-    pub fn slice(p: Parsed, s: Slice) []const u8 {
-        return p.certificate.buffer[s.start..s.end];
+        return .{ .tag = string.tag, .data = string.data };
     }
 
-    pub fn issuer(p: Parsed) []const u8 {
-        return p.slice(p.issuer_slice);
+    /// TODO: use RFC 5280 S7.2 for better internationalization
+    pub fn cmp(self: Self, other: Self) bool {
+        return std.mem.eql(u8, self.data, other.data);
     }
 
-    pub fn subject(p: Parsed) []const u8 {
-        return p.slice(p.subject_slice);
-    }
-
-    pub fn commonName(p: Parsed) []const u8 {
-        return p.slice(p.common_name_slice);
-    }
-
-    pub fn signature(p: Parsed) []const u8 {
-        return p.slice(p.signature_slice);
-    }
-
-    pub fn pubKey(p: Parsed) []const u8 {
-        return p.slice(p.pub_key_slice);
-    }
-
-    pub fn pubKeySigAlgo(p: Parsed) []const u8 {
-        return p.slice(p.pub_key_signature_algorithm_slice);
-    }
-
-    pub fn message(p: Parsed) []const u8 {
-        return p.slice(p.message_slice);
-    }
-
-    pub fn subjectAltName(p: Parsed) []const u8 {
-        return p.slice(p.subject_alt_name_slice);
-    }
-
-    pub const VerifyError = error{
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateExpired,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateFieldHasInvalidLength,
-        CertificateFieldHasWrongDataType,
-        CertificatePublicKeyInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureInvalid,
-        CertificateSignatureUnsupportedBitCount,
-        CertificateSignatureNamedCurveUnsupported,
-    };
-
-    /// This function verifies:
-    ///  * That the subject's issuer is indeed the provided issuer.
-    ///  * The time validity of the subject.
-    ///  * The signature.
-    pub fn verify(parsed_subject: Parsed, parsed_issuer: Parsed, now_sec: i64) VerifyError!void {
-        // Check that the subject's issuer name matches the issuer's
-        // subject name.
-        if (!mem.eql(u8, parsed_subject.issuer(), parsed_issuer.subject())) {
-            return error.CertificateIssuerMismatch;
-        }
-
-        if (now_sec < parsed_subject.validity.not_before)
-            return error.CertificateNotYetValid;
-        if (now_sec > parsed_subject.validity.not_after)
-            return error.CertificateExpired;
-
-        switch (parsed_subject.signature_algorithm) {
-            inline .sha1WithRSAEncryption,
-            .sha224WithRSAEncryption,
-            .sha256WithRSAEncryption,
-            .sha384WithRSAEncryption,
-            .sha512WithRSAEncryption,
-            => |algorithm| return verifyRsa(
-                algorithm.Hash(),
-                parsed_subject.message(),
-                parsed_subject.signature(),
-                parsed_issuer.pub_key_algo,
-                parsed_issuer.pubKey(),
-            ),
-
-            inline .ecdsa_with_SHA224,
-            .ecdsa_with_SHA256,
-            .ecdsa_with_SHA384,
-            .ecdsa_with_SHA512,
-            => |algorithm| return verify_ecdsa(
-                algorithm.Hash(),
-                parsed_subject.message(),
-                parsed_subject.signature(),
-                parsed_issuer.pub_key_algo,
-                parsed_issuer.pubKey(),
-            ),
-
-            .md2WithRSAEncryption, .md5WithRSAEncryption => {
-                return error.CertificateSignatureAlgorithmUnsupported;
-            },
-
-            .curveEd25519 => return verifyEd25519(
-                parsed_subject.message(),
-                parsed_subject.signature(),
-                parsed_issuer.pub_key_algo,
-                parsed_issuer.pubKey(),
-            ),
-        }
-    }
-
-    pub const VerifyHostNameError = error{
-        CertificateHostMismatch,
-        CertificateFieldHasInvalidLength,
-    };
-
-    pub fn verifyHostName(parsed_subject: Parsed, host_name: []const u8) VerifyHostNameError!void {
-        // If the Subject Alternative Names extension is present, this is
-        // what to check. Otherwise, only the common name is checked.
-        const subject_alt_name = parsed_subject.subjectAltName();
-        if (subject_alt_name.len == 0) {
-            if (checkHostName(host_name, parsed_subject.commonName())) {
-                return;
-            } else {
-                return error.CertificateHostMismatch;
-            }
-        }
-
-        const general_names = try der.Element.parse(subject_alt_name, 0);
-        var name_i = general_names.slice.start;
-        while (name_i < general_names.slice.end) {
-            const general_name = try der.Element.parse(subject_alt_name, name_i);
-            name_i = general_name.slice.end;
-            switch (@as(GeneralNameTag, @enumFromInt(@intFromEnum(general_name.identifier.tag)))) {
-                .dNSName => {
-                    const dns_name = subject_alt_name[general_name.slice.start..general_name.slice.end];
-                    if (checkHostName(host_name, dns_name)) return;
-                },
-                else => {},
-            }
-        }
-
-        return error.CertificateHostMismatch;
-    }
-
-    // Check hostname according to RFC2818 specification:
-    //
-    // If more than one identity of a given type is present in
-    // the certificate (e.g., more than one DNSName name, a match in any one
-    // of the set is considered acceptable.) Names may contain the wildcard
-    // character * which is considered to match any single domain name
-    // component or component fragment. E.g., *.a.com matches foo.a.com but
-    // not bar.foo.a.com. f*.com matches foo.com but not bar.com.
-    fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
-        if (mem.eql(u8, dns_name, host_name)) {
-            return true; // exact match
-        }
-
-        var it_host = std.mem.splitScalar(u8, host_name, '.');
-        var it_dns = std.mem.splitScalar(u8, dns_name, '.');
-
-        const len_match = while (true) {
-            const host = it_host.next();
-            const dns = it_dns.next();
-
-            if (host == null or dns == null) {
-                break host == null and dns == null;
-            }
-
-            // If not a wildcard and they dont
-            // match then there is no match.
-            if (mem.eql(u8, dns.?, "*") == false and mem.eql(u8, dns.?, host.?) == false) {
-                return false;
-            }
-        };
-
-        // If the components are not the same
-        // length then there is no match.
-        return len_match;
-    }
+    const empty = Self{ .tag = .utf8, .data = "" };
 };
 
-test "Parsed.checkHostName" {
-    const expectEqual = std.testing.expectEqual;
+pub const DisplayText = struct {
+    tag: der.String.Tag,
+    data: []const u8,
 
-    try expectEqual(true, Parsed.checkHostName("ziglang.org", "ziglang.org"));
-    try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.ziglang.org"));
-    try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
-    try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
-    try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
-}
+    const Self = @This();
 
-pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
+    pub fn fromDer(parser: *der.Parser) !Self {
+        const string = try parser.expectString(std.EnumSet(der.String.Tag).initMany(&[_]der.String.Tag{
+            .ia5,
+            .visible,
+            .bmp,
+            .utf8,
+        }));
 
-pub fn parse(cert: Certificate) ParseError!Parsed {
-    const cert_bytes = cert.buffer;
-    const certificate = try der.Element.parse(cert_bytes, cert.index);
-    const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
-    const version_elem = try der.Element.parse(cert_bytes, tbs_certificate.slice.start);
-    const version = try parseVersion(cert_bytes, version_elem);
-    const serial_number = if (@as(u8, @bitCast(version_elem.identifier)) == 0xa0)
-        try der.Element.parse(cert_bytes, version_elem.slice.end)
-    else
-        version_elem;
-    // RFC 5280, section 4.1.2.3:
-    // "This field MUST contain the same algorithm identifier as
-    // the signatureAlgorithm field in the sequence Certificate."
-    const tbs_signature = try der.Element.parse(cert_bytes, serial_number.slice.end);
-    const issuer = try der.Element.parse(cert_bytes, tbs_signature.slice.end);
-    const validity = try der.Element.parse(cert_bytes, issuer.slice.end);
-    const not_before = try der.Element.parse(cert_bytes, validity.slice.start);
-    const not_before_utc = try parseTime(cert, not_before);
-    const not_after = try der.Element.parse(cert_bytes, not_before.slice.end);
-    const not_after_utc = try parseTime(cert, not_after);
-    const subject = try der.Element.parse(cert_bytes, validity.slice.end);
-
-    const pub_key_info = try der.Element.parse(cert_bytes, subject.slice.end);
-    const pub_key_signature_algorithm = try der.Element.parse(cert_bytes, pub_key_info.slice.start);
-    const pub_key_algo_elem = try der.Element.parse(cert_bytes, pub_key_signature_algorithm.slice.start);
-    const pub_key_algo_tag = try parseAlgorithmCategory(cert_bytes, pub_key_algo_elem);
-    var pub_key_algo: Parsed.PubKeyAlgo = undefined;
-    switch (pub_key_algo_tag) {
-        .rsaEncryption => {
-            pub_key_algo = .{ .rsaEncryption = {} };
-        },
-        .X9_62_id_ecPublicKey => {
-            // RFC 5480 Section 2.1.1.1 Named Curve
-            // ECParameters ::= CHOICE {
-            //   namedCurve         OBJECT IDENTIFIER
-            //   -- implicitCurve   NULL
-            //   -- specifiedCurve  SpecifiedECDomain
-            // }
-            const params_elem = try der.Element.parse(cert_bytes, pub_key_algo_elem.slice.end);
-            const named_curve = try parseNamedCurve(cert_bytes, params_elem);
-            pub_key_algo = .{ .X9_62_id_ecPublicKey = named_curve };
-        },
-        .curveEd25519 => {
-            pub_key_algo = .{ .curveEd25519 = {} };
-        },
-    }
-    const pub_key_elem = try der.Element.parse(cert_bytes, pub_key_signature_algorithm.slice.end);
-    const pub_key = try parseBitString(cert, pub_key_elem);
-
-    var common_name = der.Element.Slice.empty;
-    var name_i = subject.slice.start;
-    while (name_i < subject.slice.end) {
-        const rdn = try der.Element.parse(cert_bytes, name_i);
-        var rdn_i = rdn.slice.start;
-        while (rdn_i < rdn.slice.end) {
-            const atav = try der.Element.parse(cert_bytes, rdn_i);
-            var atav_i = atav.slice.start;
-            while (atav_i < atav.slice.end) {
-                const ty_elem = try der.Element.parse(cert_bytes, atav_i);
-                const val = try der.Element.parse(cert_bytes, ty_elem.slice.end);
-                atav_i = val.slice.end;
-                const ty = parseAttribute(cert_bytes, ty_elem) catch |err| switch (err) {
-                    error.CertificateHasUnrecognizedObjectId => continue,
-                    else => |e| return e,
-                };
-                switch (ty) {
-                    .commonName => common_name = val.slice,
-                    else => {},
-                }
-            }
-            rdn_i = atav.slice.end;
-        }
-        name_i = rdn.slice.end;
-    }
-
-    const sig_algo = try der.Element.parse(cert_bytes, tbs_certificate.slice.end);
-    const algo_elem = try der.Element.parse(cert_bytes, sig_algo.slice.start);
-    const signature_algorithm = try parseAlgorithm(cert_bytes, algo_elem);
-    const sig_elem = try der.Element.parse(cert_bytes, sig_algo.slice.end);
-    const signature = try parseBitString(cert, sig_elem);
-
-    // Extensions
-    var subject_alt_name_slice = der.Element.Slice.empty;
-    ext: {
-        if (version == .v1)
-            break :ext;
-
-        if (pub_key_info.slice.end >= tbs_certificate.slice.end)
-            break :ext;
-
-        const outer_extensions = try der.Element.parse(cert_bytes, pub_key_info.slice.end);
-        if (outer_extensions.identifier.tag != .bitstring)
-            break :ext;
-
-        const extensions = try der.Element.parse(cert_bytes, outer_extensions.slice.start);
-
-        var ext_i = extensions.slice.start;
-        while (ext_i < extensions.slice.end) {
-            const extension = try der.Element.parse(cert_bytes, ext_i);
-            ext_i = extension.slice.end;
-            const oid_elem = try der.Element.parse(cert_bytes, extension.slice.start);
-            const ext_id = parseExtensionId(cert_bytes, oid_elem) catch |err| switch (err) {
-                error.CertificateHasUnrecognizedObjectId => continue,
-                else => |e| return e,
-            };
-            const critical_elem = try der.Element.parse(cert_bytes, oid_elem.slice.end);
-            const ext_bytes_elem = if (critical_elem.identifier.tag != .boolean)
-                critical_elem
-            else
-                try der.Element.parse(cert_bytes, critical_elem.slice.end);
-            switch (ext_id) {
-                .subject_alt_name => subject_alt_name_slice = ext_bytes_elem.slice,
-                else => continue,
-            }
-        }
-    }
-
-    return .{
-        .certificate = cert,
-        .common_name_slice = common_name,
-        .issuer_slice = issuer.slice,
-        .subject_slice = subject.slice,
-        .signature_slice = signature,
-        .signature_algorithm = signature_algorithm,
-        .message_slice = .{ .start = certificate.slice.start, .end = tbs_certificate.slice.end },
-        .pub_key_algo = pub_key_algo,
-        .pub_key_slice = pub_key,
-        .validity = .{
-            .not_before = not_before_utc,
-            .not_after = not_after_utc,
-        },
-        .subject_alt_name_slice = subject_alt_name_slice,
-        .version = version,
-    };
-}
-
-pub fn verify(subject: Certificate, issuer: Certificate, now_sec: i64) !void {
-    const parsed_subject = try subject.parse();
-    const parsed_issuer = try issuer.parse();
-    return parsed_subject.verify(parsed_issuer, now_sec);
-}
-
-pub fn contents(cert: Certificate, elem: der.Element) []const u8 {
-    return cert.buffer[elem.slice.start..elem.slice.end];
-}
-
-pub const ParseBitStringError = error{ CertificateFieldHasWrongDataType, CertificateHasInvalidBitString };
-
-pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
-    if (elem.identifier.tag != .bitstring) return error.CertificateFieldHasWrongDataType;
-    if (cert.buffer[elem.slice.start] != 0) return error.CertificateHasInvalidBitString;
-    return .{ .start = elem.slice.start + 1, .end = elem.slice.end };
-}
-
-pub const ParseTimeError = error{ CertificateTimeInvalid, CertificateFieldHasWrongDataType };
-
-/// Returns number of seconds since epoch.
-pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
-    const bytes = cert.contents(elem);
-    switch (elem.identifier.tag) {
-        .utc_time => {
-            // Example: "YYMMDD000000Z"
-            if (bytes.len != 13)
-                return error.CertificateTimeInvalid;
-            if (bytes[12] != 'Z')
-                return error.CertificateTimeInvalid;
-
-            return Date.toSeconds(.{
-                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
-                .month = try parseTimeDigits(bytes[2..4], 1, 12),
-                .day = try parseTimeDigits(bytes[4..6], 1, 31),
-                .hour = try parseTimeDigits(bytes[6..8], 0, 23),
-                .minute = try parseTimeDigits(bytes[8..10], 0, 59),
-                .second = try parseTimeDigits(bytes[10..12], 0, 59),
-            });
-        },
-        .generalized_time => {
-            // Examples:
-            // "19920521000000Z"
-            // "19920622123421Z"
-            // "19920722132100.3Z"
-            if (bytes.len < 15)
-                return error.CertificateTimeInvalid;
-            return Date.toSeconds(.{
-                .year = try parseYear4(bytes[0..4]),
-                .month = try parseTimeDigits(bytes[4..6], 1, 12),
-                .day = try parseTimeDigits(bytes[6..8], 1, 31),
-                .hour = try parseTimeDigits(bytes[8..10], 0, 23),
-                .minute = try parseTimeDigits(bytes[10..12], 0, 59),
-                .second = try parseTimeDigits(bytes[12..14], 0, 59),
-            });
-        },
-        else => return error.CertificateFieldHasWrongDataType,
-    }
-}
-
-const Date = struct {
-    /// example: 1999
-    year: u16,
-    /// range: 1 to 12
-    month: u8,
-    /// range: 1 to 31
-    day: u8,
-    /// range: 0 to 59
-    hour: u8,
-    /// range: 0 to 59
-    minute: u8,
-    /// range: 0 to 59
-    second: u8,
-
-    /// Convert to number of seconds since epoch.
-    pub fn toSeconds(date: Date) u64 {
-        var sec: u64 = 0;
-
-        {
-            var year: u16 = 1970;
-            while (year < date.year) : (year += 1) {
-                const days: u64 = std.time.epoch.getDaysInYear(year);
-                sec += days * std.time.epoch.secs_per_day;
-            }
-        }
-
-        {
-            const is_leap = std.time.epoch.isLeapYear(date.year);
-            var month: u4 = 1;
-            while (month < date.month) : (month += 1) {
-                const days: u64 = std.time.epoch.getDaysInMonth(
-                    @as(std.time.epoch.YearLeapKind, @enumFromInt(@intFromBool(is_leap))),
-                    @as(std.time.epoch.Month, @enumFromInt(month)),
-                );
-                sec += days * std.time.epoch.secs_per_day;
-            }
-        }
-
-        sec += (date.day - 1) * @as(u64, std.time.epoch.secs_per_day);
-        sec += date.hour * @as(u64, 60 * 60);
-        sec += date.minute * @as(u64, 60);
-        sec += date.second;
-
-        return sec;
+        return .{ .tag = string.tag, .data = string.data };
     }
 };
-
-pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
-    const result = if (use_vectors) result: {
-        const nn: @Vector(2, u16) = .{ text[0], text[1] };
-        const zero: @Vector(2, u16) = .{ '0', '0' };
-        const mm: @Vector(2, u16) = .{ 10, 1 };
-        break :result @reduce(.Add, (nn -% zero) *% mm);
-    } else std.fmt.parseInt(u8, text, 10) catch return error.CertificateTimeInvalid;
-    if (result < min) return error.CertificateTimeInvalid;
-    if (result > max) return error.CertificateTimeInvalid;
-    return @truncate(result);
-}
-
-test parseTimeDigits {
-    const expectEqual = std.testing.expectEqual;
-    try expectEqual(@as(u8, 0), try parseTimeDigits("00", 0, 99));
-    try expectEqual(@as(u8, 99), try parseTimeDigits("99", 0, 99));
-    try expectEqual(@as(u8, 42), try parseTimeDigits("42", 0, 99));
-
-    const expectError = std.testing.expectError;
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("13", 1, 12));
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("00", 1, 12));
-    try expectError(error.CertificateTimeInvalid, parseTimeDigits("Di", 0, 99));
-}
-
-pub fn parseYear4(text: *const [4]u8) !u16 {
-    const result = if (use_vectors) result: {
-        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
-        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
-        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
-        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
-    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
-    if (result > 9999) return error.CertificateTimeInvalid;
-    return @truncate(result);
-}
-
-test parseYear4 {
-    const expectEqual = std.testing.expectEqual;
-    try expectEqual(@as(u16, 0), try parseYear4("0000"));
-    try expectEqual(@as(u16, 9999), try parseYear4("9999"));
-    try expectEqual(@as(u16, 1988), try parseYear4("1988"));
-
-    const expectError = std.testing.expectError;
-    try expectError(error.CertificateTimeInvalid, parseYear4("999b"));
-    try expectError(error.CertificateTimeInvalid, parseYear4("crap"));
-    try expectError(error.CertificateTimeInvalid, parseYear4("r:bQ"));
-}
-
-pub fn parseAlgorithm(bytes: []const u8, element: der.Element) ParseEnumError!Algorithm {
-    return parseEnum(Algorithm, bytes, element);
-}
-
-pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) ParseEnumError!AlgorithmCategory {
-    return parseEnum(AlgorithmCategory, bytes, element);
-}
-
-pub fn parseAttribute(bytes: []const u8, element: der.Element) ParseEnumError!Attribute {
-    return parseEnum(Attribute, bytes, element);
-}
-
-pub fn parseNamedCurve(bytes: []const u8, element: der.Element) ParseEnumError!NamedCurve {
-    return parseEnum(NamedCurve, bytes, element);
-}
-
-pub fn parseExtensionId(bytes: []const u8, element: der.Element) ParseEnumError!ExtensionId {
-    return parseEnum(ExtensionId, bytes, element);
-}
-
-pub const ParseEnumError = error{ CertificateFieldHasWrongDataType, CertificateHasUnrecognizedObjectId };
-
-fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnumError!E {
-    if (element.identifier.tag != .object_identifier)
-        return error.CertificateFieldHasWrongDataType;
-    const oid_bytes = bytes[element.slice.start..element.slice.end];
-    return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
-}
-
-pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
-
-pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
-    if (@as(u8, @bitCast(version_elem.identifier)) != 0xa0)
-        return .v1;
-
-    if (version_elem.slice.end - version_elem.slice.start != 3)
-        return error.CertificateFieldHasInvalidLength;
-
-    const encoded_version = bytes[version_elem.slice.start..version_elem.slice.end];
-
-    if (mem.eql(u8, encoded_version, "\x02\x01\x02")) {
-        return .v3;
-    } else if (mem.eql(u8, encoded_version, "\x02\x01\x01")) {
-        return .v2;
-    } else if (mem.eql(u8, encoded_version, "\x02\x01\x00")) {
-        return .v1;
-    }
-
-    return error.UnsupportedCertificateVersion;
-}
-
-fn verifyRsa(
-    comptime Hash: type,
-    message: []const u8,
-    sig: []const u8,
-    pub_key_algo: Parsed.PubKeyAlgo,
-    pub_key: []const u8,
-) !void {
-    if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
-    const pk_components = try rsa.PublicKey.parseDer(pub_key);
-    const exponent = pk_components.exponent;
-    const modulus = pk_components.modulus;
-    if (exponent.len > modulus.len) return error.CertificatePublicKeyInvalid;
-    if (sig.len != modulus.len) return error.CertificateSignatureInvalidLength;
-
-    const hash_der = switch (Hash) {
-        crypto.hash.Sha1 => [_]u8{
-            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
-            0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
-        },
-        crypto.hash.sha2.Sha224 => [_]u8{
-            0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05,
-            0x00, 0x04, 0x1c,
-        },
-        crypto.hash.sha2.Sha256 => [_]u8{
-            0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
-            0x00, 0x04, 0x20,
-        },
-        crypto.hash.sha2.Sha384 => [_]u8{
-            0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05,
-            0x00, 0x04, 0x30,
-        },
-        crypto.hash.sha2.Sha512 => [_]u8{
-            0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86,
-            0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05,
-            0x00, 0x04, 0x40,
-        },
-        else => @compileError("unreachable"),
-    };
-
-    var msg_hashed: [Hash.digest_length]u8 = undefined;
-    Hash.hash(message, &msg_hashed, .{});
-
-    switch (modulus.len) {
-        inline 128, 256, 384, 512 => |modulus_len| {
-            const ps_len = modulus_len - (hash_der.len + msg_hashed.len) - 3;
-            const em: [modulus_len]u8 =
-                [2]u8{ 0, 1 } ++
-                ([1]u8{0xff} ** ps_len) ++
-                [1]u8{0} ++
-                hash_der ++
-                msg_hashed;
-
-            const public_key = rsa.PublicKey.fromBytes(exponent, modulus) catch return error.CertificateSignatureInvalid;
-            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key) catch |err| switch (err) {
-                error.MessageTooLong => unreachable,
-            };
-
-            if (!mem.eql(u8, &em, &em_dec)) {
-                return error.CertificateSignatureInvalid;
-            }
-        },
-        else => {
-            return error.CertificateSignatureUnsupportedBitCount;
-        },
-    }
-}
-
-fn verify_ecdsa(
-    comptime Hash: type,
-    message: []const u8,
-    encoded_sig: []const u8,
-    pub_key_algo: Parsed.PubKeyAlgo,
-    sec1_pub_key: []const u8,
-) !void {
-    const sig_named_curve = switch (pub_key_algo) {
-        .X9_62_id_ecPublicKey => |named_curve| named_curve,
-        else => return error.CertificateSignatureAlgorithmMismatch,
-    };
-
-    switch (sig_named_curve) {
-        .secp521r1 => {
-            return error.CertificateSignatureNamedCurveUnsupported;
-        },
-        inline .X9_62_prime256v1,
-        .secp384r1,
-        => |curve| {
-            const Ecdsa = crypto.sign.ecdsa.Ecdsa(curve.Curve(), Hash);
-            const sig = Ecdsa.Signature.fromDer(encoded_sig) catch |err| switch (err) {
-                error.InvalidEncoding => return error.CertificateSignatureInvalid,
-            };
-            const pub_key = Ecdsa.PublicKey.fromSec1(sec1_pub_key) catch |err| switch (err) {
-                error.InvalidEncoding => return error.CertificateSignatureInvalid,
-                error.NonCanonical => return error.CertificateSignatureInvalid,
-                error.NotSquare => return error.CertificateSignatureInvalid,
-            };
-            sig.verify(message, pub_key) catch |err| switch (err) {
-                error.IdentityElement => return error.CertificateSignatureInvalid,
-                error.NonCanonical => return error.CertificateSignatureInvalid,
-                error.SignatureVerificationFailed => return error.CertificateSignatureInvalid,
-            };
-        },
-    }
-}
-
-fn verifyEd25519(
-    message: []const u8,
-    encoded_sig: []const u8,
-    pub_key_algo: Parsed.PubKeyAlgo,
-    encoded_pub_key: []const u8,
-) !void {
-    if (pub_key_algo != .curveEd25519) return error.CertificateSignatureAlgorithmMismatch;
-    const Ed25519 = crypto.sign.Ed25519;
-    if (encoded_sig.len != Ed25519.Signature.encoded_length) return error.CertificateSignatureInvalid;
-    const sig = Ed25519.Signature.fromBytes(encoded_sig[0..Ed25519.Signature.encoded_length].*);
-    if (encoded_pub_key.len != Ed25519.PublicKey.encoded_length) return error.CertificateSignatureInvalid;
-    const pub_key = Ed25519.PublicKey.fromBytes(encoded_pub_key[0..Ed25519.PublicKey.encoded_length].*) catch |err| switch (err) {
-        error.NonCanonical => return error.CertificateSignatureInvalid,
-    };
-    sig.verify(message, pub_key) catch |err| switch (err) {
-        error.IdentityElement => return error.CertificateSignatureInvalid,
-        error.NonCanonical => return error.CertificateSignatureInvalid,
-        error.SignatureVerificationFailed => return error.CertificateSignatureInvalid,
-        error.InvalidEncoding => return error.CertificateSignatureInvalid,
-        error.WeakPublicKey => return error.CertificateSignatureInvalid,
-    };
-}
 
 const std = @import("../std.zig");
+const der = @import("der.zig");
+const rsa = @import("rsa.zig");
+const oid_mod = @import("oid.zig");
+pub const Bundle = @import("Certificate/Bundle.zig");
+pub const PathValidator = @import("Certificate/PathValidator.zig");
+
 const crypto = std.crypto;
 const mem = std.mem;
-const Certificate = @This();
-
-pub const der = struct {
-    pub const Class = enum(u2) {
-        universal,
-        application,
-        context_specific,
-        private,
-    };
-
-    pub const PC = enum(u1) {
-        primitive,
-        constructed,
-    };
-
-    pub const Identifier = packed struct(u8) {
-        tag: Tag,
-        pc: PC,
-        class: Class,
-    };
-
-    pub const Tag = enum(u5) {
-        boolean = 1,
-        integer = 2,
-        bitstring = 3,
-        octetstring = 4,
-        null = 5,
-        object_identifier = 6,
-        sequence = 16,
-        sequence_of = 17,
-        utc_time = 23,
-        generalized_time = 24,
-        _,
-    };
-
-    pub const Element = struct {
-        identifier: Identifier,
-        slice: Slice,
-
-        pub const Slice = struct {
-            start: u32,
-            end: u32,
-
-            pub const empty: Slice = .{ .start = 0, .end = 0 };
-        };
-
-        pub const ParseElementError = error{CertificateFieldHasInvalidLength};
-
-        pub fn parse(bytes: []const u8, index: u32) ParseElementError!Element {
-            var i = index;
-            const identifier = @as(Identifier, @bitCast(bytes[i]));
-            i += 1;
-            const size_byte = bytes[i];
-            i += 1;
-            if ((size_byte >> 7) == 0) {
-                return .{
-                    .identifier = identifier,
-                    .slice = .{
-                        .start = i,
-                        .end = i + size_byte,
-                    },
-                };
-            }
-
-            const len_size = @as(u7, @truncate(size_byte));
-            if (len_size > @sizeOf(u32)) {
-                return error.CertificateFieldHasInvalidLength;
-            }
-
-            const end_i = i + len_size;
-            var long_form_size: u32 = 0;
-            while (i < end_i) : (i += 1) {
-                long_form_size = (long_form_size << 8) | bytes[i];
-            }
-
-            return .{
-                .identifier = identifier,
-                .slice = .{
-                    .start = i,
-                    .end = i + long_form_size,
-                },
-            };
-        }
-    };
-};
+const Cert = @This();
+const comptimeOid = oid_mod.encodeComptime;
+const ecdsa = crypto.sign.ecdsa;
+const sha2 = crypto.hash.sha2;
+const testing = std.testing;
+const Rsa2048 = rsa.Rsa2048;
+const Rsa3072 = rsa.Rsa3072;
+const Rsa4096 = rsa.Rsa4096;
+const EcdsaP256 = ecdsa.Ecdsa(crypto.ecc.P256);
+const EcdsaP384 = ecdsa.Ecdsa(crypto.ecc.P384);
+const EcdsaSecP256 = ecdsa.Ecdsa(crypto.ecc.Secp256k1);
+const Ed25519 = crypto.sign.Ed25519;
+const log = std.log.scoped(.certificate);
 
 test {
     _ = Bundle;
+    _ = PathValidator;
+    _ = der;
 }
 
-pub const rsa = struct {
-    const max_modulus_bits = 4096;
-    const Uint = std.crypto.ff.Uint(max_modulus_bits);
-    const Modulus = std.crypto.ff.Modulus(max_modulus_bits);
-    const Fe = Modulus.Fe;
+/// Strictly for testing
+inline fn hexToBytes(comptime hex: []const u8) []u8 {
+    var res: [hex.len]u8 = undefined;
+    return std.fmt.hexToBytes(&res, hex) catch unreachable;
+}
 
-    pub const PSSSignature = struct {
-        pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
-            var result = [1]u8{0} ** modulus_len;
-            std.mem.copyForwards(u8, &result, msg);
-            return result;
+fn expectEqualName(n1: Name, n2: Name) !void {
+    inline for (std.meta.fields(Name)) |f| {
+        const v1 = @field(n1, f.name);
+        const v2 = @field(n2, f.name);
+        if (f.type == DirectoryString) {
+            try testing.expectEqual(v1.tag, v2.tag);
+            try testing.expectEqualStrings(v1.data, v2.data);
+        } else if (f.type == []const u8) {
+            try testing.expectEqualStrings(v1, v2);
+        } else if (f.type == u8) {
+            try testing.expectEqual(v1, v2);
+        } else if (f.type == Name.KVs) {
+            for (v1, v2) |s1, s2| {
+                try testing.expectEqualStrings(s1, s2);
+            }
+        } else {
+            @compileError("implement type " ++ @typeName(f.type));
         }
-
-        pub fn verify(comptime modulus_len: usize, sig: [modulus_len]u8, msg: []const u8, public_key: PublicKey, comptime Hash: type) !void {
-            const mod_bits = public_key.n.bits();
-            const em_dec = try encrypt(modulus_len, sig, public_key);
-
-            EMSA_PSS_VERIFY(msg, &em_dec, mod_bits - 1, Hash.digest_length, Hash) catch unreachable;
-        }
-
-        fn EMSA_PSS_VERIFY(msg: []const u8, em: []const u8, emBit: usize, sLen: usize, comptime Hash: type) !void {
-            // 1.   If the length of M is greater than the input limitation for
-            //      the hash function (2^61 - 1 octets for SHA-1), output
-            //      "inconsistent" and stop.
-            // All the cryptographic hash functions in the standard library have a limit of >= 2^61 - 1.
-            // Even then, this check is only there for paranoia. In the context of TLS certifcates, emBit cannot exceed 4096.
-            if (emBit >= 1 << 61) return error.InvalidSignature;
-
-            // emLen = \ceil(emBits/8)
-            const emLen = ((emBit - 1) / 8) + 1;
-            std.debug.assert(emLen == em.len);
-
-            // 2.   Let mHash = Hash(M), an octet string of length hLen.
-            var mHash: [Hash.digest_length]u8 = undefined;
-            Hash.hash(msg, &mHash, .{});
-
-            // 3.   If emLen < hLen + sLen + 2, output "inconsistent" and stop.
-            if (emLen < Hash.digest_length + sLen + 2) {
-                return error.InvalidSignature;
-            }
-
-            // 4.   If the rightmost octet of EM does not have hexadecimal value
-            //      0xbc, output "inconsistent" and stop.
-            if (em[em.len - 1] != 0xbc) {
-                return error.InvalidSignature;
-            }
-
-            // 5.   Let maskedDB be the leftmost emLen - hLen - 1 octets of EM,
-            //      and let H be the next hLen octets.
-            const maskedDB = em[0..(emLen - Hash.digest_length - 1)];
-            const h = em[(emLen - Hash.digest_length - 1)..(emLen - 1)][0..Hash.digest_length];
-
-            // 6.   If the leftmost 8emLen - emBits bits of the leftmost octet in
-            //      maskedDB are not all equal to zero, output "inconsistent" and
-            //      stop.
-            const zero_bits = emLen * 8 - emBit;
-            var mask: u8 = maskedDB[0];
-            var i: usize = 0;
-            while (i < 8 - zero_bits) : (i += 1) {
-                mask = mask >> 1;
-            }
-            if (mask != 0) {
-                return error.InvalidSignature;
-            }
-
-            // 7.   Let dbMask = MGF(H, emLen - hLen - 1).
-            const mgf_len = emLen - Hash.digest_length - 1;
-            var mgf_out_buf: [512]u8 = undefined;
-            if (mgf_len > mgf_out_buf.len) { // Modulus > 4096 bits
-                return error.InvalidSignature;
-            }
-            const mgf_out = mgf_out_buf[0 .. ((mgf_len - 1) / Hash.digest_length + 1) * Hash.digest_length];
-            var dbMask = try MGF1(Hash, mgf_out, h, mgf_len);
-
-            // 8.   Let DB = maskedDB \xor dbMask.
-            i = 0;
-            while (i < dbMask.len) : (i += 1) {
-                dbMask[i] = maskedDB[i] ^ dbMask[i];
-            }
-
-            // 9.   Set the leftmost 8emLen - emBits bits of the leftmost octet
-            //      in DB to zero.
-            i = 0;
-            mask = 0;
-            while (i < 8 - zero_bits) : (i += 1) {
-                mask = mask << 1;
-                mask += 1;
-            }
-            dbMask[0] = dbMask[0] & mask;
-
-            // 10.  If the emLen - hLen - sLen - 2 leftmost octets of DB are not
-            //      zero or if the octet at position emLen - hLen - sLen - 1 (the
-            //      leftmost position is "position 1") does not have hexadecimal
-            //      value 0x01, output "inconsistent" and stop.
-            if (dbMask[mgf_len - sLen - 2] != 0x00) {
-                return error.InvalidSignature;
-            }
-
-            if (dbMask[mgf_len - sLen - 1] != 0x01) {
-                return error.InvalidSignature;
-            }
-
-            // 11.  Let salt be the last sLen octets of DB.
-            const salt = dbMask[(mgf_len - sLen)..];
-
-            // 12.  Let
-            //         M' = (0x)00 00 00 00 00 00 00 00 || mHash || salt ;
-            //      M' is an octet string of length 8 + hLen + sLen with eight
-            //      initial zero octets.
-            if (sLen > Hash.digest_length) { // A seed larger than the hash length would be useless
-                return error.InvalidSignature;
-            }
-            var m_p_buf: [8 + Hash.digest_length + Hash.digest_length]u8 = undefined;
-            var m_p = m_p_buf[0 .. 8 + Hash.digest_length + sLen];
-            std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
-            std.mem.copyForwards(u8, m_p[8..], &mHash);
-            std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
-
-            // 13.  Let H' = Hash(M'), an octet string of length hLen.
-            var h_p: [Hash.digest_length]u8 = undefined;
-            Hash.hash(m_p, &h_p, .{});
-
-            // 14.  If H = H', output "consistent".  Otherwise, output
-            //      "inconsistent".
-            if (!std.mem.eql(u8, h, &h_p)) {
-                return error.InvalidSignature;
-            }
-        }
-
-        fn MGF1(comptime Hash: type, out: []u8, seed: *const [Hash.digest_length]u8, len: usize) ![]u8 {
-            var counter: usize = 0;
-            var idx: usize = 0;
-            var c: [4]u8 = undefined;
-            var hash: [Hash.digest_length + c.len]u8 = undefined;
-            @memcpy(hash[0..Hash.digest_length], seed);
-            var hashed: [Hash.digest_length]u8 = undefined;
-
-            while (idx < len) {
-                c[0] = @as(u8, @intCast((counter >> 24) & 0xFF));
-                c[1] = @as(u8, @intCast((counter >> 16) & 0xFF));
-                c[2] = @as(u8, @intCast((counter >> 8) & 0xFF));
-                c[3] = @as(u8, @intCast(counter & 0xFF));
-
-                std.mem.copyForwards(u8, hash[seed.len..], &c);
-                Hash.hash(&hash, &hashed, .{});
-
-                std.mem.copyForwards(u8, out[idx..], &hashed);
-                idx += hashed.len;
-
-                counter += 1;
-            }
-
-            return out[0..len];
-        }
-    };
-
-    pub const PublicKey = struct {
-        n: Modulus,
-        e: Fe,
-
-        pub fn fromBytes(pub_bytes: []const u8, modulus_bytes: []const u8) !PublicKey {
-            // Reject modulus below 512 bits.
-            // 512-bit RSA was factored in 1999, so this limit barely means anything,
-            // but establish some limit now to ratchet in what we can.
-            const _n = Modulus.fromBytes(modulus_bytes, .big) catch return error.CertificatePublicKeyInvalid;
-            if (_n.bits() < 512) return error.CertificatePublicKeyInvalid;
-
-            // Exponent must be odd and greater than 2.
-            // Also, it must be less than 2^32 to mitigate DoS attacks.
-            // Windows CryptoAPI doesn't support values larger than 32 bits [1], so it is
-            // unlikely that exponents larger than 32 bits are being used for anything
-            // Windows commonly does.
-            // [1] https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-rsapubkey
-            if (pub_bytes.len > 4) return error.CertificatePublicKeyInvalid;
-            const _e = Fe.fromBytes(_n, pub_bytes, .big) catch return error.CertificatePublicKeyInvalid;
-            if (!_e.isOdd()) return error.CertificatePublicKeyInvalid;
-            const e_v = _e.toPrimitive(u32) catch return error.CertificatePublicKeyInvalid;
-            if (e_v < 2) return error.CertificatePublicKeyInvalid;
-
-            return .{
-                .n = _n,
-                .e = _e,
-            };
-        }
-
-        pub fn parseDer(pub_key: []const u8) !struct { modulus: []const u8, exponent: []const u8 } {
-            const pub_key_seq = try der.Element.parse(pub_key, 0);
-            if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
-            const modulus_elem = try der.Element.parse(pub_key, pub_key_seq.slice.start);
-            if (modulus_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
-            const exponent_elem = try der.Element.parse(pub_key, modulus_elem.slice.end);
-            if (exponent_elem.identifier.tag != .integer) return error.CertificateFieldHasWrongDataType;
-            // Skip over meaningless zeroes in the modulus.
-            const modulus_raw = pub_key[modulus_elem.slice.start..modulus_elem.slice.end];
-            const modulus_offset = for (modulus_raw, 0..) |byte, i| {
-                if (byte != 0) break i;
-            } else modulus_raw.len;
-            return .{
-                .modulus = modulus_raw[modulus_offset..],
-                .exponent = pub_key[exponent_elem.slice.start..exponent_elem.slice.end],
-            };
-        }
-    };
-
-    fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) ![modulus_len]u8 {
-        const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
-        const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
-        var res: [modulus_len]u8 = undefined;
-        e.toBytes(&res, .big) catch unreachable;
-        return res;
     }
-};
+}
 
-const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;
+test "certificate fromDer rsa2048" {
+    // fake cert from https://tls13.xargs.org/certificate.html
+    // can also view with:
+    // $ openssl x509 -inform der -noout -text -in ./testdata/cert_rsa2048.der
+    const cert_bytes = @embedFile("testdata/cert_rsa2048.der");
+    const cert = try Cert.fromDer(cert_bytes);
+
+    try testing.expectEqual(Version.v3, cert.version);
+    try testing.expectEqualSlices(u8, hexToBytes("155a92adc2048f90"), cert.serial_number);
+    try expectEqualName(Name{
+        .country = DirectoryString{ .tag = .printable, .data = "US" },
+        .organization = DirectoryString{ .tag = .printable, .data = "Example CA" },
+    }, cert.issuer);
+    try testing.expectEqual(1538703497, cert.validity.not_before);
+    try testing.expectEqual(1570239497, cert.validity.not_after);
+    try expectEqualName(Name{
+        .country = DirectoryString{ .tag = .printable, .data = "US" },
+        .common_name = DirectoryString{ .tag = .printable, .data = "example.ulfheim.net" },
+    }, cert.subject);
+    try testing.expectEqual(PubKey.rsa2048, std.meta.activeTag(cert.pub_key));
+    try testing.expectEqual(@as(usize, 65537), try cert.pub_key.rsa2048.public_exponent.toPrimitive(usize));
+    // extensions
+    try testing.expectEqual(KeyUsage{ .digital_signature = true, .key_encipherment = true }, cert.key_usage);
+    try testing.expectEqual(KeyUsageExt{ .client_auth = true, .server_auth = true }, cert.key_usage_ext);
+    // sig
+    try testing.expectEqual(Signature.Algorithm{ .rsa_pkcs = .sha256 }, cert.signature_algo);
+    try testing.expectEqualSlices(u8, cert_bytes[549..], cert.signature.bytes);
+}
+
+test "certificate fromDer ecc256" {
+    // real cert from https://ecc256.badssl.com circa 2024-04
+    // $ true | openssl s_client -connect ecc256.badssl.com:443 2>/dev/null | openssl x509 -inform pem -outform der > ./testdata/cert_ecc256.der
+    const cert_bytes = @embedFile("testdata/cert_ecc256.der");
+    const cert = try Cert.fromDer(cert_bytes);
+
+    try testing.expectEqual(Version.v3, cert.version);
+    try testing.expectEqualSlices(u8, hexToBytes("03e727237862e5ac970afbd1f2cd25584f79"), cert.serial_number);
+    try expectEqualName(Name{
+        .country = .{ .tag = .printable, .data = "US" },
+        .organization = .{ .tag = .printable, .data = "Let's Encrypt" },
+        .common_name = .{ .tag = .printable, .data = "R3" },
+    }, cert.issuer);
+    try testing.expectEqual(1708547232, cert.validity.not_before);
+    try testing.expectEqual(1716323231, cert.validity.not_after);
+    try expectEqualName(Name{
+        .common_name = .{ .tag = .utf8, .data = "*.badssl.com" },
+    }, cert.subject);
+    try testing.expectEqual(PubKey.ecdsa_p256, std.meta.activeTag(cert.pub_key));
+    // extensions
+    try testing.expectEqual(KeyUsage{ .digital_signature = true }, cert.key_usage);
+    try testing.expectEqual(KeyUsageExt{ .client_auth = true, .server_auth = true }, cert.key_usage_ext);
+    try testing.expectEqual(BasicConstraints{}, cert.basic_constraints);
+    var iter = cert.subjectAliasesIter();
+    try testing.expectEqualStrings("*.badssl.com", (try iter.next()).?);
+    try testing.expectEqualStrings("badssl.com", (try iter.next()).?);
+    try testing.expectEqual(null, try iter.next());
+    // sig
+    try testing.expectEqual(Signature.Algorithm{ .rsa_pkcs = .sha256 }, cert.signature_algo);
+    try testing.expectEqualSlices(u8, cert_bytes[808..], cert.signature.bytes);
+}

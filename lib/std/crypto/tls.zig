@@ -261,6 +261,55 @@ pub const SignatureScheme = enum(u16) {
     ecdsa_sha1 = 0x0203,
 
     _,
+
+    const Signature = crypto.Certificate.Signature;
+
+    pub fn toSignature(self: @This(), sig: []const u8) !Signature {
+        switch (self) {
+            .ecdsa_secp256r1_sha256 => {
+                const T = crypto.sign.ecdsa.EcdsaP256.Signature;
+                if (sig.len != T.encoded_length) return error.SignatureEncoding;
+                return Signature{
+                    .algo = .{ .ecdsa = .{ .hash = .sha256, .curve = .prime256v1 } },
+                    .value = .{ .ecdsa_p256 = T.fromBytes(sig[0..T.encoded_length].*) },
+                };
+            },
+            .ecdsa_secp384r1_sha384 => {
+                const T = crypto.sign.ecdsa.EcdsaP384.Signature;
+                if (sig.len != T.encoded_length) return error.SignatureEncoding;
+                return Signature{
+                    .algo = .{ .ecdsa = .{ .hash = .sha384, .curve = .secp384r1 } },
+                    .value = .{ .ecdsa_p384 = T.fromBytes(sig[0..T.encoded_length].*) },
+                };
+            },
+            .ed25519 => {
+                const T = crypto.sign.Ed25519.Signature;
+                if (sig.len != T.encoded_length) return error.SignatureEncoding;
+                return Signature{
+                    .algo = .{ .ed25519 = {} },
+                    .value = .{ .ed25519 = T.fromBytes(sig[0..T.encoded_length].*) },
+                };
+            },
+            .rsa_pss_rsae_sha256, .rsa_pss_rsae_sha384, .rsa_pss_rsae_sha512 => |t| {
+                const algo: Signature.Algorithm = switch (t) {
+                    .rsa_pss_rsae_sha256 => .{ .rsa_pss = .{ .hash = .sha256 } },
+                    .rsa_pss_rsae_sha384 => .{ .rsa_pss = .{ .hash = .sha384 } },
+                    .rsa_pss_rsae_sha512 => .{ .rsa_pss = .{ .hash = .sha512 } },
+                    else => unreachable,
+                };
+                const value: Signature.Value = switch (sig.len * 8) {
+                    2048 => .{ .rsa2048 = crypto.rsa.Rsa2048.Signature.fromBytes(sig[0..256].*) },
+                    3072 => .{ .rsa3072 = crypto.rsa.Rsa3072.Signature.fromBytes(sig[0..384].*) },
+                    4096 => .{ .rsa4096 = crypto.rsa.Rsa4096.Signature.fromBytes(sig[0..512].*) },
+                    else => return error.TlsBadSignatureScheme,
+                };
+                return Signature{ .algo = algo, .value = value };
+            },
+            else => {
+                return error.TlsBadSignatureScheme;
+            },
+        }
+    }
 };
 
 pub const NamedGroup = enum(u16) {

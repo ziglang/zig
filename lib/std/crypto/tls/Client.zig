@@ -4,6 +4,7 @@ const Client = @This();
 const net = std.net;
 const mem = std.mem;
 const crypto = std.crypto;
+const sha2 = crypto.hash.sha2;
 const assert = std.debug.assert;
 const Certificate = std.crypto.Certificate;
 
@@ -88,59 +89,11 @@ pub const StreamInterface = struct {
     }
 };
 
-pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
-        InsufficientEntropy,
-        DiskQuota,
-        LockViolation,
-        NotOpenForWriting,
-        TlsUnexpectedMessage,
-        TlsIllegalParameter,
-        TlsDecryptFailure,
-        TlsRecordOverflow,
-        TlsBadRecordMac,
-        CertificateFieldHasInvalidLength,
-        CertificateHostMismatch,
-        CertificatePublicKeyInvalid,
-        CertificateExpired,
-        CertificateFieldHasWrongDataType,
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureNamedCurveUnsupported,
-        CertificateSignatureUnsupportedBitCount,
-        TlsCertificateNotVerified,
-        TlsBadSignatureScheme,
-        TlsBadRsaSignatureBitCount,
-        InvalidEncoding,
-        IdentityElement,
-        SignatureVerificationFailed,
-        TlsDecryptError,
-        TlsConnectionTruncated,
-        TlsDecodeError,
-        UnsupportedCertificateVersion,
-        CertificateTimeInvalid,
-        CertificateHasUnrecognizedObjectId,
-        CertificateHasInvalidBitString,
-        MessageTooLong,
-        NegativeIntoUnsigned,
-        TargetTooSmall,
-        BufferTooSmall,
-        InvalidSignature,
-        NotSquare,
-        NonCanonical,
-        WeakPublicKey,
-    };
-}
-
 /// Initiates a TLS handshake and establishes a TLSv1.3 session with `stream`, which
 /// must conform to `StreamInterface`.
 ///
 /// `host` is only borrowed during this function call.
-pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) InitError(@TypeOf(stream))!Client {
+pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
     const host_len: u16 = @intCast(host.len);
 
     var random_buffer: [128]u8 = undefined;
@@ -154,7 +107,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.create(secp256r1_kp_seed) catch |err| switch (err) {
+    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256.KeyPair.create(sha2.Sha256, secp256r1_kp_seed) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
@@ -325,7 +278,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 .secp256r1 => {
                                     const server_pub_key = extd.slice(key_size);
 
-                                    const PublicKey = crypto.sign.ecdsa.EcdsaP256Sha256.PublicKey;
+                                    const PublicKey = crypto.sign.ecdsa.EcdsaP256.PublicKey;
                                     const pk = PublicKey.fromSec1(server_pub_key) catch {
                                         return error.TlsDecryptFailure;
                                     };
@@ -397,15 +350,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         }
     }
 
-    // This is used for two purposes:
-    // * Detect whether a certificate is the first one presented, in which case
-    //   we need to verify the host name.
-    // * Flip back and forth between the two cleartext buffers in order to keep
-    //   the previous certificate in memory so that it can be verified by the
-    //   next one.
-    var cert_index: usize = 0;
+    // Allows flipping back and forth between the two cleartext buffers in order to keep
+    // the previous certificate in memory so that it can be verified by the next one.
+    var cert_index: u32 = 0;
     var read_seq: u64 = 0;
-    var prev_cert: Certificate.Parsed = undefined;
+    var prev_cert: Certificate = undefined;
     // Set to true once a trust chain has been established from the first
     // certificate to a root CA.
     const HandshakeState = enum {
@@ -422,9 +371,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     };
     var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
-    var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
-    var main_cert_pub_key_buf: [600]u8 = undefined;
-    var main_cert_pub_key_len: u16 = undefined;
+    var cur_cert: Certificate = undefined;
     const now_sec = std.time.timestamp();
 
     while (true) {
@@ -514,6 +461,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 .trust_chain_established => break :cert,
                                 else => return error.TlsUnexpectedMessage,
                             }
+                            var validator: ?Certificate.PathValidator = undefined;
                             try hsd.ensure(1 + 4);
                             const cert_req_ctx_len = hsd.decode(u8);
                             if (cert_req_ctx_len != 0) return error.TlsIllegalParameter;
@@ -524,36 +472,27 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 const cert_size = certs_decoder.decode(u24);
                                 const certd = try certs_decoder.sub(cert_size);
 
-                                const subject_cert: Certificate = .{
-                                    .buffer = certd.buf,
-                                    .index = @intCast(certd.idx),
-                                };
-                                const subject = try subject_cert.parse();
+                                cur_cert = try Certificate.fromDer(certd.buf);
                                 if (cert_index == 0) {
-                                    // Verify the host on the first certificate.
-                                    try subject.verifyHostName(host);
-
-                                    // Keep track of the public key for the
-                                    // certificate_verify message later.
-                                    main_cert_pub_key_algo = subject.pub_key_algo;
-                                    const pub_key = subject.pubKey();
-                                    if (pub_key.len > main_cert_pub_key_buf.len)
-                                        return error.CertificatePublicKeyInvalid;
-                                    @memcpy(main_cert_pub_key_buf[0..pub_key.len], pub_key);
-                                    main_cert_pub_key_len = @intCast(pub_key.len);
+                                    validator = try Certificate.PathValidator.init(
+                                        cur_cert,
+                                        Certificate.Policy.any,
+                                        .{ .bundle = ca_bundle, .time = now_sec },
+                                        host,
+                                    );
                                 } else {
-                                    try prev_cert.verify(subject, now_sec);
+                                    try validator.?.validate(cur_cert);
                                 }
 
-                                if (ca_bundle.verify(subject, now_sec)) |_| {
+                                if (validator.?.validateCA(cur_cert)) |_| {
                                     handshake_state = .trust_chain_established;
                                     break :cert;
                                 } else |err| switch (err) {
-                                    error.CertificateIssuerNotFound => {},
+                                    error.CANotFound => {},
                                     else => |e| return e,
                                 }
 
-                                prev_cert = subject;
+                                prev_cert = cur_cert;
                                 cert_index += 1;
 
                                 try certs_decoder.ensure(2);
@@ -588,55 +527,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     break :v verify_buffer[0 .. verify_buffer.len - max_digest_len + transcript_digest.len];
                                 },
                             };
-                            const main_cert_pub_key = main_cert_pub_key_buf[0..main_cert_pub_key_len];
-
-                            switch (scheme) {
-                                inline .ecdsa_secp256r1_sha256,
-                                .ecdsa_secp384r1_sha384,
-                                => |comptime_scheme| {
-                                    if (main_cert_pub_key_algo != .X9_62_id_ecPublicKey)
-                                        return error.TlsBadSignatureScheme;
-                                    const Ecdsa = SchemeEcdsa(comptime_scheme);
-                                    const sig = try Ecdsa.Signature.fromDer(encoded_sig);
-                                    const key = try Ecdsa.PublicKey.fromSec1(main_cert_pub_key);
-                                    try sig.verify(verify_bytes, key);
-                                },
-                                inline .rsa_pss_rsae_sha256,
-                                .rsa_pss_rsae_sha384,
-                                .rsa_pss_rsae_sha512,
-                                => |comptime_scheme| {
-                                    if (main_cert_pub_key_algo != .rsaEncryption)
-                                        return error.TlsBadSignatureScheme;
-
-                                    const Hash = SchemeHash(comptime_scheme);
-                                    const rsa = Certificate.rsa;
-                                    const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
-                                    const exponent = components.exponent;
-                                    const modulus = components.modulus;
-                                    switch (modulus.len) {
-                                        inline 128, 256, 512 => |modulus_len| {
-                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus);
-                                            const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
-                                        },
-                                        else => {
-                                            return error.TlsBadRsaSignatureBitCount;
-                                        },
-                                    }
-                                },
-                                inline .ed25519 => |comptime_scheme| {
-                                    if (main_cert_pub_key_algo != .curveEd25519) return error.TlsBadSignatureScheme;
-                                    const Eddsa = SchemeEddsa(comptime_scheme);
-                                    if (encoded_sig.len != Eddsa.Signature.encoded_length) return error.InvalidEncoding;
-                                    const sig = Eddsa.Signature.fromBytes(encoded_sig[0..Eddsa.Signature.encoded_length].*);
-                                    if (main_cert_pub_key.len != Eddsa.PublicKey.encoded_length) return error.InvalidEncoding;
-                                    const key = try Eddsa.PublicKey.fromBytes(main_cert_pub_key[0..Eddsa.PublicKey.encoded_length].*);
-                                    try sig.verify(verify_bytes, key);
-                                },
-                                else => {
-                                    return error.TlsBadSignatureScheme;
-                                },
-                            }
+                            // Use Certificate.Signature for its convenient `fn verify([]const u8, PubKey)`
+                            const signature = try scheme.toSignature(encoded_sig);
+                            try signature.verify(verify_bytes, cur_cert.pub_key);
                         },
                         .finished => {
                             if (handshake_state != .finished) return error.TlsUnexpectedMessage;
