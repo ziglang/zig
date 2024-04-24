@@ -32740,7 +32740,7 @@ fn analyzeSlice(
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                if (try sema.resolveValue(end)) |end_val| {
+                if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     const len_s_val = try mod.intValue(
                         Type.usize,
                         array_ty.arrayLenIncludingSentinel(mod),
@@ -35684,7 +35684,7 @@ pub fn resolveUnionAlignment(
         const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
         if (!(try sema.typeHasRuntimeBits(field_ty))) continue;
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -35744,7 +35744,7 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
             else => return err,
         });
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else

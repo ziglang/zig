@@ -993,7 +993,7 @@ const TestManifest = struct {
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
-    const valid_keys = std.ComptimeStringMap(void, .{
+    const valid_keys = std.StaticStringMap(void).initComptime(.{
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
