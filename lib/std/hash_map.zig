@@ -542,7 +542,7 @@ pub fn HashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) Size {
+        pub fn capacity(self: *const Self) Size {
             return self.unmanaged.capacity();
         }
 
