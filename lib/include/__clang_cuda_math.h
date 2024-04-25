@@ -36,7 +36,7 @@
 // because the OpenMP overlay requires constexpr functions here but prior to
 // c++14 void return functions could not be constexpr.
 #pragma push_macro("__DEVICE_VOID__")
-#ifdef __OPENMP_NVPTX__ && defined(__cplusplus) && __cplusplus < 201402L
+#if defined(__OPENMP_NVPTX__) && defined(__cplusplus) && __cplusplus < 201402L
 #define __DEVICE_VOID__ static __attribute__((always_inline, nothrow))
 #else
 #define __DEVICE_VOID__ __DEVICE__
@@ -45,9 +45,9 @@
 // libdevice provides fast low precision and slow full-recision implementations
 // for some functions. Which one gets selected depends on
 // __CLANG_CUDA_APPROX_TRANSCENDENTALS__ which gets defined by clang if
-// -ffast-math or -fcuda-approx-transcendentals are in effect.
+// -ffast-math or -fgpu-approx-transcendentals are in effect.
 #pragma push_macro("__FAST_OR_SLOW")
-#if defined(__CLANG_CUDA_APPROX_TRANSCENDENTALS__)
+#if defined(__CLANG_GPU_APPROX_TRANSCENDENTALS__)
 #define __FAST_OR_SLOW(fast, slow) fast
 #else
 #define __FAST_OR_SLOW(fast, slow) slow
