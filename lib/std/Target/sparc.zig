@@ -18,6 +18,34 @@ pub const Feature = enum {
     no_fmuls,
     no_fsmuld,
     popc,
+    reserve_g1,
+    reserve_g2,
+    reserve_g3,
+    reserve_g4,
+    reserve_g5,
+    reserve_g6,
+    reserve_g7,
+    reserve_i0,
+    reserve_i1,
+    reserve_i2,
+    reserve_i3,
+    reserve_i4,
+    reserve_i5,
+    reserve_l0,
+    reserve_l1,
+    reserve_l2,
+    reserve_l3,
+    reserve_l4,
+    reserve_l5,
+    reserve_l6,
+    reserve_l7,
+    reserve_o0,
+    reserve_o1,
+    reserve_o2,
+    reserve_o3,
+    reserve_o4,
+    reserve_o5,
+    slow_rdpc,
     soft_float,
     soft_mul_div,
     v9,
@@ -99,6 +127,148 @@ pub const all_features = blk: {
         .llvm_name = "popc",
         .description = "Use the popc (population count) instruction",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g1)] = .{
+        .llvm_name = "reserve-g1",
+        .description = "Reserve G1, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g2)] = .{
+        .llvm_name = "reserve-g2",
+        .description = "Reserve G2, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g3)] = .{
+        .llvm_name = "reserve-g3",
+        .description = "Reserve G3, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g4)] = .{
+        .llvm_name = "reserve-g4",
+        .description = "Reserve G4, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g5)] = .{
+        .llvm_name = "reserve-g5",
+        .description = "Reserve G5, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g6)] = .{
+        .llvm_name = "reserve-g6",
+        .description = "Reserve G6, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_g7)] = .{
+        .llvm_name = "reserve-g7",
+        .description = "Reserve G7, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i0)] = .{
+        .llvm_name = "reserve-i0",
+        .description = "Reserve I0, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i1)] = .{
+        .llvm_name = "reserve-i1",
+        .description = "Reserve I1, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i2)] = .{
+        .llvm_name = "reserve-i2",
+        .description = "Reserve I2, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i3)] = .{
+        .llvm_name = "reserve-i3",
+        .description = "Reserve I3, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i4)] = .{
+        .llvm_name = "reserve-i4",
+        .description = "Reserve I4, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_i5)] = .{
+        .llvm_name = "reserve-i5",
+        .description = "Reserve I5, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l0)] = .{
+        .llvm_name = "reserve-l0",
+        .description = "Reserve L0, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l1)] = .{
+        .llvm_name = "reserve-l1",
+        .description = "Reserve L1, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l2)] = .{
+        .llvm_name = "reserve-l2",
+        .description = "Reserve L2, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l3)] = .{
+        .llvm_name = "reserve-l3",
+        .description = "Reserve L3, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l4)] = .{
+        .llvm_name = "reserve-l4",
+        .description = "Reserve L4, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l5)] = .{
+        .llvm_name = "reserve-l5",
+        .description = "Reserve L5, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l6)] = .{
+        .llvm_name = "reserve-l6",
+        .description = "Reserve L6, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_l7)] = .{
+        .llvm_name = "reserve-l7",
+        .description = "Reserve L7, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o0)] = .{
+        .llvm_name = "reserve-o0",
+        .description = "Reserve O0, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o1)] = .{
+        .llvm_name = "reserve-o1",
+        .description = "Reserve O1, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o2)] = .{
+        .llvm_name = "reserve-o2",
+        .description = "Reserve O2, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o3)] = .{
+        .llvm_name = "reserve-o3",
+        .description = "Reserve O3, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o4)] = .{
+        .llvm_name = "reserve-o4",
+        .description = "Reserve O4, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.reserve_o5)] = .{
+        .llvm_name = "reserve-o5",
+        .description = "Reserve O5, making it unavailable as a GPR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.slow_rdpc)] = .{
+        .llvm_name = "slow-rdpc",
+        .description = "rd %pc, %XX is slow",
+        .dependencies = featureSet(&[_]Feature{
+            .v9,
+        }),
     };
     result[@intFromEnum(Feature.soft_float)] = .{
         .llvm_name = "soft-float",
@@ -407,7 +577,7 @@ pub const cpu = struct {
         .llvm_name = "ultrasparc",
         .features = featureSet(&[_]Feature{
             .deprecated_v8,
-            .v9,
+            .slow_rdpc,
             .vis,
         }),
     };
@@ -416,7 +586,7 @@ pub const cpu = struct {
         .llvm_name = "ultrasparc3",
         .features = featureSet(&[_]Feature{
             .deprecated_v8,
-            .v9,
+            .slow_rdpc,
             .vis,
             .vis2,
         }),
