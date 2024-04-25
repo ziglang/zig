@@ -296,6 +296,7 @@ const Writer = struct {
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
+            .repeat => try w.writeRepeat(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .@"try", .try_cold => try w.writeTry(s, inst),
             .try_ptr, .try_ptr_cold => try w.writeTryPtr(s, inst),
@@ -706,6 +707,11 @@ const Writer = struct {
         try w.writeInstIndex(s, br.block_inst, false);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, br.operand);
+    }
+
+    fn writeRepeat(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const repeat = w.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        try w.writeInstIndex(s, repeat.loop_inst, false);
     }
 
     fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

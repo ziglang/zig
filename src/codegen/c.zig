@@ -3137,11 +3137,9 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .arg      => try airArg(f, inst),
 
-            .trap       => try airTrap(f, f.object.writer()),
             .breakpoint => try airBreakpoint(f.object.writer()),
             .ret_addr   => try airRetAddr(f, inst),
             .frame_addr => try airFrameAddress(f, inst),
-            .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
             .ptr_add => try airPtrAddSub(f, inst, '+'),
@@ -3248,21 +3246,13 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .alloc            => try airAlloc(f, inst),
             .ret_ptr          => try airRetPtr(f, inst),
             .assembly         => try airAsm(f, inst),
-            .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
             .int_from_bool      => try airIntFromBool(f, inst),
             .load             => try airLoad(f, inst),
-            .ret              => try airRet(f, inst, false),
-            .ret_safe         => try airRet(f, inst, false), // TODO
-            .ret_load         => try airRet(f, inst, true),
             .store            => try airStore(f, inst, false),
             .store_safe       => try airStore(f, inst, true),
-            .loop             => try airLoop(f, inst),
-            .cond_br          => try airCondBr(f, inst),
-            .br               => try airBr(f, inst),
-            .switch_br        => try airSwitchBr(f, inst),
             .struct_field_ptr => try airStructFieldPtr(f, inst),
             .array_to_slice   => try airArrayToSlice(f, inst),
             .cmpxchg_weak     => try airCmpxchg(f, inst, "weak"),
@@ -3296,13 +3286,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .try_ptr_cold => try airTryPtr(f, inst),
 
             .dbg_stmt => try airDbgStmt(f, inst),
-            .dbg_inline_block => try airDbgInlineBlock(f, inst),
             .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => try airDbgVar(f, inst),
-
-            .call              => try airCall(f, inst, .auto),
-            .call_always_tail  => .none,
-            .call_never_tail   => try airCall(f, inst, .never_tail),
-            .call_never_inline => try airCall(f, inst, .never_inline),
 
             .float_from_int,
             .int_from_float,
@@ -3390,6 +3374,39 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .work_group_size,
             .work_group_id,
             => unreachable,
+
+            // Instructions that are known to always be `noreturn` based on their tag.
+            .br         => return airBr(f, inst),
+            .repeat     => return airRepeat(f, inst),
+            .cond_br    => return airCondBr(f, inst),
+            .switch_br  => return airSwitchBr(f, inst),
+            .loop       => return airLoop(f, inst),
+            .ret        => return airRet(f, inst, false),
+            .ret_safe   => return airRet(f, inst, false), // TODO
+            .ret_load   => return airRet(f, inst, true),
+            .trap       => return airTrap(f, f.object.writer()),
+            .unreach    => return airUnreach(f),
+
+            // Instructions which may be `noreturn`.
+            .block => res: {
+                const res = try airBlock(f, inst);
+                if (f.typeOfIndex(inst).isNoReturn(zcu)) return;
+                break :res res;
+            },
+            .dbg_inline_block => res: {
+                const res = try airDbgInlineBlock(f, inst);
+                if (f.typeOfIndex(inst).isNoReturn(zcu)) return;
+                break :res res;
+            },
+            // TODO: calls should be in this category! The AIR we emit for them is a bit weird.
+            // The instruction has type `noreturn`, but there are instructions (and maybe a safety
+            // check) following nonetheless. The `unreachable` or safety check should be emitted by
+            // backends instead.
+            .call              => try airCall(f, inst, .auto),
+            .call_always_tail  => .none,
+            .call_never_tail   => try airCall(f, inst, .never_tail),
+            .call_never_inline => try airCall(f, inst, .never_inline),
+
             // zig fmt: on
         };
         if (result_value == .new_local) {
@@ -3401,6 +3418,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             else => result_value,
         });
     }
+    unreachable;
 }
 
 fn airSliceField(f: *Function, inst: Air.Inst.Index, is_ptr: bool, field_name: []const u8) !CValue {
@@ -3718,7 +3736,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
+fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !void {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
@@ -3769,7 +3787,6 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
         // Not even allowed to return void in a naked function.
         if (!f.object.dg.is_naked_fn) try writer.writeAll("return;\n");
     }
-    return .none;
 }
 
 fn airIntCast(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4741,7 +4758,7 @@ fn lowerTry(
     return local;
 }
 
-fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airBr(f: *Function, inst: Air.Inst.Index) !void {
     const branch = f.air.instructions.items(.data)[@intFromEnum(inst)].br;
     const block = f.blocks.get(branch.block_inst).?;
     const result = block.result;
@@ -4761,7 +4778,12 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     try writer.print("goto zig_block_{d};\n", .{block.block_id});
-    return .none;
+}
+
+fn airRepeat(f: *Function, inst: Air.Inst.Index) !void {
+    const repeat = f.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+    const writer = f.object.writer();
+    try writer.print("goto zig_loop_{d};\n", .{@intFromEnum(repeat.loop_inst)});
 }
 
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4889,12 +4911,10 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
     return local;
 }
 
-fn airTrap(f: *Function, writer: anytype) !CValue {
+fn airTrap(f: *Function, writer: anytype) !void {
     // Not even allowed to call trap in a naked function.
-    if (f.object.dg.is_naked_fn) return .none;
-
+    if (f.object.dg.is_naked_fn) return;
     try writer.writeAll("zig_trap();\n");
-    return .none;
 }
 
 fn airBreakpoint(writer: anytype) !CValue {
@@ -4933,28 +4953,27 @@ fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
     return .none;
 }
 
-fn airUnreach(f: *Function) !CValue {
+fn airUnreach(f: *Function) !void {
     // Not even allowed to call unreachable in a naked function.
-    if (f.object.dg.is_naked_fn) return .none;
-
+    if (f.object.dg.is_naked_fn) return;
     try f.object.writer().writeAll("zig_unreachable();\n");
-    return .none;
 }
 
-fn airLoop(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airLoop(f: *Function, inst: Air.Inst.Index) !void {
     const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = f.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(f.air.extra[loop.end..][0..loop.data.body_len]);
     const writer = f.object.writer();
 
-    try writer.writeAll("for (;;) ");
-    try genBody(f, body); // no need to restore state, we're noreturn
-    try writer.writeByte('\n');
-
-    return .none;
+    // `repeat` instructions matching this loop will branch to
+    // this label. Since we need a label for arbitrary `repeat`
+    // anyway, there's actually no need to use a "real" looping
+    // construct at all!
+    try writer.print("zig_loop_{d}:\n", .{@intFromEnum(inst)});
+    try genBodyInner(f, body); // no need to restore state, we're noreturn
 }
 
-fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airCondBr(f: *Function, inst: Air.Inst.Index) !void {
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const cond = try f.resolveInst(pl_op.operand);
     try reap(f, inst, &.{pl_op.operand});
@@ -4983,11 +5002,9 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
     // instance) `br` to a block (label).
 
     try genBodyInner(f, else_body);
-
-    return .none;
 }
 
-fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const switch_br = f.air.unwrapSwitch(inst);
@@ -5097,7 +5114,6 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     f.object.indent_writer.popIndent();
     try writer.writeAll("}\n");
-    return .none;
 }
 
 fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool {

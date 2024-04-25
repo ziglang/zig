@@ -1579,6 +1579,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try func.airBitCast(inst),
             .block           => try func.airBlock(inst),
             .br              => try func.airBr(inst),
+            .repeat          => return func.fail("TODO implement `repeat`", .{}),
             .trap            => try func.airTrap(),
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),

@@ -70,7 +70,8 @@ pub const Block = struct {
 const LivenessPass = enum {
     /// In this pass, we perform some basic analysis of loops to gain information the main pass
     /// needs. In particular, for every `loop`, we track the following information:
-    /// * Every block which the loop body contains a `br` to.
+    /// * Every outer block which the loop body contains a `br` to.
+    /// * Every outer loop which the loop body contains a `repeat` to.
     /// * Every operand referenced within the loop body but created outside the loop.
     /// This gives the main analysis pass enough information to determine the full set of
     /// instructions which need to be alive when a loop repeats. This data is TEMPORARILY stored in
@@ -89,7 +90,8 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     return switch (pass) {
         .loop_analysis => struct {
             /// The set of blocks which are exited with a `br` instruction at some point within this
-            /// body and which we are currently within.
+            /// body and which we are currently within. Also includes `loop`s which are the target
+            /// of a `repeat` instruction.
             breaks: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
 
             /// The set of operands for which we have seen at least one usage but not their birth.
@@ -102,7 +104,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
         },
 
         .main_analysis => struct {
-            /// Every `block` currently under analysis.
+            /// Every `block` and `loop` currently under analysis.
             block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .{},
 
             /// The set of instructions currently alive in the current control
@@ -114,7 +116,8 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
             old_extra: std.ArrayListUnmanaged(u32) = .{},
 
             const BlockScope = struct {
-                /// The set of instructions which are alive upon a `br` to this block.
+                /// If this is a `block`, these instructions are alive upon a `br` to this block.
+                /// If this is a `loop`, these instructions are alive upon a `repeat` to this block.
                 live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void),
             };
 
@@ -326,6 +329,7 @@ pub fn categorizeOperand(
         .ret_ptr,
         .trap,
         .breakpoint,
+        .repeat,
         .dbg_stmt,
         .unreach,
         .ret_addr,
@@ -1201,6 +1205,7 @@ fn analyzeInst(
         },
 
         .br => return analyzeInstBr(a, pass, data, inst),
+        .repeat => return analyzeInstRepeat(a, pass, data, inst),
 
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
@@ -1380,6 +1385,33 @@ fn analyzeInstBr(
     return analyzeOperands(a, pass, data, inst, .{ br.operand, .none, .none });
 }
 
+fn analyzeInstRepeat(
+    a: *Analysis,
+    comptime pass: LivenessPass,
+    data: *LivenessPassData(pass),
+    inst: Air.Inst.Index,
+) !void {
+    const inst_datas = a.air.instructions.items(.data);
+    const repeat = inst_datas[@intFromEnum(inst)].repeat;
+    const gpa = a.gpa;
+
+    switch (pass) {
+        .loop_analysis => {
+            try data.breaks.put(gpa, repeat.loop_inst, {});
+        },
+
+        .main_analysis => {
+            const block_scope = data.block_scopes.get(repeat.loop_inst).?; // we should always be repeating an enclosing loop
+
+            const new_live_set = try block_scope.live_set.clone(gpa);
+            data.live_set.deinit(gpa);
+            data.live_set = new_live_set;
+        },
+    }
+
+    return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none });
+}
+
 fn analyzeInstBlock(
     a: *Analysis,
     comptime pass: LivenessPass,
@@ -1402,8 +1434,10 @@ fn analyzeInstBlock(
 
         .main_analysis => {
             log.debug("[{}] %{}: block live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+            // We can move the live set because the body should have a noreturn
+            // instruction which overrides the set.
             try data.block_scopes.put(gpa, inst, .{
-                .live_set = try data.live_set.clone(gpa),
+                .live_set = data.live_set.move(),
             });
             defer {
                 log.debug("[{}] %{}: popped block scope", .{ pass, inst });
@@ -1471,10 +1505,15 @@ fn analyzeInstLoop(
 
             try analyzeBody(a, pass, data, body);
 
+            // `loop`s are guaranteed to have at least one matching `repeat`.
+            // However, we no longer care about repeats of this loop itself.
+            assert(data.breaks.remove(inst));
+
+            const extra_index: u32 = @intCast(a.extra.items.len);
+
             const num_breaks = data.breaks.count();
             try a.extra.ensureUnusedCapacity(gpa, 1 + num_breaks);
 
-            const extra_index = @as(u32, @intCast(a.extra.items.len));
             a.extra.appendAssumeCapacity(num_breaks);
 
             var it = data.breaks.keyIterator();
@@ -1543,6 +1582,17 @@ fn analyzeInstLoop(
                 }
             }
 
+            // Now, `data.live_set` is the operands which must be alive when the loop repeats.
+            // Move them into a block scope for corresponding `repeat` instructions to notice.
+            log.debug("[{}] %{}: loop live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
+            try data.block_scopes.putNoClobber(gpa, inst, .{
+                .live_set = data.live_set.move(),
+            });
+            defer {
+                log.debug("[{}] %{}: popped loop block scop", .{ pass, inst });
+                var scope = data.block_scopes.fetchRemove(inst).?.value;
+                scope.live_set.deinit(gpa);
+            }
             try analyzeBody(a, pass, data, body);
         },
     }

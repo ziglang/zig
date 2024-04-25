@@ -420,6 +420,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .dbg_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
+            .repeat,
             => {},
         }
     }

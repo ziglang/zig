@@ -1720,6 +1720,7 @@ pub const Object = struct {
             .arg_inline_index = 0,
             .func_inst_table = .{},
             .blocks = .{},
+            .loops = .{},
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
@@ -4841,6 +4842,9 @@ pub const FuncGen = struct {
         breaks: *BreakList,
     }),
 
+    /// Maps `loop` instructions to the bb to branch to to repeat the loop.
+    loops: std.AutoHashMapUnmanaged(Air.Inst.Index, Builder.Function.Block.Index),
+
     sync_scope: Builder.SyncScope,
 
     const Fuzz = struct {
@@ -4867,6 +4871,7 @@ pub const FuncGen = struct {
         self.wip.deinit();
         self.func_inst_table.deinit(gpa);
         self.blocks.deinit(gpa);
+        self.loops.deinit(gpa);
     }
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
@@ -5058,14 +5063,9 @@ pub const FuncGen = struct {
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
                 .int_from_bool  => try self.airIntFromBool(inst),
-                .block          => try self.airBlock(inst),
-                .br             => try self.airBr(inst),
-                .switch_br      => try self.airSwitchBr(inst),
-                .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
-                .cond_br        => try self.airCondBr(inst),
                 .@"try"         => try self.airTry(body[i..], false),
                 .try_cold       => try self.airTry(body[i..], true),
                 .try_ptr        => try self.airTryPtr(inst, false),
@@ -5076,21 +5076,12 @@ pub const FuncGen = struct {
                 .fpext          => try self.airFpext(inst),
                 .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
-                .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
-                .ret            => try self.airRet(inst, false),
-                .ret_safe       => try self.airRet(inst, true),
-                .ret_load       => try self.airRetLoad(inst),
                 .store          => try self.airStore(inst, false),
                 .store_safe     => try self.airStore(inst, true),
                 .assembly       => try self.airAssembly(inst),
                 .slice_ptr      => try self.airSliceField(inst, 0),
                 .slice_len      => try self.airSliceField(inst, 1),
-
-                .call              => try self.airCall(inst, .auto),
-                .call_always_tail  => try self.airCall(inst, .always_tail),
-                .call_never_tail   => try self.airCall(inst, .never_tail),
-                .call_never_inline => try self.airCall(inst, .never_inline),
 
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
@@ -5176,9 +5167,7 @@ pub const FuncGen = struct {
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
-                .unreach  => try self.airUnreach(inst),
                 .dbg_stmt => try self.airDbgStmt(inst),
-                .dbg_inline_block => try self.airDbgInlineBlock(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst, false),
                 .dbg_arg_inline => try self.airDbgVarVal(inst, true),
@@ -5191,10 +5180,50 @@ pub const FuncGen = struct {
                 .work_item_id => try self.airWorkItemId(inst),
                 .work_group_size => try self.airWorkGroupSize(inst),
                 .work_group_id => try self.airWorkGroupId(inst),
+
+                // Instructions that are known to always be `noreturn` based on their tag.
+                .br        => return self.airBr(inst),
+                .repeat    => return self.airRepeat(inst),
+                .cond_br   => return self.airCondBr(inst),
+                .switch_br => return self.airSwitchBr(inst),
+                .loop      => return self.airLoop(inst),
+                .ret       => return self.airRet(inst, false),
+                .ret_safe  => return self.airRet(inst, true),
+                .ret_load  => return self.airRetLoad(inst),
+                .trap      => return self.airTrap(inst),
+                .unreach   => return self.airUnreach(inst),
+
+                // Instructions which may be `noreturn`.
+                .block => res: {
+                    const res = try self.airBlock(inst);
+                    if (self.typeOfIndex(inst).isNoReturn(zcu)) return;
+                    break :res res;
+                },
+                .dbg_inline_block => res: {
+                    const res = try self.airDbgInlineBlock(inst);
+                    if (self.typeOfIndex(inst).isNoReturn(zcu)) return;
+                    break :res res;
+                },
+                .call, .call_always_tail, .call_never_tail, .call_never_inline => |tag| res: {
+                    const res = try self.airCall(inst, switch (tag) {
+                        .call              => .auto,
+                        .call_always_tail  => .always_tail,
+                        .call_never_tail   => .never_tail,
+                        .call_never_inline => .never_inline,
+                        else               => unreachable,
+                    });
+                    // TODO: the AIR we emit for calls is a bit weird - the instruction has
+                    // type `noreturn`, but there are instructions (and maybe a safety check) following
+                    // nonetheless. The `unreachable` or safety check should be emitted by backends instead.
+                    //if (self.typeOfIndex(inst).isNoReturn(mod)) return;
+                    break :res res;
+                },
+
                 // zig fmt: on
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
         }
+        unreachable;
     }
 
     fn genBodyDebugScope(
@@ -5640,7 +5669,7 @@ pub const FuncGen = struct {
         _ = try fg.wip.@"unreachable"();
     }
 
-    fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
+    fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !void {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5675,7 +5704,7 @@ pub const FuncGen = struct {
                     try self.valgrindMarkUndef(self.ret_ptr, len);
                 }
                 _ = try self.wip.retVoid();
-                return .none;
+                return;
             }
 
             const unwrapped_operand = operand.unwrap();
@@ -5684,12 +5713,12 @@ pub const FuncGen = struct {
             // Return value was stored previously
             if (unwrapped_operand == .instruction and unwrapped_ret == .instruction and unwrapped_operand.instruction == unwrapped_ret.instruction) {
                 _ = try self.wip.retVoid();
-                return .none;
+                return;
             }
 
             try self.store(self.ret_ptr, ptr_ty, operand, .none);
             _ = try self.wip.retVoid();
-            return .none;
+            return;
         }
         const fn_info = zcu.typeToFunc(Type.fromInterned(ip.getNav(self.ng.nav_index).typeOf(ip))).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -5701,7 +5730,7 @@ pub const FuncGen = struct {
             } else {
                 _ = try self.wip.retVoid();
             }
-            return .none;
+            return;
         }
 
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
@@ -5725,29 +5754,29 @@ pub const FuncGen = struct {
                 try self.valgrindMarkUndef(rp, len);
             }
             _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
-            return .none;
+            return;
         }
 
         if (isByRef(ret_ty, zcu)) {
             // operand is a pointer however self.ret_ptr is null so that means
             // we need to return a value.
             _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, operand, alignment, ""));
-            return .none;
+            return;
         }
 
         const llvm_ret_ty = operand.typeOfWip(&self.wip);
         if (abi_ret_ty == llvm_ret_ty) {
             _ = try self.wip.ret(operand);
-            return .none;
+            return;
         }
 
         const rp = try self.buildAlloca(llvm_ret_ty, alignment);
         _ = try self.wip.store(.normal, operand, rp, alignment);
         _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, rp, alignment, ""));
-        return .none;
+        return;
     }
 
-    fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) !void {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5765,17 +5794,17 @@ pub const FuncGen = struct {
             } else {
                 _ = try self.wip.retVoid();
             }
-            return .none;
+            return;
         }
         if (self.ret_ptr != .none) {
             _ = try self.wip.retVoid();
-            return .none;
+            return;
         }
         const ptr = try self.resolveInst(un_op);
         const abi_ret_ty = try lowerFnRetTy(o, fn_info);
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
         _ = try self.wip.ret(try self.wip.load(.normal, abi_ret_ty, ptr, alignment, ""));
-        return .none;
+        return;
     }
 
     fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -6039,7 +6068,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airBr(self: *FuncGen, inst: Air.Inst.Index) !void {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
         const branch = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
@@ -6055,10 +6084,16 @@ pub const FuncGen = struct {
             try block.breaks.list.append(self.gpa, .{ .bb = self.wip.cursor.block, .val = val });
         } else block.breaks.len += 1;
         _ = try self.wip.br(block.parent_bb);
-        return .none;
     }
 
-    fn airCondBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRepeat(self: *FuncGen, inst: Air.Inst.Index) !void {
+        const repeat = self.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        const loop_bb = self.loops.get(repeat.loop_inst).?;
+        loop_bb.ptr(&self.wip).incoming += 1;
+        _ = try self.wip.br(loop_bb);
+    }
+
+    fn airCondBr(self: *FuncGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.CondBr, pl_op.payload);
@@ -6117,7 +6152,6 @@ pub const FuncGen = struct {
         try self.genBodyDebugScope(null, else_body, extra.data.branch_hints.else_cov);
 
         // No need to reset the insert cursor since this instruction is noreturn.
-        return .none;
     }
 
     fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index, err_cold: bool) !Builder.Value {
@@ -6223,7 +6257,7 @@ pub const FuncGen = struct {
         return fg.wip.extractValue(err_union, &.{offset}, "");
     }
 
-    fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !void {
         const o = self.ng.object;
 
         const switch_br = self.air.unwrapSwitch(inst);
@@ -6371,31 +6405,20 @@ pub const FuncGen = struct {
         }
 
         // No need to reset the insert cursor since this instruction is noreturn.
-        return .none;
     }
 
-    fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const zcu = o.pt.zcu;
+    fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
-        const loop_block = try self.wip.block(2, "Loop");
+        const loop_block = try self.wip.block(1, "Loop"); // `airRepeat` will increment incoming each time
         _ = try self.wip.br(loop_block);
+
+        try self.loops.putNoClobber(self.gpa, inst, loop_block);
+        defer assert(self.loops.remove(inst));
 
         self.wip.cursor = .{ .block = loop_block };
         try self.genBodyDebugScope(null, body, .none);
-
-        // TODO instead of this logic, change AIR to have the property that
-        // every block is guaranteed to end with a noreturn instruction.
-        // Then we can simply rely on the fact that a repeat or break instruction
-        // would have been emitted already. Also the main loop in genBody can
-        // be while(true) instead of for(body), which will eliminate 1 branch on
-        // a hot path.
-        if (body.len == 0 or !self.typeOfIndex(body[body.len - 1]).isNoReturn(zcu)) {
-            _ = try self.wip.br(loop_block);
-        }
-        return .none;
     }
 
     fn airArrayToSlice(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -6890,10 +6913,9 @@ pub const FuncGen = struct {
         return self.wip.not(operand, "");
     }
 
-    fn airUnreach(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airUnreach(self: *FuncGen, inst: Air.Inst.Index) !void {
         _ = inst;
         _ = try self.wip.@"unreachable"();
-        return .none;
     }
 
     fn airDbgStmt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9296,11 +9318,10 @@ pub const FuncGen = struct {
         return fg.load(ptr, ptr_ty);
     }
 
-    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airTrap(self: *FuncGen, inst: Air.Inst.Index) !void {
         _ = inst;
         _ = try self.wip.callIntrinsic(.normal, .none, .trap, &.{}, &.{}, "");
         _ = try self.wip.@"unreachable"();
-        return .none;
     }
 
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

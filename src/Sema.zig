@@ -1559,6 +1559,8 @@ fn analyzeBodyInner(
                     // We are definitely called by `zirLoop`, which will treat the
                     // fact that this body does not terminate `noreturn` as an
                     // implicit repeat.
+                    // TODO: since AIR has `repeat` now, we could change ZIR to generate
+                    // more optimal code utilizing `repeat` instructions across blocks!
                     break;
                 }
             },
@@ -5811,17 +5813,30 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     // Use `analyzeBodyInner` directly to push any comptime control flow up the stack.
     try sema.analyzeBodyInner(&loop_block, body);
 
+    // TODO: since AIR has `repeat` now, we could change ZIR to generate
+    // more optimal code utilizing `repeat` instructions across blocks!
+    // For now, if the generated loop body does not terminate `noreturn`,
+    // then `analyzeBodyInner` is signalling that it ended with `repeat`.
+
     const loop_block_len = loop_block.instructions.items.len;
     if (loop_block_len > 0 and sema.typeOf(loop_block.instructions.items[loop_block_len - 1].toRef()).isNoReturn(zcu)) {
         // If the loop ended with a noreturn terminator, then there is no way for it to loop,
         // so we can just use the block instead.
         try child_block.instructions.appendSlice(gpa, loop_block.instructions.items);
     } else {
+        _ = try loop_block.addInst(.{
+            .tag = .repeat,
+            .data = .{ .repeat = .{
+                .loop_inst = loop_inst,
+            } },
+        });
+        // Note that `loop_block_len` is now off by one.
+
         try child_block.instructions.append(gpa, loop_inst);
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len + loop_block_len);
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len + loop_block_len + 1);
         sema.air_instructions.items(.data)[@intFromEnum(loop_inst)].ty_pl.payload = sema.addExtraAssumeCapacity(
-            Air.Block{ .body_len = @intCast(loop_block_len) },
+            Air.Block{ .body_len = @intCast(loop_block_len + 1) },
         );
         sema.air_extra.appendSliceAssumeCapacity(@ptrCast(loop_block.instructions.items));
     }
