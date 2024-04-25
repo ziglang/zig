@@ -284,8 +284,6 @@ extern fn ZigLLVMWriteArchive(
 
 pub const OSType = enum(c_int) {
     UnknownOS,
-    Ananas,
-    CloudABI,
     Darwin,
     DragonFly,
     FreeBSD,
@@ -302,7 +300,6 @@ pub const OSType = enum(c_int) {
     Win32,
     ZOS,
     Haiku,
-    Minix,
     RTEMS,
     NaCl,
     AIX,
@@ -315,8 +312,8 @@ pub const OSType = enum(c_int) {
     TvOS,
     WatchOS,
     DriverKit,
+    XROS,
     Mesa3D,
-    Contiki,
     AMDPAL,
     HermitCore,
     Hurd,
@@ -324,6 +321,8 @@ pub const OSType = enum(c_int) {
     Emscripten,
     ShaderModel,
     LiteOS,
+    Serenity,
+    Vulkan,
 };
 
 pub const ArchType = enum(c_int) {
@@ -378,6 +377,7 @@ pub const ArchType = enum(c_int) {
     hsail64,
     spir,
     spir64,
+    spirv,
     spirv32,
     spirv64,
     kalimba,
