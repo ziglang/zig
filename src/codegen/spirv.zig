@@ -2439,6 +2439,7 @@ const DeclGen = struct {
             .store, .store_safe => return self.airStore(inst),
 
             .br             => return self.airBr(inst),
+            .repeat         => return self.fail("TODO implement `repeat`", .{}),
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),

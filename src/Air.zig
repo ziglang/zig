@@ -272,13 +272,15 @@ pub const Inst = struct {
         /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
         /// then there do not exist any `br` instructions targetting this `block`.
         block,
-        /// A labeled block of code that loops forever. At the end of the body it is implied
-        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// A labeled block of code that loops forever. The body must be `noreturn`: loops
+        /// occur through an explicit `repeat` instruction pointing back to this one.
         /// Result type is always `noreturn`; no instructions in a block follow this one.
-        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
-        /// is always statically reachable.
+        /// There is always at least one `repeat` instruction referencing the loop.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
+        /// Sends control flow back to the beginning of a parent `loop` body.
+        /// Uses the `repeat` field.
+        repeat,
         /// Return from a block with a result.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
@@ -1052,6 +1054,9 @@ pub const Inst = struct {
             block_inst: Index,
             operand: Ref,
         },
+        repeat: struct {
+            loop_inst: Index,
+        },
         pl_op: struct {
             operand: Ref,
             payload: u32,
@@ -1440,6 +1445,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         => return datas[@intFromEnum(inst)].ty_op.ty.toType(),
 
         .loop,
+        .repeat,
         .br,
         .cond_br,
         .switch_br,
@@ -1596,6 +1602,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .arg,
         .block,
         .loop,
+        .repeat,
         .br,
         .trap,
         .breakpoint,

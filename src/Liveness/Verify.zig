@@ -1,28 +1,38 @@
-//! Verifies that liveness information is valid.
+//! Verifies that Liveness information is valid.
 
 gpa: std.mem.Allocator,
 air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
 intern_pool: *const InternPool,
 
 pub const Error = error{ LivenessInvalid, OutOfMemory };
 
 pub fn deinit(self: *Verify) void {
     self.live.deinit(self.gpa);
-    var block_it = self.blocks.valueIterator();
-    while (block_it.next()) |block| block.deinit(self.gpa);
-    self.blocks.deinit(self.gpa);
+    {
+        var it = self.blocks.valueIterator();
+        while (it.next()) |block| block.deinit(self.gpa);
+        self.blocks.deinit(self.gpa);
+    }
+    {
+        var it = self.loops.valueIterator();
+        while (it.next()) |block| block.deinit(self.gpa);
+        self.loops.deinit(self.gpa);
+    }
     self.* = undefined;
 }
 
 pub fn verify(self: *Verify) Error!void {
     self.live.clearRetainingCapacity();
     self.blocks.clearRetainingCapacity();
+    self.loops.clearRetainingCapacity();
     try self.verifyBody(self.air.getMainBody());
     // We don't care about `self.live` now, because the loop body was noreturn - everything being dead was checked on `ret` etc
     assert(self.blocks.count() == 0);
+    assert(self.loops.count() == 0);
 }
 
 const LiveMap = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
@@ -429,6 +439,13 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 }
                 try self.verifyInst(inst);
             },
+            .repeat => {
+                const repeat = data[@intFromEnum(inst)].repeat;
+                const expected_live = self.loops.get(repeat.loop_inst) orelse
+                    return invalid("%{}: loop %{} not in scope", .{ @intFromEnum(inst), @intFromEnum(repeat.loop_inst) });
+
+                try self.verifyMatchingLiveness(repeat.loop_inst, expected_live);
+            },
             .block, .dbg_inline_block => |tag| {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const block_ty = ty_pl.ty.toType();
@@ -474,13 +491,16 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const extra = self.air.extraData(Air.Block, ty_pl.payload);
                 const loop_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
 
-                var live = try self.live.clone(self.gpa);
-                defer live.deinit(self.gpa);
+                // The same stuff should be alive after the loop as before it.
+                const gop = try self.loops.getOrPut(self.gpa, inst);
+                defer {
+                    var live = self.loops.fetchRemove(inst).?;
+                    live.value.deinit(self.gpa);
+                }
+                if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                gop.value_ptr.* = try self.live.clone(self.gpa);
 
                 try self.verifyBody(loop_body);
-
-                // The same stuff should be alive after the loop as before it
-                try self.verifyMatchingLiveness(inst, live);
 
                 try self.verifyInstOperands(inst, .{ .none, .none, .none });
             },
