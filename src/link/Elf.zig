@@ -683,14 +683,14 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_got_index == null) {
-            const alignment = self.page_size; //@as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0x4000000 else 0x4000),
+                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -698,14 +698,14 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_ro_index == null) {
-            const alignment = self.page_size; //@as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0xc000000 else 0xa000),
+                .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -713,14 +713,14 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_rw_index == null) {
-            const alignment = self.page_size; //@as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = (off & (self.page_size - 1)) + @as(u64, if (ptr_bit_width >= 32) 0x10000000 else 0xc000),
+                .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -970,11 +970,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
         shdr.sh_size = 0;
         // Must move the entire section.
         const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
-        const new_offset_min = self.findFreeSpace(needed_size, alignment);
-        var new_offset = new_offset_min + (shdr.sh_addr & (self.page_size - 1)) - (new_offset_min & (self.page_size - 1));
-        if (new_offset < shdr.sh_offset) {
-            new_offset += self.page_size;
-        }
+        const new_offset = self.findFreeSpace(needed_size, alignment);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.getShString(shdr.sh_name),
