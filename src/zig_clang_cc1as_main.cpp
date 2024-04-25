@@ -204,10 +204,10 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   // Parse the arguments.
   const OptTable &OptTbl = getDriverOptTable();
 
-  const unsigned IncludedFlagsBitmask = options::CC1AsOption;
+  llvm::opt::Visibility VisibilityMask(options::CC1AsOption);
   unsigned MissingArgIndex, MissingArgCount;
-  InputArgList Args = OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount,
-                                       IncludedFlagsBitmask);
+  InputArgList Args =
+      OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount, VisibilityMask);
 
   // Check for missing argument error.
   if (MissingArgCount) {
@@ -220,7 +220,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   for (const Arg *A : Args.filtered(OPT_UNKNOWN)) {
     auto ArgString = A->getAsString(Args);
     std::string Nearest;
-    if (OptTbl.findNearest(ArgString, Nearest, IncludedFlagsBitmask) > 1)
+    if (OptTbl.findNearest(ArgString, Nearest, VisibilityMask) > 1)
       Diags.Report(diag::err_drv_unknown_argument) << ArgString;
     else
       Diags.Report(diag::err_drv_unknown_argument_with_suggestion)
@@ -643,9 +643,10 @@ int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   if (Asm.ShowHelp) {
     getDriverOptTable().printHelp(
         llvm::outs(), "clang -cc1as [options] file...",
-        "Clang Integrated Assembler",
-        /*Include=*/driver::options::CC1AsOption, /*Exclude=*/0,
-        /*ShowAllAliases=*/false);
+        "Clang Integrated Assembler", /*ShowHidden=*/false,
+        /*ShowAllAliases=*/false,
+        llvm::opt::Visibility(driver::options::CC1AsOption));
+
     return 0;
   }
 
