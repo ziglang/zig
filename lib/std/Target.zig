@@ -47,6 +47,7 @@ pub const Os = struct {
         tvos,
         watchos,
         driverkit,
+        xros,
         mesa3d,
         contiki,
         amdpal,
@@ -56,6 +57,7 @@ pub const Os = struct {
         emscripten,
         shadermodel,
         liteos,
+        serenity,
         opencl,
         glsl450,
         vulkan,
@@ -1002,6 +1004,7 @@ pub const Cpu = struct {
         hsail64,
         spir,
         spir64,
+        spirv,
         spirv32,
         spirv64,
         kalimba,
@@ -1012,8 +1015,6 @@ pub const Cpu = struct {
         renderscript32,
         renderscript64,
         ve,
-        // Stage1 currently assumes that architectures above this comment
-        // map one-to-one with the ZigLLVM_ArchType enum.
         spu_2,
 
         pub inline fn isX86(arch: Arch) bool {
