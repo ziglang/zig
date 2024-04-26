@@ -18,10 +18,8 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI
-_Tp kill_dependency(_Tp __y) _NOEXCEPT
-{
-    return __y;
+_LIBCPP_HIDE_FROM_ABI _Tp kill_dependency(_Tp __y) _NOEXCEPT {
+  return __y;
 }
 
 _LIBCPP_END_NAMESPACE_STD

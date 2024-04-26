@@ -22,33 +22,27 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 template <class _InputIterator, class _OutputIterator, class _Tp, class _BinaryOp, class _UnaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-transform_inclusive_scan(_InputIterator __first, _InputIterator __last,
-                           _OutputIterator __result, _BinaryOp __b, _UnaryOp __u, _Tp __init)
-{
-    for (; __first != __last; ++__first, (void) ++__result) {
-        __init = __b(__init, __u(*__first));
-        *__result = __init;
-        }
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator transform_inclusive_scan(
+    _InputIterator __first, _InputIterator __last, _OutputIterator __result, _BinaryOp __b, _UnaryOp __u, _Tp __init) {
+  for (; __first != __last; ++__first, (void)++__result) {
+    __init    = __b(__init, __u(*__first));
+    *__result = __init;
+  }
 
-    return __result;
+  return __result;
 }
 
 template <class _InputIterator, class _OutputIterator, class _BinaryOp, class _UnaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-transform_inclusive_scan(_InputIterator __first, _InputIterator __last,
-                               _OutputIterator __result, _BinaryOp __b, _UnaryOp __u)
-{
-    if (__first != __last) {
-        typename iterator_traits<_InputIterator>::value_type __init = __u(*__first);
-        *__result++ = __init;
-        if (++__first != __last)
-            return _VSTD::transform_inclusive_scan(__first, __last, __result, __b, __u, __init);
-    }
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator transform_inclusive_scan(
+    _InputIterator __first, _InputIterator __last, _OutputIterator __result, _BinaryOp __b, _UnaryOp __u) {
+  if (__first != __last) {
+    typename iterator_traits<_InputIterator>::value_type __init = __u(*__first);
+    *__result++                                                 = __init;
+    if (++__first != __last)
+      return std::transform_inclusive_scan(__first, __last, __result, __b, __u, __init);
+  }
 
-    return __result;
+  return __result;
 }
 
 #endif // _LIBCPP_STD_VER >= 17

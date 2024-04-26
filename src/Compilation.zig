@@ -3595,39 +3595,42 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             const named_frame = tracy.namedFrame("libunwind");
             defer named_frame.end();
 
-            libunwind.buildStaticLib(comp, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
+            libunwind.buildStaticLib(comp, prog_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => return, // error reported already
+                else => comp.lockAndSetMiscFailure(
                     .libunwind,
                     "unable to build libunwind: {s}",
                     .{@errorName(err)},
-                );
+                ),
             };
         },
         .libcxx => {
             const named_frame = tracy.namedFrame("libcxx");
             defer named_frame.end();
 
-            libcxx.buildLibCXX(comp, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
+            libcxx.buildLibCXX(comp, prog_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => return, // error reported already
+                else => comp.lockAndSetMiscFailure(
                     .libcxx,
                     "unable to build libcxx: {s}",
                     .{@errorName(err)},
-                );
+                ),
             };
         },
         .libcxxabi => {
             const named_frame = tracy.namedFrame("libcxxabi");
             defer named_frame.end();
 
-            libcxx.buildLibCXXABI(comp, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
+            libcxx.buildLibCXXABI(comp, prog_node) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SubCompilationFailed => return, // error reported already
+                else => comp.lockAndSetMiscFailure(
                     .libcxxabi,
                     "unable to build libcxxabi: {s}",
                     .{@errorName(err)},
-                );
+                ),
             };
         },
         .libtsan => {
@@ -5191,6 +5194,8 @@ pub fn addCCArgs(
         try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
             @intFromEnum(comp.libcxx_abi_version),
         }));
+
+        try argv.append(libcxx.hardeningModeFlag(mod.optimize_mode));
     }
 
     if (comp.config.link_libunwind) {

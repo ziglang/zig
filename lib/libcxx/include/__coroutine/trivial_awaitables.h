@@ -22,21 +22,15 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [coroutine.trivial.awaitables]
 struct suspend_never {
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr bool await_ready() const noexcept { return true; }
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr void await_resume() const noexcept {}
+  _LIBCPP_HIDE_FROM_ABI constexpr bool await_ready() const noexcept { return true; }
+  _LIBCPP_HIDE_FROM_ABI constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+  _LIBCPP_HIDE_FROM_ABI constexpr void await_resume() const noexcept {}
 };
 
 struct suspend_always {
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr bool await_ready() const noexcept { return false; }
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr void await_resume() const noexcept {}
+  _LIBCPP_HIDE_FROM_ABI constexpr bool await_ready() const noexcept { return false; }
+  _LIBCPP_HIDE_FROM_ABI constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+  _LIBCPP_HIDE_FROM_ABI constexpr void await_resume() const noexcept {}
 };
 
 _LIBCPP_END_NAMESPACE_STD

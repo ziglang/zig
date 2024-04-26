@@ -73,4 +73,4 @@ using ::c32rtomb _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif  // _LIBCPP_CUCHAR
+#endif // _LIBCPP_CUCHAR
