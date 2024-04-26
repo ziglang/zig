@@ -65,7 +65,8 @@ struct __fn {
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<_Type>
   operator()(initializer_list<_Type> __il, _Comp __comp = {}, _Proj __proj = {}) const {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__il.begin() != __il.end(), "initializer_list has to contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __il.begin() != __il.end(), "initializer_list has to contain at least one element");
     auto __iters = std::__minmax_element_impl(__il.begin(), __il.end(), __comp, __proj);
     return ranges::minmax_result<_Type>{*__iters.first, *__iters.second};
   }
@@ -80,7 +81,7 @@ struct __fn {
     auto __last   = ranges::end(__r);
     using _ValueT = range_value_t<_Range>;
 
-    _LIBCPP_ASSERT_UNCATEGORIZED(__first != __last, "range has to contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__first != __last, "range has to contain at least one element");
 
     if constexpr (forward_range<_Range>) {
       // Special-case the one element case. Avoid repeatedly initializing objects from the result of an iterator

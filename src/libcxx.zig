@@ -43,12 +43,14 @@ const libcxx_files = [_][]const u8{
     "src/atomic.cpp",
     "src/barrier.cpp",
     "src/bind.cpp",
+    "src/call_once.cpp",
     "src/charconv.cpp",
     "src/chrono.cpp",
     "src/condition_variable.cpp",
     "src/condition_variable_destructor.cpp",
+    "src/error_category.cpp",
     "src/exception.cpp",
-    "src/experimental/memory_resource.cpp",
+    "src/experimental/keep.cpp",
     "src/filesystem/directory_entry.cpp",
     "src/filesystem/directory_iterator.cpp",
     "src/filesystem/filesystem_clock.cpp",
@@ -58,13 +60,13 @@ const libcxx_files = [_][]const u8{
     //"src/filesystem/int128_builtins.cpp",
     "src/filesystem/operations.cpp",
     "src/filesystem/path.cpp",
+    "src/fstream.cpp",
     "src/functional.cpp",
     "src/future.cpp",
     "src/hash.cpp",
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
     "src/iostream.cpp",
-    "src/legacy_debug_handler.cpp",
     "src/legacy_pointer_safety.cpp",
     "src/locale.cpp",
     "src/memory.cpp",
@@ -75,7 +77,9 @@ const libcxx_files = [_][]const u8{
     "src/new_handler.cpp",
     "src/new_helpers.cpp",
     "src/optional.cpp",
+    "src/ostream.cpp",
     "src/print.cpp",
+    //"src/pstl/libdispatch.cpp",
     "src/random.cpp",
     "src/random_shuffle.cpp",
     "src/regex.cpp",
@@ -95,6 +99,8 @@ const libcxx_files = [_][]const u8{
     "src/system_error.cpp",
     "src/thread.cpp",
     "src/typeinfo.cpp",
+    "src/tz.cpp",
+    "src/tzdb_list.cpp",
     "src/valarray.cpp",
     "src/variant.cpp",
     "src/vector.cpp",
@@ -209,6 +215,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         }
 
         try cflags.append("-DNDEBUG");
+        try cflags.append(hardeningModeFlag(optimize_mode));
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
         try cflags.append("-DLIBCXX_BUILDING_LIBCXXABI");
@@ -449,6 +456,8 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             }
         }
 
+        try cflags.append(hardeningModeFlag(optimize_mode));
+
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -508,4 +517,12 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+}
+
+pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {
+    return switch (optimize_mode) {
+        .Debug => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG",
+        .ReleaseFast, .ReleaseSmall => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE",
+        .ReleaseSafe => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST",
+    };
 }

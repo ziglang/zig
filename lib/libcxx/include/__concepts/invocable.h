@@ -25,7 +25,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Fn, class... _Args>
 concept invocable = requires(_Fn&& __fn, _Args&&... __args) {
-  _VSTD::invoke(_VSTD::forward<_Fn>(__fn), _VSTD::forward<_Args>(__args)...); // not required to be equality preserving
+  std::invoke(std::forward<_Fn>(__fn), std::forward<_Args>(__args)...); // not required to be equality preserving
 };
 
 // [concept.regular.invocable]
