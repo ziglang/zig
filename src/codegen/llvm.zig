@@ -92,6 +92,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hsail64 => "hsail64",
         .spir => "spir",
         .spir64 => "spir64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -109,8 +110,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
-        .ananas => "ananas",
-        .cloudabi => "cloudabi",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
@@ -123,7 +122,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
-        .minix => "minix",
         .rtems => "rtems",
         .nacl => "nacl",
         .aix => "aix",
@@ -134,7 +132,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ps5 => "ps5",
         .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
-        .contiki => "contiki",
         .amdpal => "amdpal",
         .hermit => "hermit",
         .hurd => "hurd",
@@ -148,10 +145,17 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
         .liteos => "liteos",
+        .xros => "xros",
+        .serenity => "serenity",
+        .vulkan => "vulkan",
+
         .opencl,
         .glsl450,
-        .vulkan,
         .plan9,
+        .ananas,
+        .cloudabi,
+        .minix,
+        .contiki,
         .other,
         => "unknown",
     };
@@ -216,10 +220,18 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
 pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
     return switch (os_tag) {
-        .freestanding, .other, .opencl, .glsl450, .vulkan, .plan9 => .UnknownOS,
+        .freestanding,
+        .other,
+        .opencl,
+        .glsl450,
+        .plan9,
+        .ananas,
+        .cloudabi,
+        .minix,
+        .contiki,
+        => .UnknownOS,
+
         .windows, .uefi => .Win32,
-        .ananas => .Ananas,
-        .cloudabi => .CloudABI,
         .dragonfly => .DragonFly,
         .freebsd => .FreeBSD,
         .fuchsia => .Fuchsia,
@@ -233,7 +245,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .solaris, .illumos => .Solaris,
         .zos => .ZOS,
         .haiku => .Haiku,
-        .minix => .Minix,
         .rtems => .RTEMS,
         .nacl => .NaCl,
         .aix => .AIX,
@@ -245,8 +256,8 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .elfiamcu => .ELFIAMCU,
         .tvos => .TvOS,
         .watchos => .WatchOS,
+        .xros => .XROS,
         .mesa3d => .Mesa3D,
-        .contiki => .Contiki,
         .amdpal => .AMDPAL,
         .hermit => .HermitCore,
         .hurd => .Hurd,
@@ -255,6 +266,8 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .driverkit => .DriverKit,
         .shadermodel => .ShaderModel,
         .liteos => .LiteOS,
+        .vulkan => .Vulkan,
+        .serenity => .Serenity,
     };
 }
 
@@ -310,6 +323,9 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .hsail64 => .hsail64,
         .spir => .spir,
         .spir64 => .spir64,
+        .spirv => .spirv,
+        .spirv32 => .spirv32,
+        .spirv64 => .spirv64,
         .kalimba => .kalimba,
         .shave => .shave,
         .lanai => .lanai,
@@ -318,7 +334,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .renderscript32 => .renderscript32,
         .renderscript64 => .renderscript64,
         .ve => .ve,
-        .spu_2, .spirv32, .spirv64 => .UnknownArch,
+        .spu_2 => .UnknownArch,
     };
 }
 
@@ -11967,6 +11983,9 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .shave,
         .spir,
         .spir64,
+        .spirv,
+        .spirv32,
+        .spirv64,
         .kalimba,
         .renderscript32,
         .renderscript64,
@@ -11976,7 +11995,5 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         => {},
 
         .spu_2 => unreachable, // LLVM does not support this backend
-        .spirv32 => unreachable, // LLVM does not support this backend
-        .spirv64 => unreachable, // LLVM does not support this backend
     }
 }
