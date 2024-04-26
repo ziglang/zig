@@ -125,6 +125,9 @@ linker_enable_new_dtags: ?bool = null,
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
 
+// Disable the creation of copy relocations.
+link_z_nocopyreloc: bool = false,
+
 /// Force all relocations to be read-only after processing.
 link_z_relro: bool = true,
 
@@ -1437,6 +1440,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.link_z_notext) {
         try zig_args.append("-z");
         try zig_args.append("notext");
+    }
+    if (self.link_z_nocopyreloc) {
+        try zig_args.append("-z");
+        try zig_args.append("nocopyreloc");
     }
     if (!self.link_z_relro) {
         try zig_args.append("-z");
