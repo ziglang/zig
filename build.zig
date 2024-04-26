@@ -1039,6 +1039,7 @@ const clang_libs = [_][]const u8{
     "clangAST",
     "clangParse",
     "clangSema",
+    "clangAPINotes",
     "clangBasic",
     "clangEdit",
     "clangLex",
