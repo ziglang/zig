@@ -24,12 +24,17 @@ pub const Sha256 = Sha2x32(iv256, 256);
 pub const Sha384 = Sha2x64(iv384, 384);
 pub const Sha512 = Sha2x64(iv512, 512);
 
-pub const Sha256T192 = Sha2x32(iv256, 256);
+/// SHA-256 truncated to leftmost 192 bits.
+pub const Sha256T192 = Sha2x32(iv256, 192);
 
+/// SHA-512 truncated to leftmost 224 bits.
 pub const Sha512T224 = Sha2x64(iv512, 224);
+/// SHA-512 truncated to leftmost 256 bits.
 pub const Sha512T256 = Sha2x64(iv512, 256);
 
+/// SHA-512 with a different initialization vector truncated to leftmost 224 bits.
 pub const Sha512_224 = Sha2x64(truncatedSha512Iv(224), 224);
+/// SHA-512 with a different initialization vector truncated to leftmost 256 bits.
 pub const Sha512_256 = Sha2x64(truncatedSha512Iv(256), 256);
 
 /// Low 32 bits of iv384.
@@ -161,7 +166,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
 
             d.round(&d.buf);
 
-            // May truncate for possible 224 output
+            // May truncate for possible 224 or 192 output
             const rr = d.s[0 .. digest_length / 4];
 
             for (rr, 0..) |s, j| {
@@ -436,10 +441,16 @@ test "sha224 streaming" {
     try htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 }
 
-test "sha256 single" {
+test Sha256 {
     try htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
     try htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
     try htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test Sha256T192 {
+    try htest.assertEqualHash(Sha256T192, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934c", "");
+    try htest.assertEqualHash(Sha256T192, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9c", "abc");
+    try htest.assertEqualHash(Sha256T192, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha256 streaming" {
