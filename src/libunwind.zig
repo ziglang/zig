@@ -164,6 +164,7 @@ const unwind_src_list = [_][]const u8{
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-wasm.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind_AIXExtras.cpp",
