@@ -314,12 +314,12 @@ pub const ZigGotSection = struct {
                     switch (builtin.os.tag) {
                         .linux => {
                             var local_vec: [1]std.posix.iovec_const = .{.{
-                                .iov_base = &buf,
-                                .iov_len = buf.len,
+                                .base = &buf,
+                                .len = buf.len,
                             }};
                             var remote_vec: [1]std.posix.iovec_const = .{.{
-                                .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
-                                .iov_len = buf.len,
+                                .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
+                                .len = buf.len,
                             }};
                             const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
                             switch (std.os.linux.E.init(rc)) {

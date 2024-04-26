@@ -965,12 +965,12 @@ fn updateDeclCode(
         switch (builtin.os.tag) {
             .linux => {
                 var code_vec: [1]std.posix.iovec_const = .{.{
-                    .iov_base = code.ptr,
-                    .iov_len = code.len,
+                    .base = code.ptr,
+                    .len = code.len,
                 }};
                 var remote_vec: [1]std.posix.iovec_const = .{.{
-                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
-                    .iov_len = code.len,
+                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
+                    .len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
                 switch (std.os.linux.E.init(rc)) {
