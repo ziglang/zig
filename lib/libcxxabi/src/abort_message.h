@@ -14,4 +14,15 @@
 extern "C" _LIBCXXABI_HIDDEN _LIBCXXABI_NORETURN void
 abort_message(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
+#ifndef _LIBCXXABI_ASSERT
+#  define _LIBCXXABI_ASSERT(expr, msg)                                                                                 \
+    do {                                                                                                               \
+      if (!(expr)) {                                                                                                   \
+        char const* __msg = (msg);                                                                                     \
+        ::abort_message("%s:%d: %s", __FILE__, __LINE__, __msg);                                                       \
+      }                                                                                                                \
+    } while (false)
+
 #endif
+
+#endif // __ABORT_MESSAGE_H_
