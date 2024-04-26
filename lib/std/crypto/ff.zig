@@ -404,6 +404,11 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             return self.limbs_count() * t_bits - self.leading;
         }
 
+        /// Actual size of the modulus, in bytes.
+        pub fn byteLen(self: Self) usize {
+            return std.math.divCeil(usize, self.bits(), 8) catch unreachable;
+        }
+
         /// Returns the element `1`.
         pub fn one(self: Self) Fe {
             var fe = self.zero;

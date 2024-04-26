@@ -1,5 +1,6 @@
 const std = @import("../../std.zig");
 const tls = std.crypto.tls;
+const rsa = std.crypto.rsa;
 const Client = @This();
 const net = std.net;
 const mem = std.mem;
@@ -89,50 +90,38 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || Certificate.Parsed.VerifyError || @import("../der.zig").Parser.Error || crypto.sign.ecdsa.EcdsaP256Sha256.Signature.FromDerError || error{
         InsufficientEntropy,
-        DiskQuota,
-        LockViolation,
-        NotOpenForWriting,
+        TlsRecordOverflow,
+        TlsConnectionTruncated,
+        TlsDecodeError,
         TlsUnexpectedMessage,
         TlsIllegalParameter,
         TlsDecryptFailure,
-        TlsRecordOverflow,
         TlsBadRecordMac,
-        CertificateFieldHasInvalidLength,
-        CertificateHostMismatch,
-        CertificatePublicKeyInvalid,
-        CertificateExpired,
-        CertificateFieldHasWrongDataType,
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureNamedCurveUnsupported,
-        CertificateSignatureUnsupportedBitCount,
-        TlsCertificateNotVerified,
-        TlsBadSignatureScheme,
-        TlsBadRsaSignatureBitCount,
-        InvalidEncoding,
-        IdentityElement,
-        SignatureVerificationFailed,
         TlsDecryptError,
-        TlsConnectionTruncated,
-        TlsDecodeError,
         UnsupportedCertificateVersion,
         CertificateTimeInvalid,
         CertificateHasUnrecognizedObjectId,
         CertificateHasInvalidBitString,
-        MessageTooLong,
-        NegativeIntoUnsigned,
-        TargetTooSmall,
-        BufferTooSmall,
-        InvalidSignature,
-        NotSquare,
+        CertificateHostMismatch,
+        TlsCertificateNotVerified,
+        TlsBadSignatureScheme,
+        InvalidEncoding,
         NonCanonical,
+        IdentityElement,
+        SignatureVerificationFailed,
         WeakPublicKey,
+        NotSquare,
+        Modulus,
+        EvenModulus,
+        ModulusTooSmall,
+        Exponent,
+        UnsupportedBitCount,
+        Inconsistent,
+        InvalidSignatureLength,
+        NullExponent,
+        InsecureBitCount,
     };
 }
 
@@ -609,20 +598,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                         return error.TlsBadSignatureScheme;
 
                                     const Hash = SchemeHash(comptime_scheme);
-                                    const rsa = Certificate.rsa;
-                                    const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
-                                    const exponent = components.exponent;
-                                    const modulus = components.modulus;
-                                    switch (modulus.len) {
-                                        inline 128, 256, 512 => |modulus_len| {
-                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus);
-                                            const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
-                                        },
-                                        else => {
-                                            return error.TlsBadRsaSignatureBitCount;
-                                        },
-                                    }
+                                    const pk = try rsa.PublicKey.fromDer(main_cert_pub_key);
+                                    const sig = rsa.Pss(Hash).Signature{ .bytes = encoded_sig };
+                                    try sig.verify(verify_bytes, pk, null);
                                 },
                                 inline .ed25519 => |comptime_scheme| {
                                     if (main_cert_pub_key_algo != .curveEd25519) return error.TlsBadSignatureScheme;

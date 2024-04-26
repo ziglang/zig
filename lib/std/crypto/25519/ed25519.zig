@@ -1,4 +1,5 @@
 const std = @import("std");
+const der = @import("../der.zig");
 const crypto = std.crypto;
 const debug = std.debug;
 const fmt = std.fmt;
@@ -211,6 +212,26 @@ pub const Ed25519 = struct {
                 .r = bytes[0..Curve.encoded_length].*,
                 .s = bytes[Curve.encoded_length..].*,
             };
+        }
+
+        pub fn fromDer(bytes: []const u8) !Signature {
+            var parser = der.Parser{ .bytes = bytes };
+            const seq = try parser.expectSequence();
+            defer parser.seek(seq.slice.end);
+
+            const r = try parser.expectPrimitive(.integer);
+            if (r.slice.len() > Curve.encoded_length) return error.InvalidScalar;
+            const s = try parser.expectPrimitive(.integer);
+            if (s.slice.len() > @sizeOf(CompressedScalar)) return error.InvalidScalar;
+
+            if (parser.index != seq.slice.end) return error.InvalidSequence;
+            if (parser.index != parser.bytes.len) return error.InvalidSequence;
+
+            var res = std.mem.zeroInit(Signature, .{});
+            @memcpy(res.r[res.r.len - parser.view(r).len ..], parser.view(r));
+            @memcpy(res.s[res.r.len - parser.view(s).len ..], parser.view(s));
+
+            return res;
         }
 
         /// Create a Verifier for incremental verification of a signature.
