@@ -2804,6 +2804,13 @@ pub const Type = struct {
         return ty.zigTypeTag(mod) == .Vector;
     }
 
+    /// Returns 0 if not a vector, otherwise returns @bitSizeOf(Element) * vector_len.
+    pub fn totalVectorBits(ty: Type, zcu: *Zcu) u64 {
+        if (!ty.isVector(zcu)) return 0;
+        const v = zcu.intern_pool.indexToKey(ty.toIntern()).vector_type;
+        return v.len * Type.fromInterned(v.child).bitSize(zcu);
+    }
+
     pub fn isArrayOrVector(ty: Type, mod: *const Module) bool {
         return switch (ty.zigTypeTag(mod)) {
             .Array, .Vector => true,
