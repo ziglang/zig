@@ -1899,7 +1899,6 @@ pub fn maxIntAlignment(target: Target) u16 {
         // 2. The C ABI wants 16 for extern structs.
         // 3. 16-byte cmpxchg needs 16-byte alignment.
         // Same logic for powerpc64, mips64, sparc64.
-        .x86_64,
         .powerpc64,
         .powerpc64le,
         .mips64,
@@ -1911,6 +1910,7 @@ pub fn maxIntAlignment(target: Target) u16 {
         },
 
         // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+        .x86_64,
         .aarch64,
         .aarch64_be,
         .aarch64_32,

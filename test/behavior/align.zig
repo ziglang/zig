@@ -157,7 +157,6 @@ test "alignment and size of structs with 128-bit fields" {
         .powerpc64,
         .powerpc64le,
         .sparc64,
-        .x86_64,
         => switch (builtin.object_format) {
             .c => .{
                 .a_align = 16,
@@ -193,6 +192,7 @@ test "alignment and size of structs with 128-bit fields" {
         .bpfeb,
         .nvptx,
         .nvptx64,
+        .x86_64,
         => .{
             .a_align = 16,
             .a_size = 16,
