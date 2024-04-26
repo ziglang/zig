@@ -1852,6 +1852,27 @@ test "lower NP encoding" {
 
     try enc.encode(.syscall, &.{});
     try expectEqualHexStrings("\x0f\x05", enc.code(), "syscall");
+
+    try enc.encode(.cmc, &.{});
+    try expectEqualHexStrings("\xf5", enc.code(), "cmc");
+
+    try enc.encode(.clc, &.{});
+    try expectEqualHexStrings("\xf8", enc.code(), "clc");
+
+    try enc.encode(.stc, &.{});
+    try expectEqualHexStrings("\xf9", enc.code(), "stc");
+
+    try enc.encode(.cli, &.{});
+    try expectEqualHexStrings("\xfa", enc.code(), "cli");
+
+    try enc.encode(.sti, &.{});
+    try expectEqualHexStrings("\xfb", enc.code(), "sti");
+
+    try enc.encode(.cld, &.{});
+    try expectEqualHexStrings("\xfc", enc.code(), "cld");
+
+    try enc.encode(.std, &.{});
+    try expectEqualHexStrings("\xfd", enc.code(), "std");
 }
 
 fn invalidInstruction(mnemonic: Instruction.Mnemonic, ops: []const Instruction.Operand) !void {

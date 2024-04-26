@@ -338,6 +338,20 @@ pub const Inst = struct {
         inc,
         /// Call to interrupt procedure
         int3,
+        /// Complement carry flag
+        cmc,
+        /// Clear carry flag
+        clc,
+        /// Set carry flag
+        stc,
+        /// Clear interrupt flag
+        cli,
+        /// Set interrupt flag
+        sti,
+        /// Clear direction flag
+        cld,
+        /// Set direction flag
+        std,
         /// Conditional jump
         j,
         /// Jump

@@ -232,7 +232,7 @@ pub const Mnemonic = enum {
     cmps, cmpsb, cmpsd, cmpsq, cmpsw,
     cmpxchg, cmpxchg8b, cmpxchg16b,
     cpuid, cqo, cwd, cwde,
-    dec, div, idiv, imul, inc, int3,
+    dec, div, idiv, imul, inc, int3, cmc, clc, stc, cli, sti, cld, std,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
     jmp, 
