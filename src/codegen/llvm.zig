@@ -10988,12 +10988,27 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, targ
     };
 }
 
+fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
+    if (isByRef(ty, zcu)) {
+        return true;
+    } else if (target.cpu.arch.isX86() and
+        !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+        ty.totalVectorBits(zcu) >= 512)
+    {
+        // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
+        // "512-bit vector arguments require 'evex512' for AVX512"
+        return true;
+    } else {
+        return false;
+    }
+}
+
 fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Target) bool {
     const return_type = Type.fromInterned(fn_info.return_type);
     if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
     return switch (fn_info.cc) {
-        .Unspecified, .Inline => isByRef(return_type, zcu),
+        .Unspecified, .Inline => returnTypeByRef(zcu, target, return_type),
         .C => switch (target.cpu.arch) {
             .mips, .mipsel => false,
             .x86 => isByRef(return_type, zcu),
@@ -11041,7 +11056,8 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
     switch (fn_info.cc) {
         .Unspecified,
         .Inline,
-        => return if (isByRef(return_type, mod)) .void else o.lowerType(return_type),
+        => return if (returnTypeByRef(mod, target, return_type)) .void else o.lowerType(return_type),
+
         .C => {
             switch (target.cpu.arch) {
                 .mips, .mipsel => return o.lowerType(return_type),
@@ -11263,6 +11279,13 @@ const ParamTypeIterator = struct {
                     it.llvm_index += 1;
                     return .slice;
                 } else if (isByRef(ty, zcu)) {
+                    return .byref;
+                } else if (target.cpu.arch.isX86() and
+                    !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+                    ty.totalVectorBits(zcu) >= 512)
+                {
+                    // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
+                    // "512-bit vector arguments require 'evex512' for AVX512"
                     return .byref;
                 } else {
                     return .byval;
