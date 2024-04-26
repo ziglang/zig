@@ -939,7 +939,7 @@ test "writev longer than IOV_MAX" {
     var file = try tmp.dir.createFile("pwritev", .{});
     defer file.close();
 
-    const iovecs = [_]posix.iovec_const{.{ .iov_base = "a", .iov_len = 1 }} ** (posix.IOV_MAX + 1);
+    const iovecs = [_]posix.iovec_const{.{ .base = "a", .len = 1 }} ** (posix.IOV_MAX + 1);
     const amt = try file.writev(&iovecs);
     try testing.expectEqual(@as(usize, posix.IOV_MAX), amt);
 }
