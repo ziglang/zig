@@ -1831,17 +1831,24 @@ pub const Stream = struct {
             );
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable,
+                    .WSAECONNABORTED => return error.ConnectionResetByPeer,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEDISCON => unreachable, // only for message-oriented sockets
+                    .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
                     .WSAEINVAL => return error.SocketNotBound,
-                    .WSAEFAULT => unreachable,
                     .WSAEMSGSIZE => return error.MessageTooBig,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENETRESET => unreachable,
+                    .WSAENETRESET => return error.ConnectionTimedOut,
                     .WSAENOTCONN => return error.SocketNotConnected,
-                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSAENOTSOCK => unreachable, // not a socket
+                    .WSAEOPNOTSUPP => unreachable, // only for message-oriented sockets
+                    .WSAESHUTDOWN => unreachable, // cannot receive on a socket after read shutdown
                     .WSAETIMEDOUT => return error.ConnectionTimedOut,
-                    .WSAEINPROGRESS, .WSAEINTR => unreachable,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
@@ -1906,25 +1913,23 @@ pub const Stream = struct {
             );
             if (rc == windows.ws2_32.SOCKET_ERROR) {
                 switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSAEACCES => return error.AccessDenied,
-                    .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
+                    .WSAECONNABORTED => return error.ConnectionResetByPeer,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINVAL => return error.SocketNotBound,
                     .WSAEMSGSIZE => return error.MessageTooBig,
-                    .WSAENOBUFS => return error.SystemResources,
-                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                    .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
-                    .WSAEDESTADDRREQ => unreachable, // A destination address is required.
-                    .WSAEFAULT => unreachable, // The lpBuffers, lpTo, lpOverlapped, lpNumberOfBytesSent, or lpCompletionRoutine parameters are not part of the user address space, or the lpTo parameter is too small.
-                    .WSAEHOSTUNREACH => return error.NetworkUnreachable,
-                    .WSAEINPROGRESS, .WSAEINTR => unreachable,
-                    .WSAEINVAL => unreachable,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
                     .WSAENETRESET => return error.ConnectionResetByPeer,
-                    .WSAENETUNREACH => return error.NetworkUnreachable,
+                    .WSAENOBUFS => return error.SystemResources,
                     .WSAENOTCONN => return error.SocketNotConnected,
-                    .WSAESHUTDOWN => unreachable, // The socket has been shut down; it is not possible to WSASendTo on a socket after shutdown has been invoked with how set to SD_SEND or SD_BOTH.
+                    .WSAENOTSOCK => unreachable, // not a socket
+                    .WSAEOPNOTSUPP => unreachable, // only for message-oriented sockets
+                    .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown
                     .WSAEWOULDBLOCK => return error.WouldBlock,
-                    .WSANOTINITIALISED => unreachable, // A successful WSAStartup call must occur before using this function.
+                    .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
