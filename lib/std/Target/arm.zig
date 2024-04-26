@@ -187,7 +187,6 @@ pub const Feature = enum {
     v9_3a,
     v9_4a,
     v9_5a,
-    v9_5a,
     v9a,
     vfp2,
     vfp2sp,
