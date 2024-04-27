@@ -107,6 +107,9 @@
         .windows_argv = .{
             .path = "windows_argv",
         },
+        .windows_bat_args = .{
+            .path = "windows_bat_args",
+        },
         .self_exe_symlink = .{
             .path = "self_exe_symlink",
         },

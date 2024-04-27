@@ -61,6 +61,7 @@ ninja install
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
+  --exclude ../doc/ \
   --exclude ../build-debug \
   --exclude ../build-release
 

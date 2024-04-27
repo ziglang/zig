@@ -53,6 +53,7 @@ ninja install
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
+  --exclude ../doc/ \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm

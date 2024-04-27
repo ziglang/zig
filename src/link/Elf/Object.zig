@@ -1009,13 +1009,15 @@ pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf
 }
 
 pub fn updateArSize(self: *Object, elf_file: *Elf) !void {
-    const handle = elf_file.fileHandle(self.file_handle);
-    const size = (try handle.stat()).size;
-    self.output_ar_state.size = size;
+    self.output_ar_state.size = if (self.archive) |ar| ar.size else size: {
+        const handle = elf_file.fileHandle(self.file_handle);
+        break :size (try handle.stat()).size;
+    };
 }
 
 pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    const offset: u64 = if (self.archive) |ar| ar.offset else 0;
     const name = self.path;
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
@@ -1029,7 +1031,7 @@ pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
     const gpa = elf_file.base.comp.gpa;
     const data = try gpa.alloc(u8, size);
     defer gpa.free(data);
-    const amt = try handle.preadAll(data, 0);
+    const amt = try handle.preadAll(data, offset);
     if (amt != size) return error.InputOutput;
     try writer.writeAll(data);
 }
@@ -1349,6 +1351,7 @@ fn formatPath(
 const InArchive = struct {
     path: []const u8,
     offset: u64,
+    size: u32,
 };
 
 const Object = @This();
