@@ -310,13 +310,13 @@ pub const table = [_]Entry{
 
     .{ .int3, .zo, &.{}, &.{ 0xcc }, 0, .none, .none },
 
-    .{ .cmc, .zo, &.{}, &.{0xf5}, 0, .none, .none },
-    .{ .clc, .zo, &.{}, &.{0xf8}, 0, .none, .none },
-    .{ .stc, .zo, &.{}, &.{0xf9}, 0, .none, .none },
-    .{ .cli, .zo, &.{}, &.{0xfa}, 0, .none, .none },
-    .{ .sti, .zo, &.{}, &.{0xfb}, 0, .none, .none },
-    .{ .cld, .zo, &.{}, &.{0xfc}, 0, .none, .none },
-    .{ .std, .zo, &.{}, &.{0xfd}, 0, .none, .none },
+    .{ .cmc, .zo, &.{}, &.{ 0xf5 }, 0, .none, .none },
+    .{ .clc, .zo, &.{}, &.{ 0xf8 }, 0, .none, .none },
+    .{ .stc, .zo, &.{}, &.{ 0xf9 }, 0, .none, .none },
+    .{ .cli, .zo, &.{}, &.{ 0xfa }, 0, .none, .none },
+    .{ .sti, .zo, &.{}, &.{ 0xfb }, 0, .none, .none },
+    .{ .cld, .zo, &.{}, &.{ 0xfc }, 0, .none, .none },
+    .{ .std, .zo, &.{}, &.{ 0xfd }, 0, .none, .none },
 
     .{ .ja,    .d, &.{ .rel32 }, &.{ 0x0f, 0x87 }, 0, .none, .none },
     .{ .jae,   .d, &.{ .rel32 }, &.{ 0x0f, 0x83 }, 0, .none, .none },
