@@ -7,6 +7,7 @@ const ArrayList = std.ArrayList;
 const Scanner = @import("./scanner.zig").Scanner;
 const Token = @import("./scanner.zig").Token;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
+const Diagnostics = @import("./scanner.zig").Diagnostics;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
 
@@ -42,6 +43,10 @@ pub const ParseOptions = struct {
     /// The default with a `*std.json.Reader` input is `.alloc_always`.
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     allocate: ?AllocWhen = null,
+
+    /// Enable diagnostics with `var diagnostics: json.Diagnostics = undefined;`,
+    /// and set this option to `&diagnostics`.
+    diagnostics: ?*Diagnostics = null,
 };
 
 pub fn Parsed(comptime T: type) type {
@@ -134,6 +139,14 @@ pub fn parseFromTokenSourceLeaky(
             resolved_options.allocate = .alloc_if_needed;
         } else {
             resolved_options.allocate = .alloc_always;
+        }
+    }
+    if (resolved_options.diagnostics) |diag| {
+        scanner_or_reader.enableDiagnostics(diag);
+    }
+    defer {
+        if (resolved_options.diagnostics) |_| {
+            scanner_or_reader.saveDiagnostics();
         }
     }
 

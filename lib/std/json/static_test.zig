@@ -925,3 +925,18 @@ test "parse at comptime" {
     };
     comptime testing.expectEqual(@as(u64, 9999), config.uptime) catch unreachable;
 }
+
+test "parse with diagnostics" {
+    const doc =
+        \\{
+        \\  "common": "mistake",
+        \\}
+    ;
+    var diagnostics: Diagnostics = undefined;
+    try testing.expectError(error.SyntaxError, parseFromSlice(Value, testing.allocator, doc, .{
+        .diagnostics = &diagnostics,
+    }));
+    try std.testing.expectEqual(3, diagnostics.getLine());
+    try std.testing.expectEqual(1, diagnostics.getColumn());
+    try std.testing.expectEqual(25, diagnostics.getByteOffset());
+}

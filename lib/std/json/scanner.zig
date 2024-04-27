@@ -196,7 +196,12 @@ pub const Diagnostics = struct {
     line_number: u64 = 1,
     line_start_cursor: usize = @as(usize, @bitCast(@as(isize, -1))), // Start just "before" the input buffer to get a 1-based column for line 1.
     total_bytes_before_current_input: u64 = 0,
-    cursor_pointer: *const usize = undefined,
+    /// While the source is operational, this is a pointer into it.
+    /// If the source is destroyed, this becomes a literal value.
+    cursor: union(enum) {
+        pointer: *const usize,
+        value: usize,
+    } = undefined,
 
     /// Starts at 1.
     pub fn getLine(self: *const @This()) u64 {
@@ -204,11 +209,22 @@ pub const Diagnostics = struct {
     }
     /// Starts at 1.
     pub fn getColumn(self: *const @This()) u64 {
-        return self.cursor_pointer.* -% self.line_start_cursor;
+        return self.getCursor() -% self.line_start_cursor;
     }
     /// Starts at 0. Measures the byte offset since the start of the input.
     pub fn getByteOffset(self: *const @This()) u64 {
-        return self.total_bytes_before_current_input + self.cursor_pointer.*;
+        return self.total_bytes_before_current_input + self.getCursor();
+    }
+
+    fn getCursor(self: *const @This()) usize {
+        return switch (self.cursor) {
+            .pointer => |p| p.*,
+            .value => |v| v,
+        };
+    }
+    fn saveCursor(self: *@This()) void {
+        const value = self.getCursor();
+        self.cursor = .{ .value = value };
     }
 };
 
@@ -243,6 +259,10 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         /// Calls `std.json.Scanner.enableDiagnostics`.
         pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
             self.scanner.enableDiagnostics(diagnostics);
+        }
+        /// Calls `std.json.Scanner.saveDiagnostics`.
+        pub fn saveDiagnostics(self: *const @This()) void {
+            self.scanner.saveDiagnostics();
         }
 
         pub const NextError = ReaderType.Error || Error || Allocator.Error;
@@ -446,9 +466,19 @@ pub const Scanner = struct {
         self.* = undefined;
     }
 
+    /// See also `saveDiagnostics()`.
     pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
-        diagnostics.cursor_pointer = &self.cursor;
+        diagnostics.cursor = .{ .pointer = &self.cursor };
+        std.log.warn("cursor(enableDiagnostics): {}", .{diagnostics.getCursor()});
         self.diagnostics = diagnostics;
+    }
+    /// Call this just before `deinit()` to make the diagnostics available after the `deinit()`.
+    pub fn saveDiagnostics(self: *const @This()) void {
+        if (self.diagnostics) |diag| {
+            std.log.warn("cursor(deinit presave): {}", .{diag.getCursor()});
+            diag.saveCursor();
+            std.log.warn("cursor(deinit postsave): {}", .{diag.getCursor()});
+        }
     }
 
     /// Call this whenever you get `error.BufferUnderrun` from `next()`.
