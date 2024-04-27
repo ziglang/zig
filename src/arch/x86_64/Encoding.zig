@@ -256,6 +256,7 @@ pub const Mnemonic = enum {
     stos, stosb, stosd, stosq, stosw,
     @"test", tzcnt,
     ud2,
+    wrmsr, rdmsr,
     xadd, xchg, xgetbv, xor,
     // X87
     fabs, fchs, ffree, fisttp, fld, fldenv, fnstenv, fst, fstenv, fstp,

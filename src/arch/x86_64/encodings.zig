@@ -814,6 +814,9 @@ pub const table = [_]Entry{
 
     .{ .ud2, .zo, &.{}, &.{ 0x0f, 0x0b }, 0, .none, .none },
 
+    .{ .wrmsr, .zo, &.{}, &.{ 0x0f, 0x30 }, 0, .none, .none },
+    .{ .rdmsr, .zo, &.{}, &.{ 0x0f, 0x32 }, 0, .none, .none },
+
     .{ .xadd, .mr, &.{ .rm8,  .r8  }, &.{ 0x0f, 0xc0 }, 0, .none,  .none },
     .{ .xadd, .mr, &.{ .rm8,  .r8  }, &.{ 0x0f, 0xc0 }, 0, .rex,   .none },
     .{ .xadd, .mr, &.{ .rm16, .r16 }, &.{ 0x0f, 0xc1 }, 0, .short, .none },

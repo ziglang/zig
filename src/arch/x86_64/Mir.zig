@@ -451,6 +451,10 @@ pub const Inst = struct {
         tzcnt,
         /// Undefined instruction
         ud2,
+        /// Write MSR
+        wrmsr,
+        /// Read MSR
+        rdmsr,
         /// Exchange and add
         xadd,
         /// Exchange register/memory with register
