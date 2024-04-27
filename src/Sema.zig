@@ -9618,6 +9618,15 @@ fn funcCommon(
         {
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
+
+        if (cc_resolved == .Interrupt) {
+            const err_code_size = target.ptrBitWidth();
+            switch (i) {
+                0 => if (param_ty.zigTypeTag(mod) != .Pointer) return sema.fail(block, param_src, "parameter must be a pointer type", .{}),
+                1 => if (param_ty.bitSize(mod) != err_code_size) return sema.fail(block, param_src, "parameter must have a bit size of {d}", .{err_code_size}),
+                else => return sema.fail(block, param_src, "Interrupt calling convention supports up to 2 parameters, found {d}", .{i + 1}),
+            }
+        }
     }
 
     var ret_ty_requires_comptime = false;
@@ -9964,6 +9973,22 @@ fn finishFunc(
             allowed_platform,
             @tagName(arch),
         });
+    }
+
+    if (cc_resolved == .Interrupt and return_type.zigTypeTag(mod) != .Void) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                ret_ty_src,
+                "non-void return type '{}' not allowed in function with calling convention 'Interrupt'",
+                .{return_type.fmt(mod)},
+            );
+            errdefer msg.destroy(gpa);
+
+            try sema.addDeclaredHereNote(msg, return_type);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     if (cc_resolved == .Inline and is_noinline) {

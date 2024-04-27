@@ -11343,25 +11343,6 @@ const ParamTypeIterator = struct {
                     return .byref;
                 }
             },
-            .Interrupt => {
-                switch (target.cpu.arch) {
-                    .x86 => switch (it.zig_index) {
-                        0 => if (ty.zigTypeTag(mod) != .Pointer) @panic("first argument must be a pointer"),
-                        1 => if (ty.zigTypeTag(mod) != .Int or ty.bitSize(mod) != 32) @panic("second argument must be a u32"),
-                        else => @panic("too many arguments"),
-                    },
-                    .x86_64 => switch (it.zig_index) {
-                        0 => if (ty.zigTypeTag(mod) != .Pointer) @panic("first argument must be a pointer"),
-                        1 => if (ty.zigTypeTag(mod) != .Int or ty.bitSize(mod) != 64) @panic("second argument must be a u64"),
-                        else => @panic("too many arguments"),
-                    },
-                    else => @panic("TODO: handle Interrupt callconv parameters for other architectures."),
-                }
-
-                it.zig_index += 1;
-                it.llvm_index += 1;
-                return .byval;
-            },
             else => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
