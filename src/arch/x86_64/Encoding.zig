@@ -248,7 +248,7 @@ pub const Mnemonic = enum {
     rcl, rcr, ret, rol, ror,
     sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
-    shl, shld, shr, shrd, sub, syscall,
+    shl, shld, shr, shrd, sub, syscall, sysret,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,

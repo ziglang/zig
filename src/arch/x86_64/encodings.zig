@@ -789,6 +789,7 @@ pub const table = [_]Entry{
     .{ .sub, .rm, &.{ .r64,  .rm64   }, &.{ 0x2b }, 0, .long,  .none },
 
     .{ .syscall, .zo, &.{}, &.{ 0x0f, 0x05 }, 0, .none, .none },
+    .{ .sysret, .zo, &.{}, &.{ 0x0f, 0x07 }, 0, .none, .none },
 
     .{ .@"test", .zi, &.{ .al,   .imm8   }, &.{ 0xa8 }, 0, .none,  .none },
     .{ .@"test", .zi, &.{ .ax,   .imm16  }, &.{ 0xa9 }, 0, .short, .none },

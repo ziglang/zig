@@ -443,6 +443,8 @@ pub const Inst = struct {
         sto,
         /// Syscall
         syscall,
+        /// Return from syscall
+        sysret,
         /// Test condition
         @"test",
         /// Count the number of trailing zero bits
