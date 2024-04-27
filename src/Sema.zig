@@ -39757,16 +39757,16 @@ pub const RuntimeSafety = struct {
             },
             .comptime_alloc => |comptime_alloc| {
                 const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
-                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, val_ty);
+                return try reinterpretLength(sema, block, src, elem_ty, val_ty);
             },
             .anon_decl => |anon_decl| {
                 const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
-                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, decl_ty);
+                return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
             },
             .decl => |decl| {
                 const decl_ptr: *Decl = sema.mod.declPtr(decl);
                 const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
-                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, decl_ty);
+                return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
             },
             inline .eu_payload, .opt_payload, .field, .comptime_field => |_, tag| {
                 return sema.fail(block, src, "TODO: handle comptime slice manyptr without runtime bits for '{}'", .{tag});
@@ -39847,8 +39847,8 @@ pub const RuntimeSafety = struct {
         // *[src_len]T      From slice of array, correct by default.
         var ptr_child_ty: Type = src_ptr_ty.childType(sema.mod);
         var ptr_child_ty_tag: std.builtin.TypeId = ptr_child_ty.zigTypeTag(sema.mod);
-        var elem_ty: Type = ptr_child_ty.childType(sema.mod);
-        if (ptr_child_ty_tag == .Pointer) blk: {
+        const elem_ty: Type = if (ptr_child_ty_tag == .Pointer) blk: {
+            var ptr_child_child_ty: Type = ptr_child_ty.childType(sema.mod);
             // *[]T             From slice of slice:
             //                  ;; ptr_child_ty = []T
             //                  ;; ptr_size     => Slice
@@ -39859,22 +39859,24 @@ pub const RuntimeSafety = struct {
             //
             src_ptr_ty_size = ptr_child_ty.ptrSize(sema.mod);
             src_ptr = try sema.analyzeLoad(block, src, src_ptr, operand_src);
-            if (src_ptr_ty_size != .One) break :blk;
+            if (src_ptr_ty_size != .One) break :blk ptr_child_child_ty;
             // **T              From slice of pointer-to-one:
             //                  ;; src_ptr_ty   => *T
             //                  ;; elem_ty      = T
             src_ptr_ty = ptr_child_ty;
-            ptr_child_ty_tag = elem_ty.zigTypeTag(sema.mod);
-            if (ptr_child_ty_tag != .Array) break :blk;
+            ptr_child_ty_tag = ptr_child_child_ty.zigTypeTag(sema.mod);
+            if (ptr_child_ty_tag != .Array) break :blk ptr_child_child_ty;
             // **[src_len]T     From slice of pointer-to-one array.
             //                  ;; src_ptr_ty   => *[src_len]T
             //                  ;; ptr_child_ty => [src_len]T
             //                  ;; elem_ty      => T
             ptr_child_ty = src_ptr_ty.childType(sema.mod);
-            elem_ty = ptr_child_ty.childType(sema.mod);
-        } else if (ptr_child_ty_tag != .Array) {
+            break :blk ptr_child_ty.childType(sema.mod);
+        } else if (ptr_child_ty_tag == .Array) blk: {
+            break :blk ptr_child_ty.childType(sema.mod);
+        } else {
             return sema.fail(block, src, "slice of non-array type '{}'", .{src_ptr_ty.fmt(sema.mod)});
-        }
+        };
         // [*]const T   ;; Used to compute the start pointer by pointer arithmetic.
         const many_ptr_ty: Type = try sema.mod.manyConstPtrType(elem_ty);
         // *const T     ;; Used to refer to the element at the sentinel index.
@@ -39936,11 +39938,17 @@ pub const RuntimeSafety = struct {
             else
                 try sema.analyzeSliceLen(block, operand_src, src_ptr),
             .C, .Many => blk: {
+                // This safety measure is a work-in-progress.
                 if (feature_prevent_inval_ptr and sa.src_ptr == .known) {
-                    // This safety measure is a work-in-progress.
-                    if (try abiSizeOfContainingDecl(sema, block, src, src_ptr_val)) |memsz_int| {
-                        const src_len_int: u64 = memsz_int / elem_ty.abiSize(sema.mod);
-                        break :blk try sema.mod.intRef(Type.usize, src_len_int);
+                    const elem_size: u64 = try sema.typeAbiSize(elem_ty);
+                    if (elem_size == 0) {
+                        if (try reinterpretLengthOfContainingDecl(sema, block, src, src_ptr_val, elem_ty)) |idx_int| {
+                            break :blk try sema.mod.intRef(Type.usize, try sema.usizeCast(block, src, idx_int));
+                        }
+                    } else {
+                        if (try abiSizeOfContainingDecl(sema, block, src, src_ptr_val)) |memsz_int| {
+                            break :blk try sema.mod.intRef(Type.usize, try sema.usizeCast(block, src, memsz_int / elem_size));
+                        }
                     }
                 }
                 break :blk .none;
@@ -40140,7 +40148,7 @@ pub const RuntimeSafety = struct {
             sa.eq_sentinel = sa.dest_ptr.min(sa.dest_len).min(sa.dest_sent);
         } else if (src_ptr_ty_size == .One or src_ptr_ty_size == .Slice) {
             if (sa.dest_sent == .known and sa.src_sent == .unknown) {
-                return sema.fail(block, dest_sent_src, "sentinel index of unbounded slice without sentinel is always out of bounds", .{});
+                return sema.fail(block, dest_sent_src, "sentinel index always out of bounds", .{});
             }
             if (sa.dest_sent == .known) {
                 sa.eq_sentinel = sa.src_ptr.min(sa.src_len);
