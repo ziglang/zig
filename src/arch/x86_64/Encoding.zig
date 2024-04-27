@@ -450,6 +450,7 @@ pub const Op = enum {
     m,
     moffs,
     sreg,
+    eee,
     st, mm, mm_m64,
     xmm0, xmm, xmm_m8, xmm_m16, xmm_m32, xmm_m64, xmm_m128,
     ymm, ymm_m256,
@@ -478,6 +479,7 @@ pub const Op = enum {
                     else => unreachable,
                 },
                 .segment => .sreg,
+                .control => .eee,
                 .x87 => .st,
                 .mmx => .mm,
                 .sse => if (reg == .xmm0)
@@ -535,7 +537,7 @@ pub const Op = enum {
 
     pub fn immBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .none, .o16, .o32, .o64, .moffs, .m, .sreg, .eee => unreachable,
             .al, .cl, .r8, .rm8, .r32_m8 => unreachable,
             .ax, .r16, .rm16 => unreachable,
             .eax, .r32, .rm32, .r32_m16 => unreachable,
@@ -554,7 +556,7 @@ pub const Op = enum {
 
     pub fn regBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .none, .o16, .o32, .o64, .moffs, .m, .sreg, .eee => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
@@ -570,7 +572,7 @@ pub const Op = enum {
 
     pub fn memBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .none, .o16, .o32, .o64, .moffs, .m, .sreg, .eee => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
             .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64 => unreachable,
@@ -670,7 +672,7 @@ pub const Op = enum {
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
             .o16, .o32, .o64 => unreachable,
-            .moffs, .sreg => return op == target,
+            .moffs, .sreg, .eee => return op == target,
             .none => switch (target) {
                 .o16, .o32, .o64, .none => return true,
                 else => return false,

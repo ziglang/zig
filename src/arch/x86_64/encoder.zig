@@ -2503,6 +2503,8 @@ test "assemble" {
         \\add rsp, -1
         \\add rsp, 0xff
         \\mov sil, byte ptr [rax + rcx * 1]
+        \\cli
+        \\mov %%rax, %%cr3
         \\
     ;
 
@@ -2566,6 +2568,8 @@ test "assemble" {
         0x48, 0x83, 0xC4, 0xFF,
         0x48, 0x81, 0xC4, 0xFF, 0x00, 0x00, 0x00,
         0x40, 0x8A, 0x34, 0x08,
+        0xFA,
+        0x0F, 0x22, 0xD8,
     };
     // zig fmt: on
 

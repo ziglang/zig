@@ -409,6 +409,8 @@ pub const table = [_]Entry{
     .{ .mov, .mi, &.{ .rm16,    .imm16   }, &.{ 0xc7 }, 0, .short, .none },
     .{ .mov, .mi, &.{ .rm32,    .imm32   }, &.{ 0xc7 }, 0, .none,  .none },
     .{ .mov, .mi, &.{ .rm64,    .imm32s  }, &.{ 0xc7 }, 0, .long,  .none },
+    .{ .mov, .rm, &.{ .rm64,     .eee    }, &.{ 0x0f, 0x20 }, 0, .long,  .none },
+    .{ .mov, .mr, &.{ .eee,     .rm64    }, &.{ 0x0f, 0x22 }, 0, .long,  .none },
 
     .{ .movbe, .rm, &.{ .r16, .m16 }, &.{ 0x0f, 0x38, 0xf0 }, 0, .short, .movbe },
     .{ .movbe, .rm, &.{ .r32, .m32 }, &.{ 0x0f, 0x38, 0xf0 }, 0, .none,  .movbe },

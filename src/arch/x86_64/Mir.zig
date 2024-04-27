@@ -1108,7 +1108,7 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u16 = undefined,
+        _: u15 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {
