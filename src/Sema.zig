@@ -39699,8 +39699,84 @@ pub const RuntimeSafety = struct {
             slice_length = @intFromEnum(Zir.Inst.Tag.slice_length),
         };
     };
-    /// Returns the source pointer length in bytes as determined by the
-    /// remaining length of the containing declaration.
+    /// Returns the number of `elem_ty` stored by type `val_ty`.
+    /// `val_ty` == `elem_ty`                   => 1
+    /// `val_ty` == `@Vector(len, elem_ty)`     => @typeInfo(val_ty).Vector.len
+    /// `val_ty` == `[len]elem_ty`              => @typeInfo(val_ty).Array.len
+    fn reinterpretLength(
+        sema: *Sema,
+        block: *Block,
+        src: LazySrcLoc,
+        elem_ty: Type,
+        val_ty: Type,
+    ) !u64 {
+        if (elem_ty.ip_index == val_ty.ip_index) {
+            return 1;
+        }
+        if (val_ty.isArrayOrVector(sema.mod)) {
+            const val_ty_tag: std.builtin.TypeId = val_ty.zigTypeTag(sema.mod);
+            const child_ty: Type = Type.elemType2(val_ty, sema.mod);
+            if (elem_ty.ip_index != child_ty.ip_index) {
+                return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
+                    child_ty.fmt(sema.mod),
+                    elem_ty.fmt(sema.mod),
+                });
+            }
+            if (val_ty_tag == .Array) {
+                return val_ty.arrayLen(sema.mod);
+            }
+            if (val_ty_tag == .Vector) {
+                return val_ty.vectorLen(sema.mod);
+            }
+        }
+        return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
+            val_ty.fmt(sema.mod),
+            elem_ty.fmt(sema.mod),
+        });
+    }
+    /// Returns the number of remaining elements of `elem_ty` in the declaration
+    /// containing `ptr_val`.
+    fn reinterpretLengthOfContainingDecl(
+        sema: *Sema,
+        block: *Block,
+        src: LazySrcLoc,
+        ptr_val: Value,
+        elem_ty: Type,
+    ) !?u64 {
+        const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
+        switch (ptr_key.base_addr) {
+            .arr_elem => |elem| if (try reinterpretLengthOfContainingDecl(sema, block, src, Value.fromInterned(elem.base), elem_ty)) |elems| {
+                const child_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
+                if (child_ty.ip_index != elem_ty.ip_index) {
+                    return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
+                        child_ty.fmt(sema.mod),
+                        elem_ty.fmt(sema.mod),
+                    });
+                }
+                return elems - elem.index;
+            },
+            .comptime_alloc => |comptime_alloc| {
+                const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
+                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, val_ty);
+            },
+            .anon_decl => |anon_decl| {
+                const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
+                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, decl_ty);
+            },
+            .decl => |decl| {
+                const decl_ptr: *Decl = sema.mod.declPtr(decl);
+                const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
+                return try reinterpretLengthOfContainingDecl(sema, block, src, elem_ty, decl_ty);
+            },
+            inline .eu_payload, .opt_payload, .field, .comptime_field => |_, tag| {
+                return sema.fail(block, src, "TODO: handle comptime slice manyptr without runtime bits for '{}'", .{tag});
+            },
+            .int => {},
+        }
+        return null;
+    }
+    /// Returns the number of remaining bytes in the declaration containing
+    /// `ptr_val`.
     fn abiSizeOfContainingDecl(
         sema: *Sema,
         block: *Block,
