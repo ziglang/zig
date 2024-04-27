@@ -32507,7 +32507,7 @@ fn analyzeSlice(
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                if (try sema.resolveValue(end)) |end_val| {
+                if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     const len_s_val = try mod.intValue(
                         Type.usize,
                         array_ty.arrayLenIncludingSentinel(mod),
