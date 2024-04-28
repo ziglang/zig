@@ -136,6 +136,14 @@ pub const ChildProcess = struct {
 
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
+
+        /// Windows-only. NUL (U+0000), LF (U+000A), CR (U+000D) are not allowed
+        /// within arguments when executing a `.bat`/`.cmd` script.
+        /// - NUL/LF signifiies end of arguments, so anything afterwards
+        ///   would be lost after execution.
+        /// - CR is stripped by `cmd.exe`, so any CR codepoints
+        ///   would be lost after execution.
+        InvalidBatchScriptArg,
     } ||
         posix.ExecveError ||
         posix.SetIdError ||
@@ -814,16 +822,19 @@ pub const ChildProcess = struct {
         const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_basename_wtf8);
         defer self.allocator.free(app_name_w);
 
-        const cmd_line_w = argvToCommandLineWindows(self.allocator, self.argv) catch |err| switch (err) {
-            // argv[0] contains unsupported characters that will never resolve to a valid exe.
-            error.InvalidArg0 => return error.FileNotFound,
-            else => |e| return e,
-        };
-        defer self.allocator.free(cmd_line_w);
-
         run: {
             const PATH: [:0]const u16 = std.process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
+
+            // In case the command ends up being a .bat/.cmd script, we need to escape things using the cmd.exe rules
+            // and invoke cmd.exe ourselves in order to mitigate arbitrary command execution from maliciously
+            // constructed arguments.
+            //
+            // We'll need to wait until we're actually trying to run the command to know for sure
+            // if the resolved command has the `.bat` or `.cmd` extension, so we defer actually
+            // serializing the command line until we determine how it should be serialized.
+            var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
+            defer cmd_line_cache.deinit();
 
             var app_buf = std.ArrayListUnmanaged(u16){};
             defer app_buf.deinit(self.allocator);
@@ -846,8 +857,10 @@ pub const ChildProcess = struct {
                 dir_buf.shrinkRetainingCapacity(normalized_len);
             }
 
-            windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+            windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
                 const original_err = switch (no_path_err) {
+                    // argv[0] contains unsupported characters that will never resolve to a valid exe.
+                    error.InvalidArg0 => return error.FileNotFound,
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
                     else => |e| return e,
@@ -872,9 +885,11 @@ pub const ChildProcess = struct {
                     const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                     dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                    if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                    if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
                         break :run;
                     } else |err| switch (err) {
+                        // argv[0] contains unsupported characters that will never resolve to a valid exe.
+                        error.InvalidArg0 => return error.FileNotFound,
                         error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
                         error.UnrecoverableInvalidExe => return error.InvalidExe,
                         else => |e| return e,
@@ -935,7 +950,7 @@ fn windowsCreateProcessPathExt(
     dir_buf: *std.ArrayListUnmanaged(u16),
     app_buf: *std.ArrayListUnmanaged(u16),
     pathext: [:0]const u16,
-    cmd_line: [*:0]u16,
+    cmd_line_cache: *WindowsCommandLineCache,
     envp_ptr: ?[*]u16,
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
@@ -1069,7 +1084,26 @@ fn windowsCreateProcessPathExt(
             try dir_buf.append(allocator, 0);
             const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
 
-            if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            const is_bat_or_cmd = bat_or_cmd: {
+                const app_name = app_buf.items[0..app_name_len];
+                const ext_start = std.mem.lastIndexOfScalar(u16, app_name, '.') orelse break :bat_or_cmd false;
+                const ext = app_name[ext_start..];
+                const ext_enum = windowsCreateProcessSupportsExtension(ext) orelse break :bat_or_cmd false;
+                switch (ext_enum) {
+                    .cmd, .bat => break :bat_or_cmd true,
+                    else => break :bat_or_cmd false,
+                }
+            };
+            const cmd_line_w = if (is_bat_or_cmd)
+                try cmd_line_cache.scriptCommandLine(full_app_name)
+            else
+                try cmd_line_cache.commandLine();
+            const app_name_w = if (is_bat_or_cmd)
+                try cmd_line_cache.cmdExePath()
+            else
+                full_app_name;
+
+            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1111,7 +1145,20 @@ fn windowsCreateProcessPathExt(
         try dir_buf.append(allocator, 0);
         const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
 
-        if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        const is_bat_or_cmd = switch (ext_enum) {
+            .cmd, .bat => true,
+            else => false,
+        };
+        const cmd_line_w = if (is_bat_or_cmd)
+            try cmd_line_cache.scriptCommandLine(full_app_name)
+        else
+            try cmd_line_cache.commandLine();
+        const app_name_w = if (is_bat_or_cmd)
+            try cmd_line_cache.cmdExePath()
+        else
+            full_app_name;
+
+        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1234,6 +1281,223 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupport
 test windowsCreateProcessSupportsExtension {
     try std.testing.expectEqual(CreateProcessSupportedExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
     try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
+}
+
+/// Serializes argv into a WTF-16 encoded command-line string for use with CreateProcessW.
+///
+/// Serialization is done on-demand and the result is cached in order to allow for:
+/// - Only serializing the particular type of command line needed (`.bat`/`.cmd`
+///   command line serialization is different from `.exe`/etc)
+/// - Reusing the serialized command lines if necessary (i.e. if the execution
+///   of a command fails and the PATH is going to be continued to be searched
+///   for more candidates)
+pub const WindowsCommandLineCache = struct {
+    cmd_line: ?[:0]u16 = null,
+    script_cmd_line: ?[:0]u16 = null,
+    cmd_exe_path: ?[:0]u16 = null,
+    argv: []const []const u8,
+    allocator: mem.Allocator,
+
+    pub fn init(allocator: mem.Allocator, argv: []const []const u8) WindowsCommandLineCache {
+        return .{
+            .allocator = allocator,
+            .argv = argv,
+        };
+    }
+
+    pub fn deinit(self: *WindowsCommandLineCache) void {
+        if (self.cmd_line) |cmd_line| self.allocator.free(cmd_line);
+        if (self.script_cmd_line) |script_cmd_line| self.allocator.free(script_cmd_line);
+        if (self.cmd_exe_path) |cmd_exe_path| self.allocator.free(cmd_exe_path);
+    }
+
+    pub fn commandLine(self: *WindowsCommandLineCache) ![:0]u16 {
+        if (self.cmd_line == null) {
+            self.cmd_line = try argvToCommandLineWindows(self.allocator, self.argv);
+        }
+        return self.cmd_line.?;
+    }
+
+    /// Not cached, since the path to the batch script will change during PATH searching.
+    /// `script_path` should be as qualified as possible, e.g. if the PATH is being searched,
+    /// then script_path should include both the search path and the script filename
+    /// (this allows avoiding cmd.exe having to search the PATH again).
+    pub fn scriptCommandLine(self: *WindowsCommandLineCache, script_path: []const u16) ![:0]u16 {
+        if (self.script_cmd_line) |v| self.allocator.free(v);
+        self.script_cmd_line = try argvToScriptCommandLineWindows(
+            self.allocator,
+            script_path,
+            self.argv[1..],
+        );
+        return self.script_cmd_line.?;
+    }
+
+    pub fn cmdExePath(self: *WindowsCommandLineCache) ![:0]u16 {
+        if (self.cmd_exe_path == null) {
+            self.cmd_exe_path = try windowsCmdExePath(self.allocator);
+        }
+        return self.cmd_exe_path.?;
+    }
+};
+
+pub fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
+    var buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 128);
+    errdefer buf.deinit(allocator);
+    while (true) {
+        const unused_slice = buf.unusedCapacitySlice();
+        // TODO: Get the system directory from PEB.ReadOnlyStaticServerData
+        const len = windows.kernel32.GetSystemDirectoryW(@ptrCast(unused_slice), @intCast(unused_slice.len));
+        if (len == 0) {
+            switch (windows.kernel32.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+        if (len > unused_slice.len) {
+            try buf.ensureUnusedCapacity(allocator, len);
+        } else {
+            buf.items.len = len;
+            break;
+        }
+    }
+    switch (buf.items[buf.items.len - 1]) {
+        '/', '\\' => {},
+        else => try buf.append(allocator, fs.path.sep),
+    }
+    try buf.appendSlice(allocator, std.unicode.utf8ToUtf16LeStringLiteral("cmd.exe"));
+    return try buf.toOwnedSliceSentinel(allocator, 0);
+}
+
+pub const ArgvToScriptCommandLineError = error{
+    OutOfMemory,
+    InvalidWtf8,
+    /// NUL (U+0000), LF (U+000A), CR (U+000D) are not allowed
+    /// within arguments when executing a `.bat`/`.cmd` script.
+    /// - NUL/LF signifiies end of arguments, so anything afterwards
+    ///   would be lost after execution.
+    /// - CR is stripped by `cmd.exe`, so any CR codepoints
+    ///   would be lost after execution.
+    InvalidBatchScriptArg,
+};
+
+/// Serializes `argv` to a Windows command-line string that uses `cmd.exe /c` and `cmd.exe`-specific
+/// escaping rules. The caller owns the returned slice.
+///
+/// Escapes `argv` using the suggested mitigation against arbitrary command execution from:
+/// https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
+pub fn argvToScriptCommandLineWindows(
+    allocator: mem.Allocator,
+    /// Path to the `.bat`/`.cmd` script. If this path is relative, it is assumed to be relative to the CWD.
+    /// The script must have been verified to exist at this path before calling this function.
+    script_path: []const u16,
+    /// Arguments, not including the script name itself. Expected to be encoded as WTF-8.
+    script_args: []const []const u8,
+) ArgvToScriptCommandLineError![:0]u16 {
+    var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+    defer buf.deinit();
+
+    // `/d` disables execution of AutoRun commands.
+    // `/e:ON` and `/v:OFF` are needed for BatBadBut mitigation:
+    // > If delayed expansion is enabled via the registry value DelayedExpansion,
+    // > it must be disabled by explicitly calling cmd.exe with the /V:OFF option.
+    // > Escaping for % requires the command extension to be enabled.
+    // > If it’s disabled via the registry value EnableExtensions, it must be enabled with the /E:ON option.
+    // https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
+    buf.appendSliceAssumeCapacity("cmd.exe /d /e:ON /v:OFF /c \"");
+
+    // Always quote the path to the script arg
+    buf.appendAssumeCapacity('"');
+    // We always want the path to the batch script to include a path separator in order to
+    // avoid cmd.exe searching the PATH for the script. This is not part of the arbitrary
+    // command execution mitigation, we just know exactly what script we want to execute
+    // at this point, and potentially making cmd.exe re-find it is unnecessary.
+    //
+    // If the script path does not have a path separator, then we know its relative to CWD and
+    // we can just put `.\` in the front.
+    if (mem.indexOfAny(u16, script_path, &[_]u16{ mem.nativeToLittle(u16, '\\'), mem.nativeToLittle(u16, '/') }) == null) {
+        try buf.appendSlice(".\\");
+    }
+    // Note that we don't do any escaping/mitigations for this argument, since the relevant
+    // characters (", %, etc) are illegal in file paths and this function should only be called
+    // with script paths that have been verified to exist.
+    try std.unicode.wtf16LeToWtf8ArrayList(&buf, script_path);
+    buf.appendAssumeCapacity('"');
+
+    for (script_args) |arg| {
+        // Literal carriage returns get stripped when run through cmd.exe
+        // and NUL/newlines act as 'end of command.' Because of this, it's basically
+        // always a mistake to include these characters in argv, so it's
+        // an error condition in order to ensure that the return of this
+        // function can always roundtrip through cmd.exe.
+        if (std.mem.indexOfAny(u8, arg, "\x00\r\n") != null) {
+            return error.InvalidBatchScriptArg;
+        }
+
+        // Separate args with a space.
+        try buf.append(' ');
+
+        // Need to quote if the argument is empty (otherwise the arg would just be lost)
+        // or if the last character is a `\`, since then something like "%~2" in a .bat
+        // script would cause the closing " to be escaped which we don't want.
+        var needs_quotes = arg.len == 0 or arg[arg.len - 1] == '\\';
+        if (!needs_quotes) {
+            for (arg) |c| {
+                switch (c) {
+                    // Known good characters that don't need to be quoted
+                    'A'...'Z', 'a'...'z', '0'...'9', '#', '$', '*', '+', '-', '.', '/', ':', '?', '@', '\\', '_' => {},
+                    // When in doubt, quote
+                    else => {
+                        needs_quotes = true;
+                        break;
+                    },
+                }
+            }
+        }
+        if (needs_quotes) {
+            try buf.append('"');
+        }
+        var backslashes: usize = 0;
+        for (arg) |c| {
+            switch (c) {
+                '\\' => {
+                    backslashes += 1;
+                },
+                '"' => {
+                    try buf.appendNTimes('\\', backslashes);
+                    try buf.append('"');
+                    backslashes = 0;
+                },
+                // Replace `%` with `%%cd:~,%`.
+                //
+                // cmd.exe allows extracting a substring from an environment
+                // variable with the syntax: `%foo:~<start_index>,<end_index>%`.
+                // Therefore, `%cd:~,%` will always expand to an empty string
+                // since both the start and end index are blank, and it is assumed
+                // that `%cd%` is always available since it is a built-in variable
+                // that corresponds to the current directory.
+                //
+                // This means that replacing `%foo%` with `%%cd:~,%foo%%cd:~,%`
+                // will stop `%foo%` from being expanded and *after* expansion
+                // we'll still be left with `%foo%` (the literal string).
+                '%' => {
+                    // the trailing `%` is appended outside the switch
+                    try buf.appendSlice("%%cd:~,");
+                    backslashes = 0;
+                },
+                else => {
+                    backslashes = 0;
+                },
+            }
+            try buf.append(c);
+        }
+        if (needs_quotes) {
+            try buf.appendNTimes('\\', backslashes);
+            try buf.append('"');
+        }
+    }
+
+    try buf.append('"');
+
+    return try unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
 }
 
 pub const ArgvToCommandLineError = error{ OutOfMemory, InvalidWtf8, InvalidArg0 };

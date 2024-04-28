@@ -43,7 +43,8 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
                 if (isReachable(atom, rel, macho_file)) continue;
                 try thunk.symbols.put(gpa, rel.target, {});
             }
-            atom.thunk_index = thunk_index;
+            try atom.addExtra(.{ .thunk = thunk_index }, macho_file);
+            atom.flags.thunk = true;
         }
 
         thunk.value = try advance(header, thunk.size(), .@"4");

@@ -65,6 +65,7 @@ entry_index: ?Symbol.Index = null,
 
 /// List of atoms that are either synthetic or map directly to the Zig source program.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
 unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
 
@@ -246,6 +247,7 @@ pub fn createEmpty(
     try self.files.append(gpa, .null);
     // Atom at index 0 is reserved as null atom
     try self.atoms.append(gpa, .{});
+    try self.atoms_extra.append(gpa, 0);
     // Append empty string to string tables
     try self.strings.buffer.append(gpa, 0);
     try self.strtab.append(gpa, 0);
@@ -350,6 +352,7 @@ pub fn deinit(self: *MachO) void {
     self.unwind_info.deinit(gpa);
 
     self.atoms.deinit(gpa);
+    self.atoms_extra.deinit(gpa);
     for (self.thunks.items) |*thunk| {
         thunk.deinit(gpa);
     }
@@ -797,6 +800,14 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.appendSlice(&.{ "-e", entry_name });
         }
 
+        try argv.append("-o");
+        try argv.append(full_out_path);
+
+        if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
+            try argv.append("-undefined");
+            try argv.append("dynamic_lookup");
+        }
+
         for (comp.objects) |obj| {
             // TODO: verify this
             if (obj.must_link) {
@@ -813,18 +824,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(p);
         }
 
-        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
-        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
-
-        if (comp.config.link_libcpp) {
-            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
-            try argv.append(comp.libcxx_static_lib.?.full_object_path);
+        for (self.lib_dirs) |lib_dir| {
+            const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
+            try argv.append(arg);
         }
-
-        try argv.append("-o");
-        try argv.append(full_out_path);
-
-        try argv.append("-lSystem");
 
         for (comp.system_libs.keys()) |l_name| {
             const info = comp.system_libs.get(l_name).?;
@@ -837,9 +840,9 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
-        for (self.lib_dirs) |lib_dir| {
-            const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
-            try argv.append(arg);
+        for (self.framework_dirs) |f_dir| {
+            try argv.append("-F");
+            try argv.append(f_dir);
         }
 
         for (self.frameworks) |framework| {
@@ -853,15 +856,15 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(arg);
         }
 
-        for (self.framework_dirs) |f_dir| {
-            try argv.append("-F");
-            try argv.append(f_dir);
+        if (comp.config.link_libcpp) {
+            try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+            try argv.append(comp.libcxx_static_lib.?.full_object_path);
         }
 
-        if (self.base.isDynLib() and self.base.allow_shlib_undefined) {
-            try argv.append("-undefined");
-            try argv.append("dynamic_lookup");
-        }
+        try argv.append("-lSystem");
+
+        if (comp.compiler_rt_lib) |lib| try argv.append(lib.full_object_path);
+        if (comp.compiler_rt_obj) |obj| try argv.append(obj.full_object_path);
     }
 
     Compilation.dump_argv(argv.items);
@@ -3863,6 +3866,50 @@ pub fn getAtom(self: *MachO, index: Atom.Index) ?*Atom {
     if (index == 0) return null;
     assert(index < self.atoms.items.len);
     return &self.atoms.items[index];
+}
+
+pub fn addAtomExtra(self: *MachO, extra: Atom.Extra) !u32 {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    try self.atoms_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
+    return self.addAtomExtraAssumeCapacity(extra);
+}
+
+pub fn addAtomExtraAssumeCapacity(self: *MachO, extra: Atom.Extra) u32 {
+    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn getAtomExtra(self: *MachO, index: u32) ?Atom.Extra {
+    if (index == 0) return null;
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Atom.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.atoms_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setAtomExtra(self: *MachO, index: u32, extra: Atom.Extra) void {
+    assert(index > 0);
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 pub fn addSymbol(self: *MachO) !Symbol.Index {
