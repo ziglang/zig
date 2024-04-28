@@ -40429,8 +40429,7 @@ pub const RuntimeSafety = struct {
             .One => try sema.ptrType(.{
                 .child = Type.toIntern(try sema.mod.arrayType(.{
                     .child = Type.toIntern(elem_ty),
-                    // ATTENTION
-                    .len = try sema.usizeCast(block, dest_end_src, dest_len_val.toUnsignedInt(sema.mod)),
+                    .len = (try dest_len_val.getUnsignedIntAdvanced(sema.mod, sema)).?,
                     .sentinel = dest_sent_ip,
                 })),
                 .flags = dest_ptr_flags,
