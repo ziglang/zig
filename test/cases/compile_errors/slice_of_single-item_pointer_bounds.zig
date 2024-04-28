@@ -27,8 +27,8 @@ export fn entry2() void {
 
 // error
 //
+// :5:16: error: slice end out of bounds: end 2, length 1
 // :9:16: error: slice end out of bounds: end 2, length 1
 // :13:16: error: slice end out of bounds: end 2, length 1
-// :17:16: error: slice end out of bounds: end 2, length 1
-// :23:13: error: start index of slice of pointer-to-one must be comptime-known
-// :29:16: error: end index of slice of pointer-to-one must be comptime-known
+// :19:13: error: start index of slice of pointer-to-one must be comptime-known
+// :25:16: error: end index of slice of pointer-to-one must be comptime-known
