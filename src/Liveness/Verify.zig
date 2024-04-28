@@ -446,6 +446,16 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyMatchingLiveness(repeat.loop_inst, expected_live);
             },
+            .switch_dispatch => {
+                const br = data[@intFromEnum(inst)].br;
+
+                try self.verifyOperand(inst, br.operand, self.liveness.operandDies(inst, 0));
+
+                const expected_live = self.loops.get(br.block_inst) orelse
+                    return invalid("%{}: loop %{} not in scope", .{ @intFromEnum(inst), @intFromEnum(br.block_inst) });
+
+                try self.verifyMatchingLiveness(br.block_inst, expected_live);
+            },
             .block, .dbg_inline_block => |tag| {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const block_ty = ty_pl.ty.toType();
@@ -493,11 +503,11 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 // The same stuff should be alive after the loop as before it.
                 const gop = try self.loops.getOrPut(self.gpa, inst);
+                if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
                 defer {
                     var live = self.loops.fetchRemove(inst).?;
                     live.value.deinit(self.gpa);
                 }
-                if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
                 gop.value_ptr.* = try self.live.clone(self.gpa);
 
                 try self.verifyBody(loop_body);
@@ -527,7 +537,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyInst(inst);
             },
-            .switch_br => {
+            .switch_br, .loop_switch_br => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
                 const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
                 var extra_index = switch_br.end;
@@ -541,8 +551,17 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyOperand(inst, pl_op.operand, self.liveness.operandDies(inst, 0));
 
-                var live = self.live.move();
-                defer live.deinit(self.gpa);
+                // Excluding the operand (which we just handled), the same stuff should be alive
+                // after the loop as before it.
+                {
+                    const gop = try self.loops.getOrPut(self.gpa, inst);
+                    if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                    gop.value_ptr.* = self.live.move();
+                }
+                defer {
+                    var live = self.loops.fetchRemove(inst).?;
+                    live.value.deinit(self.gpa);
+                }
 
                 while (case_i < switch_br.data.cases_len) : (case_i += 1) {
                     const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
@@ -551,7 +570,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                     extra_index += case_body.len;
 
                     self.live.deinit(self.gpa);
-                    self.live = try live.clone(self.gpa);
+                    self.live = try self.loops.get(inst).?.clone(self.gpa);
 
                     for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
                     try self.verifyBody(case_body);
@@ -560,7 +579,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
                 if (else_body.len > 0) {
                     self.live.deinit(self.gpa);
-                    self.live = try live.clone(self.gpa);
+                    self.live = try self.loops.get(inst).?.clone(self.gpa);
 
                     for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
                     try self.verifyBody(else_body);

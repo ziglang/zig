@@ -313,6 +313,9 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
+        /// Branch from within a switch case to the case specified by the operand.
+        /// Uses the `break` union field. `block_inst` refers to a `switch_block` or `switch_block_ref`.
+        switch_continue,
         /// Checks that comptime control flow does not happen inside a runtime block.
         /// Uses the `un_node` union field.
         check_comptime_control_flow,
@@ -1282,6 +1285,7 @@ pub const Inst = struct {
                 .panic,
                 .trap,
                 .check_comptime_control_flow,
+                .switch_continue,
                 => true,
             };
         }
@@ -1524,6 +1528,7 @@ pub const Inst = struct {
                 .break_inline,
                 .condbr,
                 .condbr_inline,
+                .switch_continue,
                 .compile_error,
                 .ret_node,
                 .ret_load,
@@ -1609,6 +1614,7 @@ pub const Inst = struct {
                 .bool_br_or = .pl_node,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
+                .switch_continue = .@"break",
                 .check_comptime_control_flow = .un_node,
                 .for_len = .pl_node,
                 .call = .pl_node,
@@ -2340,6 +2346,7 @@ pub const Inst = struct {
         },
         @"break": struct {
             operand: Ref,
+            /// Index of a `Break` payload.
             payload_index: u32,
         },
         dbg_stmt: LineColumn,
@@ -2951,9 +2958,13 @@ pub const Inst = struct {
             has_under: bool,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
+            /// If true, at least one prong has a capture which may not
+            /// be comptime-known via `inline`.
+            any_non_inline_capture: bool,
+            has_continue: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u28;
+            pub const ScalarCasesLen = u26;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @intFromBool(bits.has_else);

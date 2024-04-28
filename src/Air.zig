@@ -427,6 +427,14 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
+        /// Switch branch which can dispatch back to itself with a different operand.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
+        loop_switch_br,
+        /// Dispatches back to a branch of a parent `loop_switch_br`.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `br` field. `block_inst` is a `loop_switch_br` instruction.
+        switch_dispatch,
         /// Given an operand which is an error union, splits control flow. In
         /// case of error, control flow goes into the block that is part of this
         /// instruction, which is guaranteed to end with a return instruction
@@ -1449,6 +1457,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .br,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .ret,
         .ret_safe,
         .ret_load,
@@ -1612,6 +1622,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_never_inline,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .@"try",
         .try_ptr,
         .dbg_stmt,
@@ -1812,5 +1824,68 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
         .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
         .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
+    };
+}
+
+/// This is an iterator over `switch_br` or `loop_switch_br` cases.
+/// Call `nextCase` until it returns `null`, then finally call `elseBody`.
+pub const SwitchIterator = struct {
+    // Public, constant fields.
+    total_cases: u32,
+    else_body_len: u32,
+    operand: Air.Inst.Ref,
+
+    // Iterator state.
+    air: *const Air,
+    next_case_idx: u32,
+    extra_index: u32,
+
+    pub const Case = struct {
+        index: u32,
+        items: []const Air.Inst.Ref,
+        ranges: []const [2]Air.Inst.Ref,
+        body: []const Air.Inst.Index,
+    };
+
+    pub fn nextCase(it: *SwitchIterator) ?Case {
+        if (it.next_case_idx == it.total_cases) return null;
+        const case_idx = it.next_case_idx;
+        it.next_case_idx += 1;
+
+        const case = it.air.extraData(SwitchBr.Case, it.extra_index);
+        const items = it.air.extra[case.end..][0..case.data.items_len];
+        it.extra_index = @intCast(case.end + case.data.items_len);
+        const range_vals = it.air.extra[it.extra_index..][0 .. case.data.ranges_len * 2];
+        it.extra_index += case.data.ranges_len * 2;
+        const body = it.air.extra[it.extra_index..][0..case.data.body_len];
+        it.extra_index += case.data.body_len;
+
+        return .{
+            .index = case_idx,
+            .items = @ptrCast(items),
+            .ranges = @as([*]const [2]Air.Inst.Ref, @ptrCast(range_vals.ptr))[0..case.data.ranges_len],
+            .body = @ptrCast(body),
+        };
+    }
+    pub fn elseBody(it: *SwitchIterator) []const Air.Inst.Index {
+        assert(it.next_case_idx == it.total_cases);
+        return @ptrCast(it.air.extra[it.extra_index..][0..it.else_body_len]);
+    }
+};
+
+pub fn switchIterator(air: *const Air, inst: Inst.Index) SwitchIterator {
+    const inst_info = air.instructions.get(@intFromEnum(inst));
+    switch (inst_info.tag) {
+        .switch_br, .loop_switch_br => {},
+        else => unreachable, // assertion failure
+    }
+    const switch_br = air.extraData(SwitchBr, inst_info.data.pl_op.payload);
+    return .{
+        .total_cases = switch_br.data.cases_len,
+        .else_body_len = switch_br.data.else_body_len,
+        .operand = inst_info.data.pl_op.operand,
+        .air = air,
+        .next_case_idx = 0,
+        .extra_index = @intCast(switch_br.end),
     };
 }

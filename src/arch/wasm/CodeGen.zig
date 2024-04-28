@@ -1898,6 +1898,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
         .repeat => return func.fail("TODO implement `repeat`", .{}),
+        .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
         .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
         .intcast => func.airIntcast(inst),
@@ -1975,6 +1976,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .field_parent_ptr => func.airFieldParentPtr(inst),
 
         .switch_br => func.airSwitchBr(inst),
+        .loop_switch_br => return func.fail("TODO implement `loop_switch_br`", .{}),
         .trunc => func.airTrunc(inst),
         .unreach => func.airUnreachable(inst),
 
