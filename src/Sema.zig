@@ -6882,7 +6882,7 @@ fn lookupInNamespace(
             }
         }
 
-        {
+        if (candidates.items.len > 1) {
             var i: usize = 0;
             while (i < candidates.items.len) {
                 if (candidates.items[i] == sema.owner_decl_index) {
