@@ -1580,6 +1580,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .block           => try func.airBlock(inst),
             .br              => try func.airBr(inst),
             .repeat          => return func.fail("TODO implement `repeat`", .{}),
+            .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
             .trap            => try func.airTrap(),
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
@@ -1669,6 +1670,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => try func.airFieldParentPtr(inst),
 
             .switch_br       => try func.airSwitchBr(inst),
+            .loop_switch_br  => return func.fail("TODO implement `loop_switch_br`", .{}),
 
             .ptr_slice_len_ptr => try func.airPtrSliceLenPtr(inst),
             .ptr_slice_ptr_ptr => try func.airPtrSlicePtrPtr(inst),

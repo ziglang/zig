@@ -321,6 +321,9 @@ pub const Function = struct {
     /// by type alignment.
     /// The value is whether the alloc needs to be emitted in the header.
     allocs: std.AutoArrayHashMapUnmanaged(LocalIndex, bool) = .{},
+    /// Maps from `loop_switch_br` instructions to the allocated local used
+    /// for the switch cond. Dispatches should set this local to the new cond.
+    loop_switch_conds: std.AutoHashMapUnmanaged(Air.Inst.Index, LocalIndex) = .{},
 
     fn resolveInst(f: *Function, ref: Air.Inst.Ref) !CValue {
         const gop = try f.value_map.getOrPut(ref);
@@ -531,6 +534,7 @@ pub const Function = struct {
         f.blocks.deinit(gpa);
         f.value_map.deinit();
         f.lazy_fns.deinit(gpa);
+        f.loop_switch_conds.deinit(gpa);
     }
 
     fn typeOf(f: *Function, inst: Air.Inst.Ref) Type {
@@ -3376,16 +3380,18 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             => unreachable,
 
             // Instructions that are known to always be `noreturn` based on their tag.
-            .br         => return airBr(f, inst),
-            .repeat     => return airRepeat(f, inst),
-            .cond_br    => return airCondBr(f, inst),
-            .switch_br  => return airSwitchBr(f, inst),
-            .loop       => return airLoop(f, inst),
-            .ret        => return airRet(f, inst, false),
-            .ret_safe   => return airRet(f, inst, false), // TODO
-            .ret_load   => return airRet(f, inst, true),
-            .trap       => return airTrap(f, f.object.writer()),
-            .unreach    => return airUnreach(f),
+            .br              => return airBr(f, inst),
+            .repeat          => return airRepeat(f, inst),
+            .switch_dispatch => return airSwitchDispatch(f, inst),
+            .cond_br         => return airCondBr(f, inst),
+            .switch_br       => return airSwitchBr(f, inst, false),
+            .loop_switch_br  => return airSwitchBr(f, inst, true),
+            .loop            => return airLoop(f, inst),
+            .ret             => return airRet(f, inst, false),
+            .ret_safe        => return airRet(f, inst, false), // TODO
+            .ret_load        => return airRet(f, inst, true),
+            .trap            => return airTrap(f, f.object.writer()),
+            .unreach         => return airUnreach(f),
 
             // Instructions which may be `noreturn`.
             .block => res: {
@@ -4786,6 +4792,46 @@ fn airRepeat(f: *Function, inst: Air.Inst.Index) !void {
     try writer.print("goto zig_loop_{d};\n", .{@intFromEnum(repeat.loop_inst)});
 }
 
+fn airSwitchDispatch(f: *Function, inst: Air.Inst.Index) !void {
+    const pt = f.object.dg.pt;
+    const zcu = pt.zcu;
+    const br = f.air.instructions.items(.data)[@intFromEnum(inst)].br;
+    const writer = f.object.writer();
+
+    if (try f.air.value(br.operand, pt)) |cond_val| {
+        // Comptime-known dispatch. Iterate the cases to find the correct
+        // one, and branch directly to the corresponding case.
+        const switch_br = f.air.unwrapSwitch(br.block_inst);
+        var it = switch_br.iterateCases();
+        const target_case_idx: u32 = target: while (it.next()) |case| {
+            for (case.items) |item| {
+                const val = Value.fromInterned(item.toInterned().?);
+                if (cond_val.compareHetero(.eq, val, zcu)) break :target case.idx;
+            }
+            for (case.ranges) |range| {
+                const low = Value.fromInterned(range[0].toInterned().?);
+                const high = Value.fromInterned(range[1].toInterned().?);
+                if (cond_val.compareHetero(.gte, low, zcu) and
+                    cond_val.compareHetero(.lte, high, zcu))
+                {
+                    break :target case.idx;
+                }
+            }
+        } else switch_br.cases_len;
+        try writer.print("goto zig_switch_{d}_dispatch_{d};\n", .{ @intFromEnum(br.block_inst), target_case_idx });
+        return;
+    }
+
+    // Runtime-known dispatch. Set the switch condition, and branch back.
+    const cond = try f.resolveInst(br.operand);
+    const cond_local = f.loop_switch_conds.get(br.block_inst).?;
+    try f.writeCValue(writer, .{ .local = cond_local }, .Other);
+    try writer.writeAll(" = ");
+    try f.writeCValue(writer, cond, .Initializer);
+    try writer.writeAll(";\n");
+    try writer.print("goto zig_switch_{d}_loop;", .{@intFromEnum(br.block_inst)});
+}
+
 fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const inst_ty = f.typeOfIndex(inst);
@@ -5004,14 +5050,33 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !void {
     try genBodyInner(f, else_body);
 }
 
-fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
+fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
+    const gpa = f.object.dg.gpa;
     const switch_br = f.air.unwrapSwitch(inst);
-    const condition = try f.resolveInst(switch_br.operand);
+    const init_condition = try f.resolveInst(switch_br.operand);
     try reap(f, inst, &.{switch_br.operand});
     const condition_ty = f.typeOf(switch_br.operand);
     const writer = f.object.writer();
+
+    // For dispatches, we will create a local alloc to contain the condition value.
+    // This may not result in optimal codegen for switch loops, but it minimizes the
+    // amount of C code we generate, which is probably more desirable here (and is simpler).
+    const condition = if (is_dispatch_loop) cond: {
+        const new_local = try f.allocLocal(inst, condition_ty);
+        try f.writeCValue(writer, new_local, .Other);
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, init_condition, .Initializer);
+        try writer.writeAll(";\n");
+        try writer.print("zig_switch_{d}_loop:", .{@intFromEnum(inst)});
+        try f.loop_switch_conds.put(gpa, inst, new_local.new_local);
+        break :cond new_local;
+    } else init_condition;
+
+    defer if (is_dispatch_loop) {
+        assert(f.loop_switch_conds.remove(inst));
+    };
 
     try writer.writeAll("switch (");
 
@@ -5030,7 +5095,6 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
     try writer.writeAll(") {");
     f.object.indent_writer.pushIndent();
 
-    const gpa = f.object.dg.gpa;
     const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
@@ -5045,9 +5109,15 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
             const item_value = try f.air.value(item, pt);
-            if (item_value.?.getUnsignedInt(zcu)) |item_int| try writer.print("{}\n", .{
-                try f.fmtIntLiteral(try pt.intValue(lowered_condition_ty, item_int)),
-            }) else {
+            // If `item_value` is a pointer with a known integer address, print the address
+            // with no cast to avoid a warning.
+            write_val: {
+                if (condition_ty.isPtrAtRuntime(zcu)) {
+                    if (item_value.?.getUnsignedInt(zcu)) |item_int| {
+                        try writer.print("{}", .{try f.fmtIntLiteral(try pt.intValue(lowered_condition_ty, item_int))});
+                        break :write_val;
+                    }
+                }
                 if (condition_ty.isPtrAtRuntime(zcu)) {
                     try writer.writeByte('(');
                     try f.renderType(writer, Type.usize);
@@ -5057,9 +5127,14 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
             }
             try writer.writeByte(':');
         }
-        try writer.writeByte(' ');
-
-        try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
+        try writer.writeAll(" {\n");
+        f.object.indent_writer.pushIndent();
+        if (is_dispatch_loop) {
+            try writer.print("zig_switch_{d}_dispatch_{d}: ", .{ @intFromEnum(inst), case.idx });
+        }
+        try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
+        f.object.indent_writer.popIndent();
+        try writer.writeByte('}');
 
         // The case body must be noreturn so we don't need to insert a break.
     }
@@ -5095,11 +5170,19 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !void {
                 try f.object.dg.renderValue(writer, (try f.air.value(range[1], pt)).?, .Other);
                 try writer.writeByte(')');
             }
-            try writer.writeAll(") ");
-            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
+            try writer.writeAll(") {\n");
+            f.object.indent_writer.pushIndent();
+            if (is_dispatch_loop) {
+                try writer.print("zig_switch_{d}_dispatch_{d}: ", .{ @intFromEnum(inst), case.idx });
+            }
+            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
+            f.object.indent_writer.popIndent();
+            try writer.writeByte('}');
         }
     }
-
+    if (is_dispatch_loop) {
+        try writer.print("zig_switch_{d}_dispatch_{d}: ", .{ @intFromEnum(inst), switch_br.cases_len });
+    }
     if (else_body.len > 0) {
         // Note that this must be the last case, so we do not need to use `genBodyResolveState` since
         // the parent block will do it (because the case body is noreturn).

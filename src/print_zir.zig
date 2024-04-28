@@ -302,6 +302,7 @@ const Writer = struct {
 
             .@"break",
             .break_inline,
+            .switch_continue,
             => try self.writeBreak(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),

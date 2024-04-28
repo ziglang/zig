@@ -292,6 +292,7 @@ pub fn getUnsignedIntInner(
                 .none => 0,
                 else => |payload| Value.fromInterned(payload).getUnsignedIntInner(strat, zcu, tid),
             },
+            .enum_tag => |enum_tag| return Value.fromInterned(enum_tag.int).getUnsignedIntInner(strat, zcu, tid),
             else => null,
         },
     };
