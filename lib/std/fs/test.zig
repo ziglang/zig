@@ -1276,22 +1276,22 @@ test "writev, readv" {
     var buf2: [line2.len]u8 = undefined;
     var write_vecs = [_]posix.iovec_const{
         .{
-            .iov_base = line1,
-            .iov_len = line1.len,
+            .base = line1,
+            .len = line1.len,
         },
         .{
-            .iov_base = line2,
-            .iov_len = line2.len,
+            .base = line2,
+            .len = line2.len,
         },
     };
     var read_vecs = [_]posix.iovec{
         .{
-            .iov_base = &buf2,
-            .iov_len = buf2.len,
+            .base = &buf2,
+            .len = buf2.len,
         },
         .{
-            .iov_base = &buf1,
-            .iov_len = buf1.len,
+            .base = &buf1,
+            .len = buf1.len,
         },
     };
 
@@ -1318,22 +1318,22 @@ test "pwritev, preadv" {
     var buf2: [line2.len]u8 = undefined;
     var write_vecs = [_]posix.iovec_const{
         .{
-            .iov_base = line1,
-            .iov_len = line1.len,
+            .base = line1,
+            .len = line1.len,
         },
         .{
-            .iov_base = line2,
-            .iov_len = line2.len,
+            .base = line2,
+            .len = line2.len,
         },
     };
     var read_vecs = [_]posix.iovec{
         .{
-            .iov_base = &buf2,
-            .iov_len = buf2.len,
+            .base = &buf2,
+            .len = buf2.len,
         },
         .{
-            .iov_base = &buf1,
-            .iov_len = buf1.len,
+            .base = &buf1,
+            .len = buf1.len,
         },
     };
 
@@ -1378,12 +1378,12 @@ test "sendfile" {
     const line2 = "second line\n";
     var vecs = [_]posix.iovec_const{
         .{
-            .iov_base = line1,
-            .iov_len = line1.len,
+            .base = line1,
+            .len = line1.len,
         },
         .{
-            .iov_base = line2,
-            .iov_len = line2.len,
+            .base = line2,
+            .len = line2.len,
         },
     };
 
@@ -1401,20 +1401,20 @@ test "sendfile" {
     const trailer2 = "second trailer\n";
     var hdtr = [_]posix.iovec_const{
         .{
-            .iov_base = header1,
-            .iov_len = header1.len,
+            .base = header1,
+            .len = header1.len,
         },
         .{
-            .iov_base = header2,
-            .iov_len = header2.len,
+            .base = header2,
+            .len = header2.len,
         },
         .{
-            .iov_base = trailer1,
-            .iov_len = trailer1.len,
+            .base = trailer1,
+            .len = trailer1.len,
         },
         .{
-            .iov_base = trailer2,
-            .iov_len = trailer2.len,
+            .base = trailer2,
+            .len = trailer2.len,
         },
     };
 
