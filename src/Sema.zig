@@ -40212,16 +40212,30 @@ pub const RuntimeSafety = struct {
             if (sa.dest_sent == .known and sa.src_sent == .unknown and
                 !try sema.compareScalar(dest_end_val, .lt, src_len2_val, Type.usize))
             {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_end_src, "slice end or sentinel out of bounds of reinterpreted memory: end {}(+1), length {}", .{
-                        dest_end_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
+                if (try sema.compareScalar(dest_end_val, .eq, src_len2_val, Type.usize)) {
+                    if (!src_ptr_explicit_len) {
+                        return sema.fail(block, dest_end_src, "slice sentinel out of bounds of reinterpreted memory: end {}(+1), length {}", .{
+                            dest_end_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    } else {
+                        return sema.fail(block, dest_end_src, "slice sentinel out of bounds: end {}(+1), length {}", .{
+                            dest_end_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    }
                 } else {
-                    return sema.fail(block, dest_end_src, "slice end or sentinel out of bounds: end {}(+1), length {}", .{
-                        dest_end_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
+                    if (!src_ptr_explicit_len) {
+                        return sema.fail(block, dest_end_src, "slice end out of bounds of reinterpreted memory: end {}(+1), length {}", .{
+                            dest_end_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    } else {
+                        return sema.fail(block, dest_end_src, "slice end out of bounds: end {}(+1), length {}", .{
+                            dest_end_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    }
                 }
             } else if (!try sema.compareScalar(dest_end_val, .lte, src_len2_val, Type.usize)) {
                 if (!src_ptr_explicit_len) {
@@ -40249,16 +40263,30 @@ pub const RuntimeSafety = struct {
             if (sa.dest_sent == .known and sa.src_sent == .unknown and
                 !try sema.compareScalar(dest_start_val, .lt, src_len2_val, Type.usize))
             {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_start_src, "slice start or sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
+                if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
+                    if (!src_ptr_explicit_len) {
+                        return sema.fail(block, dest_start_src, "slice sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
+                            dest_start_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    } else {
+                        return sema.fail(block, dest_start_src, "slice sentinel out of bounds: start {}(+1), length {}", .{
+                            dest_start_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    }
                 } else {
-                    return sema.fail(block, dest_start_src, "slice start or sentinel out of bounds: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
+                    if (!src_ptr_explicit_len) {
+                        return sema.fail(block, dest_start_src, "slice start out of bounds of reinterpreted memory: start {}(+1), length {}", .{
+                            dest_start_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    } else {
+                        return sema.fail(block, dest_start_src, "slice start out of bounds: start {}(+1), length {}", .{
+                            dest_start_val.fmtValue(sema.mod, sema),
+                            src_len2_val.fmtValue(sema.mod, sema),
+                        });
+                    }
                 }
             } else if (!try sema.compareScalar(dest_start_val, .lte, src_len2_val, Type.usize)) {
                 if (!src_ptr_explicit_len) {
