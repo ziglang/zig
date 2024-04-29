@@ -1219,6 +1219,7 @@ enum ZigClangCallingConv {
     ZigClangCallingConv_AArch64VectorCall,
     ZigClangCallingConv_AArch64SVEPCS,
     ZigClangCallingConv_AMDGPUKernelCall,
+    ZigClangCallingConv_M68kRTD,
 };
 
 enum ZigClangStorageClass {
