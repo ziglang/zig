@@ -156,6 +156,12 @@ pub const Node = struct {
         self.context.maybeRefresh();
     }
 
+    /// Tell the parent node that this node is not being worked on anymore. Thread-safe.
+    pub fn deactivate(self: *Node) void {
+        self.tryRemoveFromParentStack(self);
+        self.context.maybeRefresh();
+    }
+
     /// Will also tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn setName(self: *Node, name: []const u8) void {
         self.tryPushToParentStack(self);
