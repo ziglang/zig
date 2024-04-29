@@ -5310,7 +5310,7 @@ pub fn addCCArgs(
                     // version as well as the -mmacosx-version-min argument.
                     // Zig provides the correct value in both places, so it
                     // doesn't matter which one gets overridden.
-                    argv.appendAssumeCapacity("-Wno-overriding-t-option");
+                    argv.appendAssumeCapacity("-Wno-overriding-option");
                 },
                 .ios, .tvos, .watchos => switch (target.cpu.arch) {
                     // Pass the proper -m<os>-version-min argument for darwin.
