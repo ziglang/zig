@@ -1890,11 +1890,20 @@ pub fn taggedUnionEnumTag(tree: Ast, node: Node.Index) full.ContainerDecl {
 
 pub fn switchFull(tree: Ast, node: Node.Index) full.Switch {
     const data = &tree.nodes.items(.data)[node];
-    return tree.fullSwitchComponents(.{
-        .switch_token = tree.nodes.items(.main_token)[node],
-        .condition = data.lhs,
-        .sub_range = data.rhs,
-    });
+    const main_token = tree.nodes.items(.main_token)[node];
+    const switch_token: TokenIndex, const label_token: ?TokenIndex = switch (tree.tokens.items(.tag)[main_token]) {
+        .identifier => .{ main_token + 2, main_token },
+        .keyword_switch => .{ main_token, null },
+        else => unreachable,
+    };
+    return .{
+        .ast = .{
+            .switch_token = switch_token,
+            .condition = data.lhs,
+            .sub_range = data.rhs,
+        },
+        .label_token = label_token,
+    };
 }
 
 pub fn switchCaseOne(tree: Ast, node: Node.Index) full.SwitchCase {
@@ -3278,6 +3287,7 @@ pub const Node = struct {
         /// main_token is the `(`.
         async_call_comma,
         /// `switch(lhs) {}`. `SubRange[rhs]`.
+        /// `main_token` is the identifier of a preceding label, if any; otherwise `switch`.
         @"switch",
         /// Same as switch except there is known to be a trailing comma
         /// before the final rbrace

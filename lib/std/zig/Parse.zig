@@ -1245,7 +1245,7 @@ fn parseLabeledStatement(p: *Parse) !Node.Index {
     const loop_stmt = try p.parseLoopStatement();
     if (loop_stmt != 0) return loop_stmt;
 
-    const switch_expr = try p.parseSwitchExpr();
+    const switch_expr = try p.parseSwitchExpr(label_token != 0);
     if (switch_expr != 0) return switch_expr;
 
     if (label_token != 0) {
@@ -2699,7 +2699,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
         .builtin => return p.parseBuiltinCall(),
         .keyword_fn => return p.parseFnProto(),
         .keyword_if => return p.parseIf(expectTypeExpr),
-        .keyword_switch => return p.expectSwitchExpr(),
+        .keyword_switch => return p.expectSwitchExpr(false),
 
         .keyword_extern,
         .keyword_packed,
@@ -2756,7 +2756,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !Node.Index {
                 },
                 .keyword_switch => {
                     p.tok_i += 2;
-                    return p.expectSwitchExpr();
+                    return p.expectSwitchExpr(true);
                 },
                 .l_brace => {
                     p.tok_i += 2;
@@ -3034,17 +3034,17 @@ fn parseWhileTypeExpr(p: *Parse) !Node.Index {
 }
 
 /// SwitchExpr <- KEYWORD_switch LPAREN Expr RPAREN LBRACE SwitchProngList RBRACE
-fn parseSwitchExpr(p: *Parse) !Node.Index {
+fn parseSwitchExpr(p: *Parse, is_labeled: bool) !Node.Index {
     const switch_token = p.eatToken(.keyword_switch) orelse return null_node;
-    return p.expectSwitchSuffix(switch_token);
+    return p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
 }
 
-fn expectSwitchExpr(p: *Parse) !Node.Index {
+fn expectSwitchExpr(p: *Parse, is_labeled: bool) !Node.Index {
     const switch_token = p.assertToken(.keyword_switch);
-    return p.expectSwitchSuffix(switch_token);
+    return p.expectSwitchSuffix(if (is_labeled) switch_token - 2 else switch_token);
 }
 
-fn expectSwitchSuffix(p: *Parse, switch_token: TokenIndex) !Node.Index {
+fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
     _ = try p.expectToken(.l_paren);
     const expr_node = try p.expectExpr();
     _ = try p.expectToken(.r_paren);
@@ -3055,7 +3055,7 @@ fn expectSwitchSuffix(p: *Parse, switch_token: TokenIndex) !Node.Index {
 
     return p.addNode(.{
         .tag = if (trailing_comma) .switch_comma else .@"switch",
-        .main_token = switch_token,
+        .main_token = main_token,
         .data = .{
             .lhs = expr_node,
             .rhs = try p.addExtra(Node.SubRange{
