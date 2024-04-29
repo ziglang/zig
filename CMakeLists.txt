@@ -866,9 +866,9 @@ target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/stage1")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib ws2_32.lib)
 elseif(MINGW)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll ws2_32)
 endif()
 
 if(NOT MSVC)

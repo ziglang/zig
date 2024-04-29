@@ -334,6 +334,9 @@ pub fn build(b: *std.Build) !void {
         }
         if (target.result.os.tag == .windows) {
             inline for (.{ exe, check_case_exe }) |artifact| {
+                // LLVM depends on networking as of version 18.
+                artifact.linkSystemLibrary("ws2_32");
+
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
