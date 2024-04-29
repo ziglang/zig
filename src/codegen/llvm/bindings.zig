@@ -400,3 +400,9 @@ extern fn ZigLLVMWriteImportLibrary(
     output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;
+
+pub const GetHostCPUName = LLVMGetHostCPUName;
+extern fn LLVMGetHostCPUName() ?[*:0]u8;
+
+pub const GetHostCPUFeatures = LLVMGetHostCPUFeatures;
+extern fn LLVMGetHostCPUFeatures() ?[*:0]u8;
