@@ -2770,9 +2770,6 @@ pub fn renameatW(
             .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
             .INVALID_PARAMETER => {},
-            .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => return error.IsDir,
-            .NOT_A_DIRECTORY => return error.NotDir,
             // For all other statuses, fall down to the switch below to handle them.
             else => need_fallback = false,
         }
@@ -2815,6 +2812,9 @@ pub fn renameatW(
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
         .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
         else => return windows.unexpectedStatus(rc),
     }
 }
