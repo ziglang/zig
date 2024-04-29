@@ -8,7 +8,13 @@ const Module = @import("Package/Module.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
-pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub const BuildError = error{
+    OutOfMemory,
+    SubCompilationFailed,
+    ZigCompilerNotBuiltWithLLVMExtensions,
+};
+
+pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -21,7 +27,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = .Lib,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
@@ -32,8 +38,15 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .link_libc = true,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
         .lto = false,
-    });
-    const root_mod = try Module.create(arena, .{
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -59,7 +72,14 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     const root_name = "unwind";
     const link_mode = .static;
@@ -124,7 +144,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .owner = root_mod,
         };
     }
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .self_exe_path = comp.self_exe_path,
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -148,10 +168,27 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libunwind, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libunwind, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libunwind,
+                "unable to build libunwind: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
     assert(comp.libunwind_static_lib == null);
     comp.libunwind_static_lib = try sub_compilation.toCrtFile();

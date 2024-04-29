@@ -107,7 +107,13 @@ const libcxx_files = [_][]const u8{
     "src/verbose_abort.cpp",
 };
 
-pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub const BuildError = error{
+    OutOfMemory,
+    SubCompilationFailed,
+    ZigCompilerNotBuiltWithLLVMExtensions,
+};
+
+pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -148,7 +154,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
 
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -160,9 +166,16 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .link_libc = true,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
-    const root_mod = try Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -188,7 +201,14 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
@@ -288,7 +308,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -311,16 +331,33 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libcxx, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libcxx,
+                "unable to build libc++: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = try sub_compilation.toCrtFile();
 }
 
-pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -362,7 +399,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const strip = comp.compilerRtStrip();
     const unwind_tables = true;
 
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -375,9 +412,16 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
-    const root_mod = try Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -404,7 +448,14 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
@@ -487,7 +538,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -510,10 +561,27 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libcxxabi,
+                "unable to build libc++abi: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();

@@ -305,13 +305,16 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| {
-        comp.setMiscFailure(
-            .libtsan,
-            "unable to build thread sanitizer runtime: compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libtsan,
+                "unable to build thread sanitizer runtime: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
     };
 
     assert(comp.tsan_static_lib == null);
