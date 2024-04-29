@@ -13,6 +13,9 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const Progress = @This();
 
+const output_buffer_rows = 10;
+const output_buffer_cols = 200;
+
 /// `null` if the current node (and its children) should
 /// not print on update(), refreshes the `output_buffer` nonetheless
 terminal: ?std.fs.File = undefined,
@@ -41,13 +44,9 @@ timer: ?std.time.Timer = null,
 /// Used to compare with `refresh_rate_ms`.
 prev_refresh_timestamp: u64 = undefined,
 
-/// This buffer represents the maximum number of bytes written to the terminal
-/// with each refresh.
-output_buffer: [400]u8 = undefined,
-
-/// This is the end index for the `output_buffer`
-/// that will be used for printing to the terminal.
-end: usize = undefined,
+/// This buffer represents the maximum number of rows and columns
+/// written to the terminal with each refresh.
+output_buffer: [output_buffer_rows][output_buffer_cols]u8 = undefined,
 
 /// This symbol will be used as a bullet in the tree listing.
 bullet: u8 = '-',
@@ -69,9 +68,8 @@ update_mutex: std.Thread.Mutex = .{},
 /// we can move the cursor back later.
 rows_written: usize = undefined,
 
-/// Keeps track of how many cols in the terminal have been output, so that
-/// we can apply truncation if needed.
-columns_written: usize = undefined,
+/// Keeps track of how many cols in the terminal should be output for each row
+columns_written: [output_buffer_rows]usize = undefined,
 
 /// Stores the current max width of the terminal.
 /// If not available then 0.
@@ -215,9 +213,8 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
-    self.end = 0;
     self.rows_written = 0;
-    self.columns_written = 0;
+    self.columns_written[0] = 0;
     self.max_columns = determineTerminalWidth(self) orelse 0;
     self.prev_refresh_timestamp = 0;
     self.timer = std.time.Timer.start() catch null;
@@ -281,21 +278,29 @@ fn determineTerminalWidth(self: *Progress) ?usize {
     return null;
 }
 
-fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
+/// Clear previously written data and empty the `output_buffer`
+fn clearWithHeldLock(p: *Progress) void {
     const file = p.terminal orelse return;
-    var end = end_ptr.*;
 
     // restore the cursor position by moving the cursor
     // `rows_written` cells up, beginning of line,
     // then clear to the end of the screen
     if (p.supports_ansi_escape_codes) {
+        var buffer: [20]u8 = undefined;
+        var end: usize = 0;
+
         if (p.rows_written == 0) {
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0G", .{}) catch unreachable).len; // beginning of line
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len; // clear till end of line
+            end += (std.fmt.bufPrint(buffer[end..], "\x1b[0G", .{}) catch unreachable).len; // beginning of line
+            end += (std.fmt.bufPrint(buffer[end..], "\x1b[0K", .{}) catch unreachable).len; // clear till end of line
         } else {
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}F", .{p.rows_written}) catch unreachable).len; // move up and to start
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0J", .{}) catch unreachable).len; // clear till end of screen
+            end += (std.fmt.bufPrint(buffer[end..], "\x1b[{d}F", .{p.rows_written}) catch unreachable).len; // move up and to start
+            end += (std.fmt.bufPrint(buffer[end..], "\x1b[0J", .{}) catch unreachable).len; // clear till end of screen
         }
+
+        _ = file.write(&buffer) catch {
+            // stop trying to write to this file
+            p.terminal = null;
+        };
     } else if (builtin.os.tag == .windows) winapi: {
         std.debug.assert(p.is_windows_terminal);
 
@@ -342,38 +347,53 @@ fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
         }
     } else {
         // we are in a "dumb" terminal like in acme or writing to a file
-        p.output_buffer[end] = '\n';
-        end += 1;
+        _ = file.write("\n") catch {
+            // stop trying to write to this file
+            p.terminal = null;
+        };
     }
     p.rows_written = 0;
-    end_ptr.* = end;
+    p.columns_written[0] = 0;
+}
+
+/// Write the `output_buffer` to the terminal
+/// Together with `clearWithHeldLock` this method flushes the buffer
+fn writeOutputBufferToFile(p: *Progress) void {
+    const file = p.terminal orelse return;
+
+    for (p.output_buffer[0 .. p.rows_written + 1], 0..) |output_row, row_index| {
+        // Join the rows with LFs without requiring a large buffer
+        if (row_index != 0) {
+            _ = file.write("\n") catch {
+                p.terminal = null;
+                break;
+            };
+        }
+        _ = file.write(output_row[0..p.columns_written[row_index]]) catch {
+            // stop trying to write to this file
+            p.terminal = null;
+            break;
+        };
+    }
 }
 
 fn refreshWithHeldLock(self: *Progress) void {
     const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
     if (is_dumb and self.dont_print_on_dumb) return;
 
-    self.end = 0;
-    self.columns_written = 0;
-    clearWithHeldLock(self, &self.end);
+    clearWithHeldLock(self);
 
     if (!self.done) {
-        refreshOutputBufWithHeldLock(self, &self.root, &self.end);
+        refreshOutputBufWithHeldLock(self, &self.root);
     }
 
-    const file = self.terminal orelse return;
-
-    _ = file.write(self.output_buffer[0..self.end]) catch {
-        // stop trying to write to this file
-        self.terminal = null;
-    };
+    writeOutputBufferToFile(self);
     if (self.timer) |*timer| {
         self.prev_refresh_timestamp = timer.read();
     }
 }
 
-fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) void {
-    var end = end_ptr.*;
+fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node) void {
     var need_ellipse = false;
 
     const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
@@ -384,8 +404,8 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) v
         if (node.node_tree_depth > 0) {
             const depth: usize = @min(10, node.node_tree_depth);
             const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
-            self.bufWriteInsertNewline(&end);
-            self.bufWriteLineTruncate(&end, "{s: <[3]}{s}{c} ", .{
+            self.bufWriteLineFeed();
+            self.bufWrite("{s: <[3]}{s}{c} ", .{
                 "",
                 if (node.node_tree_depth > 10) "_ " else "",
                 self.bullet,
@@ -393,53 +413,46 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, end_ptr: *usize) v
             });
         }
         if (node.name.len != 0) {
-            self.bufWriteLineTruncate(&end, "{s} ", .{node.name});
+            self.bufWrite("{s} ", .{node.name});
             need_ellipse = true;
         }
         if (eti > 0) {
-            self.bufWriteLineTruncate(&end, "[{d}/{d}{s}]", .{ current_item, eti, node.unit });
+            self.bufWrite("[{d}/{d}{s}]", .{ current_item, eti, node.unit });
             need_ellipse = false;
         } else if (completed_items != 0) {
-            self.bufWriteLineTruncate(&end, "[{d}{s}]", .{ current_item, node.unit });
+            self.bufWrite("[{d}{s}]", .{ current_item, node.unit });
             need_ellipse = false;
         }
         if (need_ellipse) {
-            self.bufWriteLineTruncate(&end, "...", .{});
+            self.bufWrite("...", .{});
         }
     }
 
     for (node.children) |maybe_child| {
-        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child, &end);
+        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child);
     }
-
-    end_ptr.* = end;
 }
 
+/// Print to the terminal, temporarily stopping the progress bar from flushing the buffer
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
+    self.lock_stderr();
+    defer self.unlock_stderr();
     const file = self.terminal orelse {
         std.debug.print(format, args);
         return;
     };
-    self.refresh();
     file.writer().print(format, args) catch {
         self.terminal = null;
         return;
     };
-    if (self.rows_written > 0) self.rows_written -= 1;
 }
 
 /// Allows the caller to freely write to stderr until unlock_stderr() is called.
 /// During the lock, the progress information is cleared from the terminal.
 pub fn lock_stderr(p: *Progress) void {
     p.update_mutex.lock();
-    if (p.terminal) |file| {
-        var end: usize = 0;
-        clearWithHeldLock(p, &end);
-        _ = file.write(p.output_buffer[0..end]) catch {
-            // stop trying to write to this file
-            p.terminal = null;
-        };
-    }
+    clearWithHeldLock(p);
+    writeOutputBufferToFile(p);
     std.debug.getStderrMutex().lock();
 }
 
@@ -448,38 +461,32 @@ pub fn unlock_stderr(p: *Progress) void {
     p.update_mutex.unlock();
 }
 
-/// Wrapping function around `bufWrite` that cares about the terminal width
-fn bufWriteLineTruncate(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
-    comptime assert(std.mem.count(u8, format, "\n") == 0);
-    const ellipse = "...";
-    const start_index = end.*;
-    if (self.max_columns <= 0 or self.columns_written < self.max_columns) self.bufWrite(end, format, args);
-    const actual_columns_written = end.* - start_index;
-    const truncated_end_index = start_index + @min(self.max_columns - self.columns_written, actual_columns_written);
-    if (self.max_columns > 0) end.* = truncated_end_index;
-    self.columns_written += truncated_end_index - start_index;
-    if (self.max_columns > 0 and actual_columns_written + self.columns_written > self.max_columns and end.* >= ellipse.len) {
-        @memcpy(self.output_buffer[end.* - ellipse.len .. end.*], ellipse);
-    }
+/// Move to the next row in the buffer and reset the cursor position to 0
+fn bufWriteLineFeed(self: *Progress) void {
+    self.rows_written += 1;
+    self.columns_written[self.rows_written] = 0;
 }
 
-/// Wrapping function around `bufWrite` that inserts a new line
-fn bufWriteInsertNewline(self: *Progress, end: *usize) void {
-    self.bufWrite(end, "\n", .{});
-    self.columns_written = 0;
-}
+/// Append to the current row stored in the buffer
+fn bufWrite(self: *Progress, comptime format: []const u8, args: anytype) void {
+    comptime std.debug.assert(std.mem.count(u8, format, "\n") == 0);
+    const output_row = &self.output_buffer[self.rows_written];
+    const columns_written = &self.columns_written[self.rows_written];
 
-fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
-    if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
-        self.rows_written += comptime std.mem.count(u8, format, "\n");
-        const amt = written.len;
-        end.* += amt;
+    if (std.fmt.bufPrint(output_row[columns_written.*..], format, args)) |written| {
+        columns_written.* += written.len;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
-            end.* = self.output_buffer.len;
+            columns_written.* = output_row.len;
             const suffix = "...";
-            @memcpy(self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
+            @memcpy(output_row.*[output_row.*.len - suffix.len ..], suffix);
         },
+    }
+
+    if (columns_written.* > self.max_columns) {
+        const ellipse = "...";
+        columns_written.* = self.max_columns;
+        if (columns_written.* >= ellipse.len) @memcpy(output_row.*[columns_written.* - ellipse.len .. columns_written.*], ellipse);
     }
 }
 
