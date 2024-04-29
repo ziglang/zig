@@ -3931,6 +3931,7 @@ fn createModule(
             error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
             error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
             error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
