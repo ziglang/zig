@@ -435,7 +435,7 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node) void {
     }
 
     for (node.children) |maybe_child| {
-        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child);
+        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child) else break;
     }
 }
 
