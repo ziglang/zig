@@ -6,13 +6,13 @@ $PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
 
-if (!(Test-Path "..\$ZIG_LLVM_CLANG_LLD_NAME.zip")) {
+if (!(Test-Path "$PREFIX_PATH.zip")) {
     Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
-    Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "..\$ZIG_LLVM_CLANG_LLD_NAME.zip"
+    Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$PREFIX_PATH.zip"
 
     Write-Output "Extracting..."
     Add-Type -AssemblyName System.IO.Compression.FileSystem ;
-    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\..\$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD\..")
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PREFIX_PATH.zip", "$PREFIX_PATH\..")
 }
 
 function CheckLastExitCode {
