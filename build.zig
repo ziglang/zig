@@ -650,7 +650,7 @@ const exe_cflags = [_][]const u8{
     "-fvisibility-inlines-hidden",
     "-fno-exceptions",
     "-fno-rtti",
-    "-Werror=type-limits",
+    "-Wno-type-limits",
     "-Wno-missing-braces",
     "-Wno-comment",
 };
