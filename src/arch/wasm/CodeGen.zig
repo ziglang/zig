@@ -663,6 +663,8 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
     label: u32,
     value: WValue,
 }) = .{},
+/// Maps `loop` instructions to their label. `br` to here repeats the loop.
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, u32) = .{},
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
 code: *ArrayList(u8),
 /// The index the next local generated will have
@@ -751,6 +753,7 @@ pub fn deinit(func: *CodeGen) void {
     }
     func.branches.deinit(func.gpa);
     func.blocks.deinit(func.gpa);
+    func.loops.deinit(func.gpa);
     func.locals.deinit(func.gpa);
     func.simd_immediates.deinit(func.gpa);
     func.mir_instructions.deinit(func.gpa);
@@ -1897,7 +1900,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
-        .repeat => return func.fail("TODO implement `repeat`", .{}),
+        .repeat => func.airRepeat(inst),
         .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
         .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
@@ -3500,13 +3503,13 @@ fn airLoop(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const loop = func.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(func.air.extra[loop.end..][0..loop.data.body_len]);
 
+    try func.loops.putNoClobber(func.gpa, inst, func.block_depth);
+    defer assert(func.loops.remove(inst));
+
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
     try func.startBlock(.loop, wasm.block_empty);
     try func.genBody(body);
-
-    // breaking to the index of a loop block will continue the loop instead
-    try func.addLabel(.br, 0);
     try func.endBlock();
 
     func.finishAir(inst, .none, &.{});
@@ -3718,6 +3721,16 @@ fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addLabel(.br, idx);
 
     func.finishAir(inst, .none, &.{br.operand});
+}
+
+fn airRepeat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const repeat = func.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+    const loop_label = func.loops.get(repeat.loop_inst).?;
+
+    const idx: u32 = func.block_depth - loop_label;
+    try func.addLabel(.br, idx);
+
+    func.finishAir(inst, .none, &.{});
 }
 
 fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
