@@ -13,6 +13,12 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.69+c8b808826"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
+if [ ! -d "$PREFIX" ]; then
+  cd $HOME
+  curl -L -O "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
+  tar xf "$CACHE_BASENAME.tar.xz"
+fi
+
 cd $ZIGDIR
 
 # Make the `zig version` number consistent.
