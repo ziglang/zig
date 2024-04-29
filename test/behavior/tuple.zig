@@ -579,8 +579,6 @@ test "comptime fields in tuple can be initialized" {
 }
 
 test "tuple default values" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const T = struct {
         usize,
         usize = 123,

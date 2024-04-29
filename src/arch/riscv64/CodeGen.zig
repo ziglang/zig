@@ -666,10 +666,11 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
             if (current_maybe_inst) |current_inst| {
                 try self.inst_tracking.getPtr(current_inst).?.trackSpill(self, current_inst);
             }
-            {
+            blk: {
+                const inst = target_maybe_inst orelse break :blk;
                 const reg = RegisterManager.regAtTrackedIndex(@intCast(index));
                 self.register_manager.freeReg(reg);
-                self.register_manager.getRegAssumeFree(reg, target_maybe_inst);
+                self.register_manager.getRegAssumeFree(reg, inst);
             }
             if (target_maybe_inst) |target_inst| {
                 self.inst_tracking.getPtr(target_inst).?.trackMaterialize(
@@ -2272,13 +2273,10 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 },
             });
 
-            const add_result_frame: FrameAddr = .{
-                .index = offset.index,
-                .off = offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, zcu))),
-            };
-            try self.genSetStack(
+            try self.genSetMem(
+                .{ .frame = offset.index },
+                offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, zcu))),
                 lhs_ty,
-                add_result_frame,
                 add_result,
             );
 
@@ -2289,14 +2287,10 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 .{ .register = add_result_reg },
                 lhs_ty,
             );
-
-            const overflow_frame: FrameAddr = .{
-                .index = offset.index,
-                .off = offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, zcu))),
-            };
-            try self.genSetStack(
+            try self.genSetMem(
+                .{ .frame = offset.index },
+                offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, zcu))),
                 Type.u1,
-                overflow_frame,
                 overflow_mcv,
             );
 
@@ -2340,14 +2334,16 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
                             const tuple_ty = self.typeOfIndex(inst);
 
-                            // TODO: optimization, set this to true. needs the other struct access stuff to support
-                            // accessing registers.
-                            const result_mcv = try self.allocRegOrMem(inst, false);
+                            const result_mcv = try self.allocRegOrMem(inst, true);
 
                             const result_off: i32 = @intCast(tuple_ty.structFieldOffset(0, zcu));
                             const overflow_off: i32 = @intCast(tuple_ty.structFieldOffset(1, zcu));
 
-                            try self.genSetStack(lhs_ty, result_mcv.offset(result_off).load_frame, dest);
+                            try self.genCopy(
+                                lhs_ty,
+                                result_mcv.offset(result_off),
+                                dest,
+                            );
 
                             if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
                                 if (int_info.signedness == .unsigned) {
@@ -2385,9 +2381,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                                                 lhs_ty,
                                             );
 
-                                            try self.genSetStack(
+                                            try self.genCopy(
                                                 lhs_ty,
-                                                result_mcv.offset(overflow_off).load_frame,
+                                                result_mcv.offset(overflow_off),
                                                 overflow_mcv,
                                             );
 
@@ -2668,9 +2664,9 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(eu_ty, zcu));
         const pl_off: i32 = @intCast(errUnionPayloadOffset(pl_ty, zcu));
         const err_off: i32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
-        try self.genSetStack(pl_ty, .{ .index = frame_index, .off = pl_off }, .undef);
+        try self.genSetMem(.{ .frame = frame_index }, pl_off, pl_ty, .undef);
         const operand = try self.resolveInst(ty_op.operand);
-        try self.genSetStack(err_ty, .{ .index = frame_index, .off = err_off }, operand);
+        try self.genSetMem(.{ .frame = frame_index }, err_off, err_ty, operand);
         break :result .{ .load_frame = .{ .index = frame_index } };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -2854,7 +2850,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         switch (array_mcv) {
             .register => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initType(array_ty, zcu));
-                try self.genSetStack(array_ty, .{ .index = frame_index }, array_mcv);
+                try self.genSetMem(.{ .frame = frame_index }, 0, array_ty, array_mcv);
                 try self.genSetReg(Type.usize, addr_reg, .{ .lea_frame = .{ .index = frame_index } });
             },
             .load_frame => |frame_addr| {
@@ -2891,9 +2887,48 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.bin_file.comp.module.?;
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
+
+    const result = result: {
+        const elem_ptr_ty = self.typeOfIndex(inst);
+        const base_ptr_ty = self.typeOf(extra.lhs);
+
+        const base_ptr_mcv = try self.resolveInst(extra.lhs);
+        const base_ptr_lock: ?RegisterLock = switch (base_ptr_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (base_ptr_lock) |lock| self.register_manager.unlockReg(lock);
+
+        if (elem_ptr_ty.ptrInfo(zcu).flags.vector_index != .none) {
+            break :result if (self.reuseOperand(inst, extra.lhs, 0, base_ptr_mcv))
+                base_ptr_mcv
+            else
+                try self.copyToNewRegister(inst, base_ptr_mcv);
+        }
+
+        const elem_ty = base_ptr_ty.elemType2(zcu);
+        const elem_abi_size = elem_ty.abiSize(zcu);
+        const index_ty = self.typeOf(extra.rhs);
+        const index_mcv = try self.resolveInst(extra.rhs);
+        const index_lock: ?RegisterLock = switch (index_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (index_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const offset_reg = try self.elemOffset(index_ty, index_mcv, elem_abi_size);
+        const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
+        defer self.register_manager.unlockReg(offset_reg_lock);
+
+        if (true) return self.fail("TODO: airPtrElemPtr", .{});
+
+        // TODO: something is breaking here dunno
+
+        break :result try self.binOp(.ptr_add, base_ptr_mcv, base_ptr_ty, .{ .register = offset_reg }, base_ptr_ty);
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -4563,22 +4598,18 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 .off = -dst_reg_off.off,
             } },
         }),
-        .indirect => |ro| {
-            const src_reg = try self.copyToTmpRegister(ty, src_mcv);
-
-            _ = try self.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_store_rm,
-                .data = .{ .rm = .{
-                    .r = src_reg,
-                    .m = .{
-                        .base = .{ .reg = ro.reg },
-                        .mod = .{ .rm = .{ .disp = ro.off, .size = self.memSize(ty) } },
-                    },
-                } },
-            });
-        },
-        .load_frame => |frame| return self.genSetStack(ty, frame, src_mcv),
+        .indirect => |reg_off| try self.genSetMem(
+            .{ .reg = reg_off.reg },
+            reg_off.off,
+            ty,
+            src_mcv,
+        ),
+        .load_frame => |frame_addr| try self.genSetMem(
+            .{ .frame = frame_addr.index },
+            frame_addr.off,
+            ty,
+            src_mcv,
+        ),
         .memory => return self.fail("TODO: genCopy memory", .{}),
         .register_pair => |dst_regs| {
             const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = switch (src_mcv) {
@@ -4614,88 +4645,6 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             }
         },
         else => return self.fail("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
-    }
-}
-
-fn genSetStack(
-    self: *Self,
-    ty: Type,
-    frame: FrameAddr,
-    src_mcv: MCValue,
-) InnerError!void {
-    const zcu = self.bin_file.comp.module.?;
-    const abi_size: u32 = @intCast(ty.abiSize(zcu));
-
-    switch (src_mcv) {
-        .none => return,
-        .dead => unreachable,
-        .undef => {
-            if (!self.wantSafety()) return;
-            try self.genSetStack(ty, frame, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
-        },
-        .immediate,
-        .lea_frame,
-        => {
-            // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
-            // a register allocation.
-            const reg, const reg_lock = try self.allocReg();
-            defer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetReg(ty, reg, src_mcv);
-
-            return self.genSetStack(ty, frame, .{ .register = reg });
-        },
-        .register => |reg| {
-            switch (abi_size) {
-                1, 2, 4, 8 => {
-                    _ = try self.addInst(.{
-                        .tag = .pseudo,
-                        .ops = .pseudo_store_rm,
-                        .data = .{ .rm = .{
-                            .r = reg,
-                            .m = .{
-                                .base = .{ .frame = frame.index },
-                                .mod = .{
-                                    .rm = .{
-                                        .size = self.memSize(ty),
-                                        .disp = frame.off,
-                                    },
-                                },
-                            },
-                        } },
-                    });
-                },
-                else => unreachable, // register can hold a max of 8 bytes
-            }
-        },
-        .register_pair => |pair| {
-            var part_disp: i32 = frame.off;
-            for (try self.splitType(ty), pair) |src_ty, src_reg| {
-                try self.genSetStack(
-                    src_ty,
-                    .{ .index = frame.index, .off = part_disp },
-                    .{ .register = src_reg },
-                );
-                part_disp += @intCast(src_ty.abiSize(zcu));
-            }
-        },
-        .load_frame,
-        .indirect,
-        .load_symbol,
-        => {
-            if (abi_size <= 8) {
-                const reg = try self.copyToTmpRegister(ty, src_mcv);
-                return self.genSetStack(ty, frame, .{ .register = reg });
-            }
-
-            try self.genInlineMemcpy(
-                .{ .lea_frame = frame },
-                src_mcv.address(),
-                .{ .immediate = abi_size },
-            );
-        },
-        .air_ref => |ref| try self.genSetStack(ty, frame, try self.resolveInst(ref)),
-        else => return self.fail("TODO: genSetStack {s}", .{@tagName(src_mcv)}),
     }
 }
 
@@ -4783,6 +4732,86 @@ fn genInlineMemcpy(
         },
     });
 
+    _ = try self.addInst(.{
+        .tag = .addi,
+        .ops = .rri,
+        .data = .{
+            .i_type = .{
+                .rd = dst,
+                .rs1 = dst,
+                .imm12 = Immediate.s(1),
+            },
+        },
+    });
+
+    // jump back to start of loop
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_j,
+        .data = .{
+            .inst = first_inst,
+        },
+    });
+}
+
+fn genInlineMemset(
+    self: *Self,
+    dst_ptr: MCValue,
+    src_value: MCValue,
+    len: MCValue,
+) !void {
+    const regs = try self.register_manager.allocRegs(3, .{null} ** 3, tp);
+    const locks = self.register_manager.lockRegsAssumeUnused(3, regs);
+    defer for (locks) |lock| self.register_manager.unlockReg(lock);
+
+    const count = regs[0];
+    const src = regs[1];
+    const dst = regs[2];
+
+    try self.genSetReg(Type.usize, count, len);
+    try self.genSetReg(Type.usize, src, src_value);
+    try self.genSetReg(Type.usize, dst, dst_ptr);
+
+    // sb src, 0(dst)
+    const first_inst = try self.addInst(.{
+        .tag = .sb,
+        .ops = .rri,
+        .data = .{
+            .i_type = .{
+                .rd = dst,
+                .rs1 = src,
+                .imm12 = Immediate.s(0),
+            },
+        },
+    });
+
+    // dec count by 1
+    _ = try self.addInst(.{
+        .tag = .addi,
+        .ops = .rri,
+        .data = .{
+            .i_type = .{
+                .rd = count,
+                .rs1 = count,
+                .imm12 = Immediate.s(-1),
+            },
+        },
+    });
+
+    // branch if count is 0
+    _ = try self.addInst(.{
+        .tag = .beq,
+        .ops = .rr_inst,
+        .data = .{
+            .b_type = .{
+                .inst = @intCast(self.mir_instructions.len + 4), // points after the last inst
+                .rs1 = count,
+                .rs2 = .zero,
+            },
+        },
+    });
+
+    // increment the pointers
     _ = try self.addInst(.{
         .tag = .addi,
         .ops = .rri,
@@ -4965,7 +4994,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 2 => .lh,
                 4 => .lw,
                 8 => .ld,
-                else => return self.fail("TODO: genSetReg for size {d}", .{abi_size}),
+                else => return std.debug.panic("TODO: genSetReg for size {d}", .{abi_size}),
             };
 
             _ = try self.addInst(.{
@@ -4995,6 +5024,126 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         },
         .air_ref => |ref| try self.genSetReg(ty, reg, try self.resolveInst(ref)),
         else => return self.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
+    }
+}
+
+fn genSetMem(
+    self: *Self,
+    base: Memory.Base,
+    disp: i32,
+    ty: Type,
+    src_mcv: MCValue,
+) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const abi_size: u32 = @intCast(ty.abiSize(mod));
+    const dst_ptr_mcv: MCValue = switch (base) {
+        .reg => |base_reg| .{ .register_offset = .{ .reg = base_reg, .off = disp } },
+        .frame => |base_frame_index| .{ .lea_frame = .{ .index = base_frame_index, .off = disp } },
+        .reloc => |base_symbol| .{ .lea_symbol = .{ .sym = base_symbol.sym_index, .off = disp } },
+    };
+    switch (src_mcv) {
+        .none,
+        .unreach,
+        .dead,
+        .reserved_frame,
+        => unreachable,
+        .undef => try self.genInlineMemset(
+            dst_ptr_mcv,
+            src_mcv,
+            .{ .immediate = abi_size },
+        ),
+
+        .register_offset,
+        .memory,
+        .indirect,
+        .load_frame,
+        .lea_frame,
+        .load_symbol,
+        .lea_symbol,
+        => switch (abi_size) {
+            0 => {},
+            1, 2, 4, 8 => {
+                const src_reg = try self.copyToTmpRegister(ty, src_mcv);
+                const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+                defer self.register_manager.unlockReg(src_lock);
+
+                try self.genSetMem(base, disp, ty, .{ .register = src_reg });
+            },
+            else => try self.genInlineMemcpy(
+                dst_ptr_mcv,
+                src_mcv.address(),
+                .{ .immediate = abi_size },
+            ),
+        },
+        .register => |reg| {
+            const mem_size = switch (base) {
+                .frame => |base_fi| mem_size: {
+                    assert(disp >= 0);
+                    const frame_abi_size = self.frame_allocs.items(.abi_size)[@intFromEnum(base_fi)];
+                    const frame_spill_pad = self.frame_allocs.items(.spill_pad)[@intFromEnum(base_fi)];
+                    assert(frame_abi_size - frame_spill_pad - disp >= abi_size);
+                    break :mem_size if (frame_abi_size - frame_spill_pad - disp == abi_size)
+                        frame_abi_size
+                    else
+                        abi_size;
+                },
+                else => abi_size,
+            };
+            const src_size = math.ceilPowerOfTwoAssert(u32, abi_size);
+            const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
+            if (src_size > mem_size) {
+                const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
+                    .size = src_size,
+                    .alignment = src_align,
+                }));
+                const frame_mcv: MCValue = .{ .load_frame = .{ .index = frame_index } };
+                _ = try self.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_store_rm,
+                    .data = .{
+                        .rm = .{ .r = reg, .m = .{
+                            .base = .{ .frame = frame_index },
+                            .mod = .{ .rm = .{
+                                .size = Memory.Size.fromByteSize(src_size),
+                            } },
+                        } },
+                    },
+                });
+                try self.genSetMem(base, disp, ty, frame_mcv);
+                try self.freeValue(frame_mcv);
+            } else _ = try self.addInst(.{
+                .tag = .pseudo,
+                .ops = .pseudo_store_rm,
+                .data = .{ .rm = .{
+                    .r = reg,
+                    .m = .{
+                        .base = base,
+                        .mod = .{ .rm = .{
+                            .size = self.memSize(ty),
+                            .disp = disp,
+                        } },
+                    },
+                } },
+            });
+        },
+        .register_pair => |src_regs| {
+            var part_disp: i32 = disp;
+            for (try self.splitType(ty), src_regs) |src_ty, src_reg| {
+                try self.genSetMem(base, part_disp, src_ty, .{ .register = src_reg });
+                part_disp += @intCast(src_ty.abiSize(mod));
+            }
+        },
+        .immediate => {
+            // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
+            // a register allocation.
+            const reg, const reg_lock = try self.allocReg();
+            defer self.register_manager.unlockReg(reg_lock);
+
+            try self.genSetReg(ty, reg, src_mcv);
+
+            return self.genSetMem(base, disp, ty, .{ .register = reg });
+        },
+        .air_ref => |src_ref| try self.genSetMem(base, disp, ty, try self.resolveInst(src_ref)),
     }
 }
 
@@ -5099,13 +5248,83 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
 }
 
 fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
-    _ = inst;
-    if (safety) {
-        // TODO if the value is undef, write 0xaa bytes to dest
-    } else {
-        // TODO if the value is undef, don't lower this instruction
+    const zcu = self.bin_file.comp.module.?;
+    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    result: {
+        if (!safety and (try self.resolveInst(bin_op.rhs)) == .undef) break :result;
+
+        const dst_ptr = try self.resolveInst(bin_op.lhs);
+        const dst_ptr_ty = self.typeOf(bin_op.lhs);
+        const dst_ptr_lock: ?RegisterLock = switch (dst_ptr) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (dst_ptr_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const src_val = try self.resolveInst(bin_op.rhs);
+        const elem_ty = self.typeOf(bin_op.rhs);
+        const src_val_lock: ?RegisterLock = switch (src_val) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (src_val_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const elem_abi_size: u31 = @intCast(elem_ty.abiSize(zcu));
+
+        if (elem_abi_size == 1) {
+            const ptr: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
+                // TODO: this only handles slices stored in the stack
+                .Slice => dst_ptr,
+                .One => dst_ptr,
+                .C, .Many => unreachable,
+            };
+            const len: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
+                // TODO: this only handles slices stored in the stack
+                .Slice => dst_ptr.address().offset(8).deref(),
+                .One => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
+                .C, .Many => unreachable,
+            };
+            const len_lock: ?RegisterLock = switch (len) {
+                .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                else => null,
+            };
+            defer if (len_lock) |lock| self.register_manager.unlockReg(lock);
+
+            try self.genInlineMemset(ptr, src_val, len);
+            break :result;
+        }
+
+        // Store the first element, and then rely on memcpy copying forwards.
+        // Length zero requires a runtime check - so we handle arrays specially
+        // here to elide it.
+        switch (dst_ptr_ty.ptrSize(zcu)) {
+            .Slice => return self.fail("TODO: airMemset Slices", .{}),
+            .One => {
+                const elem_ptr_ty = try zcu.singleMutPtrType(elem_ty);
+
+                const len = dst_ptr_ty.childType(zcu).arrayLen(zcu);
+
+                assert(len != 0); // prevented by Sema
+                try self.store(dst_ptr, src_val, elem_ptr_ty, elem_ty);
+
+                const second_elem_ptr_reg, const second_elem_ptr_lock = try self.allocReg();
+                defer self.register_manager.unlockReg(second_elem_ptr_lock);
+
+                const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
+
+                try self.genSetReg(Type.usize, second_elem_ptr_reg, .{ .register_offset = .{
+                    .reg = try self.copyToTmpRegister(Type.usize, dst_ptr),
+                    .off = elem_abi_size,
+                } });
+
+                const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
+                try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
+            },
+            .C, .Many => unreachable,
+        }
     }
-    return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
@@ -5190,32 +5409,66 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const len: usize = @intCast(result_ty.arrayLen(zcu));
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+
     const result: MCValue = result: {
         switch (result_ty.zigTypeTag(zcu)) {
             .Struct => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, zcu));
+                if (result_ty.containerLayout(zcu) == .@"packed") {
+                    const struct_obj = zcu.typeToStruct(result_ty).?;
+                    try self.genInlineMemset(
+                        .{ .lea_frame = .{ .index = frame_index } },
+                        .{ .immediate = 0 },
+                        .{ .immediate = result_ty.abiSize(zcu) },
+                    );
 
-                if (result_ty.containerLayout(zcu) == .@"packed") {} else for (elements, 0..) |elem, elem_i| {
+                    for (elements, 0..) |elem, elem_i_usize| {
+                        const elem_i: u32 = @intCast(elem_i_usize);
+                        if ((try result_ty.structFieldValueComptime(zcu, elem_i)) != null) continue;
+
+                        const elem_ty = result_ty.structFieldType(elem_i, zcu);
+                        const elem_bit_size: u32 = @intCast(elem_ty.bitSize(zcu));
+                        if (elem_bit_size > 64) {
+                            return self.fail(
+                                "TODO airAggregateInit implement packed structs with large fields",
+                                .{},
+                            );
+                        }
+
+                        const elem_abi_size: u32 = @intCast(elem_ty.abiSize(zcu));
+                        const elem_abi_bits = elem_abi_size * 8;
+                        const elem_off = zcu.structPackedFieldBitOffset(struct_obj, elem_i);
+                        const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
+                        const elem_bit_off = elem_off % elem_abi_bits;
+                        const elem_mcv = try self.resolveInst(elem);
+
+                        _ = elem_byte_off;
+                        _ = elem_bit_off;
+
+                        const elem_lock = switch (elem_mcv) {
+                            .register => |reg| self.register_manager.lockReg(reg),
+                            .immediate => |imm| lock: {
+                                if (imm == 0) continue;
+                                break :lock null;
+                            },
+                            else => null,
+                        };
+                        defer if (elem_lock) |lock| self.register_manager.unlockReg(lock);
+
+                        return self.fail("TODO: airAggregateInit packed structs", .{});
+                    }
+                } else for (elements, 0..) |elem, elem_i| {
                     if ((try result_ty.structFieldValueComptime(zcu, elem_i)) != null) continue;
 
                     const elem_ty = result_ty.structFieldType(elem_i, zcu);
                     const elem_off: i32 = @intCast(result_ty.structFieldOffset(elem_i, zcu));
                     const elem_mcv = try self.resolveInst(elem);
-
-                    const elem_frame: FrameAddr = .{
-                        .index = frame_index,
-                        .off = elem_off,
-                    };
-                    try self.genSetStack(
-                        elem_ty,
-                        elem_frame,
-                        elem_mcv,
-                    );
+                    try self.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, elem_mcv);
                 }
+                break :result .{ .load_frame = .{ .index = frame_index } };
             },
-            else => return self.fail("TODO: airAggregateInit {}", .{result_ty.fmt(zcu)}),
+            else => return self.fail("TODO: airAggregate {}", .{result_ty.fmt(zcu)}),
         }
-        break :result .{ .register = .zero };
     };
 
     if (elements.len <= Liveness.bpi - 1) {

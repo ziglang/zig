@@ -231,7 +231,6 @@ test "nested arrays of integers" {
 test "implicit comptime in array type size" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var arr: [plusOne(10)]bool = undefined;
     _ = &arr;
@@ -505,7 +504,6 @@ test "anonymous literal in array" {
 test "access the null element of a null terminated array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -778,8 +776,6 @@ test "slicing array of zero-sized values" {
 }
 
 test "array init with no result pointer sets field result types" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         // A function parameter has a result type, but no result pointer.
         fn f(arr: [1]u32) u32 {

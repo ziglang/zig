@@ -73,7 +73,6 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
 test "constant expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var array: [array_size]u8 = undefined;
     _ = &array;

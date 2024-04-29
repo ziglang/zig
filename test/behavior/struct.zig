@@ -111,7 +111,6 @@ fn testMutation(foo: *StructFoo) void {
 
 test "struct byval assign" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var foo1: StructFoo = undefined;
     var foo2: StructFoo = undefined;
@@ -300,7 +299,6 @@ const Val = struct {
 test "struct point to self" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var root: Node = undefined;
     root.val.x = 1;
@@ -1023,7 +1021,6 @@ test "struct with 0-length union array field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = union {
         a: u32,
@@ -1732,7 +1729,6 @@ test "extern struct field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1863,8 +1859,6 @@ test "comptimeness of optional and error union payload is analyzed properly" {
 }
 
 test "initializer uses own alignment" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         x: u32 = @alignOf(@This()) + 1,
     };
@@ -1876,8 +1870,6 @@ test "initializer uses own alignment" {
 }
 
 test "initializer uses own size" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         x: u32 = @sizeOf(@This()) + 1,
     };
@@ -1889,8 +1881,6 @@ test "initializer uses own size" {
 }
 
 test "initializer takes a pointer to a variable inside its struct" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const namespace = struct {
         const S = struct {
             s: *S = &S.instance,

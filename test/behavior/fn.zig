@@ -414,8 +414,6 @@ test "ability to give comptime types and non comptime types to same parameter" {
 }
 
 test "function with inferred error set but returning no error" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo() !void {}
     };

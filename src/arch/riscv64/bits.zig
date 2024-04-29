@@ -35,10 +35,10 @@ pub const Memory = struct {
 
         pub fn fromByteSize(size: u64) Size {
             return switch (size) {
-                1 => .byte,
-                2 => .hword,
-                4 => .word,
-                8 => .dword,
+                1...1 => .byte,
+                2...2 => .hword,
+                3...4 => .word,
+                5...8 => .dword,
                 else => unreachable,
             };
         }
@@ -149,10 +149,8 @@ pub const Immediate = union(enum) {
 
 pub const Register = enum(u6) {
     // zig fmt: off
-    x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7,
-    x8,  x9,  x10, x11, x12, x13, x14, x15,
-    x16, x17, x18, x19, x20, x21, x22, x23,
-    x24, x25, x26, x27, x28, x29, x30, x31,
+
+    // general purpose registers
 
     zero, // zero
     ra, // return address. caller saved
@@ -166,6 +164,13 @@ pub const Register = enum(u6) {
     a2, a3, a4, a5, a6, a7, // fn args. caller saved.
     s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, // saved registers. callee saved.
     t3, t4, t5, t6, // caller saved
+
+    x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7,
+    x8,  x9,  x10, x11, x12, x13, x14, x15,
+    x16, x17, x18, x19, x20, x21, x22, x23,
+    x24, x25, x26, x27, x28, x29, x30, x31,
+
+
     // zig fmt: on
 
     /// Returns the unique 5-bit ID of this register which is used in
@@ -176,6 +181,12 @@ pub const Register = enum(u6) {
 
     pub fn dwarfLocOp(reg: Register) u8 {
         return @as(u8, reg.id());
+    }
+
+    pub fn bitSize(reg: Register) u32 {
+        return switch (@intFromEnum(reg)) {
+            @intFromEnum(Register.zero)...@intFromEnum(Register.x31) => 64,
+        };
     }
 };
 

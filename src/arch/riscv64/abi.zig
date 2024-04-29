@@ -169,6 +169,19 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
 
             return memory_class;
         },
+        .Array => {
+            const ty_size = ty.abiSize(zcu);
+            if (ty_size <= 8) {
+                result[0] = .integer;
+                return result;
+            }
+            if (ty_size <= 16) {
+                result[0] = .integer;
+                result[1] = .integer;
+                return result;
+            }
+            return memory_class;
+        },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }
 }
