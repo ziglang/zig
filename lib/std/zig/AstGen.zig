@@ -7621,9 +7621,8 @@ fn switchExpr(
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const operand_node = node_datas[node].lhs;
-    const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SubRange);
-    const case_nodes = tree.extra_data[extra.start..extra.end];
+    const operand_node = switch_full.ast.condition;
+    const case_nodes = switch_full.ast.cases;
 
     const need_rl = astgen.nodes_need_rl.contains(node);
     const block_ri: ResultInfo = if (need_rl) ri else .{

@@ -693,36 +693,24 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderToken(r, datas[node].rhs, space);
         },
 
-        .@"break" => {
+        .@"break", .@"continue" => {
             const main_token = main_tokens[node];
             const label_token = datas[node].lhs;
             const target = datas[node].rhs;
             if (label_token == 0 and target == 0) {
-                try renderToken(r, main_token, space); // break keyword
+                try renderToken(r, main_token, space); // break/continue
             } else if (label_token == 0 and target != 0) {
-                try renderToken(r, main_token, .space); // break keyword
+                try renderToken(r, main_token, .space); // break/continue
                 try renderExpression(r, target, space);
             } else if (label_token != 0 and target == 0) {
-                try renderToken(r, main_token, .space); // break keyword
-                try renderToken(r, label_token - 1, .none); // colon
+                try renderToken(r, main_token, .space); // break/continue
+                try renderToken(r, label_token - 1, .none); // :
                 try renderIdentifier(r, label_token, space, .eagerly_unquote); // identifier
             } else if (label_token != 0 and target != 0) {
-                try renderToken(r, main_token, .space); // break keyword
-                try renderToken(r, label_token - 1, .none); // colon
+                try renderToken(r, main_token, .space); // break/continue
+                try renderToken(r, label_token - 1, .none); // :
                 try renderIdentifier(r, label_token, .space, .eagerly_unquote); // identifier
                 try renderExpression(r, target, space);
-            }
-        },
-
-        .@"continue" => {
-            const main_token = main_tokens[node];
-            const label = datas[node].lhs;
-            if (label != 0) {
-                try renderToken(r, main_token, .space); // continue
-                try renderToken(r, label - 1, .none); // :
-                return renderIdentifier(r, label, space, .eagerly_unquote); // label
-            } else {
-                return renderToken(r, main_token, space); // continue
             }
         },
 
@@ -845,26 +833,29 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .@"switch",
         .switch_comma,
         => {
-            const switch_token = main_tokens[node];
-            const condition = datas[node].lhs;
-            const extra = tree.extraData(datas[node].rhs, Ast.Node.SubRange);
-            const cases = tree.extra_data[extra.start..extra.end];
-            const rparen = tree.lastToken(condition) + 1;
+            const full = tree.switchFull(node);
 
-            try renderToken(r, switch_token, .space); // switch keyword
-            try renderToken(r, switch_token + 1, .none); // lparen
-            try renderExpression(r, condition, .none); // condition expression
-            try renderToken(r, rparen, .space); // rparen
+            if (full.label_token) |label_token| {
+                try renderIdentifier(r, label_token, .none, .eagerly_unquote); // label
+                try renderToken(r, label_token + 1, .space); // :
+            }
+
+            const rparen = tree.lastToken(full.ast.condition) + 1;
+
+            try renderToken(r, full.ast.switch_token, .space); // switch
+            try renderToken(r, full.ast.switch_token + 1, .none); // (
+            try renderExpression(r, full.ast.condition, .none); // condition expression
+            try renderToken(r, rparen, .space); // )
 
             ais.pushIndentNextLine();
-            if (cases.len == 0) {
-                try renderToken(r, rparen + 1, .none); // lbrace
+            if (full.ast.cases.len == 0) {
+                try renderToken(r, rparen + 1, .none); // {
             } else {
-                try renderToken(r, rparen + 1, .newline); // lbrace
-                try renderExpressions(r, cases, .comma);
+                try renderToken(r, rparen + 1, .newline); // {
+                try renderExpressions(r, full.ast.cases, .comma);
             }
             ais.popIndent();
-            return renderToken(r, tree.lastToken(node), space); // rbrace
+            return renderToken(r, tree.lastToken(node), space); // }
         },
 
         .switch_case_one,
