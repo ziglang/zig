@@ -42,7 +42,7 @@ timer: ?std.time.Timer = null,
 
 /// When the previous refresh was written to the terminal.
 /// Used to compare with `refresh_rate_ms`.
-prev_refresh_timestamp: u64 = undefined,
+prev_refresh_timestamp: u64 = 0,
 
 /// This buffer represents the maximum number of rows and columns
 /// written to the terminal with each refresh.
@@ -66,10 +66,10 @@ update_mutex: std.Thread.Mutex = .{},
 
 /// Keeps track of how many rows in the terminal have been output, so that
 /// we can move the cursor back later.
-rows_written: usize = undefined,
+rows_written: usize = 0,
 
 /// Keeps track of how many cols in the terminal should be output for each row
-columns_written: [output_buffer_rows]usize = undefined,
+columns_written: [output_buffer_rows]usize = [_]usize{0} ** output_buffer_rows,
 
 /// Stores the current max width of the terminal.
 /// If not available then 0.
@@ -230,10 +230,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
-    self.rows_written = 0;
-    self.columns_written[0] = 0;
     self.max_columns = determineTerminalWidth(self) orelse 0;
-    self.prev_refresh_timestamp = 0;
     self.timer = std.time.Timer.start() catch null;
     self.done = false;
     return &self.root;

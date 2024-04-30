@@ -1438,7 +1438,7 @@ fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
 fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
     const host = try std.zig.system.resolveTargetQuery(.{});
 
-    var progress = std.Progress{};
+    var progress = std.Progress{ .emulate_one_line_bar = true };
     const root_node = progress.start("compiler", self.cases.items.len);
     progress.terminal = null;
     defer root_node.end();

@@ -129,6 +129,7 @@ fn mainTerminal() void {
     var fail_count: usize = 0;
     var progress = std.Progress{
         .dont_print_on_dumb = true,
+        .emulate_one_line_bar = true,
     };
     const root_node = progress.start("Test", test_fn_list.len);
     const have_tty = progress.terminal != null and

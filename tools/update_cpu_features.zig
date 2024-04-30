@@ -1022,7 +1022,7 @@ pub fn main() anyerror!void {
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
 
-    var progress = std.Progress{};
+    var progress = std.Progress{ .emulate_one_line_bar = true };
     const root_progress = progress.start("", llvm_targets.len);
     defer root_progress.end();
 
