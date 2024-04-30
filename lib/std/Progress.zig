@@ -75,6 +75,9 @@ columns_written: [output_buffer_rows]usize = undefined,
 /// If not available then 0.
 max_columns: usize = undefined,
 
+/// Replicate the old one-line style progress bar
+emulate_one_line_bar: bool = false,
+
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
@@ -96,10 +99,14 @@ pub const Node = struct {
     /// Push this `Node` to the `parent.children` stack of the provided `Node` (insert at first index). Thread-safe
     fn tryPushToParentStack(self: *Node, target_node: *Node) void {
         const parent = target_node.parent orelse return;
-        inline for (parent.children) |child| if (child == self) return;
+        if (self.context.emulate_one_line_bar) {
+            if (parent.children[0] == self) return;
+        } else {
+            inline for (parent.children) |child| if (child == self) return;
+        }
         self.context.update_mutex.lock(); // lock below existence check for slight performance reasons
         defer self.context.update_mutex.unlock(); // (downside: less precision, but not noticeable)
-        std.mem.copyBackwards(?*Node, parent.children[1..], parent.children[0 .. parent.children.len - 1]);
+        if (!self.context.emulate_one_line_bar) std.mem.copyBackwards(?*Node, parent.children[1..], parent.children[0 .. parent.children.len - 1]);
         parent.children[0] = self;
     }
 
@@ -108,9 +115,13 @@ pub const Node = struct {
         const parent = target_node.parent orelse return;
         self.context.update_mutex.lock();
         defer self.context.update_mutex.unlock();
-        const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
-        std.mem.copyBackwards(?*Node, parent.children[index..], parent.children[index + 1 ..]);
-        parent.children[parent.children.len - 1] = null;
+        if (self.context.emulate_one_line_bar) {
+            parent.children[0] = null;
+        } else {
+            const index = std.mem.indexOfScalar(?*Node, parent.children[0..], self) orelse return;
+            std.mem.copyBackwards(?*Node, parent.children[index..], parent.children[index + 1 ..]);
+            parent.children[parent.children.len - 1] = null;
+        }
     }
 
     /// Create a new child progress node. Thread-safe.
@@ -354,7 +365,6 @@ fn clearWithHeldLock(p: *Progress) void {
     } else {
         // we are in a "dumb" terminal like in acme or writing to a file
         _ = file.write("\n") catch {
-            // stop trying to write to this file
             p.terminal = null;
         };
     }
@@ -409,10 +419,14 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, need_newline: *boo
 
     if (node.name.len != 0 or eti > 0) {
         if (need_newline.*) {
-            self.bufWriteLineFeed();
+            if (self.emulate_one_line_bar) {
+                self.bufWrite(" ", .{});
+            } else {
+                self.bufWriteLineFeed();
+            }
             need_newline.* = false;
         }
-        if (node.node_tree_depth > 0) {
+        if (node.node_tree_depth > 0 and !self.emulate_one_line_bar) {
             const depth: usize = @min(10, node.node_tree_depth);
             const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
             self.bufWrite("{s: <[3]}{s}{c} ", .{
@@ -440,7 +454,7 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, need_newline: *boo
         need_newline.* = true;
     }
 
-    for (node.children) |maybe_child| {
+    for (node.children[0..if (self.emulate_one_line_bar) 1 else node.children.len]) |maybe_child| {
         if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child, need_newline) else break;
     }
 }
