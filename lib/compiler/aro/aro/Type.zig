@@ -1116,7 +1116,7 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
 
         .bit_int => @min(
             std.math.ceilPowerOfTwoPromote(u16, (ty.data.int.bits + 7) / 8),
-            comp.target.maxIntAlignment(),
+            16, // comp.target.maxIntAlignment(), please use your own logic for this value as it is implementation-defined
         ),
 
         .float => comp.target.c_type_alignment(.float),
