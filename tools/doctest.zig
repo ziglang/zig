@@ -1011,7 +1011,11 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
             .after_number => switch (c) {
                 ';' => state = .arg,
-                'D' => state = .start,
+                'A'...'G' => state = .start,
+                'J' => {
+                    buf.items.len = last_new_line;
+                    state = .start;
+                },
                 'K' => {
                     buf.items.len = last_new_line;
                     state = .start;
