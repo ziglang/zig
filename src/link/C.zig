@@ -383,7 +383,9 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
         .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{target.maxIntAlignment()});
+    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
+        Type.maxIntAlignment(target, false),
+    });
     return defines;
 }
 
