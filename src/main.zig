@@ -4024,20 +4024,9 @@ fn serve(
 
     var progress: std.Progress = .{
         .terminal = null,
-        .root = .{
-            .context = undefined,
-            .parent = null,
-            .name = "",
-            .unprotected_estimated_total_items = 0,
-            .unprotected_completed_items = 0,
-        },
-        .columns_written = 0,
-        .prev_refresh_timestamp = 0,
-        .timer = null,
-        .done = false,
     };
-    const main_progress_node = &progress.root;
-    main_progress_node.context = &progress;
+    const main_progress_node = progress.start("", 0);
+    progress.timer = null;
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -4151,14 +4140,17 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
 
         progress.refresh();
 
-        server.serveMessage(.{
-            .tag = .progress,
-            .bytes_len = @as(u32, @intCast(progress.end)),
-        }, &.{
-            progress.output_buffer[0..progress.end],
-        }) catch |err| {
-            fatal("unable to write to client: {s}", .{@errorName(err)});
-        };
+        // TODO: Provisional. This should be better integrated.
+        for (progress.output_buffer[0 .. progress.rows_written + 1], 0..) |output_row, row_index| {
+            if (row_index != 0) {
+                server.serveStringMessage(.progress, "\n") catch |err| {
+                    fatal("unable to write to client: {s}", .{@errorName(err)});
+                };
+            }
+            server.serveStringMessage(.progress, output_row[0..progress.columns_written[row_index]]) catch |err| {
+                fatal("unable to write to client: {s}", .{@errorName(err)});
+            };
+        }
     }
 }
 
@@ -5440,7 +5432,6 @@ fn jitCmd(
                     .unprotected_estimated_total_items = 0,
                     .unprotected_completed_items = 0,
                 },
-                .columns_written = 0,
                 .prev_refresh_timestamp = 0,
                 .timer = null,
                 .done = false,

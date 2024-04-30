@@ -134,7 +134,7 @@ pub fn receiveBody_u32(s: *Server) !u32 {
     return bswap(result);
 }
 
-pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !void {
+pub fn serveStringMessage(s: *const Server, tag: OutMessage.Tag, msg: []const u8) !void {
     return s.serveMessage(.{
         .tag = tag,
         .bytes_len = @as(u32, @intCast(msg.len)),
