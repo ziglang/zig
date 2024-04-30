@@ -314,7 +314,7 @@ fn clearWithHeldLock(p: *Progress) void {
             end += (std.fmt.bufPrint(buffer[end..], "\x1b[0J", .{}) catch unreachable).len; // clear till end of screen
         }
 
-        _ = file.write(&buffer) catch {
+        _ = file.write(buffer[0..end]) catch {
             // stop trying to write to this file
             p.terminal = null;
         };
