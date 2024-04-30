@@ -217,12 +217,12 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     {
         var iovecs = [_]std.posix.iovec_const{
             .{
-                .iov_base = &plaintext_header,
-                .iov_len = plaintext_header.len,
+                .base = &plaintext_header,
+                .len = plaintext_header.len,
             },
             .{
-                .iov_base = host.ptr,
-                .iov_len = host.len,
+                .base = host.ptr,
+                .len = host.len,
             },
         };
         try stream.writevAll(&iovecs);
@@ -678,8 +678,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
                                     const both_msgs = client_change_cipher_spec_msg ++ finished_msg;
                                     var both_msgs_vec = [_]std.posix.iovec_const{.{
-                                        .iov_base = &both_msgs,
-                                        .iov_len = both_msgs.len,
+                                        .base = &both_msgs,
+                                        .len = both_msgs.len,
                                     }};
                                     try stream.writevAll(&both_msgs_vec);
 
@@ -776,8 +776,8 @@ pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usiz
     var total_amt: usize = 0;
     while (true) {
         var amt = try stream.writev(iovecs_buf[i..iovec_end]);
-        while (amt >= iovecs_buf[i].iov_len) {
-            const encrypted_amt = iovecs_buf[i].iov_len;
+        while (amt >= iovecs_buf[i].len) {
+            const encrypted_amt = iovecs_buf[i].len;
             total_amt += encrypted_amt - overhead_len;
             amt -= encrypted_amt;
             i += 1;
@@ -789,8 +789,8 @@ pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usiz
             // not sent; otherwise the caller would not know to retry the call.
             if (amt == 0 and (!end or i < iovec_end - 1)) return total_amt;
         }
-        iovecs_buf[i].iov_base += amt;
-        iovecs_buf[i].iov_len -= amt;
+        iovecs_buf[i].base += amt;
+        iovecs_buf[i].len -= amt;
     }
 }
 
@@ -864,8 +864,8 @@ fn prepareCiphertextRecord(
 
                 const record = ciphertext_buf[record_start..ciphertext_end];
                 iovecs[iovec_end] = .{
-                    .iov_base = record.ptr,
-                    .iov_len = record.len,
+                    .base = record.ptr,
+                    .len = record.len,
                 };
                 iovec_end += 1;
             }
@@ -885,7 +885,7 @@ pub fn eof(c: Client) bool {
 /// If the number read is less than `len` it means the stream reached the end.
 /// Reaching the end of the stream is not an error condition.
 pub fn readAtLeast(c: *Client, stream: anytype, buffer: []u8, len: usize) !usize {
-    var iovecs = [1]std.posix.iovec{.{ .iov_base = buffer.ptr, .iov_len = buffer.len }};
+    var iovecs = [1]std.posix.iovec{.{ .base = buffer.ptr, .len = buffer.len }};
     return readvAtLeast(c, stream, &iovecs, len);
 }
 
@@ -928,12 +928,12 @@ pub fn readvAtLeast(c: *Client, stream: anytype, iovecs: []std.posix.iovec, len:
         var amt = try c.readvAdvanced(stream, iovecs[vec_i..]);
         off_i += amt;
         if (c.eof() or off_i >= len) return off_i;
-        while (amt >= iovecs[vec_i].iov_len) {
-            amt -= iovecs[vec_i].iov_len;
+        while (amt >= iovecs[vec_i].len) {
+            amt -= iovecs[vec_i].len;
             vec_i += 1;
         }
-        iovecs[vec_i].iov_base += amt;
-        iovecs[vec_i].iov_len -= amt;
+        iovecs[vec_i].base += amt;
+        iovecs[vec_i].len -= amt;
     }
 }
 
@@ -1000,12 +1000,12 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
 
     var ask_iovecs_buf: [2]std.posix.iovec = .{
         .{
-            .iov_base = first_iov.ptr,
-            .iov_len = first_iov.len,
+            .base = first_iov.ptr,
+            .len = first_iov.len,
         },
         .{
-            .iov_base = &in_stack_buffer,
-            .iov_len = in_stack_buffer.len,
+            .base = &in_stack_buffer,
+            .len = in_stack_buffer.len,
         },
     };
 
@@ -1364,12 +1364,12 @@ const VecPut = struct {
         var bytes_i: usize = 0;
         while (true) {
             const v = vp.iovecs[vp.idx];
-            const dest = v.iov_base[vp.off..v.iov_len];
+            const dest = v.base[vp.off..v.len];
             const src = bytes[bytes_i..][0..@min(dest.len, bytes.len - bytes_i)];
             @memcpy(dest[0..src.len], src);
             bytes_i += src.len;
             vp.off += src.len;
-            if (vp.off >= v.iov_len) {
+            if (vp.off >= v.len) {
                 vp.off = 0;
                 vp.idx += 1;
                 if (vp.idx >= vp.iovecs.len) {
@@ -1388,7 +1388,7 @@ const VecPut = struct {
     fn peek(vp: VecPut) []u8 {
         if (vp.idx >= vp.iovecs.len) return &.{};
         const v = vp.iovecs[vp.idx];
-        return v.iov_base[vp.off..v.iov_len];
+        return v.base[vp.off..v.len];
     }
 
     // After writing to the result of peek(), one can call next() to
@@ -1396,7 +1396,7 @@ const VecPut = struct {
     fn next(vp: *VecPut, len: usize) void {
         vp.total += len;
         vp.off += len;
-        if (vp.off >= vp.iovecs[vp.idx].iov_len) {
+        if (vp.off >= vp.iovecs[vp.idx].len) {
             vp.off = 0;
             vp.idx += 1;
         }
@@ -1405,9 +1405,9 @@ const VecPut = struct {
     fn freeSize(vp: VecPut) usize {
         if (vp.idx >= vp.iovecs.len) return 0;
         var total: usize = 0;
-        total += vp.iovecs[vp.idx].iov_len - vp.off;
+        total += vp.iovecs[vp.idx].len - vp.off;
         if (vp.idx + 1 >= vp.iovecs.len) return total;
-        for (vp.iovecs[vp.idx + 1 ..]) |v| total += v.iov_len;
+        for (vp.iovecs[vp.idx + 1 ..]) |v| total += v.len;
         return total;
     }
 };
@@ -1416,11 +1416,11 @@ const VecPut = struct {
 fn limitVecs(iovecs: []std.posix.iovec, len: usize) []std.posix.iovec {
     var bytes_left: usize = len;
     for (iovecs, 0..) |*iovec, vec_i| {
-        if (bytes_left <= iovec.iov_len) {
-            iovec.iov_len = bytes_left;
+        if (bytes_left <= iovec.len) {
+            iovec.len = bytes_left;
             return iovecs[0 .. vec_i + 1];
         }
-        bytes_left -= iovec.iov_len;
+        bytes_left -= iovec.len;
     }
     return iovecs;
 }

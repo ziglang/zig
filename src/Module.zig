@@ -2336,24 +2336,24 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     };
     var iovecs = [_]std.posix.iovec_const{
         .{
-            .iov_base = @as([*]const u8, @ptrCast(&header)),
-            .iov_len = @sizeOf(Zir.Header),
+            .base = @as([*]const u8, @ptrCast(&header)),
+            .len = @sizeOf(Zir.Header),
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
-            .iov_len = file.zir.instructions.len,
+            .base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
+            .len = file.zir.instructions.len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = file.zir.instructions.len * 8,
+            .base = data_ptr,
+            .len = file.zir.instructions.len * 8,
         },
         .{
-            .iov_base = file.zir.string_bytes.ptr,
-            .iov_len = file.zir.string_bytes.len,
+            .base = file.zir.string_bytes.ptr,
+            .len = file.zir.string_bytes.len,
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
-            .iov_len = file.zir.extra.len * 4,
+            .base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
+            .len = file.zir.extra.len * 4,
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
@@ -2424,20 +2424,20 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
 
     var iovecs = [_]std.posix.iovec{
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .iov_len = header.instructions_len,
+            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
+            .len = header.instructions_len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = header.instructions_len * 8,
+            .base = data_ptr,
+            .len = header.instructions_len * 8,
         },
         .{
-            .iov_base = zir.string_bytes.ptr,
-            .iov_len = header.string_bytes_len,
+            .base = zir.string_bytes.ptr,
+            .len = header.string_bytes_len,
         },
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .iov_len = header.extra_len * 4,
+            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
+            .len = header.extra_len * 4,
         },
     };
     const amt_read = try cache_file.readvAll(&iovecs);

@@ -648,7 +648,6 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const ptr_size = self.ptrWidthBytes();
     const target = self.base.comp.root_mod.resolved_target.result;
     const ptr_bit_width = target.ptrBitWidth();
-    const has_os = target.os.tag != .freestanding;
     const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
@@ -684,9 +683,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_got_index == null) {
-            // We really only need ptr alignment but since we are using PROGBITS, linux requires
-            // page align.
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
@@ -701,7 +698,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_ro_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
@@ -716,7 +713,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_rw_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
@@ -731,7 +728,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_zerofill_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
@@ -2511,7 +2508,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append("-pie");
         }
 
-        if (is_dyn_lib and target.os.tag == .netbsd) {
+        if (is_exe_or_dyn_lib and target.os.tag == .netbsd) {
             // Add options to produce shared objects with only 2 PT_LOAD segments.
             // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
             // ld.elf_so fails loading dynamic libraries with "not found" error.
