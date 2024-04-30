@@ -489,7 +489,7 @@ fn bufWrite(self: *Progress, comptime format: []const u8, args: anytype) void {
         },
     }
 
-    if (columns_written.* > self.max_columns) {
+    if (self.max_columns != 0 and columns_written.* > self.max_columns) {
         const ellipse = "...";
         columns_written.* = self.max_columns;
         if (columns_written.* >= ellipse.len) @memcpy(output_row.*[columns_written.* - ellipse.len .. columns_written.*], ellipse);
