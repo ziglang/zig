@@ -6799,11 +6799,27 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     const src_ty = f.typeOf(bin_op.rhs);
     const writer = f.object.writer();
 
+    if (dest_ty.ptrSize(zcu) != .One) {
+        try writer.writeAll("if (");
+        try writeArrayLen(f, writer, dest_ptr, dest_ty);
+        try writer.writeAll(" != 0) ");
+    }
     try writer.writeAll("memcpy(");
     try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
     try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
+    try writeArrayLen(f, writer, dest_ptr, dest_ty);
+    try writer.writeAll(" * sizeof(");
+    try f.renderType(writer, dest_ty.elemType2(zcu));
+    try writer.writeAll("));\n");
+
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+    return .none;
+}
+
+fn writeArrayLen(f: *Function, writer: ArrayListWriter, dest_ptr: CValue, dest_ty: Type) !void {
+    const zcu = f.object.dg.zcu;
     switch (dest_ty.ptrSize(zcu)) {
         .One => try writer.print("{}", .{
             try f.fmtIntLiteral(try zcu.intValue(Type.usize, dest_ty.childType(zcu).arrayLen(zcu))),
@@ -6811,12 +6827,6 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
         .Many, .C => unreachable,
         .Slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
     }
-    try writer.writeAll(" * sizeof(");
-    try f.renderType(writer, dest_ty.elemType2(zcu));
-    try writer.writeAll("));\n");
-
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-    return .none;
 }
 
 fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
