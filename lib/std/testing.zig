@@ -1122,10 +1122,16 @@ pub fn refAllDecls(comptime T: type) void {
 /// For deep types, you may use `@setEvalBranchQuota`.
 pub fn refAllDeclsRecursive(comptime T: type) void {
     if (!builtin.is_test) return;
+    comptime refAllDeclsRecursiveInterior(T, &[0]type{});
+}
+
+/// helper function to do the actual recursion for refAllDeclsRecursive
+fn refAllDeclsRecursiveInterior(comptime T: type, comptime type_record: []const type) void {
+    inline for (comptime type_record) |r| if (T == r) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (@TypeOf(@field(T, decl.name)) == type) {
             switch (@typeInfo(@field(T, decl.name))) {
-                .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursive(@field(T, decl.name)),
+                .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursiveInterior(@field(T, decl.name), type_record ++ .{T}),
                 else => {},
             }
         }
