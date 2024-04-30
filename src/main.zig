@@ -7130,8 +7130,23 @@ fn cmdFetch(
                 .path => {},
             }
         }
+        const new_node_init_replace =
+            if (dep.lazy)
+            try std.fmt.allocPrint(arena,
+                \\.{{
+                \\            .url = "{}",
+                \\            .hash = "{}",
+                \\            .lazy = true,
+                \\        }}
+            , .{
+                std.zig.fmtEscapes(path_or_url),
+                std.zig.fmtEscapes(&hex_digest),
+            })
+        else
+            new_node_init;
+
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
+        try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init_replace);
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
