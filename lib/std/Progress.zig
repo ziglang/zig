@@ -390,7 +390,8 @@ fn refreshWithHeldLock(self: *Progress) void {
     clearWithHeldLock(self);
 
     if (!self.done) {
-        refreshOutputBufWithHeldLock(self, &self.root);
+        var need_newline = false;
+        refreshOutputBufWithHeldLock(self, &self.root, &need_newline);
     }
 
     writeOutputBufferToFile(self);
@@ -399,7 +400,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     }
 }
 
-fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node) void {
+fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node, need_newline: *bool) void {
     var need_ellipse = false;
 
     const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
@@ -407,10 +408,13 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node) void {
     const current_item = completed_items + 1;
 
     if (node.name.len != 0 or eti > 0) {
+        if (need_newline.*) {
+            self.bufWriteLineFeed();
+            need_newline.* = false;
+        }
         if (node.node_tree_depth > 0) {
             const depth: usize = @min(10, node.node_tree_depth);
             const whitespace_length: usize = if (depth > 1) (depth - 1) * 2 else 0;
-            self.bufWriteLineFeed();
             self.bufWrite("{s: <[3]}{s}{c} ", .{
                 "",
                 if (node.node_tree_depth > 10) "_ " else "",
@@ -432,10 +436,12 @@ fn refreshOutputBufWithHeldLock(self: *Progress, node: *Node) void {
         if (need_ellipse) {
             self.bufWrite("...", .{});
         }
+
+        need_newline.* = true;
     }
 
     for (node.children) |maybe_child| {
-        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child) else break;
+        if (maybe_child) |child| refreshOutputBufWithHeldLock(self, child, need_newline) else break;
     }
 }
 
