@@ -2,17 +2,17 @@ $TARGET = "$($Env:ARCH)-windows-gnu"
 $ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.13.0-dev.69+c8b808826"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
-$PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
+$PREFIX_PATH = "$(Get-Location)\..\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
 
-if (!(Test-Path "$PREFIX_PATH.zip")) {
+if (!(Test-Path "..\$ZIG_LLVM_CLANG_LLD_NAME.zip")) {
     Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
-    Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$PREFIX_PATH.zip"
+    Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "..\$ZIG_LLVM_CLANG_LLD_NAME.zip"
 
     Write-Output "Extracting..."
     Add-Type -AssemblyName System.IO.Compression.FileSystem ;
-    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PREFIX_PATH.zip", "$PREFIX_PATH\..")
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\..\$ZIG_LLVM_CLANG_LLD_NAME.zip", "$PWD\..")
 }
 
 function CheckLastExitCode {
