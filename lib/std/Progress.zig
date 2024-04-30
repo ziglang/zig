@@ -485,7 +485,9 @@ pub fn unlock_stderr(p: *Progress) void {
 }
 
 /// Move to the next row in the buffer and reset the cursor position to 0
+/// Ignores request if buffer is full
 fn bufWriteLineFeed(self: *Progress) void {
+    if (self.rows_written + 1 >= self.columns_written.len) return;
     self.rows_written += 1;
     self.columns_written[self.rows_written] = 0;
 }
