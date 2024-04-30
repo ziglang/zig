@@ -1896,11 +1896,12 @@ pub fn switchFull(tree: Ast, node: Node.Index) full.Switch {
         .keyword_switch => .{ main_token, null },
         else => unreachable,
     };
+    const extra = tree.extraData(data.rhs, Ast.Node.SubRange);
     return .{
         .ast = .{
             .switch_token = switch_token,
             .condition = data.lhs,
-            .sub_range = data.rhs,
+            .cases = tree.extra_data[extra.start..extra.end],
         },
         .label_token = label_token,
     };
@@ -2869,7 +2870,7 @@ pub const full = struct {
         pub const Components = struct {
             switch_token: TokenIndex,
             condition: Node.Index,
-            sub_range: Node.Index,
+            cases: []const Node.Index,
         };
     };
 
