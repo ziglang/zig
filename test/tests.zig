@@ -779,6 +779,54 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
+    {
+        // Test `zig cc` `-l`/`-L` linker flag forwarding for ELF.
+        const tmp_path = b.makeTempPath();
+        var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
+        defer dir.close();
+        dir.writeFile("main.c",
+            \\#include "foo/foo.h"
+            \\int main() { f(); }
+        ) catch @panic("unhandled");
+        dir.makeDir("foo") catch @panic("unhandled");
+        var subdir = dir.openDir("foo", .{}) catch @panic("unhandled");
+        defer subdir.close();
+        subdir.writeFile("foo.h", "void f();") catch @panic("unhandled");
+        subdir.writeFile("foo.c", "void f() {}") catch @panic("unhandled");
+
+        const cc_shared = b.addSystemCommand(&.{
+            b.graph.zig_exe, "cc",
+            "-shared",       "foo/foo.c",
+            "-target",       "x86_64-linux-gnu",
+            "-o",            "foo/libfoo.so",
+        });
+        cc_shared.setCwd(.{ .cwd_relative = tmp_path });
+        cc_shared.setName("build the shared library");
+
+        const cc_link = b.addSystemCommand(&.{
+            b.graph.zig_exe,    "cc",
+            "main.c",           "-Lfoo",
+            "-lfoo",            "-target",
+            "x86_64-linux-gnu", "-o",
+            "main",
+        });
+        const main_path = std.fs.path.join(b.allocator, &.{ tmp_path, "main" }) catch @panic("OOM");
+        cc_link.setCwd(.{ .cwd_relative = tmp_path });
+        cc_link.setName("link the shared library");
+        cc_link.step.dependOn(&cc_shared.step);
+
+        const check = Step.CheckObject.create(step.owner, .{ .cwd_relative = main_path }, .elf);
+        check.checkInDynamicSection();
+        check.checkExact("NEEDED libfoo.so");
+        check.checkNotPresent("NEEDED foo/libfoo.so");
+        check.step.dependOn(&cc_link.step);
+
+        const cleanup = b.addRemoveDirTree(tmp_path);
+        cleanup.step.dependOn(&check.step);
+
+        step.dependOn(&cleanup.step);
+    }
+
     // Test Godbolt API
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
