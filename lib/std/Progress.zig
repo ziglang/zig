@@ -13,7 +13,7 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const Progress = @This();
 
-const output_buffer_rows = 10;
+const output_buffer_rows = 20;
 const output_buffer_cols = 200;
 
 /// `null` if the current node (and its children) should
