@@ -1253,6 +1253,7 @@ pub const Cpu = struct {
                 .s390x => .Unknown,
                 .ve => .Unknown,
                 .spu_2 => .Unknown,
+                .spirv => .Unknown,
                 .spirv32 => .Unknown,
                 .spirv64 => .Unknown,
                 .loongarch32 => .Unknown,
