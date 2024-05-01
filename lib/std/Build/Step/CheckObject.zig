@@ -2475,12 +2475,12 @@ const WasmDumper = struct {
                     try writer.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
-                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     } else index = 0;
                     const returns = try std.leb.readULEB128(u32, reader);
                     try writer.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
-                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     }
                 }
             },
@@ -2512,11 +2512,11 @@ const WasmDumper = struct {
                             try parseDumpLimits(reader, writer);
                         },
                         .global => {
-                            try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                            _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                             try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u32, reader)});
                         },
                         .table => {
-                            try parseDumpType(step, std.wasm.RefType, reader, writer);
+                            _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
                             try parseDumpLimits(reader, writer);
                         },
                     }
@@ -2531,7 +2531,7 @@ const WasmDumper = struct {
             .table => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(step, std.wasm.RefType, reader, writer);
+                    _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
                     try parseDumpLimits(reader, writer);
                 }
             },
@@ -2544,7 +2544,7 @@ const WasmDumper = struct {
             .global => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                    _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u1, reader)});
                     try parseDumpInit(step, reader, writer);
                 }
@@ -2605,12 +2605,13 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpType(step: *Step, comptime WasmType: type, reader: anytype, writer: anytype) !void {
-        const type_byte = try reader.readByte();
-        const valtype = std.meta.intToEnum(WasmType, type_byte) catch {
-            return step.fail("Invalid wasm type value '{d}'", .{type_byte});
+    fn parseDumpType(step: *Step, comptime E: type, reader: anytype, writer: anytype) !E {
+        const byte = try reader.readByte();
+        const tag = std.meta.intToEnum(E, byte) catch {
+            return step.fail("invalid wasm type value '{d}'", .{byte});
         };
-        try writer.print("type {s}\n", .{@tagName(valtype)});
+        try writer.print("type {s}\n", .{@tagName(tag)});
+        return tag;
     }
 
     fn parseDumpLimits(reader: anytype, writer: anytype) !void {
@@ -2642,29 +2643,54 @@ const WasmDumper = struct {
         }
     }
 
+    /// https://webassembly.github.io/spec/core/appendix/custom.html
     fn parseDumpNames(step: *Step, reader: anytype, writer: anytype, data: []const u8) !void {
         while (reader.context.pos < data.len) {
-            try parseDumpType(step, std.wasm.NameSubsection, reader, writer);
-            const size = try std.leb.readULEB128(u32, reader);
-            const entries = try std.leb.readULEB128(u32, reader);
-            try writer.print(
-                \\size {d}
-                \\names {d}
-            , .{ size, entries });
-            try writer.writeByte('\n');
-            var i: u32 = 0;
-            while (i < entries) : (i += 1) {
-                const index = try std.leb.readULEB128(u32, reader);
-                const name_len = try std.leb.readULEB128(u32, reader);
-                const pos = reader.context.pos;
-                const name = data[pos..][0..name_len];
-                reader.context.pos += name_len;
+            switch (try parseDumpType(step, std.wasm.NameSubsection, reader, writer)) {
+                // The module name subsection ... consists of a single name
+                // that is assigned to the module itself.
+                .module => {
+                    const size = try std.leb.readULEB128(u32, reader);
+                    const name_len = try std.leb.readULEB128(u32, reader);
+                    if (size != name_len + 1) return error.BadSubsectionSize;
+                    if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
+                    try writer.print("name {s}\n", .{data[reader.context.pos..][0..name_len]});
+                    reader.context.pos += name_len;
+                },
 
-                try writer.print(
-                    \\index {d}
-                    \\name {s}
-                , .{ index, name });
-                try writer.writeByte('\n');
+                // The function name subsection ... consists of a name map
+                // assigning function names to function indices.
+                .function, .global, .data_segment => {
+                    const size = try std.leb.readULEB128(u32, reader);
+                    const entries = try std.leb.readULEB128(u32, reader);
+                    try writer.print(
+                        \\size {d}
+                        \\names {d}
+                        \\
+                    , .{ size, entries });
+                    for (0..entries) |_| {
+                        const index = try std.leb.readULEB128(u32, reader);
+                        const name_len = try std.leb.readULEB128(u32, reader);
+                        if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
+                        const name = data[reader.context.pos..][0..name_len];
+                        reader.context.pos += name.len;
+
+                        try writer.print(
+                            \\index {d}
+                            \\name {s}
+                            \\
+                        , .{ index, name });
+                    }
+                },
+
+                // The local name subsection ... consists of an indirect name
+                // map assigning local names to local indices grouped by
+                // function indices.
+                .local => {
+                    return step.fail("TODO implement parseDumpNames for local subsections", .{});
+                },
+
+                else => |t| return step.fail("invalid subsection type: {s}", .{@tagName(t)}),
             }
         }
     }
