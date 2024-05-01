@@ -1598,7 +1598,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1676,6 +1676,9 @@ pub fn openatWasi(
             .INTR => continue,
 
             .FAULT => unreachable,
+            // FIXME: It is worth looking into returning a `error.BadPathName`
+            // here if wasi follows other posix behavior
+            // see: https://github.com/ziglang/zig/issues/15607
             .INVAL => unreachable,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
@@ -1767,7 +1770,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
