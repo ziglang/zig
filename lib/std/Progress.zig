@@ -284,7 +284,7 @@ fn determineTerminalWidth(self: *Progress) ?usize {
             return @intCast(window_size.ws_col);
         },
         .windows => {
-            std.debug.assert(self.is_windows_terminal);
+            if (!self.is_windows_terminal) return null;
             var screen_buffer_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
             const exit_code = windows.kernel32.GetConsoleScreenBufferInfo(self.terminal.?.handle, &screen_buffer_info);
             if (exit_code != windows.TRUE) return null;
@@ -318,9 +318,7 @@ fn clearWithHeldLock(p: *Progress) void {
             // stop trying to write to this file
             p.terminal = null;
         };
-    } else if (builtin.os.tag == .windows) winapi: {
-        std.debug.assert(p.is_windows_terminal);
-
+    } else if (builtin.os.tag == .windows and p.is_windows_terminal) winapi: {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
             // stop trying to write to this file
