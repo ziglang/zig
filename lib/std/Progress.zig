@@ -73,7 +73,10 @@ columns_written: [output_buffer_rows]usize = [_]usize{0} ** output_buffer_rows,
 
 /// Stores the current max width of the terminal.
 /// If not available then 0.
-max_columns: usize = undefined,
+max_columns: usize = 0,
+
+/// Disable or enable truncating the buffer to the terminal width
+respect_terminal_width: bool = true,
 
 /// Replicate the old one-line style progress bar
 emulate_one_line_bar: bool = false,
@@ -230,7 +233,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         .unprotected_estimated_total_items = estimated_total_items,
         .unprotected_completed_items = 0,
     };
-    self.max_columns = determineTerminalWidth(self) orelse 0;
+    if (self.respect_terminal_width) self.max_columns = determineTerminalWidth(self) orelse 0;
     self.timer = std.time.Timer.start() catch null;
     self.done = false;
     return &self.root;
@@ -239,7 +242,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
 pub fn maybeRefresh(self: *Progress) void {
     if (self.timer) |*timer| {
-        self.max_columns = determineTerminalWidth(self) orelse 0;
+        if (self.respect_terminal_width) self.max_columns = determineTerminalWidth(self) orelse 0;
         if (!self.update_mutex.tryLock()) return;
         defer self.update_mutex.unlock();
         maybeRefreshWithHeldLock(self, timer);
