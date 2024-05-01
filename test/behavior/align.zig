@@ -114,44 +114,6 @@ test "alignment and size of structs with 128-bit fields" {
             .u129_size = 24,
         },
 
-        .x86 => if (builtin.object_format == .c) .{
-            .a_align = 16,
-            .a_size = 16,
-
-            .b_align = 16,
-            .b_size = 32,
-
-            .u128_align = 16,
-            .u128_size = 16,
-            .u129_align = 16,
-            .u129_size = 32,
-        } else switch (builtin.os.tag) {
-            .windows => .{
-                .a_align = 8,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-            else => .{
-                .a_align = 4,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 4,
-                .u128_size = 16,
-                .u129_align = 4,
-                .u129_size = 20,
-            },
-        },
-
         .mips64,
         .mips64el,
         .powerpc64,
@@ -211,6 +173,7 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
+        .x86,
         .aarch64,
         .aarch64_be,
         .aarch64_32,
