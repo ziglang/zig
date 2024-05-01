@@ -11563,28 +11563,31 @@ fn ccAbiPromoteInt(
         .Int, .Enum, .ErrorSet => ty.intInfo(mod),
         else => return null,
     };
-    if (int_info.bits <= 16) return int_info.signedness;
-    switch (target.cpu.arch) {
-        .riscv64 => {
-            if (int_info.bits == 32) {
-                // LLVM always signextends 32 bit ints, unsure if bug.
-                return .signed;
-            }
-            if (int_info.bits < 64) {
-                return int_info.signedness;
-            }
+    return switch (target.cpu.arch) {
+        .riscv64 => switch (int_info.bits) {
+            0...16 => int_info.signedness,
+            32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
+            17...31, 33...63 => int_info.signedness,
+            else => null,
         },
+
         .sparc64,
         .powerpc64,
         .powerpc64le,
-        => {
-            if (int_info.bits < 64) {
-                return int_info.signedness;
-            }
+        => switch (int_info.bits) {
+            0...63 => int_info.signedness,
+            else => null,
         },
-        else => {},
-    }
-    return null;
+
+        .aarch64,
+        .aarch64_be,
+        => null,
+
+        else => switch (int_info.bits) {
+            0...16 => int_info.signedness,
+            else => null,
+        },
+    };
 }
 
 /// This is the one source of truth for whether a type is passed around as an LLVM pointer,
