@@ -11167,9 +11167,17 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
                 types_buffer[types_index] = .i64;
                 types_index += 1;
             },
-            .sse, .sseup => {
+            .sse => {
                 types_buffer[types_index] = .double;
                 types_index += 1;
+            },
+            .sseup => {
+                if (types_buffer[types_index - 1] == .double) {
+                    types_buffer[types_index - 1] = .fp128;
+                } else {
+                    types_buffer[types_index] = .double;
+                    types_index += 1;
+                }
             },
             .float => {
                 types_buffer[types_index] = .float;
@@ -11454,9 +11462,17 @@ const ParamTypeIterator = struct {
                     types_buffer[types_index] = .i64;
                     types_index += 1;
                 },
-                .sse, .sseup => {
+                .sse => {
                     types_buffer[types_index] = .double;
                     types_index += 1;
+                },
+                .sseup => {
+                    if (types_buffer[types_index - 1] == .double) {
+                        types_buffer[types_index - 1] = .fp128;
+                    } else {
+                        types_buffer[types_index] = .double;
+                        types_index += 1;
+                    }
                 },
                 .float => {
                     types_buffer[types_index] = .float;

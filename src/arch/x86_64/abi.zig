@@ -170,10 +170,6 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
                 // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
-                if (ctx == .field) {
-                    result[0] = .memory;
-                    return result;
-                }
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
