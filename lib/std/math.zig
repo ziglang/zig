@@ -1214,7 +1214,8 @@ test ByteAlignedInt {
     try testing.expect(ByteAlignedInt(u129) == u136);
 }
 
-/// Rounds the given floating point number to an integer, away from zero.
+/// Rounds the given floating point number to the nearest integer.
+/// If two integers are equally close, round away from zero.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @round
 pub inline fn round(value: anytype) @TypeOf(value) {
