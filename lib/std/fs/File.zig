@@ -1483,7 +1483,6 @@ pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFile
         error.FastOpenAlreadyInProgress,
         error.MessageTooBig,
         error.SocketNotBound,
-        error.FileDescriptorNotASocket,
         error.NetworkUnreachable,
         error.NetworkSubsystemFailed,
         => return self.writeFileAllUnseekable(in_file, args),

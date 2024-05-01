@@ -1662,19 +1662,6 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
     return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
 }
 
-pub fn sendmsg(
-    s: ws2_32.SOCKET,
-    msg: *const ws2_32.WSAMSG,
-    flags: u32,
-) i32 {
-    var bytes_send: DWORD = undefined;
-    if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
-        return ws2_32.SOCKET_ERROR;
-    } else {
-        return @as(i32, @as(u31, @intCast(bytes_send)));
-    }
-}
-
 pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {
     return ws2_32.WSAPoll(fds, n, timeout);
 }
