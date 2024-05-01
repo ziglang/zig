@@ -2169,10 +2169,11 @@ pub const Expr_ConstantExprKind = enum(c_int) {
 
 pub const UnaryExprOrTypeTrait_Kind = enum(c_int) {
     SizeOf,
+    DataSizeOf,
     AlignOf,
+    PreferredAlignOf,
     VecStep,
     OpenMPRequiredSimdAlign,
-    PreferredAlignOf,
 };
 
 pub const OffsetOfNode_Kind = enum(c_int) {
