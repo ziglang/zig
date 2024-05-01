@@ -1572,11 +1572,6 @@ pub const Type = struct {
             .wasm64,
             => 8,
 
-            .x86 => if (target.ofmt == .c) 16 else return switch (target.os.tag) {
-                .windows, .uefi => 8,
-                else => 4,
-            },
-
             // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
             // is a relevant number in three cases:
             // 1. Different machine code instruction when loading into SIMD register.
@@ -1599,6 +1594,7 @@ pub const Type = struct {
             },
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+            .x86,
             .aarch64,
             .aarch64_be,
             .aarch64_32,
