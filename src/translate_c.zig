@@ -3594,6 +3594,7 @@ fn transUnaryExprOrTypeTraitExpr(
     const node = switch (kind) {
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
+        .DataSizeOf,
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,

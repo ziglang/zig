@@ -2247,6 +2247,12 @@ static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_NonCl
 static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_ClassTemplateArgument == clang::Expr::ConstantExprKind::ClassTemplateArgument, "");
 static_assert((clang::Expr::ConstantExprKind)ZigClangExpr_ConstantExprKind_ImmediateInvocation == clang::Expr::ConstantExprKind::ImmediateInvocation, "");
 
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindSizeOf == clang::UnaryExprOrTypeTrait::UETT_SizeOf, "");
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindDataSizeOf == clang::UnaryExprOrTypeTrait::UETT_DataSizeOf, "");
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindAlignOf == clang::UnaryExprOrTypeTrait::UETT_AlignOf, "");
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf == clang::UnaryExprOrTypeTrait::UETT_PreferredAlignOf, "");
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindVecStep == clang::UnaryExprOrTypeTrait::UETT_VecStep, "");
+static_assert((clang::UnaryExprOrTypeTrait)ZigClangUnaryExprOrTypeTrait_Kind::ZigClangUnaryExprOrTypeTrait_KindOpenMPRequiredSimdAlign == clang::UnaryExprOrTypeTrait::UETT_OpenMPRequiredSimdAlign, "");
 
 static_assert(sizeof(ZigClangAPValue) == sizeof(clang::APValue), "");
 

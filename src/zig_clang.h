@@ -1311,10 +1311,11 @@ enum ZigClangExpr_ConstantExprKind {
 
 enum ZigClangUnaryExprOrTypeTrait_Kind {
     ZigClangUnaryExprOrTypeTrait_KindSizeOf,
+    ZigClangUnaryExprOrTypeTrait_KindDataSizeOf,
     ZigClangUnaryExprOrTypeTrait_KindAlignOf,
+    ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf,
     ZigClangUnaryExprOrTypeTrait_KindVecStep,
     ZigClangUnaryExprOrTypeTrait_KindOpenMPRequiredSimdAlign,
-    ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf,
 };
 
 enum ZigClangOffsetOfNode_Kind {
