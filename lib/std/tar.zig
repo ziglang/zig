@@ -1082,6 +1082,21 @@ test "pipeToFileSystem root_dir" {
     }
 }
 
+test "findRoot without explicit root dir" {
+    const data = @embedFile("tar/testdata/19820.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+
+    try testing.expectEqualStrings("root", diagnostics.root_dir);
+}
+
 fn normalizePath(bytes: []u8) []u8 {
     const canonical_sep = std.fs.path.sep_posix;
     if (std.fs.path.sep == canonical_sep) return bytes;
