@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Requires cmake ninja-build
+# Requires cmake ninja-build tcc
 
 set -x
 set -e
@@ -11,6 +11,7 @@ MCPU="baseline"
 CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
+export CC="tcc"
 
 export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
 
@@ -22,7 +23,7 @@ git fetch --tags
 # Test building from source without LLVM.
 git clean -fd
 rm -rf zig-out
-cc -o bootstrap bootstrap.c
+$CC -o bootstrap bootstrap.c
 ./bootstrap
 ./zig2 build -Dno-lib
 ./zig-out/bin/zig test test/behavior.zig
