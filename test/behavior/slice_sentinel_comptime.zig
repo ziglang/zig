@@ -222,7 +222,7 @@ test "comptime slice-sentinel in bounds (on target sentinel)" {
     // slice
     comptime {
         var buf = [_:0]u8{ 'a', 'b', 'c', 'd' } ++ [_]u8{undefined} ** 10;
-        var target: []u8 = &buf;
+        var target: [:0]u8 = &buf;
         const slice = target[0..14 :0];
         _ = slice;
     }
