@@ -80,6 +80,7 @@ test {
     _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
+    _ = @import("behavior/slice2.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
     _ = @import("behavior/src.zig");
     _ = @import("behavior/string_literals.zig");
