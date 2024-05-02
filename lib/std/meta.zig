@@ -1290,3 +1290,106 @@ test hasUniqueRepresentation {
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
 }
+
+// Whether these are better suited to `math` or `meta` is questionable.
+//
+// The only real purpose of these functions is type erasure.
+
+pub fn BestFloat(comptime F: type) type {
+    switch (@typeInfo(F)) {
+        .Vector => |vector_info| {
+            return @Vector(vector_info.len, BestFloat(vector_info.child));
+        },
+        .Float => |float_info| {
+            return if (float_info.bits <= 64) f64 else f128;
+        },
+        else => {
+            @compileError("Expected float or vector type, found '" ++ @typeName(Float) ++ "'");
+        },
+    }
+}
+pub fn BestInt(comptime I: type) type {
+    switch (@typeInfo(I)) {
+        .Vector => |vector_info| {
+            return @Vector(vector_info.len, BestInt(vector_info.child));
+        },
+        .Int => |int_info| if (@bitSizeOf(I) <= @bitSizeOf(usize)) {
+            if (@typeInfo(I).Int.signedness == .signed) {
+                return isize;
+            } else {
+                return usize;
+            }
+        } else {
+            return @Type(.{ .Int = .{
+                .bits = 1 << (15 - (@clz(int_info.bits) -
+                    @intFromBool(@popCount(int_info.bits) != 1))),
+                .signedness = int_info.signedness,
+            } });
+        },
+        else => {
+            @compileError("Expected integer or vector type, found '" ++ @typeName(I) ++ "'");
+        },
+    }
+}
+pub fn BestNum(comptime N: type) type {
+    switch (@typeInfo(N)) {
+        .ComptimeInt, .Int => {
+            return BestInt(N);
+        },
+        .ComptimeFloat, .Float => {
+            return BestFloat(N);
+        },
+        else => return N,
+    }
+}
+/// Informs the return type of `bestExtrema`.
+pub fn BestExtrema(comptime I: type) type {
+    if (BestInt(I) != I) {
+        return BestExtrema(BestInt(I));
+    }
+    return struct {
+        min: BestInt(I),
+        max: BestInt(I),
+    };
+}
+/// Stores the minimum and maximum values of type `I` in the best common
+/// type with the same sign (usually `usize` or `isize`).
+///
+/// Int         => .{ .min = @as(BestNum(I), minInt(I)),
+///                   .max = @as(BestNum(I), maxInt(I)) }
+///
+/// Vector      => .{ .min = @splat(@as(BestNum(I), minInt(I))),
+///                   .max = @splat(@as(BestNum(I), maxInt(I))) }
+///
+pub inline fn bestExtrema(comptime I: type) BestExtrema(I) {
+    if (@typeInfo(I) == .Vector) {
+        const x = bestExtrema(@typeInfo(I).Vector.child);
+        comptime return .{
+            .min = @splat(x.min),
+            .max = @splat(x.max),
+        };
+    }
+    if (@typeInfo(I) != .Int) {
+        @compileError("Expected integer or vector type, found '" ++ @typeName(I) ++ "'");
+    }
+    comptime switch (I) {
+        u0, i0 => return .{ .min = 0, .max = 0 },
+        u1 => return .{ .min = 0, .max = 1 },
+        i1 => return .{ .min = -1, .max = 0 },
+        else => {
+            const U = @Type(.{ .Int = .{
+                .signedness = .unsigned,
+                .bits = @bitSizeOf(I),
+            } });
+            const umax: U = ~@as(U, 0);
+            if (@typeInfo(I).Int.signedness == .unsigned) {
+                return .{ .min = 0, .max = umax };
+            } else {
+                return .{
+                    .min = @as(I, @bitCast(~(umax >> 1))),
+                    .max = @as(I, @bitCast(umax >> 1)),
+                };
+            }
+        },
+    };
+}
