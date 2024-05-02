@@ -1,0 +1,21 @@
+pub fn panicNew(comptime cause: std.builtin.PanicCause, _: std.builtin.PanicData(cause)) noreturn {
+    if (cause == .sub_overflowed) {
+        std.process.exit(0);
+    }
+    std.debug.print(@src().file ++ ": Expected panic cause: '.sub_overflowed', found panic cause: '." ++ @tagName(cause) ++ "'\n", .{});
+    std.process.exit(1);
+}
+const std = @import("std");
+pub fn main() !void {
+    var a: @Vector(4, i16) = [_]i16{ 1, -32768, 200, 4 };
+    _ = &a;
+    const x = neg(a);
+    _ = x;
+    return error.TestFailed;
+}
+fn neg(a: @Vector(4, i16)) @Vector(4, i16) {
+    return -a;
+}
+// run
+// backend=llvm
+// target=native
