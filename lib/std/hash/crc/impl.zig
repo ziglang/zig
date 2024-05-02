@@ -1,11 +1,5 @@
 // There is a generic CRC implementation "Crc()" which can be paramterized via
-// the Algorithm struct for a plethora of uses, along with two implementations
-// of CRC32 implemented with the following key characteristics:
-//
-// - Crc32WithPoly uses 8Kb of tables but is ~10x faster than the small method.
-//
-// - Crc32SmallWithPoly uses only 64 bytes of memory but is slower. Be aware that this is
-//   still moderately fast just slow relative to the slicing approach.
+// the Algorithm struct for a plethora of uses.
 //
 // The primary interface for all of the standard CRC algorithms is the
 // generated file "crc.zig", which uses the implementation code here to define
@@ -108,134 +102,11 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
 }
 
 pub const Polynomial = enum(u32) {
-    IEEE = 0xedb88320,
-    Castagnoli = 0x82f63b78,
-    Koopman = 0xeb31d82e,
+    IEEE = @compileError("use Crc with algorithm .Crc32IsoHdlc"),
+    Castagnoli = @compileError("use Crc with algorithm .Crc32Iscsi"),
+    Koopman = @compileError("use Crc with algorithm .Crc32Koopman"),
     _,
 };
 
-// slicing-by-8 crc32 implementation.
-pub fn Crc32WithPoly(comptime poly: Polynomial) type {
-    return struct {
-        const Self = @This();
-        const lookup_tables = block: {
-            @setEvalBranchQuota(20000);
-            var tables: [8][256]u32 = undefined;
-
-            for (&tables[0], 0..) |*e, i| {
-                var crc = @as(u32, @intCast(i));
-                var j: usize = 0;
-                while (j < 8) : (j += 1) {
-                    if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @intFromEnum(poly);
-                    } else {
-                        crc = (crc >> 1);
-                    }
-                }
-                e.* = crc;
-            }
-
-            var i: usize = 0;
-            while (i < 256) : (i += 1) {
-                var crc = tables[0][i];
-                var j: usize = 1;
-                while (j < 8) : (j += 1) {
-                    const index: u8 = @truncate(crc);
-                    crc = tables[0][index] ^ (crc >> 8);
-                    tables[j][i] = crc;
-                }
-            }
-
-            break :block tables;
-        };
-
-        crc: u32,
-
-        pub fn init() Self {
-            return Self{ .crc = 0xffffffff };
-        }
-
-        pub fn update(self: *Self, input: []const u8) void {
-            var i: usize = 0;
-            while (i + 8 <= input.len) : (i += 8) {
-                const p = input[i..][0..8];
-
-                // Unrolling this way gives ~50Mb/s increase
-                self.crc ^= std.mem.readInt(u32, p[0..4], .little);
-
-                self.crc =
-                    lookup_tables[0][p[7]] ^
-                    lookup_tables[1][p[6]] ^
-                    lookup_tables[2][p[5]] ^
-                    lookup_tables[3][p[4]] ^
-                    lookup_tables[4][@as(u8, @truncate(self.crc >> 24))] ^
-                    lookup_tables[5][@as(u8, @truncate(self.crc >> 16))] ^
-                    lookup_tables[6][@as(u8, @truncate(self.crc >> 8))] ^
-                    lookup_tables[7][@as(u8, @truncate(self.crc >> 0))];
-            }
-
-            while (i < input.len) : (i += 1) {
-                const index = @as(u8, @truncate(self.crc)) ^ input[i];
-                self.crc = (self.crc >> 8) ^ lookup_tables[0][index];
-            }
-        }
-
-        pub fn final(self: *Self) u32 {
-            return ~self.crc;
-        }
-
-        pub fn hash(input: []const u8) u32 {
-            var c = Self.init();
-            c.update(input);
-            return c.final();
-        }
-    };
-}
-
-// half-byte lookup table implementation.
-pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
-    return struct {
-        const Self = @This();
-        const lookup_table = block: {
-            var table: [16]u32 = undefined;
-
-            for (&table, 0..) |*e, i| {
-                var crc = @as(u32, @intCast(i * 16));
-                var j: usize = 0;
-                while (j < 8) : (j += 1) {
-                    if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @intFromEnum(poly);
-                    } else {
-                        crc = (crc >> 1);
-                    }
-                }
-                e.* = crc;
-            }
-
-            break :block table;
-        };
-
-        crc: u32,
-
-        pub fn init() Self {
-            return Self{ .crc = 0xffffffff };
-        }
-
-        pub fn update(self: *Self, input: []const u8) void {
-            for (input) |b| {
-                self.crc = lookup_table[@as(u4, @truncate(self.crc ^ (b >> 0)))] ^ (self.crc >> 4);
-                self.crc = lookup_table[@as(u4, @truncate(self.crc ^ (b >> 4)))] ^ (self.crc >> 4);
-            }
-        }
-
-        pub fn final(self: *Self) u32 {
-            return ~self.crc;
-        }
-
-        pub fn hash(input: []const u8) u32 {
-            var c = Self.init();
-            c.update(input);
-            return c.final();
-        }
-    };
-}
+pub const Crc32WithPoly = @compileError("use Crc instead");
+pub const Crc32SmallWithPoly = @compileError("use Crc instead");

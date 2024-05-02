@@ -9747,6 +9747,18 @@ fn funcCommon(
         {
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
+
+        if (cc_resolved == .Interrupt) switch (target.cpu.arch) {
+            .x86, .x86_64 => {
+                const err_code_size = target.ptrBitWidth();
+                switch (i) {
+                    0 => if (param_ty.zigTypeTag(mod) != .Pointer) return sema.fail(block, param_src, "parameter must be a pointer type", .{}),
+                    1 => if (param_ty.bitSize(mod) != err_code_size) return sema.fail(block, param_src, "parameter must be a {d}-bit integer", .{err_code_size}),
+                    else => return sema.fail(block, param_src, "Interrupt calling convention supports up to 2 parameters, found {d}", .{i + 1}),
+                }
+            },
+            else => return sema.fail(block, param_src, "parameters are not allowed with Interrupt calling convention", .{}),
+        };
     }
 
     var ret_ty_requires_comptime = false;
@@ -10093,6 +10105,15 @@ fn finishFunc(
             allowed_platform,
             @tagName(arch),
         });
+    }
+
+    if (cc_resolved == .Interrupt and return_type.zigTypeTag(mod) != .Void) {
+        return sema.fail(
+            block,
+            cc_src,
+            "non-void return type '{}' not allowed in function with calling convention 'Interrupt'",
+            .{return_type.fmt(mod)},
+        );
     }
 
     if (cc_resolved == .Inline and is_noinline) {
@@ -24466,6 +24487,14 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@splat");
 
     if (!dest_ty.isVector(mod)) return sema.fail(block, src, "expected vector type, found '{}'", .{dest_ty.fmt(mod)});
+
+    if (!dest_ty.hasRuntimeBits(mod)) {
+        const empty_aggregate = try mod.intern(.{ .aggregate = .{
+            .ty = dest_ty.toIntern(),
+            .storage = .{ .elems = &[_]InternPool.Index{} },
+        } });
+        return Air.internedToRef(empty_aggregate);
+    }
 
     const operand = try sema.resolveInst(extra.rhs);
     const scalar_ty = dest_ty.childType(mod);
