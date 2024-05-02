@@ -2301,3 +2301,25 @@ test "matching captures causes union equivalence" {
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try expect(a.u == b.u);
 }
+
+test "signed enum tag with negative value" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Enum = enum(i8) {
+        a = -1,
+    };
+
+    const Union = union(Enum) {
+        a: i32,
+    };
+
+    var i: i32 = 0;
+    i = i;
+    const e = Union{ .a = i };
+
+    try expect(e.a == i);
+}
