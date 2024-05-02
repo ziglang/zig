@@ -671,6 +671,20 @@ const DataLayoutBuilder = struct {
                         abi = size;
                         force_abi = size == 64;
                     },
+                    .x86 => switch (size) {
+                        128 => {
+                            abi = size;
+                            pref = size;
+                        },
+                        else => {},
+                    },
+                    .x86_64 => switch (size) {
+                        64, 128 => {
+                            abi = size;
+                            pref = size;
+                        },
+                        else => {},
+                    },
                     else => {},
                 }
             },
