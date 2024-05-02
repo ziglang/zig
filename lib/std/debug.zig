@@ -447,7 +447,7 @@ threadlocal var panic_stage: usize = 0;
 
 fn panicImplWasi(msg: []const u8) noreturn {
     std.debug.print("{s}", .{msg});
-    std.os.abort();
+    std.process.abort();
 }
 fn panicImplPlan9(msg: []const u8) noreturn {
     var status: [std.os.plan9.ERRMAX]u8 = undefined;
@@ -491,7 +491,7 @@ fn panicImplUefi(msg: []const u8) noreturn {
         _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
     }
     // Didn't have boot_services, just fallback to whatever.
-    std.os.abort();
+    std.process.abort();
 }
 fn panicImplDefault(msg: []const u8, trace: ?*const std.builtin.StackTrace, first_trace_addr: usize) noreturn {
     if (enable_segfault_handler) {
@@ -562,7 +562,7 @@ pub fn panicImpl(msg: []const u8, trace: ?*const std.builtin.StackTrace, ret_add
         while (true) @breakpoint();
     }
     switch (builtin.os.tag) {
-        .cuda, .amdhsa => std.os.abort(),
+        .cuda, .amdhsa => std.process.abort(),
         .wasi => return panicImplWasi(msg),
         .uefi => return panicImplUefi(msg),
         .plan9 => return panicImplPlan9(msg),
