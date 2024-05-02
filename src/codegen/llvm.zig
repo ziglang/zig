@@ -11577,29 +11577,35 @@ fn ccAbiPromoteInt(
         .Int, .Enum, .ErrorSet => ty.intInfo(mod),
         else => return null,
     };
-    return switch (target.cpu.arch) {
-        .riscv64 => switch (int_info.bits) {
-            0...16 => int_info.signedness,
-            32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
-            17...31, 33...63 => int_info.signedness,
-            else => null,
-        },
-
-        .sparc64,
-        .powerpc64,
-        .powerpc64le,
-        => switch (int_info.bits) {
-            0...63 => int_info.signedness,
-            else => null,
-        },
-
-        .aarch64,
-        .aarch64_be,
-        => null,
-
-        else => switch (int_info.bits) {
+    return switch (target.os.tag) {
+        .macos => switch (int_info.bits) {
             0...16 => int_info.signedness,
             else => null,
+        },
+        else => switch (target.cpu.arch) {
+            .riscv64 => switch (int_info.bits) {
+                0...16 => int_info.signedness,
+                32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
+                17...31, 33...63 => int_info.signedness,
+                else => null,
+            },
+
+            .sparc64,
+            .powerpc64,
+            .powerpc64le,
+            => switch (int_info.bits) {
+                0...63 => int_info.signedness,
+                else => null,
+            },
+
+            .aarch64,
+            .aarch64_be,
+            => null,
+
+            else => switch (int_info.bits) {
+                0...16 => int_info.signedness,
+                else => null,
+            },
         },
     };
 }
