@@ -2818,7 +2818,6 @@ pub const Index = enum(u32) {
     generic_poison,
 
     /// Used by Air/Sema only.
-    var_args_param_type = std.math.maxInt(u32) - 1,
     none = std.math.maxInt(u32),
 
     _,
@@ -8938,7 +8937,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .memoized_call => unreachable,
         },
 
-        .var_args_param_type => unreachable,
         .none => unreachable,
     };
 }
@@ -9152,8 +9150,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .bool_false => unreachable,
         .empty_struct => unreachable,
         .generic_poison => unreachable,
-
-        .var_args_param_type => unreachable, // special tag
 
         _ => switch (ip.items.items(.tag)[@intFromEnum(index)]) {
             .removed => unreachable,
