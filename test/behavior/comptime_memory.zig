@@ -45,7 +45,7 @@ test "type pun signed and unsigned as array pointer with pointer arithemtic" {
     comptime {
         var x: [11]u32 = undefined;
         const y = @as([*]i32, @ptrCast(&x[10])) - 10;
-        const z: *[15]i32 = y[0..15];
+        const z: *[11]i32 = y[0..11];
         z[10] = -1;
         try testing.expectEqual(@as(u32, 0xFFFFFFFF), x[10]);
     }
