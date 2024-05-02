@@ -980,6 +980,11 @@ pub fn PanicData(comptime cause: PanicCause) type {
         },
     }
 }
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+///
+/// The plan is to provide the same function-level control as by compile flags
+/// like `@setRuntimeSafety(.{ .add_overflowed = false });`
 pub const RuntimeSafety = packed struct(u64) {
     message: Setting = .extra,
     unwrapped_error: Setting = .extra,
@@ -1028,14 +1033,12 @@ pub const RuntimeSafety = packed struct(u64) {
 };
 
 // TODO: Rename to `panic` when the old interface is removed.
-pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicNew_default;
+pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicImpl;
 
-// TODO: Rename to `panicImpl` when the old interface is removed.
-//
-//       The backend/os logic is not here, because this function is a combination
-//       of all the special handler functions `panic*`, which also never checked
-//       the backend/os before attempting to write error messages.
-pub fn panicNew_default(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
+/// The backend/os logic is not here, because this function is a combination
+/// of all the special handler functions `panic*`, which also never checked
+/// the backend/os before attempting to write error messages.
+fn panicImpl(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
     if (cause != .message and
@@ -1047,882 +1050,98 @@ pub fn panicNew_default(comptime cause: PanicCause, data: PanicData(cause)) nore
         .message => {
             std.debug.panicImpl(data, null, @returnAddress());
         },
-        .accessed_null_value => {
-            std.debug.panicImpl("attempted to use null value", null, @returnAddress());
-        },
-        .divided_by_zero => {
-            std.debug.panicImpl("attempted to divide by zero", null, @returnAddress());
-        },
-        .returned_noreturn => {
-            std.debug.panicImpl("returned from function marked 'noreturn'", null, @returnAddress());
-        },
-        .reached_unreachable, .corrupt_switch => {
-            std.debug.panicImpl("reached unreachable code", null, @returnAddress());
-        },
-        .unwrapped_error => {
-            var buf: [256]u8 = undefined;
-            buf[0..28].* = "attempted to discard error: ".*;
-            const ptr: [*]u8 = mem.cpyEquTrunc(buf[28..][0..64], @errorName(data.err));
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], data.st, @returnAddress());
-        },
-        // TODO: There needs to be a clear distinction between out of bounds
-        //       indexing and slicing. Both start and end slice operands are
-        //       allowed to be equal to the length of the aggregate. This is not
-        //       allowed for indexing, as this would result in reading/writing
-        //       one past the end (ignoring sentinels).
-        //
-        //       One possible solution would be to rename the panic causes
-        //       related to the creation of invalid references (slices) to
-        //       `reference[d]_(out_of_order|out_of_order_extra)`, and add a new
-        //       panic cause `reference[d]_out_of_bounds` for slice operands
-        //       greater than `.len`.
-        .accessed_out_of_bounds => {
-            var buf: [256]u8 = undefined; // max_len: 6 + 32 + 25 + 32 = 95
-            buf[0..6].* = "index ".*;
-            var ptr: [*]u8 = fmt.formatIntDec(buf[6..][0..32], data.index);
-            ptr[0..25].* = " out of bounds of length ".*;
-            ptr = fmt.formatIntDec(ptr[25..][0..32], data.length);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .accessed_out_of_order => {
-            var buf: [256]u8 = undefined; // max_len: 12 + 32 + 26 + 32 = 102
-            buf[0..12].* = "start index ".*;
-            var ptr: [*]u8 = fmt.formatIntDec(buf[12..][0..32], data.start);
-            ptr[0..26].* = " is larger than end index ".*;
-            ptr = fmt.formatIntDec(ptr[26..][0..32], data.end);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .accessed_out_of_order_extra => {
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            if (data.start > data.end) { // max_len: 12 + 32 + 26 + 32 = 102
-                ptr[0..12].* = "start index ".*;
-                ptr = fmt.formatIntDec(buf[12..][0..32], data.start);
-                ptr[0..26].* = " is larger than end index ".*;
-                ptr = fmt.formatIntDec(ptr[26..][0..32], data.end);
-            } else { // max_len: 10 + 32 + 23 + 32 = 97
-                ptr[0..10].* = "end index ".*;
-                ptr = fmt.formatIntDec(buf[10..][0..32], data.end);
-                ptr[0..23].* = " is larger than length ".*;
-                ptr = fmt.formatIntDec(ptr[23..][0..32], data.length);
-            }
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .accessed_inactive_field => panicAccessedInactiveField(@tagName(data.expected), @tagName(data.found), @returnAddress()),
-        .memcpy_argument_aliasing => {
-            var buf: [256]u8 = undefined; // max_len: 32 + 32 + 5 + 32 + 2 + 32 + 7 = 142
-            const max = @max(data.dest_start, data.src_start);
-            const min = @min(data.dest_end, data.src_end);
-            buf[0..32].* = "@memcpy arguments alias between ".*;
-            var ptr: [*]u8 = fmt.formatIntHex(buf[32..][0..32], max);
-            ptr[0..5].* = " and ".*;
-            ptr = fmt.formatIntHex(ptr[5..][0..32], min);
-            ptr[0..2].* = " (".*;
-            ptr = fmt.formatIntDec(ptr[2..][0..32], min -% max);
-            ptr[0..7].* = " bytes)".*;
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 7) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .mismatched_memcpy_argument_lengths => {
-            var buf: [256]u8 = undefined; // max_len: 68 + 9 + 32 = 109
-            buf[0..68].* = "@memcpy destination and source with mismatched lengths: destination ".*;
-            var ptr: [*]u8 = fmt.formatIntDec(buf[68..][0..32], data.dest_len);
-            ptr[0..9].* = ", source ".*;
-            ptr = fmt.formatIntDec(ptr[9..][0..32], data.src_len);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .mismatched_for_loop_capture_lengths => {
-            var buf: [256]u8 = undefined; // max_len: 56 + 32 + 12 + 32 = 132
-            buf[0..56].* = "multi-for loop captures with mismatched lengths: common ".*;
-            var ptr: [*]u8 = fmt.formatIntDec(buf[56..][0..32], data.loop_len);
-            ptr[0..12].* = ", exception ".*;
-            ptr = fmt.formatIntDec(ptr[12..][0..32], data.capture_len);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .mismatched_null_sentinel => {
-            var buf: [128]u8 = undefined; // max_len: 28 + 32 = 60
-            buf[0..28].* = "mismatched null terminator: ".*;
-            const ptr: [*]u8 = fmt.formatIntDec(buf[28..][0..32], data);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, @returnAddress());
-        },
-        .cast_to_enum_from_invalid => |enum_type| @call(.never_inline, panicCastToTagFromInvalid, .{
-            meta.BestNum(@typeInfo(enum_type).Enum.tag_type), @typeName(enum_type), data, @returnAddress(),
+        .accessed_null_value => @call(.auto, std.debug.panicImpl, .{
+            "attempted to use null value", null, @returnAddress(),
         }),
-        .cast_to_error_from_invalid => |error_type| @call(.never_inline, panicCastToErrorFromInvalid, .{
+        .divided_by_zero => @call(.auto, std.debug.panicImpl, .{
+            "attempted to divide by zero", null, @returnAddress(),
+        }),
+        .returned_noreturn => @call(.auto, std.debug.panicImpl, .{
+            "returned from function marked 'noreturn'", null, @returnAddress(),
+        }),
+        .reached_unreachable => @call(.auto, std.debug.panicImpl, .{
+            "reached unreachable code", null, @returnAddress(),
+        }),
+        .corrupt_switch => @call(.auto, std.debug.panicImpl, .{
+            "corrupt switch", null, @returnAddress(),
+        }),
+        .unwrapped_error => @call(.never_inline, std.debug.panicUnwrappedError, .{
+            data.err, data.st, @returnAddress(),
+        }),
+        .accessed_out_of_bounds => @call(.never_inline, std.debug.panicAccessedOutOfBounds, .{
+            data.index, data.length, @returnAddress(),
+        }),
+        .accessed_out_of_order => @call(.never_inline, std.debug.panicAccessedOutOfOrder, .{
+            data.start, data.end, @returnAddress(),
+        }),
+        .accessed_out_of_order_extra => @call(.never_inline, std.debug.panicAccessedOutOfOrderExtra, .{
+            data.start, data.end, data.length, @returnAddress(),
+        }),
+        .accessed_inactive_field => @call(.never_inline, std.debug.panicAccessedInactiveField, .{
+            @tagName(data.expected), @tagName(data.found), @returnAddress(),
+        }),
+        .memcpy_argument_aliasing => @call(.never_inline, std.debug.panicMemcpyArgumentAliasing, .{
+            data.dest_start, data.dest_end, data.src_start, data.src_end, @returnAddress(),
+        }),
+        .mismatched_memcpy_argument_lengths => @call(.never_inline, std.debug.panicMismatchedMemcpyLengths, .{
+            data.dest_len, data.src_len, @returnAddress(),
+        }),
+        .mismatched_for_loop_capture_lengths => @call(.never_inline, std.debug.panicMismatchedForLoopCaptureLengths, .{
+            data.loop_len, data.capture_len, @returnAddress(),
+        }),
+        .mismatched_null_sentinel => @call(.never_inline, std.debug.panicMismatchedNullSentinel, .{
+            data, @returnAddress(),
+        }),
+        .cast_to_enum_from_invalid => |enum_type| @call(.never_inline, std.debug.panicCastToTagFromInvalid, .{
+            std.meta.BestNum(@typeInfo(enum_type).Enum.tag_type), @typeName(enum_type), data, @returnAddress(),
+        }),
+        .cast_to_error_from_invalid => |error_type| @call(.never_inline, std.debug.panicCastToErrorFromInvalid, .{
             error_type.from, @typeName(error_type.to), data, @returnAddress(),
         }),
         .mul_overflowed,
         .add_overflowed,
         .sub_overflowed,
         .div_overflowed,
-        => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).combined, .{
-            cause, @typeName(int_type), comptime math.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).combined, .{
+            cause, @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
-        .inc_overflowed => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).inc, .{
-            @typeName(int_type), comptime math.bestExtrema(int_type).max, data, @returnAddress(),
-        }),
-        .dec_overflowed => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).dec, .{
-            @typeName(int_type), comptime math.bestExtrema(int_type).min, data, @returnAddress(),
-        }),
-        .shl_overflowed => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).shl, .{
+        .inc_overflowed, .dec_overflowed => {},
+        .shl_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
             @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(int_type, 0)), @returnAddress(),
         }),
-        .shr_overflowed => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).shr, .{
+        .shr_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shr, .{
             @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(int_type, 0)), @returnAddress(),
         }),
-        .shift_amt_overflowed => |int_type| @call(.never_inline, panicArithOverflow(meta.BestInt(int_type)).shiftRhs, .{
+        .shift_amt_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shiftRhs, .{
             @typeName(int_type), @bitSizeOf(int_type), data, @returnAddress(),
         }),
-        .div_with_remainder => |num_type| @call(.never_inline, panicExactDivisionWithRemainder, .{
-            meta.BestNum(num_type), data.lhs, data.rhs, @returnAddress(),
+        .div_with_remainder => |num_type| @call(.never_inline, std.debug.panicExactDivisionWithRemainder, .{
+            std.meta.BestNum(num_type), data.lhs, data.rhs, @returnAddress(),
         }),
-        .mismatched_sentinel => |elem_type| @call(.never_inline, panicMismatchedSentinel, .{
-            meta.BestNum(elem_type), @typeName(elem_type),
-            data.expected,           data.actual,
+        .mismatched_sentinel => |elem_type| @call(.never_inline, std.debug.panicMismatchedSentinel, .{
+            std.meta.BestNum(elem_type), @typeName(elem_type),
+            data.expected,               data.actual,
             @returnAddress(),
         }),
-        .cast_to_ptr_from_invalid => |alignment| @call(.never_inline, panicCastToPointerFromInvalid, .{
+        .cast_to_ptr_from_invalid => |alignment| @call(.never_inline, std.debug.panicCastToPointerFromInvalid, .{
             data, alignment, @returnAddress(),
         }),
-        .cast_to_unsigned_from_negative => |int_types| @call(.never_inline, panicCastToUnsignedFromNegative, .{
-            meta.BestNum(int_types.to),   @typeName(int_types.to),
-            meta.BestNum(int_types.from), @typeName(int_types.from),
-            data,                         @returnAddress(),
+        .cast_to_unsigned_from_negative => |int_types| @call(.never_inline, std.debug.panicCastToUnsignedFromNegative, .{
+            std.meta.BestNum(int_types.to),   @typeName(int_types.to),
+            std.meta.BestNum(int_types.from), @typeName(int_types.from),
+            data,                             @returnAddress(),
         }),
-        .cast_to_int_from_invalid => |num_types| @call(.never_inline, panicCastToIntFromInvalid, .{
-            meta.BestNum(num_types.to),              @typeName(num_types.to),
-            meta.BestNum(num_types.from),            @typeName(num_types.from),
-            comptime math.bestExtrema(num_types.to), data,
+        .cast_to_int_from_invalid => |num_types| @call(.never_inline, std.debug.panicCastToIntFromInvalid, .{
+            std.meta.BestNum(num_types.to),     @typeName(num_types.to),
+            std.meta.BestNum(num_types.from),   @typeName(num_types.from),
+            std.meta.bestExtrema(num_types.to), data,
             @returnAddress(),
         }),
-        .cast_truncated_data => |num_types| @call(.never_inline, panicCastTruncatedData, .{
-            meta.BestNum(num_types.to),              @typeName(num_types.to),
-            meta.BestNum(num_types.from),            @typeName(num_types.from),
-            comptime math.bestExtrema(num_types.to), data,
+        .cast_truncated_data => |num_types| @call(.never_inline, std.debug.panicCastTruncatedData, .{
+            std.meta.BestNum(num_types.to),     @typeName(num_types.to),
+            std.meta.BestNum(num_types.from),   @typeName(num_types.from),
+            std.meta.bestExtrema(num_types.to), data,
             @returnAddress(),
         }),
     }
-}
-
-/// TODO: Move all of the following functions to `debug` with the same names.
-pub fn panicCastToPointerFromInvalid(
-    address: usize,
-    alignment: usize,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    var buf: [256]u8 = undefined; // max_len: 42 + 32 + 3 + 32 + 4 + 32 + 1 + 32 = 178 (true branch)
-    var ptr: [*]u8 = &buf;
-    if (address != 0) {
-        ptr[0..42].* = "cast to pointer with incorrect alignment (".*;
-        ptr = fmt.formatIntDec(ptr[42..][0..32], alignment);
-        ptr[0..3].* = "): ".*;
-        ptr = fmt.formatIntDec(ptr[3..][0..32], address);
-        ptr[0..4].* = " == ".*;
-        ptr = fmt.formatIntDec(ptr[4..][0..32], address & ~(alignment -% 1));
-        ptr[0] = '+';
-        ptr = fmt.formatIntDec(ptr[1..][0..32], address & (alignment -% 1));
-    } else {
-        ptr[0..40].* = "cast to null pointer without 'allowzero'".*;
-        ptr += 40;
-    }
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicCastToTagFromInvalid(
-    comptime Integer: type,
-    type_name: []const u8,
-    value: Integer,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    var buf: [256]u8 = undefined; // max_len: 9 + 64 + 21 + 32 = 126
-    buf[0..9].* = "cast to '".*;
-    var ptr: [*]u8 = mem.cpyEquTrunc(buf[9..][0..64], type_name);
-    ptr[0..21].* = "' from invalid value ".*;
-    ptr = fmt.formatIntDec(ptr[21..][0..32], value);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicCastToErrorFromInvalid(
-    comptime From: type,
-    type_name: []const u8,
-    value: From,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    var buf: [512]u8 = undefined; // max_len: 9 + 64 + 7 + 1 + 32 + 2 + 80 = 195 (false branch)
-    buf[0..9].* = "cast to '".*;
-    var ptr: [*]u8 = mem.cpyEquTrunc(buf[9..][0..64], type_name);
-    ptr[0..7].* = "' from ".*;
-    if (@typeInfo(From) == .Int) {
-        ptr[7..32].* = "non-existent error-code (".*;
-        ptr = fmt.formatIntDec(ptr[32..][0..32], value);
-        ptr[0] = ')';
-        ptr += 1;
-    } else {
-        ptr[7] = '\'';
-        ptr = mem.cpyEquTrunc(ptr[8..][0..32], @typeName(From));
-        ptr[0..2].* = "' ".*;
-        ptr = fmt.formatAny(ptr[2..][0..80], value);
-    }
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicCastToIntFromInvalid(
-    comptime To: type,
-    to_type_name: []const u8,
-    comptime From: type,
-    from_type_name: []const u8,
-    extrema: math.BestExtrema(To),
-    value: From,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    const yn: bool = value < 0;
-    var buf: [256]u8 = undefined; // max_len: 82 + 13 + 32 + 82 = 177
-    var ptr: [*]u8 = writeCastToFrom(&buf, to_type_name, from_type_name);
-    ptr[0..13].* = " overflowed: ".*;
-    ptr = fmt.formatAny(ptr[13..][0..32], value);
-    ptr = writeAboveOrBelowLimit(ptr, To, to_type_name, yn, if (yn) extrema.min else extrema.max);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicCastTruncatedData(
-    comptime To: type,
-    to_type_name: []const u8,
-    comptime From: type,
-    from_type_name: []const u8,
-    extrema: math.BestExtrema(To),
-    value: From,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64) {
-        return std.debug.panicImpl("cast truncated bits", null, ret_addr);
-    }
-    var buf: [256]u8 = undefined; // max_len: 82 + 17 + 32 + 82 = 213
-    const yn: bool = value < 0;
-    var ptr: [*]u8 = writeCastToFrom(&buf, to_type_name, from_type_name);
-    ptr[0..17].* = " truncated bits: ".*;
-    ptr = fmt.formatIntDec(ptr[17..][0..32], value);
-    ptr = writeAboveOrBelowLimit(ptr, To, to_type_name, yn, if (yn) extrema.min else extrema.max);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicCastToUnsignedFromNegative(
-    comptime _: type,
-    to_type_name: []const u8,
-    comptime From: type,
-    from_type_name: []const u8,
-    value: From,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64) {
-        return std.debug.panicImpl("cast to unsigned from negative", null, ret_addr);
-    }
-    var buf: [256]u8 = undefined; // max_len: 82 + 18 + 32 + 1 = 133
-    var ptr: [*]u8 = writeCastToFrom(&buf, to_type_name, from_type_name);
-    ptr[0..18].* = " lost signedness (".*;
-    ptr = fmt.formatIntDec(ptr[18..][0..32], value);
-    ptr[0] = ')';
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 1) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicMismatchedSentinel(
-    comptime Number: type,
-    type_name: []const u8,
-    expected: Number,
-    found: Number,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    if (builtin.zig_backend != .stage2_llvm and
-        (@bitSizeOf(Number) > 64 or @typeInfo(Number) == .Float))
-    {
-        return std.debug.panicImpl("mismatched sentinel", null, ret_addr);
-    }
-    var buf: [256]u8 = undefined; // max_len: 32 + 29 + 80 + 8 + 80 = 229
-    var ptr: [*]u8 = mem.cpyEquTrunc(buf[0..32], type_name);
-    ptr[0..29].* = " sentinel mismatch: expected ".*;
-    ptr = fmt.formatAny(ptr[29..][0..80], expected);
-    ptr[0..8].* = ", found ".*;
-    ptr = fmt.formatAny(ptr[8..][0..80], found);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicAccessedInactiveField(
-    expected: []const u8,
-    found: []const u8,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    var buf: [512]u8 = undefined; // max_len: 23 + 80 + 15 + 80 + 11 = 209
-    buf[0..23].* = "access of union field '".*;
-    var ptr: [*]u8 = mem.cpyEquTrunc(buf[23..][0..80], found);
-    ptr[0..15].* = "' while field '".*;
-    ptr = mem.cpyEquTrunc(ptr[15..][0..80], expected);
-    ptr[0..11].* = "' is active".*;
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 11) -% @intFromPtr(&buf)], null, ret_addr);
-}
-pub fn panicExactDivisionWithRemainder(
-    comptime Number: type,
-    lhs: Number,
-    rhs: Number,
-    ret_addr: usize,
-) noreturn {
-    @setCold(true);
-    @setRuntimeSafety(false);
-    if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-        return std.debug.panicImpl("exact division with remainder", null, ret_addr);
-    }
-    var buf: [256]u8 = undefined; // max_len: 31 + 1 + 32 + 1 + 32 + 4 + 64 + 1 + 64 = 230
-    buf[0..31].* = "exact division with remainder: ".*;
-    var ptr: [*]u8 = fmt.formatIntDec(buf[31..][0..32], lhs);
-    ptr[0] = '/';
-    ptr = fmt.formatIntDec(ptr[1..][0..32], rhs);
-    ptr[0..4].* = " == ".*;
-    ptr = fmt.formatAny(ptr[4..][0..64], @divTrunc(lhs, rhs));
-    ptr[0] = 'r';
-    ptr = fmt.formatAny(ptr[1..][0..64], @rem(lhs, rhs));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-}
-/// max_len: 9 + 32 + 8 + 32 + 1 = 82
-pub fn writeCastToFrom(
-    buf: [*]u8,
-    to_type_name: []const u8,
-    from_type_name: []const u8,
-) [*]u8 {
-    @setRuntimeSafety(false);
-    buf[0..9].* = "cast to '".*;
-    const ptr: [*]u8 = mem.cpyEquTrunc(buf[9..][0..32], to_type_name);
-    ptr[0..8].* = "' from '".*;
-    mem.cpyEquTrunc(ptr[8..][0..32], from_type_name)[0] = '\'';
-    return ptr + 9 + from_type_name.len;
-}
-/// max_len: 7 + 32 + 10 + 32 + 1 = 82
-pub fn writeAboveOrBelowLimit(
-    buf: [*]u8,
-    comptime To: type,
-    to_type_name: []const u8,
-    yn: bool,
-    limit: To,
-) [*]u8 {
-    @setRuntimeSafety(false);
-    buf[0..7].* = if (yn) " below ".* else " above ".*;
-    var ptr: [*]u8 = mem.cpyEquTrunc(buf[7..][0..32], to_type_name);
-    ptr[0..10].* = if (yn) " minimum (".* else " maximum (".*;
-    ptr = fmt.formatIntDec(ptr[10..][0..32], limit);
-    ptr[0] = ')';
-    return ptr + 1;
-}
-pub fn panicArithOverflow(comptime Number: type) type {
-    const T = struct {
-        const Absolute = @TypeOf(@abs(@as(Number, undefined)));
-        const feature_limited: bool = builtin.zig_backend != .stage2_llvm and
-            @bitSizeOf(Number) > @bitSizeOf(usize);
-        pub fn add(
-            type_name: []const u8,
-            extrema: math.BestExtrema(Number),
-            lhs: Number,
-            rhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("add overflowed", null, ret_addr);
-            }
-            const yn: bool = rhs < 0;
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "add overflowed ", type_name, " + ", lhs, rhs, &@addWithOverflow(lhs, rhs));
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, yn, if (yn) extrema.min else extrema.max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn inc(
-            type_name: []const u8,
-            max: Number,
-            lhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("add overflowed", null, ret_addr);
-            }
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "add overflowed ", type_name, " + ", lhs, 1, &@addWithOverflow(lhs, 1));
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, false, max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn sub(
-            type_name: []const u8,
-            extrema: math.BestExtrema(Number),
-            lhs: Number,
-            rhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("sub overflowed", null, ret_addr);
-            }
-            const yn: bool = rhs > 0;
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "sub overflowed ", type_name, " - ", lhs, rhs, &@subWithOverflow(lhs, rhs));
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, yn, if (yn) extrema.min else extrema.max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn dec(
-            type_name: []const u8,
-            min: Number,
-            lhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("sub overflowed", null, ret_addr);
-            }
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "sub overflowed ", type_name, " - ", lhs, 1, &@subWithOverflow(lhs, 1));
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, true, min);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn mul(
-            type_name: []const u8,
-            extrema: math.BestExtrema(Number),
-            lhs: Number,
-            rhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("mul overflowed", null, ret_addr);
-            }
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "mul overflowed ", type_name, " * ", lhs, rhs, &@mulWithOverflow(lhs, rhs));
-            const yn: bool = @bitCast(
-                (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
-                    (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
-            );
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, yn, if (yn) extrema.min else extrema.max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn div(
-            type_name: []const u8,
-            extrema: math.BestExtrema(Number),
-            lhs: Number,
-            rhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("div overflowed", null, ret_addr);
-            }
-            const yn: bool = rhs < 0;
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, "div overflowed ", type_name, " / ", lhs, rhs, &@addWithOverflow(lhs, rhs));
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, yn, if (yn) extrema.min else extrema.max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn combined(
-            pc: PanicId,
-            type_name: []const u8,
-            extrema: math.BestExtrema(Number),
-            lhs: Number,
-            rhs: Number,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                std.debug.panicImpl(switch (pc) {
-                    .add_overflowed => "add overflowed",
-                    .sub_overflowed => "sub overflowed",
-                    .div_overflowed => "div overflowed",
-                    else => "mul overflowed",
-                }, null, ret_addr);
-            }
-            const yn: bool = switch (pc) {
-                .add_overflowed => rhs < 0,
-                .sub_overflowed => rhs > 0,
-                else => @bitCast(
-                    (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
-                        (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
-                ),
-            };
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = writeOverflowed(&buf, switch (pc) {
-                .add_overflowed => "add overflowed ",
-                .sub_overflowed => "sub overflowed ",
-                .div_overflowed => "div overflowed ",
-                else => "mul overflowed ",
-            }, type_name, switch (pc) {
-                .add_overflowed => " + ",
-                .sub_overflowed => " - ",
-                else => " * ",
-            }, lhs, rhs, &switch (pc) {
-                .add_overflowed => @addWithOverflow(lhs, rhs),
-                .sub_overflowed => @subWithOverflow(lhs, rhs),
-                else => @mulWithOverflow(lhs, rhs),
-            });
-            ptr = writeAboveOrBelowLimit(ptr, Number, type_name, yn, if (yn) extrema.min else extrema.max);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn shl(
-            type_name: []const u8,
-            value: Number,
-            shift_amt: u16,
-            mask: Absolute,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("shl overflowed", null, ret_addr);
-            }
-            const absolute: Absolute = @bitCast(value);
-            const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute << @intCast(shift_amt)) & mask);
-            var buf: [256]u8 = undefined; // max_len: 22 + 32 + 2 + 32 + 4 + 32 + 50 = 174
-            buf[0..22].* = "left shift overflowed ".*;
-            var ptr: [*]u8 = mem.cpyEquTrunc(buf[22..][0..32], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = fmt.formatIntDec(ptr[2..][0..32], value);
-            ptr[0..4].* = " << ".*;
-            ptr = fmt.formatIntDec(ptr[4..][0..32], shift_amt);
-            ptr = writeShiftedOutBits(ptr, ov_bits);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn shr(
-            type_name: []const u8,
-            value: Number,
-            shift_amt: u16,
-            mask: Absolute,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("shr overflowed", null, ret_addr);
-            }
-            const absolute: Absolute = @bitCast(value);
-            const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute >> @intCast(shift_amt)) & mask);
-            var buf: [256]u8 = undefined; // max_len: 23 + 32 + 2 + 32 + 4 + 32 + 50 = 175
-            buf[0..23].* = "right shift overflowed ".*;
-            var ptr: [*]u8 = mem.cpyEquTrunc(buf[23..][0..32], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = fmt.formatIntDec(ptr[2..][0..32], value);
-            ptr[0..4].* = " >> ".*;
-            ptr = fmt.formatIntDec(ptr[4..][0..32], shift_amt);
-            ptr = writeShiftedOutBits(ptr, ov_bits);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn shiftRhs(
-            type_name: []const u8,
-            bit_count: u16,
-            shift_amt: u16,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (feature_limited) {
-                return std.debug.panicImpl("shift RHS overflowed", null, ret_addr);
-            }
-            var buf: [256]u8 = undefined;
-            var ptr: [*]u8 = mem.cpyEquTrunc(buf[0..80], type_name);
-            ptr[0..23].* = " RHS of shift too big: ".*;
-            ptr = fmt.formatIntDec(ptr[23..][0..32], shift_amt);
-            ptr[0..3].* = " > ".*;
-            ptr = fmt.formatIntDec(ptr[3..][0..32], bit_count);
-            std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        const Overflow = struct { Number, u1 };
-        /// max_len: 15 + 80 + 2 + 32 + 3 + 32 + 2 + 32 + 1 = 199
-        pub fn writeOverflowed(
-            buf: [*]u8,
-            op_name: *const [15]u8,
-            type_name: []const u8,
-            op_sym: *const [3]u8,
-            lhs: Number,
-            rhs: Number,
-            res: *const Overflow,
-        ) [*]u8 {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            buf[0..15].* = op_name.*;
-            var ptr: [*]u8 = mem.cpyEquTrunc(buf[15..][0..80], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = fmt.formatIntDec(ptr[2..][0..32], lhs);
-            ptr[0..3].* = op_sym.*;
-            ptr = fmt.formatIntDec(ptr[3..][0..32], rhs);
-            if (res[1] == 0) {
-                ptr[0..2].* = " (".*;
-                ptr = fmt.formatIntDec(ptr[2..][0..32], res[0]);
-                ptr[0] = ')';
-                ptr += 1;
-            }
-            return ptr;
-        }
-        /// max_len: 13 + 32 + 5 = 50
-        pub fn writeShiftedOutBits(
-            buf: [*]u8,
-            ov_bits: u16,
-        ) [*]u8 {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            buf[0..13].* = " shifted out ".*;
-            var ptr: [*]u8 = fmt.formatIntDec(buf[13..][0..32], ov_bits);
-            ptr[0..5].* = " bits".*;
-            return ptr + 4 + @intFromBool(ov_bits != 1);
-        }
-    };
-    return T;
-}
-
-/// ATTENTION: Standard library users/contributors could help with consolidating
-///            these namespaces. These are used to extract the generic parts of
-///            panic data payloads in order to call the most efficient writer
-///            function without sacrificing any information.
-///
-///            The general idea is that integers and floats larger than `*size`
-///            are rare enough to afford specific writer functions. Integers and
-///            floats not larger than `*size` are able to use a common function.
-///            For these, we just extract the type name and the extrema and
-///            allow the values to coerce.
-const mem = struct {
-    fn cpyEquTrunc(slice: []u8, str: []const u8) [*]u8 {
-        if (str.len > slice.len) {
-            @memcpy(slice.ptr, str[0 .. slice.len - 4]);
-            slice.ptr[slice.len - 4 ..][0..4].* = "[..]".*;
-            return slice.ptr + slice.len;
-        } else {
-            return cpyEqu(slice.ptr, str);
-        }
-    }
-    fn cpyEqu(ptr: [*]u8, str: []const u8) [*]u8 {
-        @memcpy(ptr, str);
-        return ptr + str.len;
-    }
-};
-const meta = struct {
-    pub fn BestFloat(comptime Float: type) type {
-        if (@bitSizeOf(Float) <= @bitSizeOf(usize)) {
-            return @Type(.{ .Float = .{ .bits = @bitSizeOf(usize) } });
-        }
-        return Float;
-    }
-    pub fn BestInt(comptime T: type) type {
-        switch (@typeInfo(T)) {
-            .Vector => |vector_info| {
-                return @Vector(vector_info.len, BestInt(vector_info.child));
-            },
-            .Int => if (@bitSizeOf(T) <= @bitSizeOf(usize)) {
-                if (@typeInfo(T).Int.signedness == .signed) {
-                    return isize;
-                } else {
-                    return usize;
-                }
-            } else {
-                return @Type(.{ .Int = .{
-                    .bits = @bitSizeOf(T),
-                    .signedness = switch (@typeInfo(T)) {
-                        .Int => |int_info| int_info.signedness,
-                        else => .unsigned,
-                    },
-                } });
-            },
-            else => {
-                return BestInt(meta.Child(T));
-            },
-        }
-    }
-    pub fn BestNum(comptime Number: type) type {
-        switch (@typeInfo(Number)) {
-            .ComptimeInt, .Int => return BestInt(Number),
-            .ComptimeFloat, .Float => return BestFloat(Number),
-            else => return Number,
-        }
-    }
-    /// Extracts types like:
-    /// Int                     => Int,
-    /// Enum(Int)               => Int,
-    /// Struct(Int)             => Int,
-    /// Union(Enum(Int))        => Int,
-    /// Optional(Pointer(Any))  => Any,
-    /// Optional(Any)           => Any,
-    /// Array(Any)              => Any,
-    /// Pointer(Array(Any))     => Any,
-    /// Pointer(Any)            => Any,
-    pub fn Child(comptime T: type) type {
-        switch (@typeInfo(T)) {
-            else => {
-                @compileError(@typeName(T));
-            },
-            .Array, .Pointer => {
-                return Element(T);
-            },
-            .Int, .Float => {
-                return T;
-            },
-            .Enum => |enum_info| {
-                return enum_info.tag_type;
-            },
-            .ErrorSet => {
-                return u16;
-            },
-            .Struct => |struct_info| {
-                if (struct_info.backing_integer) |backing_integer| {
-                    return backing_integer;
-                } else {
-                    @compileError("'" ++ @typeName(T) ++ "' not a packed struct");
-                }
-            },
-            .Union => |union_info| {
-                if (union_info.tag_type) |tag_type| {
-                    return Child(tag_type);
-                } else {
-                    @compileError("'" ++ @typeName(T) ++ "' not a tagged union");
-                }
-            },
-            .Optional => |optional_info| {
-                return optional_info.child;
-            },
-        }
-    }
-    pub fn Element(comptime T: type) type {
-        switch (@typeInfo(T)) {
-            else => {
-                @compileError(@typeName(T));
-            },
-            .Array => |array_info| {
-                return array_info.child;
-            },
-            .Pointer => |pointer_info| {
-                if (pointer_info.size == .Slice or pointer_info.size == .Many) {
-                    return pointer_info.child;
-                }
-                switch (@typeInfo(pointer_info.child)) {
-                    .Array => |array_info| {
-                        return array_info.child;
-                    },
-                    else => {
-                        @compileError(@typeName(T));
-                    },
-                }
-            },
-        }
-    }
-};
-const math = struct {
-    pub fn BestExtrema(comptime Int: type) type {
-        if (meta.BestInt(Int) != Int) {
-            return BestExtrema(meta.BestInt(Int));
-        }
-        return struct {
-            min: Int,
-            max: Int,
-        };
-    }
-    /// Find the maximum and minimum arithmetical values for an integer type.
-    pub fn bestExtrema(comptime Int: type) BestExtrema(Int) {
-        if (@typeInfo(Int) == .Vector) {
-            return .{
-                .min = @splat(bestExtrema(@typeInfo(Int).Vector.child).min),
-                .max = @splat(bestExtrema(@typeInfo(Int).Vector.child).max),
-            };
-        }
-        switch (Int) {
-            u0, i0 => return .{ .min = 0, .max = 0 },
-            u1 => return .{ .min = 0, .max = 1 },
-            i1 => return .{ .min = -1, .max = 0 },
-            else => {
-                const U = @Type(.{ .Int = .{
-                    .signedness = .unsigned,
-                    .bits = @bitSizeOf(Int),
-                } });
-                const umax: U = ~@as(U, 0);
-                if (@typeInfo(Int).Int.signedness == .unsigned) {
-                    return .{ .min = 0, .max = umax };
-                } else {
-                    const imax: U = umax >> 1;
-                    return .{
-                        .min = @as(Int, @bitCast(~imax)),
-                        .max = @as(Int, @bitCast(imax)),
-                    };
-                }
-            },
-        }
-    }
-};
-const fmt = struct {
-    fn writeErrorFormattingValue(buf: []u8) [*]u8 {
-        if (buf.len < 24) {
-            return mem.cpyEqu(buf.ptr, "???"[0..@min(buf.len, 3)]);
-        }
-        return mem.cpyEqu(buf.ptr, "(error formatting value)");
-    }
-    fn formatAny(buf: []u8, value: anytype) [*]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.format(fbs.writer(), "{any}", .{value}) catch {
-            return writeErrorFormattingValue(buf);
-        };
-        return buf.ptr + fbs.pos;
-    }
-    fn formatIntDec(buf: []u8, value: anytype) [*]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.formatInt(value, 10, .lower, .{}, fbs.writer()) catch {
-            return writeErrorFormattingValue(buf);
-        };
-        return buf.ptr + fbs.pos;
-    }
-    fn formatIntHex(buf: []u8, value: anytype) [*]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.formatInt(value, 16, .lower, .{}, fbs.writer()) catch {
-            return writeErrorFormattingValue(buf);
-        };
-        return buf.ptr + fbs.pos;
-    }
-};
-
-pub fn isNamedEnumValue(comptime Enum: type, enum_or_int: anytype) bool {
-    @setRuntimeSafety(false);
-    if (@typeInfo(@TypeOf(enum_or_int)) == .Int) {
-        inline for (@typeInfo(Enum).Enum.fields) |field| {
-            if (field.value == enum_or_int) {
-                return true;
-            }
-        }
-        return false;
-    }
-    inline for (@typeInfo(Enum).Enum.fields) |field| {
-        if (field.value == @intFromEnum(enum_or_int)) {
-            return true;
-        }
-    }
-    return false;
-}
-pub fn errorSetHasValue(comptime Error: type, error_or_int: anytype) bool {
-    @setRuntimeSafety(false);
-    if (@typeInfo(@TypeOf(error_or_int)) == .Int) {
-        if (@typeInfo(Error).ErrorSet) |error_set| {
-            inline for (error_set) |elem| {
-                if (@intFromError(@field(Error, elem.name)) == error_or_int) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-    if (@typeInfo(Error).ErrorSet) |error_set| {
-        inline for (error_set) |elem| {
-            if (@intFromError(@field(Error, elem.name)) == @intFromError(error_or_int)) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
