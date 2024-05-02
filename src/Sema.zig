@@ -13169,7 +13169,7 @@ fn analyzeSwitchRuntimeBlock(
             if (case_block.wantSafety()) {
                 try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
                 if (Package.Module.runtime_safety.corrupt_switch != .none) {
-                    try RuntimeSafety.panicReachedUnreachable(sema, &case_block, src, .reached_unreachable);
+                    try RuntimeSafety.panicReachedUnreachable(sema, &case_block, src, .corrupt_switch);
                 } else {
                     try sema.safetyPanic(&case_block, src, .corrupt_switch);
                 }
@@ -14250,7 +14250,7 @@ fn zirShl(
             const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, new_rhs, air_tag)) {
+            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
                 try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, new_rhs, no_ov, air_tag);
             } else {
                 try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
@@ -14395,7 +14395,7 @@ fn zirShr(
                 });
             } else try block.addBinOp(.cmp_eq, lhs, back);
 
-            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, rhs, air_tag)) {
+            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
                 try RuntimeSafety.checkArithmeticOverflow(sema, block, src, scalar_ty, lhs, rhs, ok, air_tag);
             } else {
                 try sema.addSafetyCheck(block, src, ok, .shr_overflow);
@@ -15845,7 +15845,7 @@ fn addDivIntOverflowSafety(
         }
         assert(ok != .none);
     }
-    if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, casted_rhs, .div_trunc)) {
+    if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, .div_trunc)) {
         try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_trunc);
     } else {
         try sema.addSafetyCheck(block, src, ok, .integer_overflow);
@@ -16999,7 +16999,7 @@ fn analyzeArithmetic(
                 const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
                 const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-                if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, casted_rhs, air_tag)) {
+                if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
                     try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, no_ov, air_tag);
                 } else {
                     try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
@@ -38933,9 +38933,6 @@ pub const RuntimeSafety = struct {
             sema.mod.safety.panic_fn_inst = try sema.getBuiltin("panicNew");
             sema.mod.safety.panic_extra_fn_inst = try sema.getBuiltin("PanicData");
             sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
-
-            sema.mod.safety.error_set_has_value_fn_inst = try sema.getBuiltin("errorSetHasValue");
-            sema.mod.safety.is_named_enum_value_fn_inst = try sema.getBuiltin("isNamedEnumValue");
         }
         // TODO: Remove this.
         sema.branch_count -|= 1;
@@ -39046,35 +39043,6 @@ pub const RuntimeSafety = struct {
             .@"@call",
         ));
     }
-    fn callBuiltinHelper(
-        sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
-        fn_inst: Air.Inst.Ref,
-        args: []const Air.Inst.Ref,
-    ) CompileError!Air.Inst.Ref {
-        const mod: std.builtin.CallModifier = blk: {
-            for (args) |arg| {
-                if (null == try sema.resolveValue(arg)) {
-                    break :blk .auto;
-                }
-            }
-            break :blk .compile_time;
-        };
-        const args_info: CallArgsInfo = .{ .resolved = .{ .src = src, .args = args } };
-        return try sema.analyzeCall(
-            parent_block,
-            fn_inst,
-            sema.typeOf(fn_inst),
-            src,
-            src,
-            mod,
-            false,
-            args_info,
-            null,
-            .@"@call",
-        );
-    }
     /// ATTENTION: Remove this behaviour as soon as possible.
     const feature_allow_slice_to_sentinel: bool = true;
     /// ATTENTION: Remove this behaviour as soon as possible.
@@ -39110,34 +39078,14 @@ pub const RuntimeSafety = struct {
         }
         return return_ty;
     }
-    // TODO: Remove/simplify with `feature_separate_inc_dec`.
     fn resolveArithOverflowedPanicImpl(
-        sema: *Sema,
-        rhs: Air.Inst.Ref,
+        _: *Sema,
         tag: Air.Inst.Tag,
     ) !std.builtin.RuntimeSafety.Setting {
         switch (tag) {
             .mul => return Package.Module.runtime_safety.mul_overflowed,
-            .add => if (feature_separate_inc_dec) {
-                if (try sema.resolveValue(rhs)) |val| {
-                    if (try sema.compareAll(val, .eq, Value.one_comptime_int, Type.comptime_int)) {
-                        return Package.Module.runtime_safety.inc_overflowed;
-                    }
-                }
-                return Package.Module.runtime_safety.add_overflowed;
-            } else {
-                return Package.Module.runtime_safety.add_overflowed;
-            },
-            .sub => if (feature_separate_inc_dec) {
-                if (try sema.resolveValue(rhs)) |val| {
-                    if (try sema.compareAll(val, .eq, Value.one_comptime_int, Type.comptime_int)) {
-                        return Package.Module.runtime_safety.dec_overflowed;
-                    }
-                }
-                return Package.Module.runtime_safety.sub_overflowed;
-            } else {
-                return Package.Module.runtime_safety.sub_overflowed;
-            },
+            .add => return Package.Module.runtime_safety.add_overflowed,
+            .sub => return Package.Module.runtime_safety.sub_overflowed,
             else => return Package.Module.runtime_safety.div_overflowed,
             .shl_exact => return Package.Module.runtime_safety.shl_overflowed,
             .shr_exact => return Package.Module.runtime_safety.shr_overflowed,
@@ -39145,33 +39093,14 @@ pub const RuntimeSafety = struct {
         }
     }
     fn resolveArithOverflowedPanicCause(
-        sema: *Sema,
+        _: *Sema,
         resolved_ty: Type,
-        rhs: Air.Inst.Ref,
         tag: Air.Inst.Tag,
     ) !PanicCause {
         switch (tag) {
             .mul => return .{ .mul_overflowed = resolved_ty },
-            .add => if (feature_separate_inc_dec) {
-                if (try sema.resolveValue(rhs)) |val| {
-                    if (try sema.compareAll(val, .eq, Value.one_comptime_int, Type.comptime_int)) {
-                        return .{ .inc_overflowed = resolved_ty };
-                    }
-                }
-                return .{ .add_overflowed = resolved_ty };
-            } else {
-                return .{ .add_overflowed = resolved_ty };
-            },
-            .sub => if (feature_separate_inc_dec) {
-                if (try sema.resolveValue(rhs)) |val| {
-                    if (try sema.compareAll(val, .eq, Value.one_comptime_int, Type.comptime_int)) {
-                        return .{ .dec_overflowed = resolved_ty };
-                    }
-                }
-                return .{ .add_overflowed = resolved_ty };
-            } else {
-                return .{ .sub_overflowed = resolved_ty };
-            },
+            .add => return .{ .add_overflowed = resolved_ty },
+            .sub => return .{ .sub_overflowed = resolved_ty },
             else => return .{ .div_overflowed = resolved_ty },
             .shl_exact => return .{ .shl_overflowed = resolved_ty },
             .shr_exact => return .{ .shr_overflowed = resolved_ty },
@@ -39195,7 +39124,7 @@ pub const RuntimeSafety = struct {
         comptime id: std.builtin.PanicId,
     ) !void {
         const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, id);
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"@panic");
+        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
     }
     fn panicCastToEnumFromInvalid(
         sema: *Sema,
@@ -39223,7 +39152,7 @@ pub const RuntimeSafety = struct {
             try parent_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ err, st })
         else
             .void_value;
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"@panic");
+        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
     }
     fn checkAccessNullValue(
         sema: *Sema,
@@ -39466,7 +39395,7 @@ pub const RuntimeSafety = struct {
         cond: Air.Inst.Ref,
         tag: Air.Inst.Tag,
     ) !void {
-        const panic_cause: PanicCause = try resolveArithOverflowedPanicCause(sema, resolved_ty, rhs, tag);
+        const panic_cause: PanicCause = try resolveArithOverflowedPanicCause(sema, resolved_ty, tag);
         const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
         var fail_block: Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
@@ -39495,24 +39424,6 @@ pub const RuntimeSafety = struct {
         try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
-    fn checkCastToEnumFromInvalidHelper(
-        sema: *Sema,
-        parent_block: *Sema.Block,
-        src: LazySrcLoc,
-        dest_ty: Type,
-        operand: Air.Inst.Ref,
-    ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
-        const cond: Air.Inst.Ref = try callBuiltinHelper(sema, parent_block, src, sema.mod.safety.is_named_enum_value_fn_inst, &.{ Air.internedToRef(Type.toIntern(dest_ty)), operand });
-        var fail_block: Block = failBlock(sema, parent_block);
-        defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_enum_from_invalid == .extra)
-            try parent_block.addBitCast(Type.intTagType(dest_ty, sema.mod), operand)
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
-        try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
-    }
     fn checkCastToErrorFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
@@ -39522,25 +39433,7 @@ pub const RuntimeSafety = struct {
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref =
-            try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
-        var fail_block: Block = failBlock(sema, parent_block);
-        defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_error_from_invalid == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
-        try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
-    }
-    fn checkCastToErrorFromInvalidHelper(
-        sema: *Sema,
-        parent_block: *Sema.Block,
-        src: LazySrcLoc,
-        dest_ty: Type,
-        operand_ty: Type,
-        operand: Air.Inst.Ref,
-    ) !void {
-        const panic_cause_inst: Air.Inst.Ref =
-            try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
-        const cond: Air.Inst.Ref = try callBuiltinHelper(sema, parent_block, src, sema.mod.safety.error_set_has_value_fn_inst, &.{ Air.internedToRef(Type.toIntern(dest_ty)), operand });
+        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
         var fail_block: Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_error_from_invalid == .extra) operand else .void_value;
@@ -39555,8 +39448,7 @@ pub const RuntimeSafety = struct {
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref =
-            try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema) });
+        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema) });
         var fail_block: Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_ptr_from_invalid == .extra) operand else .void_value;
@@ -39875,7 +39767,7 @@ pub const RuntimeSafety = struct {
         } else if (ptr_child_ty_tag == .Array) blk: {
             break :blk ptr_child_ty.childType(sema.mod);
         } else {
-            return sema.fail(block, src, "slice of non-array type '{}'", .{src_ptr_ty.fmt(sema.mod)});
+            return sema.fail(block, src, "slice of non-array type '{}'", .{ptr_child_ty.fmt(sema.mod)});
         };
         // [*]const T   ;; Used to compute the start pointer by pointer arithmetic.
         const many_ptr_ty: Type = try sema.mod.manyConstPtrType(elem_ty);
@@ -40068,9 +39960,7 @@ pub const RuntimeSafety = struct {
             }
             if (sa.dest_len == .known) {
                 if (try sema.compareAll(dest_len_val, .neq, Value.zero_comptime_int, Type.comptime_int)) {
-                    return sema.fail(block, src, "non-zero ({}) length slice of undefined pointer", .{
-                        dest_len_val.fmtValue(sema.mod, sema),
-                    });
+                    return sema.fail(block, src, "non-zero length slice of undefined pointer", .{});
                 }
             } else {
                 return sema.fail(block, src, "slice of undefined pointer with runtime length causes undefined behaviour", .{});
