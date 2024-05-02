@@ -124,7 +124,6 @@ test "slice of type" {
 
 test "generic malloc free" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
@@ -874,8 +873,6 @@ test "slice of void" {
 }
 
 test "slice with dereferenced value" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var a: usize = 0;
     const idx: *usize = &a;
     _ = blk: {
@@ -1004,7 +1001,6 @@ test "sentinel-terminated 0-length slices" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const u32s: [4]u32 = [_]u32{ 0, 1, 2, 3 };
 

@@ -42,6 +42,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .enc = std.meta.activeTag(lowered_inst.encoding.data),
                 }),
                 .load_symbol_reloc => |symbol| {
+                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
+                        .Exe => false,
+                        .Obj => true,
+                        .Lib => emit.lower.link_mode == .static,
+                    };
+
                     if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                         const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
                         const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
@@ -50,7 +56,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
                         var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
-                        if (sym.flags.needs_zig_got) {
+                        if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
                             _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
 
                             hi_r_type = Elf.R_ZIG_GOT_HI20;

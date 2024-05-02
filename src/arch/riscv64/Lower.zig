@@ -71,7 +71,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 switch (inst.ops) {
                     .pseudo_load_rm => {
-                        const tag: Encoding.Mnemonic = switch (rm.m.mod.rm.size) {
+                        const tag: Encoding.Mnemonic = switch (rm.m.mod.size()) {
                             .byte => .lb,
                             .hword => .lh,
                             .word => .lw,
@@ -85,7 +85,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         });
                     },
                     .pseudo_store_rm => {
-                        const tag: Encoding.Mnemonic = switch (rm.m.mod.rm.size) {
+                        const tag: Encoding.Mnemonic = switch (rm.m.mod.size()) {
                             .byte => .sb,
                             .hword => .sh,
                             .word => .sw,

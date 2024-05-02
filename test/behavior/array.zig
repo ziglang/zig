@@ -1047,7 +1047,6 @@ test "union that needs padding bytes inside an array" {
 
 test "runtime index of array of zero-bit values" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var runtime: struct { array: [1]void, index: usize } = undefined;
     runtime = .{ .array = .{{}}, .index = 0 };

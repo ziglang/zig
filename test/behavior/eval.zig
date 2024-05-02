@@ -505,7 +505,6 @@ test "comptime shlWithOverflow" {
 test "const ptr to variable data changes at runtime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(foo_ref.name[0] == 'a');
     foo_ref.name = "b";
@@ -720,8 +719,6 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }
 
@@ -1643,8 +1640,6 @@ test "result of nested switch assigned to variable" {
 }
 
 test "inline for loop of functions returning error unions" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const T1 = struct {
         fn v() error{}!usize {
             return 1;

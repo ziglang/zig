@@ -21,6 +21,13 @@ pub const Memory = struct {
             disp: i32 = 0,
         },
         off: i32,
+
+        pub fn size(mod: Mod) Size {
+            return switch (mod) {
+                .rm => |rm| rm.size,
+                .off => Size.dword, // assumed to be a register size
+            };
+        }
     };
 
     pub const Size = enum(u4) {

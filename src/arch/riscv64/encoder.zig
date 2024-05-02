@@ -11,12 +11,11 @@ pub const Instruction = struct {
 
     pub fn new(mnemonic: Encoding.Mnemonic, ops: []const Operand) !Instruction {
         const encoding = (try Encoding.findByMnemonic(mnemonic, ops)) orelse {
-            std.log.err("no encoding found for:  {s} {s} {s} {s} {s}", .{
+            std.log.err("no encoding found for:  {s} [{s} {s} {s}]", .{
                 @tagName(mnemonic),
                 @tagName(if (ops.len > 0) ops[0] else .none),
                 @tagName(if (ops.len > 1) ops[1] else .none),
                 @tagName(if (ops.len > 2) ops[2] else .none),
-                @tagName(if (ops.len > 3) ops[3] else .none),
             });
             return error.InvalidInstruction;
         };

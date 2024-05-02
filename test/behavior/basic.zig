@@ -513,7 +513,6 @@ var global_foo: *i32 = undefined;
 test "peer result location with typed parent, runtime condition, comptime prongs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(arg: i32) i32 {
@@ -593,7 +592,6 @@ test "equality compare fn ptrs" {
 
 test "self reference through fn ptr field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const A = struct {
@@ -838,7 +836,6 @@ test "labeled block implicitly ends in a break" {
 test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -870,7 +867,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -1246,8 +1242,6 @@ test "pointer to tuple field can be dereferenced at comptime" {
 }
 
 test "proper value is returned from labeled block" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn hash(v: *u32, key: anytype) void {
             const Key = @TypeOf(key);

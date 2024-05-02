@@ -16,6 +16,7 @@ pub const Mnemonic = enum {
     slli,
     srli,
     srai,
+    sllw,
 
     addi,
     jalr,
@@ -77,6 +78,8 @@ pub const Mnemonic = enum {
             .slli   => .{ .opcode = 0b0010011, .funct3 = 0b001, .funct7 = null      },
             .srli   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null      },
             .srai   => .{ .opcode = 0b0010011, .funct3 = 0b101, .funct7 = null,   .offset = 1 << 10  },
+            
+            .sllw   => .{ .opcode = 0b0111011, .funct3 = 0b001, .funct7 = 0b0000000 },
 
             .lui    => .{ .opcode = 0b0110111, .funct3 = null,  .funct7 = null      },
             .auipc  => .{ .opcode = 0b0010111, .funct3 = null,  .funct7 = null      },
@@ -152,6 +155,7 @@ pub const InstEnc = enum {
 
             .slt,
             .sltu,
+            .sllw,
             .mul,
             .xor,
             .add,

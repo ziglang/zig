@@ -286,7 +286,6 @@ test "generic function instantiation turns into comptime call" {
 
 test "generic function with void and comptime parameter" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct { x: i32 };
     const namespace = struct {
@@ -303,7 +302,6 @@ test "generic function with void and comptime parameter" {
 test "anonymous struct return type referencing comptime parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         pub fn extraData(comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -394,7 +392,6 @@ test "extern function used as generic parameter" {
 
 test "generic struct as parameter type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(comptime Int: type, thing: struct { int: Int }) !void {
@@ -435,7 +432,6 @@ test "null sentinel pointer passed as generic argument" {
 
 test "generic function passed as comptime argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
@@ -461,7 +457,6 @@ test "return type of generic function is function pointer" {
 
 test "coerced function body has inequal value with its uncoerced body" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const A = B(i32, c);
@@ -546,7 +541,6 @@ test "call generic function with from function called by the generic function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm and
         builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
 

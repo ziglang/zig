@@ -54,7 +54,6 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -426,7 +425,6 @@ test "function callconv expression depends on generic parameter" {
 }
 
 test "runtime-known array index has best alignment possible" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
@@ -562,7 +560,6 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

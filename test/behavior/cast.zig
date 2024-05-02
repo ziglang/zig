@@ -483,7 +483,6 @@ fn castToOptionalTypeError(z: i32) !void {
 test "implicitly cast from [0]T to anyerror![]T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testCastZeroArrayToErrSliceMut();
     try comptime testCastZeroArrayToErrSliceMut();
@@ -558,7 +557,6 @@ fn testCastConstArrayRefToConstSlice() !void {
 test "peer type resolution: error and [N]T" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
@@ -1157,7 +1155,6 @@ fn foobar(func: PFN_void) !void {
 
 test "cast function with an opaque parameter" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_c) {
         // https://github.com/ziglang/zig/issues/16845
@@ -1309,7 +1306,6 @@ fn incrementVoidPtrValue(value: ?*anyopaque) void {
 test "implicit cast *[0]T to E![]const u8" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x = @as(anyerror![]const u8, &[0]u8{});
     _ = &x;
@@ -1496,7 +1492,6 @@ test "cast compatible optional types" {
 test "coerce undefined single-item pointer of array to error union of slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = @as([*]u8, undefined)[0..0];
     var b: error{a}![]const u8 = a;
@@ -2206,7 +2201,6 @@ test "peer type resolution: tuples with comptime fields" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = .{ 1, 2 };
     const b = .{ @as(u32, 3), @as(i16, 4) };
@@ -2361,7 +2355,6 @@ test "cast builtins can wrap result in error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const MyEnum = enum(u32) { _ };
