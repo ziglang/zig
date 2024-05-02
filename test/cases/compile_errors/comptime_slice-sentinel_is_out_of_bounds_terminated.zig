@@ -58,10 +58,10 @@ export fn foo_slice() void {
 // backend=stage2
 // target=native
 //
-// :4:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :12:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :20:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :28:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :36:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :44:33: error: slice end index 15 exceeds bounds of containing decl of type '[14:0]u8'
-// :52:33: error: end index 15 out of bounds for slice of length 14
+// :4:33: error: slice end out of bounds: end 15, length 14
+// :12:33: error: slice end out of bounds: end 15, length 14
+// :20:33: error: slice sentinel out of bounds of reinterpreted memory: end 15(+1), length 15
+// :28:33: error: slice sentinel out of bounds of reinterpreted memory: end 15(+1), length 15
+// :36:33: error: slice sentinel out of bounds of reinterpreted memory: end 15(+1), length 15
+// :44:33: error: slice sentinel out of bounds of reinterpreted memory: end 15(+1), length 15
+// :52:33: error: slice end out of bounds: end 15(+1), length 14
