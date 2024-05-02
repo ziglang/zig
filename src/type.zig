@@ -1540,10 +1540,30 @@ pub const Type = struct {
     }
 
     pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
-        return Alignment.fromByteUnits(@min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target, use_llvm),
-        ));
+        return switch (target.cpu.arch) {
+            .x86 => switch (bits) {
+                0 => .none,
+                1...8 => .@"1",
+                9...16 => .@"2",
+                17...127 => .@"4",
+                else => .@"16",
+            },
+            .x86_64 => switch (bits) {
+                0 => .none,
+                1...8 => .@"1",
+                9...16 => .@"2",
+                17...32 => .@"4",
+                33...64 => .@"8",
+                else => switch (target_util.zigBackend(target, use_llvm)) {
+                    .stage2_x86_64 => .@"8",
+                    else => .@"16",
+                },
+            },
+            else => return Alignment.fromByteUnits(@min(
+                std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
+                maxIntAlignment(target, use_llvm),
+            )),
+        };
     }
 
     pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
