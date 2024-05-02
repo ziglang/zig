@@ -717,7 +717,7 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    @compileError("std.os.raise unimplemented for this target");
+    @compileError("std.posix.raise unimplemented for this target");
 }
 
 pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
@@ -1932,7 +1932,7 @@ pub fn execvpeZ(
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (native_os == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
+        @compileError("std.posix.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
     }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
@@ -1948,7 +1948,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         return null;
     }
     if (native_os == .wasi) {
-        @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
+        @compileError("std.posix.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
     if (std.start.simplified_logic) return null;
@@ -1972,7 +1972,7 @@ pub fn getenvZ(key: [*:0]const u8) ?[:0]const u8 {
         return mem.sliceTo(value, 0);
     }
     if (native_os == .windows) {
-        @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.process.getenvW for Windows-specific API.");
+        @compileError("std.posix.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.process.getenvW for Windows-specific API.");
     }
     return getenv(mem.sliceTo(key, 0));
 }
