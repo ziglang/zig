@@ -1676,10 +1676,8 @@ pub fn openatWasi(
             .INTR => continue,
 
             .FAULT => unreachable,
-            // FIXME: It is worth looking into returning a `error.BadPathName`
-            // here if wasi follows other posix behavior
-            // see: https://github.com/ziglang/zig/issues/15607
-            .INVAL => unreachable,
+            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
