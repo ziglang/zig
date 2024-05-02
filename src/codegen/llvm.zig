@@ -9997,20 +9997,21 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, small_int_val, int_llvm_ty, "");
         }
 
-        const tag_int = blk: {
+        const tag_int_val = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const union_field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
-            const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
-            break :blk tag_int_val.toUnsignedInt(mod);
+            break :blk try tag_val.intFromEnum(tag_ty, mod);
         };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 return .none;
             }
             assert(!isByRef(union_ty, mod));
-            return o.builder.intValue(union_llvm_ty, tag_int);
+            var big_int_space: Value.BigIntSpace = undefined;
+            const tag_big_int = tag_int_val.toBigInt(&big_int_space, mod);
+            return try o.builder.bigIntValue(union_llvm_ty, tag_big_int);
         }
         assert(isByRef(union_ty, mod));
         // The llvm type of the alloca will be the named LLVM union type, and will not
@@ -10084,7 +10085,9 @@ pub const FuncGen = struct {
             const indices: [2]Builder.Value = .{ usize_zero, try o.builder.intValue(.i32, tag_index) };
             const field_ptr = try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, &indices, "");
             const tag_ty = try o.lowerType(Type.fromInterned(union_obj.enum_tag_ty));
-            const llvm_tag = try o.builder.intValue(tag_ty, tag_int);
+            var big_int_space: Value.BigIntSpace = undefined;
+            const tag_big_int = tag_int_val.toBigInt(&big_int_space, mod);
+            const llvm_tag = try o.builder.bigIntValue(tag_ty, tag_big_int);
             const tag_alignment = Type.fromInterned(union_obj.enum_tag_ty).abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, llvm_tag, field_ptr, tag_alignment);
         }
