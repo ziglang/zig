@@ -149,12 +149,7 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
             // anyerror!void can fit into one register
             if (payload_bits == 0) return result;
 
-            if (payload_bits <= 64) {
-                result[1] = .integer;
-                return result;
-            }
-
-            std.debug.panic("TODO: classifySystem ErrorUnion > 64 bit payload", .{});
+            return memory_class;
         },
         .Struct => {
             const layout = ty.containerLayout(zcu);

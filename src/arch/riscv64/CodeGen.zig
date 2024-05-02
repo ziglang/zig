@@ -932,6 +932,25 @@ fn gen(self: *Self) !void {
         const backpatch_fp_add = try self.addPseudo(.pseudo_dead);
         const backpatch_spill_callee_preserved_regs = try self.addPseudo(.pseudo_dead);
 
+        switch (self.ret_mcv.long) {
+            .none, .unreach => {},
+            .indirect => {
+                // The address where to store the return value for the caller is in a
+                // register which the callee is free to clobber. Therefore, we purposely
+                // spill it to stack immediately.
+                const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(Type.usize, mod));
+                try self.genSetMem(
+                    .{ .frame = frame_index },
+                    0,
+                    Type.usize,
+                    self.ret_mcv.long.address().offset(-self.ret_mcv.short.indirect.off),
+                );
+                self.ret_mcv.long = .{ .load_frame = .{ .index = frame_index } };
+                tracking_log.debug("spill {} to {}", .{ self.ret_mcv.long, frame_index });
+            },
+            else => unreachable,
+        }
+
         try self.genBody(self.air.getMainBody());
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
@@ -1306,12 +1325,13 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
                 var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
                 while (it.next()) |index| {
                     const tracked_inst = self.register_manager.registers[index];
+                    tracking_log.debug("tracked inst: {}", .{tracked_inst});
                     const tracking = self.getResolvedInstValue(tracked_inst);
                     for (tracking.getRegs()) |reg| {
                         if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
-                    } else return self.fail(
-                        \\%{} takes up these regs: {any}, however those regs don't use it
-                    , .{ index, tracking.getRegs() });
+                    } else return std.debug.panic(
+                        \\%{} takes up these regs: {any}, however these regs {any}, don't use it
+                    , .{ tracked_inst, tracking.getRegs(), RegisterManager.regAtTrackedIndex(@intCast(index)) });
                 }
             }
         }
@@ -1540,7 +1560,7 @@ fn symbolIndex(self: *Self) !u32 {
             const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
             break :blk atom_index;
         },
-        else => return self.fail("TODO genSetReg load_symbol for {s}", .{@tagName(self.bin_file.tag)}),
+        else => return self.fail("TODO symbolIndex {s}", .{@tagName(self.bin_file.tag)}),
     };
 }
 
@@ -1961,7 +1981,7 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int, .Enum => {
+                .Int, .Enum, .ErrorSet => {
                     assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -2304,8 +2324,127 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airSubWithOverflow for {}", .{self.target.cpu.arch});
+    const zcu = self.bin_file.comp.module.?;
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.typeOf(extra.lhs);
+        const rhs_ty = self.typeOf(extra.rhs);
+
+        const int_info = lhs_ty.intInfo(zcu);
+
+        if (!math.isPowerOfTwo(int_info.bits) or !(int_info.bits >= 8)) {
+            return self.fail("TODO: airSubWithOverflow non-power of 2 and less than 8 bits", .{});
+        }
+
+        const tuple_ty = self.typeOfIndex(inst);
+        const result_mcv = try self.allocRegOrMem(inst, false);
+        const offset = result_mcv.load_frame;
+
+        const lhs_reg, const lhs_lock = blk: {
+            if (lhs == .register) break :blk .{ lhs.register, null };
+
+            const lhs_reg, const lhs_lock = try self.allocReg();
+            try self.genSetReg(lhs_ty, lhs_reg, lhs);
+            break :blk .{ lhs_reg, lhs_lock };
+        };
+        defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const rhs_reg, const rhs_lock = blk: {
+            if (rhs == .register) break :blk .{ rhs.register, null };
+
+            const rhs_reg, const rhs_lock = try self.allocReg();
+            try self.genSetReg(rhs_ty, rhs_reg, rhs);
+            break :blk .{ rhs_reg, rhs_lock };
+        };
+        defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dest_reg, const dest_lock = try self.allocReg();
+        defer self.register_manager.unlockReg(dest_lock);
+
+        switch (int_info.signedness) {
+            .unsigned => return self.fail("TODO: airSubWithOverflow unsigned", .{}),
+            .signed => {
+                switch (int_info.bits) {
+                    64 => {
+                        // result
+                        _ = try self.addInst(.{
+                            .tag = .sub,
+                            .ops = .rrr,
+                            .data = .{ .r_type = .{
+                                .rd = dest_reg,
+                                .rs1 = lhs_reg,
+                                .rs2 = rhs_reg,
+                            } },
+                        });
+
+                        try self.genSetMem(
+                            .{ .frame = offset.index },
+                            offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, zcu))),
+                            lhs_ty,
+                            .{ .register = dest_reg },
+                        );
+
+                        // overflow check
+                        const overflow_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = 0 });
+
+                        _ = try self.addInst(.{
+                            .tag = .slt,
+                            .ops = .rrr,
+                            .data = .{ .r_type = .{
+                                .rd = overflow_reg,
+                                .rs1 = overflow_reg,
+                                .rs2 = rhs_reg,
+                            } },
+                        });
+
+                        _ = try self.addInst(.{
+                            .tag = .slt,
+                            .ops = .rrr,
+                            .data = .{ .r_type = .{
+                                .rd = rhs_reg,
+                                .rs1 = rhs_reg,
+                                .rs2 = lhs_reg,
+                            } },
+                        });
+
+                        _ = try self.addInst(.{
+                            .tag = .xor,
+                            .ops = .rrr,
+                            .data = .{ .r_type = .{
+                                .rd = lhs_reg,
+                                .rs1 = overflow_reg,
+                                .rs2 = rhs_reg,
+                            } },
+                        });
+
+                        const overflow_mcv = try self.binOp(
+                            .cmp_neq,
+                            .{ .register = overflow_reg },
+                            Type.usize,
+                            .{ .register = rhs_reg },
+                            Type.usize,
+                        );
+
+                        try self.genSetMem(
+                            .{ .frame = offset.index },
+                            offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, zcu))),
+                            Type.u1,
+                            overflow_mcv,
+                        );
+
+                        break :result result_mcv;
+                    },
+                    else => |int_bits| return self.fail("TODO: airSubWithOverflow signed {}", .{int_bits}),
+                }
+            },
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -2644,8 +2783,25 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
 
 /// T to E!T
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement wrap errunion payload for {}", .{self.target.cpu.arch});
+
+    const eu_ty = ty_op.ty.toType();
+    const pl_ty = eu_ty.errorUnionPayload(zcu);
+    const err_ty = eu_ty.errorUnionSet(zcu);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    const result: MCValue = result: {
+        if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) break :result .{ .immediate = 0 };
+
+        const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(eu_ty, zcu));
+        const pl_off: i32 = @intCast(errUnionPayloadOffset(pl_ty, zcu));
+        const err_off: i32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
+        try self.genSetMem(.{ .frame = frame_index }, pl_off, pl_ty, operand);
+        try self.genSetMem(.{ .frame = frame_index }, err_off, err_ty, .{ .immediate = 0 });
+        break :result .{ .load_frame = .{ .index = frame_index } };
+    };
+
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3361,8 +3517,6 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             .rs1 = dst_reg,
                         } },
                     });
-
-                    return self.fail("TODO: airStructFieldVal register with field_off > 0", .{});
                 }
 
                 break :result if (field_off == 0) dst_mcv else try self.copyToNewRegister(inst, dst_mcv);
@@ -3444,7 +3598,6 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
-    const zcu = self.bin_file.comp.module.?;
     var arg_index = self.arg_index;
 
     // we skip over args that have no bits
@@ -3453,31 +3606,10 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = self.args[arg_index];
-
         const arg_ty = self.typeOfIndex(inst);
 
-        const dst_mcv = switch (src_mcv) {
-            .register => dst: {
-                const frame = try self.allocFrameIndex(FrameAlloc.init(.{
-                    .size = Type.usize.abiSize(zcu),
-                    .alignment = Type.usize.abiAlignment(zcu),
-                }));
-                const dst_mcv: MCValue = .{ .load_frame = .{ .index = frame } };
-                try self.genCopy(Type.usize, dst_mcv, src_mcv);
-                break :dst dst_mcv;
-            },
-            .register_pair => dst: {
-                const frame = try self.allocFrameIndex(FrameAlloc.init(.{
-                    .size = Type.usize.abiSize(zcu) * 2,
-                    .alignment = Type.usize.abiAlignment(zcu),
-                }));
-                const dst_mcv: MCValue = .{ .load_frame = .{ .index = frame } };
-                try self.genCopy(arg_ty, dst_mcv, src_mcv);
-                break :dst dst_mcv;
-            },
-            .load_frame => src_mcv,
-            else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
-        };
+        const dst_mcv = try self.allocRegOrMem(inst, false);
+        try self.genCopy(arg_ty, dst_mcv, src_mcv);
 
         try self.genArgDbgInfo(inst, src_mcv);
         break :result dst_mcv;
@@ -3612,7 +3744,68 @@ fn genCall(
         stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
-    for (call_info.args, 0..) |mc_arg, arg_i| try self.genCopy(arg_tys[arg_i], mc_arg, args[arg_i]);
+    var reg_locks = std.ArrayList(?RegisterLock).init(allocator);
+    defer reg_locks.deinit();
+    try reg_locks.ensureTotalCapacity(8);
+    defer for (reg_locks.items) |reg_lock| if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const frame_indices = try allocator.alloc(FrameIndex, args.len);
+    defer allocator.free(frame_indices);
+
+    switch (call_info.return_value.long) {
+        .none, .unreach => {},
+        .indirect => |reg_off| try self.register_manager.getReg(reg_off.reg, null),
+        else => unreachable,
+    }
+    for (call_info.args, args, arg_tys, frame_indices) |dst_arg, src_arg, arg_ty, *frame_index| {
+        switch (dst_arg) {
+            .none => {},
+            .register => |reg| {
+                try self.register_manager.getReg(reg, null);
+                try reg_locks.append(self.register_manager.lockReg(reg));
+            },
+            .register_pair => |regs| {
+                for (regs) |reg| try self.register_manager.getReg(reg, null);
+                try reg_locks.appendSlice(&self.register_manager.lockRegs(2, regs));
+            },
+            .indirect => |reg_off| {
+                frame_index.* = try self.allocFrameIndex(FrameAlloc.initType(arg_ty, zcu));
+                try self.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg);
+                try self.register_manager.getReg(reg_off.reg, null);
+                try reg_locks.append(self.register_manager.lockReg(reg_off.reg));
+            },
+            else => return self.fail("TODO: genCall set arg {s}", .{@tagName(dst_arg)}),
+        }
+    }
+
+    switch (call_info.return_value.long) {
+        .none, .unreach => {},
+        .indirect => |reg_off| {
+            const ret_ty = Type.fromInterned(fn_info.return_type);
+            const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ret_ty, zcu));
+            try self.genSetReg(Type.usize, reg_off.reg, .{
+                .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
+            });
+            call_info.return_value.short = .{ .load_frame = .{ .index = frame_index } };
+            try reg_locks.append(self.register_manager.lockReg(reg_off.reg));
+        },
+        else => unreachable,
+    }
+
+    for (call_info.args, arg_tys, args, frame_indices) |dst_arg, arg_ty, src_arg, frame_index| {
+        switch (dst_arg) {
+            .register_pair => try self.genCopy(arg_ty, dst_arg, src_arg),
+            .register => |dst_reg| try self.genSetReg(
+                arg_ty,
+                dst_reg,
+                src_arg,
+            ),
+            .indirect => |reg_off| try self.genSetReg(Type.usize, reg_off.reg, .{
+                .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
+            }),
+            else => return self.fail("TODO: genCall actual set {s}", .{@tagName(dst_arg)}),
+        }
+    }
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
@@ -3715,9 +3908,10 @@ fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
             defer self.register_manager.unlockReg(lock);
 
             try self.genSetReg(Type.usize, reg_off.reg, self.ret_mcv.long);
-            try self.genCopy(
+            try self.genSetMem(
+                .{ .reg = reg_off.reg },
+                reg_off.off,
                 ret_ty,
-                .{ .register_offset = reg_off },
                 .{ .air_ref = un_op },
             );
         },
@@ -3745,6 +3939,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     switch (self.ret_mcv.short) {
         .none => {},
         .register, .register_pair => try self.load(self.ret_mcv.short, ptr, ptr_ty),
+        .indirect => |reg_off| try self.genSetReg(ptr_ty, reg_off.reg, ptr),
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
@@ -4058,7 +4253,7 @@ fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, eu_ty: Type, eu_mcv: MCValue)
 
     _ = maybe_inst;
 
-    const err_off = errUnionErrorOffset(eu_ty.errorUnionPayload(zcu), zcu);
+    const err_off: u31 = @intCast(errUnionErrorOffset(eu_ty.errorUnionPayload(zcu), zcu));
 
     switch (eu_mcv) {
         .register => |reg| {
@@ -4081,15 +4276,25 @@ fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, eu_ty: Type, eu_mcv: MCValue)
                 );
             }
 
-            return_mcv = try self.binOp(
+            return try self.binOp(
                 .cmp_neq,
                 return_mcv,
                 Type.u16,
                 .{ .immediate = 0 },
                 Type.u16,
             );
-
-            return return_mcv;
+        },
+        .load_frame => |frame_addr| {
+            return self.binOp(
+                .cmp_neq,
+                .{ .load_frame = .{
+                    .index = frame_addr.index,
+                    .off = frame_addr.off + err_off,
+                } },
+                Type.anyerror,
+                .{ .immediate = 0 },
+                Type.anyerror,
+            );
         },
         else => return self.fail("TODO implement isErr for {}", .{eu_mcv}),
     }
@@ -4839,7 +5044,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
     const zcu = self.bin_file.comp.module.?;
     const abi_size: u32 = @intCast(ty.abiSize(zcu));
 
-    if (abi_size > 8) return self.fail("tried to set reg with size {}", .{abi_size});
+    if (abi_size > 8) return std.debug.panic("tried to set reg with size {}", .{abi_size});
 
     switch (src_mcv) {
         .dead => unreachable,
@@ -4924,7 +5129,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             if (src_reg.id() == reg.id())
                 return;
 
-            // mov reg, src_reg
+            // mv reg, src_reg
             _ = try self.addInst(.{
                 .tag = .pseudo,
                 .ops = .pseudo_mv,
@@ -4934,20 +5139,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 } },
             });
         },
-        .register_pair => |pair| try self.genSetReg(ty, reg, .{ .register = pair[0] }),
-        .memory => |addr| {
-            try self.genSetReg(ty, reg, .{ .immediate = addr });
-
-            _ = try self.addInst(.{
-                .tag = .ld,
-                .ops = .rri,
-                .data = .{ .i_type = .{
-                    .rd = reg,
-                    .rs1 = reg,
-                    .imm12 = Immediate.s(0),
-                } },
-            });
-        },
+        .register_pair => return self.fail("genSetReg should we allow reg -> reg_pair?", .{}),
         .load_frame => |frame| {
             _ = try self.addInst(.{
                 .tag = .pseudo,
@@ -4966,27 +5158,48 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 } },
             });
         },
-        .lea_frame => |frame| {
+        .memory => |addr| {
+            try self.genSetReg(ty, reg, .{ .immediate = addr });
+
+            _ = try self.addInst(.{
+                .tag = .ld,
+                .ops = .rri,
+                .data = .{ .i_type = .{
+                    .rd = reg,
+                    .rs1 = reg,
+                    .imm12 = Immediate.s(0),
+                } },
+            });
+        },
+        .lea_frame, .register_offset => {
             _ = try self.addInst(.{
                 .tag = .pseudo,
                 .ops = .pseudo_lea_rm,
                 .data = .{ .rm = .{
                     .r = reg,
-                    .m = .{
-                        .base = .{ .frame = frame.index },
-                        .mod = .{
-                            .rm = .{
-                                .size = self.memSize(ty),
-                                .disp = frame.off,
+                    .m = switch (src_mcv) {
+                        .register_offset => |reg_off| .{
+                            .base = .{ .reg = reg_off.reg },
+                            .mod = .{
+                                .rm = .{
+                                    .size = self.memSize(ty),
+                                    .disp = reg_off.off,
+                                },
                             },
                         },
+                        .lea_frame => |frame| .{
+                            .base = .{ .frame = frame.index },
+                            .mod = .{
+                                .rm = .{
+                                    .size = self.memSize(ty),
+                                    .disp = frame.off,
+                                },
+                            },
+                        },
+                        else => unreachable,
                     },
                 } },
             });
-        },
-        .load_symbol => {
-            try self.genSetReg(ty, reg, src_mcv.address());
-            try self.genSetReg(ty, reg, .{ .indirect = .{ .reg = reg } });
         },
         .indirect => |reg_off| {
             const load_tag: Mir.Inst.Tag = switch (abi_size) {
@@ -5022,6 +5235,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 }) },
             });
         },
+        .load_symbol => {
+            try self.genSetReg(ty, reg, src_mcv.address());
+            try self.genSetReg(ty, reg, .{ .indirect = .{ .reg = reg } });
+        },
         .air_ref => |ref| try self.genSetReg(ty, reg, try self.resolveInst(ref)),
         else => return self.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
     }
@@ -5052,7 +5269,6 @@ fn genSetMem(
             src_mcv,
             .{ .immediate = abi_size },
         ),
-
         .register_offset,
         .memory,
         .indirect,
@@ -5100,14 +5316,15 @@ fn genSetMem(
                 _ = try self.addInst(.{
                     .tag = .pseudo,
                     .ops = .pseudo_store_rm,
-                    .data = .{
-                        .rm = .{ .r = reg, .m = .{
+                    .data = .{ .rm = .{
+                        .r = reg,
+                        .m = .{
                             .base = .{ .frame = frame_index },
                             .mod = .{ .rm = .{
                                 .size = Memory.Size.fromByteSize(src_size),
                             } },
-                        } },
-                    },
+                        },
+                    } },
                 });
                 try self.genSetMem(base, disp, ty, frame_mcv);
                 try self.freeValue(frame_mcv);
