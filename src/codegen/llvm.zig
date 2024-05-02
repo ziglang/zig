@@ -3235,7 +3235,6 @@ pub const Object = struct {
             .bool_false,
             .empty_struct,
             .generic_poison,
-            .var_args_param_type,
             .none,
             => unreachable,
             else => switch (ip.indexToKey(t.toIntern())) {
