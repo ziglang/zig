@@ -1468,7 +1468,6 @@ pub const Pool = struct {
             .bool_false,
             .empty_struct,
             .generic_poison,
-            .var_args_param_type,
             .none,
             => unreachable,
 
