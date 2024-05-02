@@ -285,17 +285,16 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
 
             // "If one of the classes is MEMORY, the whole argument is passed in memory"
             // "If X87UP is not preceded by X87, the whole argument is passed in memory."
-            var found_sseup = false;
-            for (result, 0..) |item, i| switch (item) {
+            for (result, 0..) |class, i| switch (class) {
                 .memory => return memory_class,
                 .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
-                .sseup => found_sseup = true,
                 else => continue,
             };
             // "If the size of the aggregate exceeds two eightbytes and the first eight-
             // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
             // is passed in memory."
-            if (ty_size > 16 and (result[0] != .sse or !found_sseup)) return memory_class;
+            if (ty_size > 16 and (result[0] != .sse or
+                std.mem.indexOfNone(Class, result[1..], &.{ .sseup, .none }) != null)) return memory_class;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
             for (&result, 0..) |*item, i| {
