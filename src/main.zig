@@ -118,6 +118,7 @@ const debug_usage = normal_usage ++
     \\  changelist       Compute mappings from old ZIR to new ZIR
     \\  dump-zir         Dump a file containing cached ZIR
     \\  detect-cpu       Compare Zig's CPU feature detection vs LLVM
+    \\  llvm-ints        Dump a list of LLVMABIAlignmentOfType for all integers
     \\
 ;
 
@@ -359,6 +360,8 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return cmdChangelist(gpa, arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
         return cmdDumpZir(gpa, arena, cmd_args);
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
+        return cmdDumpLlvmInts(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
@@ -6290,6 +6293,48 @@ fn printCpu(cpu: std.Target.Cpu) !void {
     }
 
     try bw.flush();
+}
+
+fn cmdDumpLlvmInts(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+) !void {
+    _ = gpa;
+
+    if (!build_options.have_llvm)
+        fatal("compiler does not use LLVM; cannot dump LLVM integer sizes", .{});
+
+    const triple = try arena.dupeZ(u8, args[0]);
+
+    const llvm = @import("codegen/llvm/bindings.zig");
+
+    for ([_]std.Target.Cpu.Arch{ .aarch64, .x86 }) |arch| {
+        @import("codegen/llvm.zig").initializeLLVMTarget(arch);
+    }
+
+    const target: *llvm.Target = t: {
+        var target: *llvm.Target = undefined;
+        var error_message: [*:0]const u8 = undefined;
+        if (llvm.Target.getFromTriple(triple, &target, &error_message) != .False) @panic("bad");
+        break :t target;
+    };
+    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null);
+    const dl = tm.createTargetDataLayout();
+    const context = llvm.Context.create();
+
+    var bw = io.bufferedWriter(io.getStdOut().writer());
+    const stdout = bw.writer();
+
+    for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
+        const int_type = context.intType(bits);
+        const alignment = dl.abiAlignmentOfType(int_type);
+        try stdout.print("LLVMABIAlignmentOfType(i{d}) == {d}\n", .{ bits, alignment });
+    }
+
+    try bw.flush();
+
+    return cleanExit();
 }
 
 /// This is only enabled for debug builds.

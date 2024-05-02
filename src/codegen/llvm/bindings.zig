@@ -43,6 +43,9 @@ pub const Context = opaque {
 
     pub const getBrokenDebugInfo = ZigLLVMGetBrokenDebugInfo;
     extern fn ZigLLVMGetBrokenDebugInfo(C: *Context) bool;
+
+    pub const intType = LLVMIntTypeInContext;
+    extern fn LLVMIntTypeInContext(C: *Context, NumBits: c_uint) *Type;
 };
 
 pub const Module = opaque {
@@ -96,12 +99,20 @@ pub const TargetMachine = opaque {
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
     ) bool;
+
+    pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
+    extern fn LLVMCreateTargetDataLayout(*TargetMachine) *TargetData;
 };
 
 pub const TargetData = opaque {
     pub const dispose = LLVMDisposeTargetData;
     extern fn LLVMDisposeTargetData(*TargetData) void;
+
+    pub const abiAlignmentOfType = LLVMABIAlignmentOfType;
+    extern fn LLVMABIAlignmentOfType(TD: *TargetData, Ty: *Type) c_uint;
 };
+
+pub const Type = opaque {};
 
 pub const CodeModel = enum(c_int) {
     Default,
