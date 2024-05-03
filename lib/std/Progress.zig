@@ -1,10 +1,7 @@
 //! This API is non-allocating, non-fallible, and thread-safe.
+//!
 //! The tradeoff is that users of this API must provide the storage
 //! for each `Progress.Node`.
-//!
-//! Initialize the struct directly, overriding these fields as desired:
-//! * `refresh_rate_ms`
-//! * `initial_delay_ms`
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -12,63 +9,64 @@ const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
 const Progress = @This();
+const posix = std.posix;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
-terminal: ?std.fs.File = undefined,
+terminal: ?std.fs.File,
 
 /// Is this a windows API terminal (note: this is not the same as being run on windows
 /// because other terminals exist like MSYS/git-bash)
-is_windows_terminal: bool = false,
+is_windows_terminal: bool,
 
 /// Whether the terminal supports ANSI escape codes.
-supports_ansi_escape_codes: bool = false,
+supports_ansi_escape_codes: bool,
 
-/// If the terminal is "dumb", don't print output.
-/// This can be useful if you don't want to print all
-/// the stages of code generation if there are a lot.
-/// You should not use it if the user should see output
-/// for example showing the user what tests run.
-dont_print_on_dumb: bool = false,
+root: Node,
 
-root: Node = undefined,
+/// Protects all the state shared between the update thread and the public API calls.
+mutex: std.Thread.Mutex,
+update_thread: ?std.Thread,
 
-/// Keeps track of how much time has passed since the beginning.
-/// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
-timer: ?std.time.Timer = null,
+/// Atomically set by SIGWINCH as well as the root done() function.
+redraw_event: std.Thread.ResetEvent,
+/// Ensure there is only 1 global Progress object.
+initialized: bool,
+/// Indicates a request to shut down and reset global state.
+done: bool,
 
-/// When the previous refresh was written to the terminal.
-/// Used to compare with `refresh_rate_ms`.
-prev_refresh_timestamp: u64 = undefined,
+refresh_rate_ns: u64,
+initial_delay_ns: u64,
 
-/// This buffer represents the maximum number of bytes written to the terminal
-/// with each refresh.
-output_buffer: [100]u8 = undefined,
+rows: u16,
+cols: u16,
 
-/// How many nanoseconds between writing updates to the terminal.
-refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
+/// Accessed only by the update thread.
+draw_buffer: []u8,
 
-/// How many nanoseconds to keep the output hidden
-initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
-
-done: bool = true,
-
-/// Protects the `refresh` function, as well as `node.recently_updated_child`.
-/// Without this, callsites would call `Node.end` and then free `Node` memory
-/// while it was still being accessed by the `refresh` function.
-update_mutex: std.Thread.Mutex = .{},
-
-/// Keeps track of how many columns in the terminal have been output, so that
-/// we can move the cursor back later.
-columns_written: usize = undefined,
+pub const Options = struct {
+    /// User-provided buffer with static lifetime.
+    ///
+    /// Used to store the entire write buffer sent to the terminal. Progress output will be truncated if it
+    /// cannot fit into this buffer which will look bad but not cause any malfunctions.
+    ///
+    /// Must be at least 100 bytes.
+    draw_buffer: []u8,
+    /// How many nanoseconds between writing updates to the terminal.
+    refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
+    /// How many nanoseconds to keep the output hidden
+    initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
+    /// If provided, causes the progress item to have a denominator.
+    /// 0 means unknown.
+    estimated_total_items: usize = 0,
+    root_name: []const u8 = "",
+};
 
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
-    context: *Progress,
     parent: ?*Node,
     name: []const u8,
-    unit: []const u8 = "",
     /// Must be handled atomically to be thread-safe.
     recently_updated_child: ?*Node = null,
     /// Must be handled atomically to be thread-safe. 0 means null.
@@ -76,15 +74,15 @@ pub const Node = struct {
     /// Must be handled atomically to be thread-safe.
     unprotected_completed_items: usize,
 
+    pub const ListNode = std.DoublyLinkedList(void);
+
     /// Create a new child progress node. Thread-safe.
+    ///
     /// Call `Node.end` when done.
-    /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
-    /// API to set `self.parent.recently_updated_child` with the return value.
-    /// Until that is fixed you probably want to call `activate` on the return value.
+    ///
     /// Passing 0 for `estimated_total_items` means unknown.
     pub fn start(self: *Node, name: []const u8, estimated_total_items: usize) Node {
-        return Node{
-            .context = self.context,
+        return .{
             .parent = self,
             .name = name,
             .unprotected_estimated_total_items = estimated_total_items,
@@ -94,66 +92,33 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .release);
-        }
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .monotonic);
-        self.context.maybeRefresh();
+        self.activate();
     }
 
     /// Finish a started `Node`. Thread-safe.
     pub fn end(self: *Node) void {
-        self.context.maybeRefresh();
         if (self.parent) |parent| {
-            {
-                self.context.update_mutex.lock();
-                defer self.context.update_mutex.unlock();
-                _ = @cmpxchgStrong(?*Node, &parent.recently_updated_child, self, null, .monotonic, .monotonic);
-            }
             parent.completeOne();
         } else {
-            self.context.update_mutex.lock();
-            defer self.context.update_mutex.unlock();
-            self.context.done = true;
-            self.context.refreshWithHeldLock();
+            {
+                global_progress.mutex.lock();
+                defer global_progress.mutex.unlock();
+                global_progress.done = true;
+            }
+            global_progress.redraw_event.set();
+            if (global_progress.update_thread) |thread| thread.join();
         }
     }
 
     /// Tell the parent node that this node is actively being worked on. Thread-safe.
     pub fn activate(self: *Node) void {
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .release);
-            self.context.maybeRefresh();
-        }
-    }
-
-    /// Thread-safe.
-    pub fn setName(self: *Node, name: []const u8) void {
-        const progress = self.context;
-        progress.update_mutex.lock();
-        defer progress.update_mutex.unlock();
-        self.name = name;
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .release);
-            if (parent.parent) |grand_parent| {
-                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .release);
-            }
-            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
-        }
-    }
-
-    /// Thread-safe.
-    pub fn setUnit(self: *Node, unit: []const u8) void {
-        const progress = self.context;
-        progress.update_mutex.lock();
-        defer progress.update_mutex.unlock();
-        self.unit = unit;
-        if (self.parent) |parent| {
-            @atomicStore(?*Node, &parent.recently_updated_child, self, .release);
-            if (parent.parent) |grand_parent| {
-                @atomicStore(?*Node, &grand_parent.recently_updated_child, parent, .release);
-            }
-            if (progress.timer) |*timer| progress.maybeRefreshWithHeldLock(timer);
+        var parent = self.parent;
+        var child = self;
+        while (parent) |p| {
+            @atomicStore(?*Node, &p.recently_updated_child, child, .release);
+            child = p;
+            parent = p.parent;
         }
     }
 
@@ -168,280 +133,202 @@ pub const Node = struct {
     }
 };
 
-/// Create a new progress node.
+var global_progress: Progress = .{
+    .terminal = null,
+    .is_windows_terminal = false,
+    .supports_ansi_escape_codes = false,
+    .root = undefined,
+    .mutex = .{},
+    .update_thread = null,
+    .redraw_event = .{},
+    .initialized = false,
+    .refresh_rate_ns = undefined,
+    .initial_delay_ns = undefined,
+    .rows = 0,
+    .cols = 0,
+    .draw_buffer = undefined,
+    .done = false,
+};
+
+/// Initializes a global Progress instance.
+///
+/// Asserts there is only one global Progress instance.
+///
 /// Call `Node.end` when done.
-/// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
-/// API to return Progress rather than accept it as a parameter.
-/// `estimated_total_items` value of 0 means unknown.
-pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
+pub fn start(options: Options) *Node {
+    assert(!global_progress.initialized);
     const stderr = std.io.getStdErr();
-    self.terminal = null;
     if (stderr.supportsAnsiEscapeCodes()) {
-        self.terminal = stderr;
-        self.supports_ansi_escape_codes = true;
+        global_progress.terminal = stderr;
+        global_progress.supports_ansi_escape_codes = true;
     } else if (builtin.os.tag == .windows and stderr.isTty()) {
-        self.is_windows_terminal = true;
-        self.terminal = stderr;
+        global_progress.is_windows_terminal = true;
+        global_progress.terminal = stderr;
     } else if (builtin.os.tag != .windows) {
         // we are in a "dumb" terminal like in acme or writing to a file
-        self.terminal = stderr;
+        global_progress.terminal = stderr;
     }
-    self.root = Node{
-        .context = self,
+    global_progress.root = .{
         .parent = null,
-        .name = name,
-        .unprotected_estimated_total_items = estimated_total_items,
+        .name = options.root_name,
+        .unprotected_estimated_total_items = options.estimated_total_items,
         .unprotected_completed_items = 0,
     };
-    self.columns_written = 0;
-    self.prev_refresh_timestamp = 0;
-    self.timer = std.time.Timer.start() catch null;
-    self.done = false;
-    return &self.root;
-}
+    global_progress.done = false;
+    global_progress.initialized = true;
 
-/// Updates the terminal if enough time has passed since last update. Thread-safe.
-pub fn maybeRefresh(self: *Progress) void {
-    if (self.timer) |*timer| {
-        if (!self.update_mutex.tryLock()) return;
-        defer self.update_mutex.unlock();
-        maybeRefreshWithHeldLock(self, timer);
-    }
-}
+    assert(options.draw_buffer.len >= 100);
+    global_progress.draw_buffer = options.draw_buffer;
+    global_progress.refresh_rate_ns = options.refresh_rate_ns;
+    global_progress.initial_delay_ns = options.initial_delay_ns;
 
-fn maybeRefreshWithHeldLock(self: *Progress, timer: *std.time.Timer) void {
-    const now = timer.read();
-    if (now < self.initial_delay_ns) return;
-    // TODO I have observed this to happen sometimes. I think we need to follow Rust's
-    // lead and guarantee monotonically increasing times in the std lib itself.
-    if (now < self.prev_refresh_timestamp) return;
-    if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
-    return self.refreshWithHeldLock();
-}
+    var act: posix.Sigaction = .{
+        .handler = .{ .sigaction = handleSigWinch },
+        .mask = posix.empty_sigset,
+        .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
+    };
+    posix.sigaction(posix.SIG.WINCH, &act, null) catch {
+        global_progress.terminal = null;
+        return &global_progress.root;
+    };
 
-/// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
-pub fn refresh(self: *Progress) void {
-    if (!self.update_mutex.tryLock()) return;
-    defer self.update_mutex.unlock();
-
-    return self.refreshWithHeldLock();
-}
-
-fn clearWithHeldLock(p: *Progress, end_ptr: *usize) void {
-    const file = p.terminal orelse return;
-    var end = end_ptr.*;
-    if (p.columns_written > 0) {
-        // restore the cursor position by moving the cursor
-        // `columns_written` cells to the left, then clear the rest of the
-        // line
-        if (p.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[{d}D", .{p.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(p.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
-        } else if (builtin.os.tag == .windows) winapi: {
-            std.debug.assert(p.is_windows_terminal);
-
-            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-
-            var cursor_pos = windows.COORD{
-                .X = info.dwCursorPosition.X - @as(windows.SHORT, @intCast(p.columns_written)),
-                .Y = info.dwCursorPosition.Y,
-            };
-
-            if (cursor_pos.X < 0)
-                cursor_pos.X = 0;
-
-            const fill_chars = @as(windows.DWORD, @intCast(info.dwSize.X - cursor_pos.X));
-
-            var written: windows.DWORD = undefined;
-            if (windows.kernel32.FillConsoleOutputAttribute(
-                file.handle,
-                info.wAttributes,
-                fill_chars,
-                cursor_pos,
-                &written,
-            ) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-            if (windows.kernel32.FillConsoleOutputCharacterW(
-                file.handle,
-                ' ',
-                fill_chars,
-                cursor_pos,
-                &written,
-            ) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
-                // stop trying to write to this file
-                p.terminal = null;
-                break :winapi;
-            }
-        } else {
-            // we are in a "dumb" terminal like in acme or writing to a file
-            p.output_buffer[end] = '\n';
-            end += 1;
-        }
-
-        p.columns_written = 0;
-    }
-    end_ptr.* = end;
-}
-
-fn refreshWithHeldLock(self: *Progress) void {
-    const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
-    if (is_dumb and self.dont_print_on_dumb) return;
-
-    const file = self.terminal orelse return;
-
-    var end: usize = 0;
-    clearWithHeldLock(self, &end);
-
-    if (!self.done) {
-        var need_ellipse = false;
-        var maybe_node: ?*Node = &self.root;
-        while (maybe_node) |node| {
-            if (need_ellipse) {
-                self.bufWrite(&end, "... ", .{});
-            }
-            need_ellipse = false;
-            const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
-            const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
-            const current_item = completed_items + 1;
-            if (node.name.len != 0 or eti > 0) {
-                if (node.name.len != 0) {
-                    self.bufWrite(&end, "{s}", .{node.name});
-                    need_ellipse = true;
-                }
-                if (eti > 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}{s}] ", .{ current_item, eti, node.unit });
-                    need_ellipse = false;
-                } else if (completed_items != 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}{s}] ", .{ current_item, node.unit });
-                    need_ellipse = false;
-                }
-            }
-            maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .acquire);
-        }
-        if (need_ellipse) {
-            self.bufWrite(&end, "... ", .{});
+    if (global_progress.terminal != null) {
+        if (std.Thread.spawn(.{}, updateThreadRun, .{})) |thread| {
+            global_progress.update_thread = thread;
+        } else |_| {
+            global_progress.terminal = null;
         }
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch {
-        // stop trying to write to this file
-        self.terminal = null;
-    };
-    if (self.timer) |*timer| {
-        self.prev_refresh_timestamp = timer.read();
-    }
+    return &global_progress.root;
 }
 
-pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
-    const file = self.terminal orelse {
-        std.debug.print(format, args);
-        return;
+/// Returns whether a resize is needed to learn the terminal size.
+fn wait(timeout_ns: u64) bool {
+    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
+        true
+    else |err| switch (err) {
+        error.Timeout => false,
     };
-    self.refresh();
-    file.writer().print(format, args) catch {
-        self.terminal = null;
-        return;
-    };
-    self.columns_written = 0;
+    global_progress.redraw_event.reset();
+    return resize_flag or (global_progress.cols == 0);
 }
 
-/// Allows the caller to freely write to stderr until unlock_stderr() is called.
-/// During the lock, the progress information is cleared from the terminal.
-pub fn lock_stderr(p: *Progress) void {
-    p.update_mutex.lock();
-    if (p.terminal) |file| {
-        var end: usize = 0;
-        clearWithHeldLock(p, &end);
-        _ = file.write(p.output_buffer[0..end]) catch {
-            // stop trying to write to this file
-            p.terminal = null;
+fn updateThreadRun() void {
+    {
+        const resize_flag = wait(global_progress.initial_delay_ns);
+        maybeUpdateSize(resize_flag);
+
+        const buffer = b: {
+            global_progress.mutex.lock();
+            defer global_progress.mutex.unlock();
+
+            if (global_progress.done) return clearTerminal();
+
+            break :b computeRedraw();
         };
+        write(buffer);
     }
-    std.debug.getStderrMutex().lock();
-}
 
-pub fn unlock_stderr(p: *Progress) void {
-    std.debug.getStderrMutex().unlock();
-    p.update_mutex.unlock();
-}
+    while (true) {
+        const resize_flag = wait(global_progress.refresh_rate_ns);
+        maybeUpdateSize(resize_flag);
 
-fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
-    if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
-        const amt = written.len;
-        end.* += amt;
-        self.columns_written += amt;
-    } else |err| switch (err) {
-        error.NoSpaceLeft => {
-            self.columns_written += self.output_buffer.len - end.*;
-            end.* = self.output_buffer.len;
-            const suffix = "... ";
-            @memcpy(self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
-        },
+        const buffer = b: {
+            global_progress.mutex.lock();
+            defer global_progress.mutex.unlock();
+
+            if (global_progress.done) return clearTerminal();
+
+            break :b computeRedraw();
+        };
+        write(buffer);
     }
 }
 
-test "basic functionality" {
-    var disable = true;
-    _ = &disable;
-    if (disable) {
-        // This test is disabled because it uses time.sleep() and is therefore slow. It also
-        // prints bogus progress data to stderr.
-        return error.SkipZigTest;
-    }
-    var progress = Progress{};
-    const root_node = progress.start("", 100);
-    defer root_node.end();
+const start_sync = "\x1b[?2026h";
+const clear = "\x1b[J";
+const save = "\x1b7";
+const restore = "\x1b8";
+const finish_sync = "\x1b[?2026l";
 
-    const speed_factor = std.time.ns_per_ms;
+fn clearTerminal() void {
+    write(clear);
+}
 
-    const sub_task_names = [_][]const u8{
-        "reticulating splines",
-        "adjusting shoes",
-        "climbing towers",
-        "pouring juice",
-    };
-    var next_sub_task: usize = 0;
+fn computeRedraw() []u8 {
+    // The strategy is: keep the cursor at the beginning, and then with every redraw:
+    // erase, save, write, restore
 
     var i: usize = 0;
-    while (i < 100) : (i += 1) {
-        var node = root_node.start(sub_task_names[next_sub_task], 5);
-        node.activate();
-        next_sub_task = (next_sub_task + 1) % sub_task_names.len;
+    const buf = global_progress.draw_buffer;
 
-        node.completeOne();
-        std.time.sleep(5 * speed_factor);
-        node.completeOne();
-        node.completeOne();
-        std.time.sleep(5 * speed_factor);
-        node.completeOne();
-        node.completeOne();
-        std.time.sleep(5 * speed_factor);
+    const prefix = start_sync ++ clear ++ save;
+    const suffix = restore ++ finish_sync;
 
-        node.end();
+    buf[0..prefix.len].* = prefix.*;
+    i = prefix.len;
 
-        std.time.sleep(5 * speed_factor);
+    // Walk the tree and write the progress output to the buffer.
+
+    var node: *Node = &global_progress.root;
+    while (true) {
+        const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
+        const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
+
+        if (node.name.len != 0 or eti > 0) {
+            if (node.name.len != 0) {
+                i += (std.fmt.bufPrint(buf[i..], "{s}", .{node.name}) catch @panic("TODO")).len;
+            }
+            if (eti > 0) {
+                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, eti }) catch @panic("TODO")).len;
+            } else if (completed_items != 0) {
+                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch @panic("TODO")).len;
+            }
+        }
+
+        node = @atomicLoad(?*Node, &node.recently_updated_child, .acquire) orelse break;
     }
-    {
-        var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", 0);
-        node.activate();
-        std.time.sleep(10 * speed_factor);
-        progress.refresh();
-        std.time.sleep(10 * speed_factor);
-        node.end();
+
+    i = @min(global_progress.cols + prefix.len, i);
+
+    buf[i..][0..suffix.len].* = suffix.*;
+    i += suffix.len;
+
+    return buf[0..i];
+}
+
+fn write(buf: []const u8) void {
+    const tty = global_progress.terminal orelse return;
+    tty.writeAll(buf) catch {
+        global_progress.terminal = null;
+    };
+}
+
+fn maybeUpdateSize(resize_flag: bool) void {
+    if (!resize_flag) return;
+
+    var winsize: posix.winsize = .{
+        .ws_row = 0,
+        .ws_col = 0,
+        .ws_xpixel = 0,
+        .ws_ypixel = 0,
+    };
+
+    const fd = (global_progress.terminal orelse return).handle;
+
+    const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
+    if (posix.errno(err) == .SUCCESS) {
+        global_progress.rows = winsize.ws_row;
+        global_progress.cols = winsize.ws_col;
+    } else {
+        @panic("TODO: handle this failure");
     }
+}
+
+fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+    _ = info;
+    _ = ctx_ptr;
+    assert(sig == posix.SIG.WINCH);
+    global_progress.redraw_event.set();
 }
