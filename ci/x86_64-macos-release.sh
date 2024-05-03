@@ -59,6 +59,7 @@ stage3/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
+  -Dskip-release-small \ # https://github.com/ziglang/zig/issues/19851
   --search-prefix "$PREFIX"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
