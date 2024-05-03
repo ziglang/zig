@@ -30,7 +30,7 @@ fn testToPrefixedFileNoOracle(comptime path: []const u8, comptime expected_path:
     const expected_path_utf16 = std.unicode.utf8ToUtf16LeStringLiteral(expected_path);
     const actual_path = try windows.wToPrefixedFileW(null, path_utf16);
     std.testing.expectEqualSlices(u16, expected_path_utf16, actual_path.span()) catch |e| {
-        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(actual_path.span()), std.unicode.fmtUtf16le(expected_path_utf16) });
+        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(actual_path.span()), std.unicode.fmtUtf16Le(expected_path_utf16) });
         return e;
     };
 }
@@ -48,7 +48,7 @@ fn testToPrefixedFileOnlyOracle(comptime path: []const u8) !void {
     const zig_result = try windows.wToPrefixedFileW(null, path_utf16);
     const win32_api_result = try RtlDosPathNameToNtPathName_U(path_utf16);
     std.testing.expectEqualSlices(u16, win32_api_result.span(), zig_result.span()) catch |e| {
-        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(zig_result.span()), std.unicode.fmtUtf16le(win32_api_result.span()) });
+        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(zig_result.span()), std.unicode.fmtUtf16Le(win32_api_result.span()) });
         return e;
     };
 }

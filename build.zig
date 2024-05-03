@@ -15,7 +15,7 @@ const stack_size = 32 * 1024 * 1024;
 pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
-        var default_target: std.zig.CrossTarget = .{};
+        var default_target: std.Target.Query = .{};
         default_target.ofmt = b.option(std.Target.ObjectFormat, "ofmt", "Object format to target") orelse if (only_c) .c else null;
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
@@ -559,7 +559,7 @@ pub fn build(b: *std.Build) !void {
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     const semver = try std.SemanticVersion.parse(version);
 
-    var target_query: std.zig.CrossTarget = .{
+    var target_query: std.Target.Query = .{
         .cpu_arch = .wasm32,
         .os_tag = .wasi,
     };

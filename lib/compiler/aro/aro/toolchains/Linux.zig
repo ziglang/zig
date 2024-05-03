@@ -478,7 +478,7 @@ test Linux {
     var argv = std.ArrayList([]const u8).init(driver.comp.gpa);
     defer argv.deinit();
 
-    var linker_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var linker_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const linker_path = try toolchain.getLinkerPath(&linker_path_buf);
     try argv.append(linker_path);
 

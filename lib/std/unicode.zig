@@ -983,8 +983,7 @@ pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) 
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
 }
 
-/// Deprecated; renamed to utf16LeToUtf8Alloc
-pub const utf16leToUtf8Alloc = utf16LeToUtf8Alloc;
+pub const utf16leToUtf8Alloc = @compileError("deprecated; renamed to utf16LeToUtf8Alloc");
 
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![]u8 {
@@ -996,8 +995,7 @@ pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16L
     return result.toOwnedSlice();
 }
 
-/// Deprecated; renamed to utf16LeToUtf8AllocZ
-pub const utf16leToUtf8AllocZ = utf16LeToUtf8AllocZ;
+pub const utf16leToUtf8AllocZ = @compileError("deprecated; renamed to utf16LeToUtf8AllocZ");
 
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![:0]u8 {
@@ -1067,8 +1065,7 @@ fn utf16LeToUtf8Impl(utf8: []u8, utf16le: []const u16, comptime surrogates: Surr
     return dest_index;
 }
 
-/// Deprecated; renamed to utf16LeToUtf8
-pub const utf16leToUtf8 = utf16LeToUtf8;
+pub const utf16leToUtf8 = @compileError("deprecated; renamed to utf16LeToUtf8");
 
 pub fn utf16LeToUtf8(utf8: []u8, utf16le: []const u16) Utf16LeToUtf8Error!usize {
     return utf16LeToUtf8Impl(utf8, utf16le, .cannot_encode_surrogate_half);
@@ -1189,8 +1186,7 @@ pub fn utf8ToUtf16LeAlloc(allocator: mem.Allocator, utf8: []const u8) error{ Inv
     return result.toOwnedSlice();
 }
 
-/// Deprecated; renamed to utf8ToUtf16LeAllocZ
-pub const utf8ToUtf16LeWithNull = utf8ToUtf16LeAllocZ;
+pub const utf8ToUtf16LeWithNull = @compileError("deprecated; renamed to utf8ToUtf16LeAllocZ");
 
 pub fn utf8ToUtf16LeAllocZ(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![:0]u16 {
     // optimistically guess that it will not require surrogate pairs
@@ -1335,7 +1331,7 @@ test utf8ToUtf16LeAllocZ {
         try testing.expectError(error.InvalidUtf8, result);
     }
     {
-        const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "This string has been designed to test the vectorized implementat" ++
+        const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "This string has been designed to test the vectorized implementat" ++
             "ion by beginning with one hundred twenty-seven ASCII characters¡");
         defer testing.allocator.free(utf16);
         try testing.expectEqualSlices(u8, &.{
@@ -1479,8 +1475,7 @@ fn formatUtf16Le(
     try writer.writeAll(buf[0..u8len]);
 }
 
-/// Deprecated; renamed to fmtUtf16Le
-pub const fmtUtf16le = fmtUtf16Le;
+pub const fmtUtf16le = @compileError("deprecated; renamed to fmtUtf16Le");
 
 /// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
 /// which will be converted to UTF-8 during formatting.

@@ -1298,7 +1298,7 @@ pub fn readElfDebugInfo(
                     if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
                 }
 
-                var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var cwd_buf: [fs.max_path_bytes]u8 = undefined;
                 const cwd_path = posix.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>

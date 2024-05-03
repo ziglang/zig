@@ -1230,7 +1230,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
                         const rel_path = try fs.path.join(arena, &.{ prefix, path });
                         try checked_paths.append(rel_path);
-                        var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                        var buffer: [fs.max_path_bytes]u8 = undefined;
                         const full_path = fs.realpath(rel_path, &buffer) catch continue;
                         break :full_path try arena.dupe(u8, full_path);
                     }
@@ -1243,7 +1243,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                 }
 
                 try checked_paths.append(try arena.dupe(u8, id.name));
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buffer: [fs.max_path_bytes]u8 = undefined;
                 if (fs.realpath(id.name, &buffer)) |full_path| {
                     break :full_path try arena.dupe(u8, full_path);
                 } else |_| {
