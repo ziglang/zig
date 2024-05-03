@@ -265,7 +265,7 @@ pub const CRTFile = struct {
 
 /// Supported languages for "zig clang -x <lang>".
 /// Loosely based on llvm-project/clang/include/clang/Driver/Types.def
-pub const LangToExt = std.ComptimeStringMap(FileExt, .{
+pub const LangToExt = std.StaticStringMap(FileExt).initComptime(.{
     .{ "c", .c },
     .{ "c-header", .h },
     .{ "c++", .cpp },
@@ -2811,8 +2811,8 @@ fn addBuf(bufs_list: []std.posix.iovec_const, bufs_len: *usize, buf: []const u8)
     const i = bufs_len.*;
     bufs_len.* = i + 1;
     bufs_list[i] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .base = buf.ptr,
+        .len = buf.len,
     };
 }
 
@@ -3800,8 +3800,8 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
         };
 
         var header_and_trailer: [2]std.posix.iovec_const = .{
-            .{ .iov_base = header_bytes.ptr, .iov_len = header_bytes.len },
-            .{ .iov_base = padding.ptr, .iov_len = padding.len },
+            .{ .base = header_bytes.ptr, .len = header_bytes.len },
+            .{ .base = padding.ptr, .len = padding.len },
         };
 
         try tar_file.writeFileAll(file, .{

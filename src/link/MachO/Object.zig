@@ -34,6 +34,7 @@ output_ar_state: Archive.ArState = .{},
 const InArchive = struct {
     path: []const u8,
     offset: u64,
+    size: u32,
 };
 
 pub fn isObject(path: []const u8) !bool {
@@ -690,11 +691,13 @@ fn initRelocs(self: *Object, macho_file: *MachO) !void {
             if (!atom.flags.alive) continue;
             if (next_reloc >= relocs.items.len) break;
             const end_addr = atom.off + atom.size;
-            atom.relocs.pos = next_reloc;
+            const rel_index = next_reloc;
 
             while (next_reloc < relocs.items.len and relocs.items[next_reloc].offset < end_addr) : (next_reloc += 1) {}
 
-            atom.relocs.len = next_reloc - atom.relocs.pos;
+            const rel_count = next_reloc - rel_index;
+            try atom.addExtra(.{ .rel_index = rel_index, .rel_count = rel_count }, macho_file);
+            atom.flags.relocs = true;
         }
     }
 }
@@ -1004,7 +1007,8 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
         {}
 
         const atom = rec.getAtom(macho_file);
-        atom.unwind_records = .{ .pos = start, .len = next_cu - start };
+        try atom.addExtra(.{ .unwind_index = start, .unwind_count = next_cu - start }, macho_file);
+        atom.flags.unwind = true;
     }
 }
 
@@ -1330,14 +1334,16 @@ pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, macho_file: *M
 }
 
 pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
-    const file = macho_file.getFileHandle(self.file_handle);
-    const size = (try file.stat()).size;
-    self.output_ar_state.size = size;
+    self.output_ar_state.size = if (self.archive) |ar| ar.size else size: {
+        const file = macho_file.getFileHandle(self.file_handle);
+        break :size (try file.stat()).size;
+    };
 }
 
 pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    const offset: u64 = if (self.archive) |ar| ar.offset else 0;
     try Archive.writeHeader(self.path, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
@@ -1345,7 +1351,7 @@ pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writ
     const gpa = macho_file.base.comp.gpa;
     const data = try gpa.alloc(u8, size);
     defer gpa.free(data);
-    const amt = try file.preadAll(data, 0);
+    const amt = try file.preadAll(data, offset);
     if (amt != size) return error.InputOutput;
     try writer.writeAll(data);
 }
@@ -1385,7 +1391,6 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
 
 pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
     if (self.dwarf_info) |dw| {
-        // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
         const comp_dir = try cu.getCompileDir(dw) orelse return;
         const tu_name = try cu.getSourceFile(dw) orelse return;
@@ -1504,7 +1509,6 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
     var index = self.output_symtab_ctx.istab;
 
     if (self.dwarf_info) |dw| {
-        // TODO handle multiple CUs
         const cu = dw.compile_units.items[0];
         const comp_dir = try cu.getCompileDir(dw) orelse return;
         const tu_name = try cu.getSourceFile(dw) orelse return;
@@ -1724,9 +1728,11 @@ pub fn getAtomData(self: *const Object, macho_file: *MachO, atom: Atom, buffer: 
     if (amt != buffer.len) return error.InputOutput;
 }
 
-pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
+pub fn getAtomRelocs(self: *const Object, atom: Atom, macho_file: *MachO) []const Relocation {
+    if (!atom.flags.relocs) return &[0]Relocation{};
+    const extra = atom.getExtra(macho_file).?;
     const relocs = self.sections.items(.relocs)[atom.n_sect];
-    return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
+    return relocs.items[extra.rel_index..][0..extra.rel_count];
 }
 
 fn addString(self: *Object, allocator: Allocator, name: [:0]const u8) error{OutOfMemory}!u32 {
@@ -1750,7 +1756,6 @@ pub fn hasEhFrameRecords(self: Object) bool {
     return self.cies.items.len > 0;
 }
 
-/// TODO handle multiple CUs
 pub fn hasDebugInfo(self: Object) bool {
     if (self.dwarf_info) |dw| {
         return dw.compile_units.items.len > 0;

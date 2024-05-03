@@ -64,6 +64,7 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
             .archive = .{
                 .path = try gpa.dupe(u8, path),
                 .offset = pos,
+                .size = obj_size,
             },
             .path = try gpa.dupe(u8, name),
             .file_handle = handle_index,

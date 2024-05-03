@@ -1384,7 +1384,7 @@ pub const Object = struct {
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
         const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
-        const target = zcu.getTarget();
+        const target = owner_mod.resolved_target.result;
         const ip = &zcu.intern_pool;
 
         var dg: DeclGen = .{
@@ -1456,7 +1456,7 @@ pub const Object = struct {
         var llvm_arg_i: u32 = 0;
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
-        const sret = firstParamSRet(fn_info, zcu);
+        const sret = firstParamSRet(fn_info, zcu, target);
         const ret_ptr: Builder.Value = if (sret) param: {
             const param = wip.arg(llvm_arg_i);
             llvm_arg_i += 1;
@@ -2755,7 +2755,7 @@ pub const Object = struct {
 
                 // Return type goes first.
                 if (Type.fromInterned(fn_info.return_type).hasRuntimeBitsIgnoreComptime(mod)) {
-                    const sret = firstParamSRet(fn_info, mod);
+                    const sret = firstParamSRet(fn_info, mod, target);
                     const ret_ty = if (sret) Type.void else Type.fromInterned(fn_info.return_type);
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ret_ty));
 
@@ -2881,7 +2881,7 @@ pub const Object = struct {
         assert(decl.has_tv);
         const fn_info = zcu.typeToFunc(zig_fn_type).?;
         const target = owner_mod.resolved_target.result;
-        const sret = firstParamSRet(fn_info, zcu);
+        const sret = firstParamSRet(fn_info, zcu, target);
 
         const is_extern = decl.isExtern(zcu);
         const function_index = try o.builder.addFunction(
@@ -3604,7 +3604,7 @@ pub const Object = struct {
         var llvm_params = std.ArrayListUnmanaged(Builder.Type){};
         defer llvm_params.deinit(o.gpa);
 
-        if (firstParamSRet(fn_info, mod)) {
+        if (firstParamSRet(fn_info, mod, target)) {
             try llvm_params.append(o.gpa, .ptr);
         }
 
@@ -3663,6 +3663,124 @@ pub const Object = struct {
             llvm_params.items,
             if (fn_info.is_var_args) .vararg else .normal,
         );
+    }
+
+    fn lowerValueToInt(o: *Object, llvm_int_ty: Builder.Type, arg_val: InternPool.Index) Error!Builder.Constant {
+        const mod = o.module;
+        const ip = &mod.intern_pool;
+        const target = mod.getTarget();
+
+        const val = Value.fromInterned(arg_val);
+        const val_key = ip.indexToKey(val.toIntern());
+
+        if (val.isUndefDeep(mod)) return o.builder.undefConst(llvm_int_ty);
+
+        const ty = Type.fromInterned(val_key.typeOf());
+        switch (val_key) {
+            .extern_func => |extern_func| {
+                const fn_decl_index = extern_func.decl;
+                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+                const ptr = function_index.ptrConst(&o.builder).global.toConst();
+                return o.builder.convConst(ptr, llvm_int_ty);
+            },
+            .func => |func| {
+                const fn_decl_index = func.owner_decl;
+                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+                const ptr = function_index.ptrConst(&o.builder).global.toConst();
+                return o.builder.convConst(ptr, llvm_int_ty);
+            },
+            .ptr => return o.builder.convConst(try o.lowerPtr(arg_val, 0), llvm_int_ty),
+            .aggregate => switch (ip.indexToKey(ty.toIntern())) {
+                .struct_type => {
+                    const struct_type = ip.loadStructType(ty.toIntern());
+                    assert(struct_type.haveLayout(ip));
+                    assert(struct_type.layout == .@"packed");
+                    comptime assert(Type.packed_struct_layout_version == 2);
+                    var running_int = try o.builder.intConst(llvm_int_ty, 0);
+                    var running_bits: u16 = 0;
+                    for (struct_type.field_types.get(ip), 0..) |field_ty, field_index| {
+                        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                        const shift_rhs = try o.builder.intConst(llvm_int_ty, running_bits);
+                        const field_val = try o.lowerValueToInt(llvm_int_ty, (try val.fieldValue(mod, field_index)).toIntern());
+                        const shifted = try o.builder.binConst(.shl, field_val, shift_rhs);
+
+                        running_int = try o.builder.binConst(.xor, running_int, shifted);
+
+                        const ty_bit_size: u16 = @intCast(Type.fromInterned(field_ty).bitSize(mod));
+                        running_bits += ty_bit_size;
+                    }
+                    return running_int;
+                },
+                .vector_type => {},
+                else => unreachable,
+            },
+            .un => |un| {
+                const layout = ty.unionGetLayout(mod);
+                if (layout.payload_size == 0) return o.lowerValue(un.tag);
+
+                const union_obj = mod.typeToUnion(ty).?;
+                const container_layout = union_obj.getLayout(ip);
+
+                assert(container_layout == .@"packed");
+
+                var need_unnamed = false;
+                if (un.tag == .none) {
+                    assert(layout.tag_size == 0);
+                    const union_val = try o.lowerValueToInt(llvm_int_ty, un.val);
+
+                    need_unnamed = true;
+                    return union_val;
+                }
+                const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
+                const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
+                if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(llvm_int_ty, 0);
+                return o.lowerValueToInt(llvm_int_ty, un.val);
+            },
+            .simple_value => |simple_value| switch (simple_value) {
+                .false, .true => {},
+                else => unreachable,
+            },
+            .int,
+            .float,
+            .enum_tag,
+            => {},
+            else => unreachable,
+        }
+        const bits = ty.bitSize(mod);
+        const bytes: usize = @intCast(std.mem.alignForward(u64, bits, 8) / 8);
+
+        var stack = std.heap.stackFallback(32, o.gpa);
+        const allocator = stack.get();
+
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            std.mem.alignForward(usize, bytes, @sizeOf(std.math.big.Limb)) /
+                @sizeOf(std.math.big.Limb),
+        );
+        defer allocator.free(limbs);
+        @memset(limbs, 0);
+
+        val.writeToPackedMemory(
+            ty,
+            mod,
+            std.mem.sliceAsBytes(limbs)[0..bytes],
+            0,
+        ) catch unreachable;
+
+        if (builtin.target.cpu.arch.endian() == .little) {
+            if (target.cpu.arch.endian() == .big)
+                std.mem.reverse(u8, std.mem.sliceAsBytes(limbs)[0..bytes]);
+        } else if (target.cpu.arch.endian() == .little) {
+            for (limbs) |*limb| {
+                limb.* = std.mem.nativeToLittle(usize, limb.*);
+            }
+        }
+
+        return o.builder.bigIntConst(llvm_int_ty, .{
+            .limbs = limbs,
+            .positive = true,
+        });
     }
 
     fn lowerValue(o: *Object, arg_val: InternPool.Index) Error!Builder.Constant {
@@ -4022,28 +4140,11 @@ pub const Object = struct {
                     const struct_ty = try o.lowerType(ty);
                     if (struct_type.layout == .@"packed") {
                         comptime assert(Type.packed_struct_layout_version == 2);
-                        var running_int = try o.builder.intConst(struct_ty, 0);
-                        var running_bits: u16 = 0;
-                        for (struct_type.field_types.get(ip), 0..) |field_ty, field_index| {
-                            if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                            const non_int_val =
-                                try o.lowerValue((try val.fieldValue(mod, field_index)).toIntern());
-                            const ty_bit_size: u16 = @intCast(Type.fromInterned(field_ty).bitSize(mod));
-                            const small_int_ty = try o.builder.intType(ty_bit_size);
-                            const small_int_val = try o.builder.castConst(
-                                if (Type.fromInterned(field_ty).isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
-                                non_int_val,
-                                small_int_ty,
-                            );
-                            const shift_rhs = try o.builder.intConst(struct_ty, running_bits);
-                            const extended_int_val =
-                                try o.builder.convConst(.unsigned, small_int_val, struct_ty);
-                            const shifted = try o.builder.binConst(.shl, extended_int_val, shift_rhs);
-                            running_int = try o.builder.binConst(.@"or", running_int, shifted);
-                            running_bits += ty_bit_size;
-                        }
-                        return running_int;
+                        const bits = ty.bitSize(mod);
+                        const llvm_int_ty = try o.builder.intType(@intCast(bits));
+
+                        return o.lowerValueToInt(llvm_int_ty, arg_val);
                     }
                     const llvm_len = struct_ty.aggregateLen(&o.builder);
 
@@ -4138,12 +4239,10 @@ pub const Object = struct {
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     if (container_layout == .@"packed") {
                         if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(union_ty, 0);
-                        const small_int_val = try o.builder.castConst(
-                            if (field_ty.isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
-                            try o.lowerValue(un.val),
-                            try o.builder.intType(@intCast(field_ty.bitSize(mod))),
-                        );
-                        return o.builder.convConst(.unsigned, small_int_val, union_ty);
+                        const bits = ty.bitSize(mod);
+                        const llvm_int_ty = try o.builder.intType(@intCast(bits));
+
+                        return o.lowerValueToInt(llvm_int_ty, arg_val);
                     }
 
                     // Sometimes we must make an unnamed struct because LLVM does
@@ -4171,16 +4270,14 @@ pub const Object = struct {
                     );
                 } else p: {
                     assert(layout.tag_size == 0);
-                    const union_val = try o.lowerValue(un.val);
                     if (container_layout == .@"packed") {
-                        const bitcast_val = try o.builder.castConst(
-                            .bitcast,
-                            union_val,
-                            try o.builder.intType(@intCast(ty.bitSize(mod))),
-                        );
-                        return o.builder.convConst(.unsigned, bitcast_val, union_ty);
+                        const bits = ty.bitSize(mod);
+                        const llvm_int_ty = try o.builder.intType(@intCast(bits));
+
+                        return o.lowerValueToInt(llvm_int_ty, arg_val);
                     }
 
+                    const union_val = try o.lowerValue(un.val);
                     need_unnamed = true;
                     break :p union_val;
                 };
@@ -4316,12 +4413,11 @@ pub const Object = struct {
         const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
-            .unneeded,
             llvm_global.toConst(),
             try o.builder.ptrType(llvm_addr_space),
         );
 
-        return o.builder.convConst(.unneeded, llvm_val, try o.lowerType(ptr_ty));
+        return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
     }
 
     fn lowerDeclRefValue(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
@@ -4359,12 +4455,11 @@ pub const Object = struct {
             (try o.resolveGlobalDecl(decl_index)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
-            .unneeded,
             llvm_global.toConst(),
             try o.builder.ptrType(toLlvmAddressSpace(decl.@"addrspace", mod.getTarget())),
         );
 
-        return o.builder.convConst(.unneeded, llvm_val, try o.lowerType(ptr_ty));
+        return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
     }
 
     fn lowerPtrToVoid(o: *Object, ptr_ty: Type) Allocator.Error!Builder.Constant {
@@ -4433,6 +4528,10 @@ pub const Object = struct {
             }
             if (!param_ty.isPtrLikeOptional(mod) and !ptr_info.flags.is_allowzero) {
                 try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
+            }
+            if (fn_info.cc == .Interrupt) {
+                const child_type = try lowerType(o, Type.fromInterned(ptr_info.child));
+                try attributes.addParamAttr(llvm_arg_i, .{ .byval = child_type }, &o.builder);
             }
             if (ptr_info.flags.is_const) {
                 try attributes.addParamAttr(llvm_arg_i, .readonly, &o.builder);
@@ -4750,7 +4849,6 @@ pub const FuncGen = struct {
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         variable_index.setAlignment(ty.abiAlignment(mod).toLlvm(), &o.builder);
         return o.builder.convConst(
-            .unneeded,
             variable_index.toConst(&o.builder),
             try o.builder.ptrType(toLlvmAddressSpace(.generic, target)),
         );
@@ -5130,7 +5228,7 @@ pub const FuncGen = struct {
         const return_type = Type.fromInterned(fn_info.return_type);
         const llvm_fn = try self.resolveInst(pl_op.operand);
         const target = mod.getTarget();
-        const sret = firstParamSRet(fn_info, mod);
+        const sret = firstParamSRet(fn_info, mod, target);
 
         var llvm_args = std.ArrayList(Builder.Value).init(self.gpa);
         defer llvm_args.deinit();
@@ -9993,20 +10091,21 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, small_int_val, int_llvm_ty, "");
         }
 
-        const tag_int = blk: {
+        const tag_int_val = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const union_field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
-            const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
-            break :blk tag_int_val.toUnsignedInt(mod);
+            break :blk try tag_val.intFromEnum(tag_ty, mod);
         };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 return .none;
             }
             assert(!isByRef(union_ty, mod));
-            return o.builder.intValue(union_llvm_ty, tag_int);
+            var big_int_space: Value.BigIntSpace = undefined;
+            const tag_big_int = tag_int_val.toBigInt(&big_int_space, mod);
+            return try o.builder.bigIntValue(union_llvm_ty, tag_big_int);
         }
         assert(isByRef(union_ty, mod));
         // The llvm type of the alloca will be the named LLVM union type, and will not
@@ -10080,7 +10179,9 @@ pub const FuncGen = struct {
             const indices: [2]Builder.Value = .{ usize_zero, try o.builder.intValue(.i32, tag_index) };
             const field_ptr = try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, &indices, "");
             const tag_ty = try o.lowerType(Type.fromInterned(union_obj.enum_tag_ty));
-            const llvm_tag = try o.builder.intValue(tag_ty, tag_int);
+            var big_int_space: Value.BigIntSpace = undefined;
+            const tag_big_int = tag_int_val.toBigInt(&big_int_space, mod);
+            const llvm_tag = try o.builder.bigIntValue(tag_ty, tag_big_int);
             const tag_alignment = Type.fromInterned(union_obj.enum_tag_ty).abiAlignment(mod).toLlvm();
             _ = try self.wip.store(.normal, llvm_tag, field_ptr, tag_alignment);
         }
@@ -10413,9 +10514,9 @@ pub const FuncGen = struct {
 
         const anded = if (workaround_explicit_mask and payload_llvm_ty != load_llvm_ty) blk: {
             // this is rendundant with llvm.trunc. But without it, llvm17 emits invalid code for powerpc.
-            var mask_val = try o.builder.intConst(payload_llvm_ty, -1);
-            mask_val = try o.builder.castConst(.zext, mask_val, load_llvm_ty);
-            break :blk try fg.wip.bin(.@"and", shifted, mask_val.toValue(), "");
+            const mask_val = try o.builder.intValue(payload_llvm_ty, -1);
+            const zext_mask_val = try fg.wip.cast(.zext, mask_val, load_llvm_ty, "");
+            break :blk try fg.wip.bin(.@"and", shifted, zext_mask_val, "");
         } else shifted;
 
         return fg.wip.conv(.unneeded, anded, payload_llvm_ty, "");
@@ -10563,14 +10664,23 @@ pub const FuncGen = struct {
             else
                 try self.wip.cast(.bitcast, elem, value_bits_type, "");
 
-            var mask_val = try o.builder.intConst(value_bits_type, -1);
-            mask_val = try o.builder.castConst(.zext, mask_val, containing_int_ty);
-            mask_val = try o.builder.binConst(.shl, mask_val, shift_amt);
-            mask_val =
-                try o.builder.binConst(.xor, mask_val, try o.builder.intConst(containing_int_ty, -1));
+            const mask_val = blk: {
+                const zext = try self.wip.cast(
+                    .zext,
+                    try o.builder.intValue(value_bits_type, -1),
+                    containing_int_ty,
+                    "",
+                );
+                const shl = try self.wip.bin(.shl, zext, shift_amt.toValue(), "");
+                break :blk try self.wip.bin(
+                    .xor,
+                    shl,
+                    try o.builder.intValue(containing_int_ty, -1),
+                    "",
+                );
+            };
 
-            const anded_containing_int =
-                try self.wip.bin(.@"and", containing_int, mask_val.toValue(), "");
+            const anded_containing_int = try self.wip.bin(.@"and", containing_int, mask_val, "");
             const extended_value = try self.wip.cast(.zext, value_bits, containing_int_ty, "");
             const shifted_value = try self.wip.bin(.shl, extended_value, shift_amt.toValue(), "");
             const ored_value = try self.wip.bin(.@"or", shifted_value, anded_containing_int, "");
@@ -10865,38 +10975,38 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, targ
     };
 }
 
-fn firstParamSRet(fn_info: InternPool.Key.FuncType, mod: *Module) bool {
+fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Target) bool {
     const return_type = Type.fromInterned(fn_info.return_type);
-    if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) return false;
+    if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
-    const target = mod.getTarget();
-    switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(return_type, mod),
+    return switch (fn_info.cc) {
+        .Unspecified, .Inline => isByRef(return_type, zcu),
         .C => switch (target.cpu.arch) {
-            .mips, .mipsel => return false,
+            .mips, .mipsel => false,
+            .x86 => isByRef(return_type, zcu),
             .x86_64 => switch (target.os.tag) {
-                .windows => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
-                else => return firstParamSRetSystemV(return_type, mod),
+                .windows => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+                else => firstParamSRetSystemV(return_type, zcu, target),
             },
-            .wasm32 => return wasm_c_abi.classifyType(return_type, mod)[0] == .indirect,
-            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(return_type, mod) == .memory,
-            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, mod, .ret)) {
-                .memory, .i64_array => return true,
-                .i32_array => |size| return size != 1,
-                .byval => return false,
+            .wasm32 => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+            .aarch64, .aarch64_be => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
+            .arm, .armeb => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+                .memory, .i64_array => true,
+                .i32_array => |size| size != 1,
+                .byval => false,
             },
-            .riscv32, .riscv64 => return riscv_c_abi.classifyType(return_type, mod) == .memory,
-            else => return false, // TODO investigate C ABI for other architectures
+            .riscv32, .riscv64 => riscv_c_abi.classifyType(return_type, zcu) == .memory,
+            else => false, // TODO investigate C ABI for other architectures
         },
-        .SysV => return firstParamSRetSystemV(return_type, mod),
-        .Win64 => return x86_64_abi.classifyWindows(return_type, mod) == .memory,
-        .Stdcall => return !isScalar(mod, return_type),
-        else => return false,
-    }
+        .SysV => firstParamSRetSystemV(return_type, zcu, target),
+        .Win64 => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+        .Stdcall => !isScalar(zcu, return_type),
+        else => false,
+    };
 }
 
-fn firstParamSRetSystemV(ty: Type, mod: *Module) bool {
-    const class = x86_64_abi.classifySystemV(ty, mod, .ret);
+fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: std.Target) bool {
+    const class = x86_64_abi.classifySystemV(ty, zcu, target, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
     return false;
@@ -10922,6 +11032,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
         .C => {
             switch (target.cpu.arch) {
                 .mips, .mipsel => return o.lowerType(return_type),
+                .x86 => return if (isByRef(return_type, mod)) .void else o.lowerType(return_type),
                 .x86_64 => switch (target.os.tag) {
                     .windows => return lowerWin64FnRetTy(o, fn_info),
                     else => return lowerSystemVFnRetTy(o, fn_info),
@@ -11014,7 +11125,8 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
     if (isScalar(mod, return_type)) {
         return o.lowerType(return_type);
     }
-    const classes = x86_64_abi.classifySystemV(return_type, mod, .ret);
+    const target = mod.getTarget();
+    const classes = x86_64_abi.classifySystemV(return_type, mod, target, .ret);
     if (classes[0] == .memory) return .void;
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
@@ -11098,8 +11210,8 @@ const ParamTypeIterator = struct {
 
     pub fn next(it: *ParamTypeIterator) Allocator.Error!?Lowering {
         if (it.zig_index >= it.fn_info.param_types.len) return null;
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
         const ty = it.fn_info.param_types.get(ip)[it.zig_index];
         it.byval_attr = false;
         return nextInner(it, Type.fromInterned(ty));
@@ -11107,8 +11219,8 @@ const ParamTypeIterator = struct {
 
     /// `airCall` uses this instead of `next` so that it can take into account variadic functions.
     pub fn nextCall(it: *ParamTypeIterator, fg: *FuncGen, args: []const Air.Inst.Ref) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
         if (it.zig_index >= it.fn_info.param_types.len) {
             if (it.zig_index >= args.len) {
                 return null;
@@ -11121,10 +11233,10 @@ const ParamTypeIterator = struct {
     }
 
     fn nextInner(it: *ParamTypeIterator, ty: Type) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const target = mod.getTarget();
+        const zcu = it.object.module;
+        const target = zcu.getTarget();
 
-        if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             it.zig_index += 1;
             return .no_bits;
         }
@@ -11132,12 +11244,12 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (ty.isSlice(mod) or
-                    (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(mod).isSlice(mod) and !ty.ptrAllowsZero(mod)))
+                if (ty.isSlice(zcu) or
+                    (ty.zigTypeTag(zcu) == .Optional and ty.optionalChild(zcu).isSlice(zcu) and !ty.ptrAllowsZero(zcu)))
                 {
                     it.llvm_index += 1;
                     return .slice;
-                } else if (isByRef(ty, mod)) {
+                } else if (isByRef(ty, zcu)) {
                     return .byref;
                 } else {
                     return .byval;
@@ -11146,87 +11258,85 @@ const ParamTypeIterator = struct {
             .Async => {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
-            .C => {
-                switch (target.cpu.arch) {
-                    .mips, .mipsel => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
+            .C => switch (target.cpu.arch) {
+                .mips, .mipsel => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                },
+                .x86_64 => switch (target.os.tag) {
+                    .windows => return it.nextWin64(ty),
+                    else => return it.nextSystemV(ty),
+                },
+                .wasm32 => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    if (isScalar(zcu, ty)) {
                         return .byval;
-                    },
-                    .x86_64 => switch (target.os.tag) {
-                        .windows => return it.nextWin64(ty),
-                        else => return it.nextSystemV(ty),
-                    },
-                    .wasm32 => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        if (isScalar(mod, ty)) {
-                            return .byval;
-                        }
-                        const classes = wasm_c_abi.classifyType(ty, mod);
-                        if (classes[0] == .indirect) {
+                    }
+                    const classes = wasm_c_abi.classifyType(ty, zcu);
+                    if (classes[0] == .indirect) {
+                        return .byref;
+                    }
+                    return .abi_sized_int;
+                },
+                .aarch64, .aarch64_be => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    switch (aarch64_c_abi.classifyType(ty, zcu)) {
+                        .memory => return .byref_mut,
+                        .float_array => |len| return Lowering{ .float_array = len },
+                        .byval => return .byval,
+                        .integer => {
+                            it.types_len = 1;
+                            it.types_buffer[0] = .i64;
+                            return .multiple_llvm_types;
+                        },
+                        .double_integer => return Lowering{ .i64_array = 2 },
+                    }
+                },
+                .arm, .armeb => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
+                        .memory => {
+                            it.byval_attr = true;
                             return .byref;
-                        }
-                        return .abi_sized_int;
-                    },
-                    .aarch64, .aarch64_be => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        switch (aarch64_c_abi.classifyType(ty, mod)) {
-                            .memory => return .byref_mut,
-                            .float_array => |len| return Lowering{ .float_array = len },
-                            .byval => return .byval,
-                            .integer => {
-                                it.types_len = 1;
-                                it.types_buffer[0] = .i64;
-                                return .multiple_llvm_types;
-                            },
-                            .double_integer => return Lowering{ .i64_array = 2 },
-                        }
-                    },
-                    .arm, .armeb => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        switch (arm_c_abi.classifyType(ty, mod, .arg)) {
-                            .memory => {
-                                it.byval_attr = true;
-                                return .byref;
-                            },
-                            .byval => return .byval,
-                            .i32_array => |size| return Lowering{ .i32_array = size },
-                            .i64_array => |size| return Lowering{ .i64_array = size },
-                        }
-                    },
-                    .riscv32, .riscv64 => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        if (ty.toIntern() == .f16_type and
-                            !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
-                        switch (riscv_c_abi.classifyType(ty, mod)) {
-                            .memory => return .byref_mut,
-                            .byval => return .byval,
-                            .integer => return .abi_sized_int,
-                            .double_integer => return Lowering{ .i64_array = 2 },
-                            .fields => {
-                                it.types_len = 0;
-                                for (0..ty.structFieldCount(mod)) |field_index| {
-                                    const field_ty = ty.structFieldType(field_index, mod);
-                                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                    it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
-                                    it.types_len += 1;
-                                }
-                                it.llvm_index += it.types_len - 1;
-                                return .multiple_llvm_types;
-                            },
-                        }
-                    },
-                    // TODO investigate C ABI for other architectures
-                    else => {
-                        it.zig_index += 1;
-                        it.llvm_index += 1;
-                        return .byval;
-                    },
-                }
+                        },
+                        .byval => return .byval,
+                        .i32_array => |size| return Lowering{ .i32_array = size },
+                        .i64_array => |size| return Lowering{ .i64_array = size },
+                    }
+                },
+                .riscv32, .riscv64 => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    if (ty.toIntern() == .f16_type and
+                        !std.Target.riscv.featureSetHas(target.cpu.features, .d)) return .as_u16;
+                    switch (riscv_c_abi.classifyType(ty, zcu)) {
+                        .memory => return .byref_mut,
+                        .byval => return .byval,
+                        .integer => return .abi_sized_int,
+                        .double_integer => return Lowering{ .i64_array = 2 },
+                        .fields => {
+                            it.types_len = 0;
+                            for (0..ty.structFieldCount(zcu)) |field_index| {
+                                const field_ty = ty.structFieldType(field_index, zcu);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                                it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
+                                it.types_len += 1;
+                            }
+                            it.llvm_index += it.types_len - 1;
+                            return .multiple_llvm_types;
+                        },
+                    }
+                },
+                // TODO investigate C ABI for other architectures
+                else => {
+                    it.zig_index += 1;
+                    it.llvm_index += 1;
+                    return .byval;
+                },
             },
             .Win64 => return it.nextWin64(ty),
             .SysV => return it.nextSystemV(ty),
@@ -11234,7 +11344,7 @@ const ParamTypeIterator = struct {
                 it.zig_index += 1;
                 it.llvm_index += 1;
 
-                if (isScalar(mod, ty)) {
+                if (isScalar(zcu, ty)) {
                     return .byval;
                 } else {
                     it.byval_attr = true;
@@ -11250,10 +11360,10 @@ const ParamTypeIterator = struct {
     }
 
     fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
-        const mod = it.object.module;
-        switch (x86_64_abi.classifyWindows(ty, mod)) {
+        const zcu = it.object.module;
+        switch (x86_64_abi.classifyWindows(ty, zcu)) {
             .integer => {
-                if (isScalar(mod, ty)) {
+                if (isScalar(zcu, ty)) {
                     it.zig_index += 1;
                     it.llvm_index += 1;
                     return .byval;
@@ -11283,16 +11393,17 @@ const ParamTypeIterator = struct {
     }
 
     fn nextSystemV(it: *ParamTypeIterator, ty: Type) Allocator.Error!?Lowering {
-        const mod = it.object.module;
-        const ip = &mod.intern_pool;
-        const classes = x86_64_abi.classifySystemV(ty, mod, .arg);
+        const zcu = it.object.module;
+        const ip = &zcu.intern_pool;
+        const target = zcu.getTarget();
+        const classes = x86_64_abi.classifySystemV(ty, zcu, target, .arg);
         if (classes[0] == .memory) {
             it.zig_index += 1;
             it.llvm_index += 1;
             it.byval_attr = true;
             return .byref;
         }
-        if (isScalar(mod, ty)) {
+        if (isScalar(zcu, ty)) {
             it.zig_index += 1;
             it.llvm_index += 1;
             return .byval;

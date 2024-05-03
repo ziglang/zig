@@ -3047,8 +3047,8 @@ fn writeToFile(
 
     // finally, write the entire binary into the file.
     var iovec = [_]std.posix.iovec_const{.{
-        .iov_base = binary_bytes.items.ptr,
-        .iov_len = binary_bytes.items.len,
+        .base = binary_bytes.items.ptr,
+        .len = binary_bytes.items.len,
     }};
     try wasm.base.file.?.writevAll(&iovec);
 }

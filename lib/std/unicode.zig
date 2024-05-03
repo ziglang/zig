@@ -934,7 +934,7 @@ fn utf16LeToUtf8ArrayListImpl(
     .cannot_encode_surrogate_half => Utf16LeToUtf8AllocError,
     .can_encode_surrogate_half => mem.Allocator.Error,
 })!void {
-    assert(result.capacity >= utf16le.len);
+    assert(result.unusedCapacitySlice().len >= utf16le.len);
 
     var remaining = utf16le;
     vectorized: {
@@ -979,7 +979,7 @@ fn utf16LeToUtf8ArrayListImpl(
 pub const Utf16LeToUtf8AllocError = mem.Allocator.Error || Utf16LeToUtf8Error;
 
 pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
-    try result.ensureTotalCapacityPrecise(utf16le.len);
+    try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
 }
 
@@ -1138,7 +1138,7 @@ test utf16LeToUtf8 {
 }
 
 fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, comptime surrogates: Surrogates) !void {
-    assert(result.capacity >= utf8.len);
+    assert(result.unusedCapacitySlice().len >= utf8.len);
 
     var remaining = utf8;
     vectorized: {
@@ -1176,7 +1176,7 @@ fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, com
 }
 
 pub fn utf8ToUtf16LeArrayList(result: *std.ArrayList(u16), utf8: []const u8) error{ InvalidUtf8, OutOfMemory }!void {
-    try result.ensureTotalCapacityPrecise(utf8.len);
+    try result.ensureUnusedCapacity(utf8.len);
     return utf8ToUtf16LeArrayListImpl(result, utf8, .cannot_encode_surrogate_half);
 }
 
@@ -1348,6 +1348,64 @@ test utf8ToUtf16LeAllocZ {
             'd', 0, ' ', 0, 't', 0, 'w', 0, 'e', 0, 'n', 0, 't', 0, 'y', 0, '-', 0, 's', 0, 'e', 0, 'v', 0, 'e', 0, 'n', 0, ' ', 0, 'A',  0,
             'S', 0, 'C', 0, 'I', 0, 'I', 0, ' ', 0, 'c', 0, 'h', 0, 'a', 0, 'r', 0, 'a', 0, 'c', 0, 't', 0, 'e', 0, 'r', 0, 's', 0, '¡', 0,
         }, mem.sliceAsBytes(utf16));
+    }
+}
+
+test "ArrayList functions on a re-used list" {
+    // utf8ToUtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf8ToUtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // utf16LeToUtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf16LeToUtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
+    }
+
+    // wtf8ToWtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf8ToWtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // wtf16LeToWtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf16LeToWtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
     }
 }
 
@@ -1685,7 +1743,7 @@ pub const Wtf8Iterator = struct {
 };
 
 pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) mem.Allocator.Error!void {
-    try result.ensureTotalCapacityPrecise(utf16le.len);
+    try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .can_encode_surrogate_half);
 }
 
@@ -1714,7 +1772,7 @@ pub fn wtf16LeToWtf8(wtf8: []u8, wtf16le: []const u16) usize {
 }
 
 pub fn wtf8ToWtf16LeArrayList(result: *std.ArrayList(u16), wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }!void {
-    try result.ensureTotalCapacityPrecise(wtf8.len);
+    try result.ensureUnusedCapacity(wtf8.len);
     return utf8ToUtf16LeArrayListImpl(result, wtf8, .can_encode_surrogate_half);
 }
 

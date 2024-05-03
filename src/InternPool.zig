@@ -1921,7 +1921,7 @@ pub const LoadedUnionType = struct {
         return self.flagsPtr(ip).layout;
     }
 
-    pub fn fieldAlign(self: LoadedUnionType, ip: *const InternPool, field_index: u32) Alignment {
+    pub fn fieldAlign(self: LoadedUnionType, ip: *const InternPool, field_index: usize) Alignment {
         if (self.field_aligns.len == 0) return .none;
         return self.field_aligns.get(ip)[field_index];
     }
@@ -2087,41 +2087,41 @@ pub const LoadedStructType = struct {
 
     /// Returns the already-existing field with the same name, if any.
     pub fn addFieldName(
-        self: @This(),
+        self: LoadedStructType,
         ip: *InternPool,
         name: NullTerminatedString,
     ) ?u32 {
         return ip.addFieldName(self.names_map.unwrap().?, self.field_names.start, name);
     }
 
-    pub fn fieldAlign(s: @This(), ip: *const InternPool, i: usize) Alignment {
+    pub fn fieldAlign(s: LoadedStructType, ip: *const InternPool, i: usize) Alignment {
         if (s.field_aligns.len == 0) return .none;
         return s.field_aligns.get(ip)[i];
     }
 
-    pub fn fieldInit(s: @This(), ip: *const InternPool, i: usize) Index {
+    pub fn fieldInit(s: LoadedStructType, ip: *const InternPool, i: usize) Index {
         if (s.field_inits.len == 0) return .none;
         assert(s.haveFieldInits(ip));
         return s.field_inits.get(ip)[i];
     }
 
     /// Returns `none` in the case the struct is a tuple.
-    pub fn fieldName(s: @This(), ip: *const InternPool, i: usize) OptionalNullTerminatedString {
+    pub fn fieldName(s: LoadedStructType, ip: *const InternPool, i: usize) OptionalNullTerminatedString {
         if (s.field_names.len == 0) return .none;
         return s.field_names.get(ip)[i].toOptional();
     }
 
-    pub fn fieldIsComptime(s: @This(), ip: *const InternPool, i: usize) bool {
+    pub fn fieldIsComptime(s: LoadedStructType, ip: *const InternPool, i: usize) bool {
         return s.comptime_bits.getBit(ip, i);
     }
 
-    pub fn setFieldComptime(s: @This(), ip: *InternPool, i: usize) void {
+    pub fn setFieldComptime(s: LoadedStructType, ip: *InternPool, i: usize) void {
         s.comptime_bits.setBit(ip, i);
     }
 
     /// Reads the non-opv flag calculated during AstGen. Used to short-circuit more
     /// complicated logic.
-    pub fn knownNonOpv(s: @This(), ip: *InternPool) bool {
+    pub fn knownNonOpv(s: LoadedStructType, ip: *InternPool) bool {
         return switch (s.layout) {
             .@"packed" => false,
             .auto, .@"extern" => s.flagsPtr(ip).known_non_opv,
@@ -2130,7 +2130,7 @@ pub const LoadedStructType = struct {
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeStruct.Flags {
+    pub fn flagsPtr(self: LoadedStructType, ip: *const InternPool) *Tag.TypeStruct.Flags {
         assert(self.layout != .@"packed");
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStruct, "flags").?;
         return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
@@ -2138,13 +2138,13 @@ pub const LoadedStructType = struct {
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts that the struct is packed.
-    pub fn packedFlagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeStructPacked.Flags {
+    pub fn packedFlagsPtr(self: LoadedStructType, ip: *const InternPool) *Tag.TypeStructPacked.Flags {
         assert(self.layout == .@"packed");
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?;
         return @ptrCast(&ip.extra.items[self.extra_index + flags_field_index]);
     }
 
-    pub fn assumeRuntimeBitsIfFieldTypesWip(s: @This(), ip: *InternPool) bool {
+    pub fn assumeRuntimeBitsIfFieldTypesWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
         const flags_ptr = s.flagsPtr(ip);
         if (flags_ptr.field_types_wip) {
@@ -2154,7 +2154,7 @@ pub const LoadedStructType = struct {
         return false;
     }
 
-    pub fn setTypesWip(s: @This(), ip: *InternPool) bool {
+    pub fn setTypesWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
         const flags_ptr = s.flagsPtr(ip);
         if (flags_ptr.field_types_wip) return true;
@@ -2162,12 +2162,12 @@ pub const LoadedStructType = struct {
         return false;
     }
 
-    pub fn clearTypesWip(s: @This(), ip: *InternPool) void {
+    pub fn clearTypesWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
         s.flagsPtr(ip).field_types_wip = false;
     }
 
-    pub fn setLayoutWip(s: @This(), ip: *InternPool) bool {
+    pub fn setLayoutWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
         const flags_ptr = s.flagsPtr(ip);
         if (flags_ptr.layout_wip) return true;
@@ -2175,12 +2175,12 @@ pub const LoadedStructType = struct {
         return false;
     }
 
-    pub fn clearLayoutWip(s: @This(), ip: *InternPool) void {
+    pub fn clearLayoutWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
         s.flagsPtr(ip).layout_wip = false;
     }
 
-    pub fn setAlignmentWip(s: @This(), ip: *InternPool) bool {
+    pub fn setAlignmentWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
         const flags_ptr = s.flagsPtr(ip);
         if (flags_ptr.alignment_wip) return true;
@@ -2188,12 +2188,12 @@ pub const LoadedStructType = struct {
         return false;
     }
 
-    pub fn clearAlignmentWip(s: @This(), ip: *InternPool) void {
+    pub fn clearAlignmentWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
         s.flagsPtr(ip).alignment_wip = false;
     }
 
-    pub fn setInitsWip(s: @This(), ip: *InternPool) bool {
+    pub fn setInitsWip(s: LoadedStructType, ip: *InternPool) bool {
         switch (s.layout) {
             .@"packed" => {
                 const flag = &s.packedFlagsPtr(ip).field_inits_wip;
@@ -2210,14 +2210,14 @@ pub const LoadedStructType = struct {
         }
     }
 
-    pub fn clearInitsWip(s: @This(), ip: *InternPool) void {
+    pub fn clearInitsWip(s: LoadedStructType, ip: *InternPool) void {
         switch (s.layout) {
             .@"packed" => s.packedFlagsPtr(ip).field_inits_wip = false,
             .auto, .@"extern" => s.flagsPtr(ip).field_inits_wip = false,
         }
     }
 
-    pub fn setFullyResolved(s: @This(), ip: *InternPool) bool {
+    pub fn setFullyResolved(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return true;
         const flags_ptr = s.flagsPtr(ip);
         if (flags_ptr.fully_resolved) return true;
@@ -2225,13 +2225,13 @@ pub const LoadedStructType = struct {
         return false;
     }
 
-    pub fn clearFullyResolved(s: @This(), ip: *InternPool) void {
+    pub fn clearFullyResolved(s: LoadedStructType, ip: *InternPool) void {
         s.flagsPtr(ip).fully_resolved = false;
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    pub fn size(self: @This(), ip: *InternPool) *u32 {
+    pub fn size(self: LoadedStructType, ip: *InternPool) *u32 {
         assert(self.layout != .@"packed");
         const size_field_index = std.meta.fieldIndex(Tag.TypeStruct, "size").?;
         return @ptrCast(&ip.extra.items[self.extra_index + size_field_index]);
@@ -2241,50 +2241,50 @@ pub const LoadedStructType = struct {
     /// this type or the user specifies it, it is stored here. This will be
     /// set to `none` until the layout is resolved.
     /// Asserts the struct is packed.
-    pub fn backingIntType(s: @This(), ip: *const InternPool) *Index {
+    pub fn backingIntType(s: LoadedStructType, ip: *const InternPool) *Index {
         assert(s.layout == .@"packed");
         const field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "backing_int_ty").?;
         return @ptrCast(&ip.extra.items[s.extra_index + field_index]);
     }
 
     /// Asserts the struct is not packed.
-    pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index.Optional) void {
+    pub fn setZirIndex(s: LoadedStructType, ip: *InternPool, new_zir_index: TrackedInst.Index.Optional) void {
         assert(s.layout != .@"packed");
         const field_index = std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?;
         ip.extra.items[s.extra_index + field_index] = @intFromEnum(new_zir_index);
     }
 
-    pub fn haveFieldTypes(s: @This(), ip: *const InternPool) bool {
+    pub fn haveFieldTypes(s: LoadedStructType, ip: *const InternPool) bool {
         const types = s.field_types.get(ip);
         return types.len == 0 or types[0] != .none;
     }
 
-    pub fn haveFieldInits(s: @This(), ip: *const InternPool) bool {
+    pub fn haveFieldInits(s: LoadedStructType, ip: *const InternPool) bool {
         return switch (s.layout) {
             .@"packed" => s.packedFlagsPtr(ip).inits_resolved,
             .auto, .@"extern" => s.flagsPtr(ip).inits_resolved,
         };
     }
 
-    pub fn setHaveFieldInits(s: @This(), ip: *InternPool) void {
+    pub fn setHaveFieldInits(s: LoadedStructType, ip: *InternPool) void {
         switch (s.layout) {
             .@"packed" => s.packedFlagsPtr(ip).inits_resolved = true,
             .auto, .@"extern" => s.flagsPtr(ip).inits_resolved = true,
         }
     }
 
-    pub fn haveLayout(s: @This(), ip: *InternPool) bool {
+    pub fn haveLayout(s: LoadedStructType, ip: *InternPool) bool {
         return switch (s.layout) {
             .@"packed" => s.backingIntType(ip).* != .none,
             .auto, .@"extern" => s.flagsPtr(ip).layout_resolved,
         };
     }
 
-    pub fn isTuple(s: @This(), ip: *InternPool) bool {
+    pub fn isTuple(s: LoadedStructType, ip: *InternPool) bool {
         return s.layout != .@"packed" and s.flagsPtr(ip).is_tuple;
     }
 
-    pub fn hasReorderedFields(s: @This()) bool {
+    pub fn hasReorderedFields(s: LoadedStructType) bool {
         return s.layout == .auto;
     }
 
@@ -2318,7 +2318,7 @@ pub const LoadedStructType = struct {
     /// Iterates over non-comptime fields in the order they are laid out in memory at runtime.
     /// May or may not include zero-bit fields.
     /// Asserts the struct is not packed.
-    pub fn iterateRuntimeOrder(s: @This(), ip: *InternPool) RuntimeOrderIterator {
+    pub fn iterateRuntimeOrder(s: LoadedStructType, ip: *InternPool) RuntimeOrderIterator {
         assert(s.layout != .@"packed");
         return .{
             .ip = ip,
@@ -2358,7 +2358,7 @@ pub const LoadedStructType = struct {
         }
     };
 
-    pub fn iterateRuntimeOrderReverse(s: @This(), ip: *InternPool) ReverseRuntimeOrderIterator {
+    pub fn iterateRuntimeOrderReverse(s: LoadedStructType, ip: *InternPool) ReverseRuntimeOrderIterator {
         assert(s.layout != .@"packed");
         return .{
             .ip = ip,

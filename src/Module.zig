@@ -2336,24 +2336,24 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     };
     var iovecs = [_]std.posix.iovec_const{
         .{
-            .iov_base = @as([*]const u8, @ptrCast(&header)),
-            .iov_len = @sizeOf(Zir.Header),
+            .base = @as([*]const u8, @ptrCast(&header)),
+            .len = @sizeOf(Zir.Header),
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
-            .iov_len = file.zir.instructions.len,
+            .base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
+            .len = file.zir.instructions.len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = file.zir.instructions.len * 8,
+            .base = data_ptr,
+            .len = file.zir.instructions.len * 8,
         },
         .{
-            .iov_base = file.zir.string_bytes.ptr,
-            .iov_len = file.zir.string_bytes.len,
+            .base = file.zir.string_bytes.ptr,
+            .len = file.zir.string_bytes.len,
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
-            .iov_len = file.zir.extra.len * 4,
+            .base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
+            .len = file.zir.extra.len * 4,
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
@@ -2424,20 +2424,20 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
 
     var iovecs = [_]std.posix.iovec{
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .iov_len = header.instructions_len,
+            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
+            .len = header.instructions_len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = header.instructions_len * 8,
+            .base = data_ptr,
+            .len = header.instructions_len * 8,
         },
         .{
-            .iov_base = zir.string_bytes.ptr,
-            .iov_len = header.string_bytes_len,
+            .base = zir.string_bytes.ptr,
+            .len = header.string_bytes_len,
         },
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .iov_len = header.extra_len * 4,
+            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
+            .len = header.extra_len * 4,
         },
     };
     const amt_read = try cache_file.readvAll(&iovecs);
@@ -6140,18 +6140,18 @@ pub const UnionLayout = struct {
     padding: u32,
 };
 
-pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
+pub fn getUnionLayout(mod: *Module, loaded_union: InternPool.LoadedUnionType) UnionLayout {
     const ip = &mod.intern_pool;
-    assert(u.haveLayout(ip));
+    assert(loaded_union.haveLayout(ip));
     var most_aligned_field: u32 = undefined;
     var most_aligned_field_size: u64 = undefined;
     var biggest_field: u32 = undefined;
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
-    for (u.field_types.get(ip), 0..) |field_ty, i| {
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-        const explicit_align = u.fieldAlign(ip, @intCast(i));
+        const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -6159,16 +6159,16 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
-            biggest_field = @intCast(i);
+            biggest_field = @intCast(field_index);
         }
         if (field_align.compare(.gte, payload_align)) {
             payload_align = field_align;
-            most_aligned_field = @intCast(i);
+            most_aligned_field = @intCast(field_index);
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6183,10 +6183,10 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         };
     }
 
-    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
-    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
-        .abi_size = u.size(ip).*,
+        .abi_size = loaded_union.size(ip).*,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6195,24 +6195,24 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = u.padding(ip).*,
+        .padding = loaded_union.padding(ip).*,
     };
 }
 
-pub fn unionAbiSize(mod: *Module, u: InternPool.LoadedUnionType) u64 {
-    return mod.getUnionLayout(u).abi_size;
+pub fn unionAbiSize(mod: *Module, loaded_union: InternPool.LoadedUnionType) u64 {
+    return mod.getUnionLayout(loaded_union).abi_size;
 }
 
 /// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment {
+pub fn unionAbiAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType) Alignment {
     const ip = &mod.intern_pool;
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
-    for (u.field_types.get(ip), 0..) |field_ty, field_index| {
+    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod);
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
-        const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
+        const field_align = mod.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
         max_align = max_align.max(field_align);
     }
     return max_align;
@@ -6221,20 +6221,20 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment 
 /// Returns the field alignment, assuming the union is not packed.
 /// Keep implementation in sync with `Sema.unionFieldAlignment`.
 /// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.LoadedUnionType, field_index: u32) Alignment {
+pub fn unionFieldNormalAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
     const ip = &mod.intern_pool;
-    const field_align = u.fieldAlign(ip, field_index);
+    const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
+    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, u: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
-    assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
-    return u.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
+    assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
+    return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
 /// Returns the field alignment of a non-packed struct in byte units.

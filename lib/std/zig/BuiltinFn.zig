@@ -160,7 +160,7 @@ param_count: ?u8,
 
 pub const list = list: {
     @setEvalBranchQuota(3000);
-    break :list std.ComptimeStringMap(@This(), .{
+    break :list std.StaticStringMap(@This()).initComptime(.{
         .{
             "@addWithOverflow",
             .{
