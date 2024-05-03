@@ -1277,7 +1277,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .win32_resource_file => |rc_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (rc_source_file.flags.len == 0) {
+                        if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
                             if (prev_has_rcflags) {
                                 try zig_args.append("-rcflags");
                                 try zig_args.append("--");
@@ -1287,6 +1287,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("-rcflags");
                             for (rc_source_file.flags) |arg| {
                                 try zig_args.append(arg);
+                            }
+                            for (rc_source_file.include_paths) |include_path| {
+                                try zig_args.append("/I");
+                                try zig_args.append(include_path.getPath2(module.owner, step));
                             }
                             try zig_args.append("--");
                             prev_has_rcflags = true;
