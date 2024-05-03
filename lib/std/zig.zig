@@ -15,8 +15,7 @@ pub const Ast = @import("zig/Ast.zig");
 pub const AstGen = @import("zig/AstGen.zig");
 pub const Zir = @import("zig/Zir.zig");
 pub const system = @import("zig/system.zig");
-/// Deprecated: use `std.Target.Query`.
-pub const CrossTarget = std.Target.Query;
+pub const CrossTarget = @compileError("deprecated; use std.Target.Query");
 pub const BuiltinFn = @import("zig/BuiltinFn.zig");
 pub const AstRlAnnotate = @import("zig/AstRlAnnotate.zig");
 pub const LibCInstallation = @import("zig/LibCInstallation.zig");

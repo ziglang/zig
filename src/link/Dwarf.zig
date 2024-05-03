@@ -2006,7 +2006,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
 
     // Write the form for the compile unit, which must match the abbrev table above.
     const name_strp = try self.strtab.insert(self.allocator, zcu.root_mod.root_src_path);
-    var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var compile_unit_dir_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const compile_unit_dir = resolveCompilationDir(zcu, &compile_unit_dir_buffer);
     const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
     const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
@@ -2058,7 +2058,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
     }
 }
 
-fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []const u8 {
+fn resolveCompilationDir(module: *Module, buffer: *[std.fs.max_path_bytes]u8) []const u8 {
     // We fully resolve all paths at this point to avoid lack of source line info in stack
     // traces or lack of debugging information which, if relative paths were used, would
     // be very location dependent.
@@ -2804,7 +2804,7 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
         const dir_path = std.fs.path.dirname(full_path) orelse ".";
         const sub_file_path = std.fs.path.basename(full_path);
         // https://github.com/ziglang/zig/issues/19353
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const resolved = if (!std.fs.path.isAbsolute(dir_path))
             std.posix.realpath(dir_path, &buffer) catch dir_path
         else

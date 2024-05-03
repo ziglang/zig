@@ -43,7 +43,7 @@ const PathType = enum {
                 fn transform(allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8 {
                     // The final path may not actually exist which would cause realpath to fail.
                     // So instead, we get the path of the dir and join it with the relative path.
-                    var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                    var fd_path_buf: [fs.max_path_bytes]u8 = undefined;
                     const dir_path = try std.os.getFdPath(dir.fd, &fd_path_buf);
                     return fs.path.joinZ(allocator, &.{ dir_path, relative_path });
                 }
@@ -52,7 +52,7 @@ const PathType = enum {
                 fn transform(allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8 {
                     // Any drive absolute path (C:\foo) can be converted into a UNC path by
                     // using '127.0.0.1' as the server name and '<drive letter>$' as the share name.
-                    var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                    var fd_path_buf: [fs.max_path_bytes]u8 = undefined;
                     const dir_path = try std.os.getFdPath(dir.fd, &fd_path_buf);
                     const windows_path_type = windows.getUnprefixedPathType(u8, dir_path);
                     switch (windows_path_type) {
@@ -206,13 +206,13 @@ test "Dir.readLink" {
 }
 
 fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const actual = try dir.readLink(symlink_path, buffer[0..]);
     try testing.expectEqualStrings(target_path, actual);
 }
 
 fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try fs.readLinkAbsolute(symlink_path, buffer[0..]);
     try testing.expectEqualStrings(target_path, given);
 }
@@ -611,7 +611,7 @@ test "Dir.realpath smoke test" {
             const allocator = ctx.arena.allocator();
             const test_file_path = try ctx.transformPath("test_file");
             const test_dir_path = try ctx.transformPath("test_dir");
-            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            var buf: [fs.max_path_bytes]u8 = undefined;
 
             // FileNotFound if the path doesn't exist
             try testing.expectError(error.FileNotFound, ctx.dir.realpathAlloc(allocator, test_file_path));
@@ -1041,7 +1041,7 @@ test "openSelfExe" {
 test "selfExePath" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [fs.max_path_bytes]u8 = undefined;
     const buf_self_exe_path = try std.fs.selfExePath(&buf);
     const alloc_self_exe_path = try std.fs.selfExePathAlloc(testing.allocator);
     defer testing.allocator.free(alloc_self_exe_path);
@@ -2061,7 +2061,7 @@ test "invalid UTF-8/WTF-8 paths" {
                 try testing.expectError(expected_err, fs.deleteFileAbsolute(invalid_path));
                 try testing.expectError(expected_err, fs.deleteFileAbsoluteZ(invalid_path));
                 try testing.expectError(expected_err, fs.deleteTreeAbsolute(invalid_path));
-                var readlink_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var readlink_buf: [fs.max_path_bytes]u8 = undefined;
                 try testing.expectError(expected_err, fs.readLinkAbsolute(invalid_path, &readlink_buf));
                 try testing.expectError(expected_err, fs.readLinkAbsoluteZ(invalid_path, &readlink_buf));
                 try testing.expectError(expected_err, fs.symLinkAbsolute(invalid_path, invalid_path, .{}));
