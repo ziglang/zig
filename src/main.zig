@@ -6966,7 +6966,7 @@ fn cmdFetch(
     defer rendered.deinit();
     try ast.renderToArrayList(&rendered, fixups);
 
-    build_root.directory.handle.writeFile(Package.Manifest.basename, rendered.items) catch |err| {
+    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered.items }) catch |err| {
         fatal("unable to write {s} file: {s}", .{ Package.Manifest.basename, @errorName(err) });
     };
 
@@ -7013,7 +7013,7 @@ fn createDependenciesModule(
     {
         var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
-        try tmp_dir.writeFile(basename, source);
+        try tmp_dir.writeFile(.{ .sub_path = basename, .data = source });
     }
 
     var hh: Cache.HashHelper = .{};
@@ -7225,7 +7225,7 @@ const Templates = struct {
             }
         }
 
-        return out_dir.writeFile2(.{
+        return out_dir.writeFile(.{
             .sub_path = template_path,
             .data = templates.buffer.items,
             .flags = .{ .exclusive = true },

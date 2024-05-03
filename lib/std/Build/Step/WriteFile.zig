@@ -218,7 +218,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
         switch (output_source_file.contents) {
             .bytes => |bytes| {
-                b.build_root.handle.writeFile(output_source_file.sub_path, bytes) catch |err| {
+                b.build_root.handle.writeFile(.{ .sub_path = output_source_file.sub_path, .data = bytes }) catch |err| {
                     return step.fail("unable to write file '{}{s}': {s}", .{
                         b.build_root, output_source_file.sub_path, @errorName(err),
                     });
@@ -311,7 +311,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
         switch (file.contents) {
             .bytes => |bytes| {
-                cache_dir.writeFile(file.sub_path, bytes) catch |err| {
+                cache_dir.writeFile(.{ .sub_path = file.sub_path, .data = bytes }) catch |err| {
                     return step.fail("unable to write file '{}{s}{c}{s}': {s}", .{
                         b.cache_root, cache_path, fs.path.sep, file.sub_path, @errorName(err),
                     });

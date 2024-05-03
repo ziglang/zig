@@ -1005,7 +1005,7 @@ pub fn readSmallFile(dir: fs.Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
 pub fn writeSmallFile(dir: fs.Dir, sub_path: []const u8, data: []const u8) !void {
     assert(data.len <= 255);
     if (builtin.os.tag == .windows) {
-        return dir.writeFile(sub_path, data);
+        return dir.writeFile(.{ .sub_path = sub_path, .data = data });
     } else {
         return dir.symLink(data, sub_path, .{});
     }
@@ -1052,7 +1052,7 @@ test "cache file and then recall it" {
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
-    try tmp.dir.writeFile(temp_file, "Hello, world!\n");
+    try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = "Hello, world!\n" });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1120,7 +1120,7 @@ test "check that changing a file makes cache fail" {
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
-    try tmp.dir.writeFile(temp_file, original_temp_file_contents);
+    try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = original_temp_file_contents });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1156,7 +1156,7 @@ test "check that changing a file makes cache fail" {
             try ch.writeManifest();
         }
 
-        try tmp.dir.writeFile(temp_file, updated_temp_file_contents);
+        try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = updated_temp_file_contents });
 
         {
             var ch = cache.obtain();
@@ -1241,8 +1241,8 @@ test "Manifest with files added after initial hash work" {
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
-    try tmp.dir.writeFile(temp_file1, "Hello, world!\n");
-    try tmp.dir.writeFile(temp_file2, "Hello world the second!\n");
+    try tmp.dir.writeFile(.{ .sub_path = temp_file1, .data = "Hello, world!\n" });
+    try tmp.dir.writeFile(.{ .sub_path = temp_file2, .data = "Hello world the second!\n" });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1292,7 +1292,7 @@ test "Manifest with files added after initial hash work" {
         try testing.expect(mem.eql(u8, &digest1, &digest2));
 
         // Modify the file added after initial hash
-        try tmp.dir.writeFile(temp_file2, "Hello world the second, updated\n");
+        try tmp.dir.writeFile(.{ .sub_path = temp_file2, .data = "Hello world the second, updated\n" });
 
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);

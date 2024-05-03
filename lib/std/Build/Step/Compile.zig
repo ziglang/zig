@@ -1711,7 +1711,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         );
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(args_file, args);
+        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
