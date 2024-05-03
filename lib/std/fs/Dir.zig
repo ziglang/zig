@@ -2339,18 +2339,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 
 pub const WriteFileError = File.WriteError || File.OpenError;
 
-/// Deprecated: use `writeFile2`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
-    return writeFile2(self, .{
-        .sub_path = sub_path,
-        .data = data,
-        .flags = .{},
-    });
-}
-
 pub const WriteFileOptions = struct {
     /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
     /// On WASI, `sub_path` should be encoded as valid UTF-8.
@@ -2361,11 +2349,13 @@ pub const WriteFileOptions = struct {
 };
 
 /// Writes content to the file system, using the file creation flags provided.
-pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
+pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
     var file = try self.createFile(options.sub_path, options.flags);
     defer file.close();
     try file.writeAll(options.data);
 }
+
+pub const writeFile2 = @compileError("deprecated; renamed to writeFile");
 
 pub const AccessError = posix.AccessError;
 

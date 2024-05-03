@@ -4175,7 +4175,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         });
         const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_h_path});
 
-        try zig_cache_tmp_dir.writeFile(cimport_basename, c_src);
+        try zig_cache_tmp_dir.writeFile(.{ .sub_path = cimport_basename, .data = c_src });
         if (comp.verbose_cimport) {
             log.info("C import source: {s}", .{out_h_path});
         }
@@ -4840,7 +4840,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID which is the default ID used for RT_MANIFEST resources
             // 24 is RT_MANIFEST
             const input = try std.fmt.allocPrint(arena, "1 24 \"{s}\"", .{fmtRcEscape(src_path)});
-            try o_dir.writeFile(rc_basename, input);
+            try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);
             defer argv.deinit();
