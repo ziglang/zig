@@ -686,8 +686,6 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     }
 }
 
-pub const selfExePathW = @compileError("deprecated; use selfExePath instead");
-
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExeDirPathAlloc(allocator: Allocator) ![]u8 {

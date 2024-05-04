@@ -24295,6 +24295,14 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
     if (!dest_ty.isVector(mod)) return sema.fail(block, src, "expected vector type, found '{}'", .{dest_ty.fmt(mod)});
 
+    if (!dest_ty.hasRuntimeBits(mod)) {
+        const empty_aggregate = try mod.intern(.{ .aggregate = .{
+            .ty = dest_ty.toIntern(),
+            .storage = .{ .elems = &[_]InternPool.Index{} },
+        } });
+        return Air.internedToRef(empty_aggregate);
+    }
+
     const operand = try sema.resolveInst(extra.rhs);
     const scalar_ty = dest_ty.childType(mod);
     const scalar = try sema.coerce(block, scalar_ty, operand, scalar_src);

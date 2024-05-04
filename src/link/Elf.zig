@@ -2726,74 +2726,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append("-Bsymbolic");
         }
 
-        if (comp.verbose_link) {
-            // Skip over our own name so that the LLD linker name is the first argv item.
-            Compilation.dump_argv(argv.items[1..]);
-        }
-
-        if (std.process.can_spawn) {
-            // If possible, we run LLD as a child process because it does not always
-            // behave properly as a library, unfortunately.
-            // https://github.com/ziglang/zig/issues/3825
-            var child = std.ChildProcess.init(argv.items, arena);
-            if (comp.clang_passthrough_mode) {
-                child.stdin_behavior = .Inherit;
-                child.stdout_behavior = .Inherit;
-                child.stderr_behavior = .Inherit;
-
-                const term = child.spawnAndWait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            std.process.exit(code);
-                        }
-                    },
-                    else => std.process.abort(),
-                }
-            } else {
-                child.stdin_behavior = .Ignore;
-                child.stdout_behavior = .Ignore;
-                child.stderr_behavior = .Pipe;
-
-                try child.spawn();
-
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
-
-                const term = child.wait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            comp.lockAndParseLldStderr(linker_command, stderr);
-                            return error.LLDReportedFailure;
-                        }
-                    },
-                    else => {
-                        log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                        return error.LLDCrashed;
-                    },
-                }
-
-                if (stderr.len != 0) {
-                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
-                }
-            }
-        } else {
-            const exit_code = try lldMain(arena, argv.items, false);
-            if (exit_code != 0) {
-                if (comp.clang_passthrough_mode) {
-                    std.process.exit(exit_code);
-                } else {
-                    return error.LLDReportedFailure;
-                }
-            }
-        }
+        try link.spawnLld(comp, arena, argv.items);
     }
 
     if (!self.base.disable_lld_caching) {
@@ -6500,7 +6433,6 @@ const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
-const lldMain = @import("../main.zig").lldMain;
 const merge_section = @import("Elf/merge_section.zig");
 const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");

@@ -246,7 +246,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     };
 
-    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output.items }) catch |err| {
         return step.fail("unable to write file '{}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(err),
         });

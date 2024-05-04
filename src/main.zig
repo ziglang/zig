@@ -3197,7 +3197,7 @@ fn buildOutputType(
         break :b .incremental;
     };
 
-    gimmeMoreOfThoseSweetSweetFileDescriptors();
+    process.raiseFileDescriptorLimit();
 
     const comp = Compilation.create(gpa, arena, .{
         .zig_lib_directory = zig_lib_directory,
@@ -4908,7 +4908,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .basename = exe_basename,
     };
 
-    gimmeMoreOfThoseSweetSweetFileDescriptors();
+    process.raiseFileDescriptorLimit();
 
     var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
         .path = lib_dir,
@@ -5109,8 +5109,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     &fetch,
                 );
 
-                job_queue.wait_group.start();
-                try job_queue.thread_pool.spawn(Package.Fetch.workerRun, .{ &fetch, "root" });
+                job_queue.thread_pool.spawnWg(&job_queue.wait_group, Package.Fetch.workerRun, .{
+                    &fetch, "root",
+                });
                 job_queue.wait_group.wait();
 
                 try job_queue.consolidateErrors();
@@ -5970,55 +5971,6 @@ pub const ClangArgIterator = struct {
 fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
     return std.meta.stringToEnum(std.builtin.CodeModel, arg) orelse
         fatal("unsupported machine code model: '{s}'", .{arg});
-}
-
-/// Raise the open file descriptor limit. Ask and ye shall receive.
-/// For one example of why this is handy, consider the case of building musl libc.
-/// We keep a lock open for each of the object files in the form of a file descriptor
-/// until they are finally put into an archive file. This is to allow a zig-cache
-/// garbage collector to run concurrently to zig processes, and to allow multiple
-/// zig processes to run concurrently with each other, without clobbering each other.
-fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    const have_rlimit = switch (native_os) {
-        .windows, .wasi => false,
-        else => true,
-    };
-    if (!have_rlimit) return;
-    const posix = std.posix;
-
-    var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
-    if (native_os.isDarwin()) {
-        // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
-        // According to the man pages for setrlimit():
-        //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
-        //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
-        //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
-        lim.max = @min(std.c.OPEN_MAX, lim.max);
-    }
-    if (lim.cur == lim.max) return;
-
-    // Do a binary search for the limit.
-    var min: posix.rlim_t = lim.cur;
-    var max: posix.rlim_t = 1 << 20;
-    // But if there's a defined upper bound, don't search, just set it.
-    if (lim.max != posix.RLIM.INFINITY) {
-        min = lim.max;
-        max = lim.max;
-    }
-
-    while (true) {
-        lim.cur = min + @divTrunc(max - min, 2); // on freebsd rlim_t is signed
-        if (posix.setrlimit(.NOFILE, lim)) |_| {
-            min = lim.cur;
-        } else |_| {
-            max = lim.cur;
-        }
-        if (min + 1 >= max) break;
-    }
-}
-
-test "fds" {
-    gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
 const usage_ast_check =
@@ -6966,7 +6918,7 @@ fn cmdFetch(
     defer rendered.deinit();
     try ast.renderToArrayList(&rendered, fixups);
 
-    build_root.directory.handle.writeFile(Package.Manifest.basename, rendered.items) catch |err| {
+    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered.items }) catch |err| {
         fatal("unable to write {s} file: {s}", .{ Package.Manifest.basename, @errorName(err) });
     };
 
@@ -7013,7 +6965,7 @@ fn createDependenciesModule(
     {
         var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
-        try tmp_dir.writeFile(basename, source);
+        try tmp_dir.writeFile(.{ .sub_path = basename, .data = source });
     }
 
     var hh: Cache.HashHelper = .{};
@@ -7225,7 +7177,7 @@ const Templates = struct {
             }
         }
 
-        return out_dir.writeFile2(.{
+        return out_dir.writeFile(.{
             .sub_path = template_path,
             .data = templates.buffer.items,
             .flags = .{ .exclusive = true },

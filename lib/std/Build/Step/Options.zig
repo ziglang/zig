@@ -464,7 +464,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 });
             };
 
-            b.cache_root.handle.writeFile(tmp_sub_path, self.contents.items) catch |err| {
+            b.cache_root.handle.writeFile(.{ .sub_path = tmp_sub_path, .data = self.contents.items }) catch |err| {
                 return step.fail("unable to write options to '{}{s}': {s}", .{
                     b.cache_root, tmp_sub_path, @errorName(err),
                 });

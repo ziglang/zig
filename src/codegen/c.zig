@@ -3176,6 +3176,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
     const zcu = f.object.dg.zcu;
     const ip = &zcu.intern_pool;
     const air_tags = f.air.instructions.items(.tag);
+    const air_datas = f.air.instructions.items(.data);
 
     for (body) |inst| {
         if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip))
@@ -3203,23 +3204,23 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .sub => try airBinOp(f, inst, "-", "sub", .none),
             .mul => try airBinOp(f, inst, "*", "mul", .none),
 
-            .neg => try airFloatNeg(f, inst),
+            .neg => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "neg", .none),
             .div_float => try airBinBuiltinCall(f, inst, "div", .none),
 
             .div_trunc, .div_exact => try airBinOp(f, inst, "/", "div_trunc", .none),
             .rem => blk: {
-                const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const lhs_scalar_ty = f.typeOf(bin_op.lhs).scalarType(zcu);
                 // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
                 // so we only check one.
                 break :blk if (lhs_scalar_ty.isInt(zcu))
                     try airBinOp(f, inst, "%", "rem", .none)
                 else
-                    try airBinFloatOp(f, inst, "fmod");
+                    try airBinBuiltinCall(f, inst, "fmod", .none);
             },
             .div_floor => try airBinBuiltinCall(f, inst, "div_floor", .none),
             .mod       => try airBinBuiltinCall(f, inst, "mod", .none),
-            .abs       => try airAbs(f, inst),
+            .abs       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "abs", .none),
 
             .add_wrap => try airBinBuiltinCall(f, inst, "addw", .bits),
             .sub_wrap => try airBinBuiltinCall(f, inst, "subw", .bits),
@@ -3230,19 +3231,19 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .mul_sat => try airBinBuiltinCall(f, inst, "muls", .bits),
             .shl_sat => try airBinBuiltinCall(f, inst, "shls", .bits),
 
-            .sqrt        => try airUnFloatOp(f, inst, "sqrt"),
-            .sin         => try airUnFloatOp(f, inst, "sin"),
-            .cos         => try airUnFloatOp(f, inst, "cos"),
-            .tan         => try airUnFloatOp(f, inst, "tan"),
-            .exp         => try airUnFloatOp(f, inst, "exp"),
-            .exp2        => try airUnFloatOp(f, inst, "exp2"),
-            .log         => try airUnFloatOp(f, inst, "log"),
-            .log2        => try airUnFloatOp(f, inst, "log2"),
-            .log10       => try airUnFloatOp(f, inst, "log10"),
-            .floor       => try airUnFloatOp(f, inst, "floor"),
-            .ceil        => try airUnFloatOp(f, inst, "ceil"),
-            .round       => try airUnFloatOp(f, inst, "round"),
-            .trunc_float => try airUnFloatOp(f, inst, "trunc"),
+            .sqrt        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "sqrt", .none),
+            .sin         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "sin", .none),
+            .cos         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "cos", .none),
+            .tan         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "tan", .none),
+            .exp         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "exp", .none),
+            .exp2        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "exp2", .none),
+            .log         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log", .none),
+            .log2        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log2", .none),
+            .log10       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log10", .none),
+            .floor       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "floor", .none),
+            .ceil        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "ceil", .none),
+            .round       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "round", .none),
+            .trunc_float => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "trunc", .none),
 
             .mul_add => try airMulAdd(f, inst),
 
@@ -3251,21 +3252,21 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .mul_with_overflow => try airOverflow(f, inst, "mul", .bits),
             .shl_with_overflow => try airOverflow(f, inst, "shl", .bits),
 
-            .min => try airMinMax(f, inst, '<', "fmin"),
-            .max => try airMinMax(f, inst, '>', "fmax"),
+            .min => try airMinMax(f, inst, '<', "min"),
+            .max => try airMinMax(f, inst, '>', "max"),
 
             .slice => try airSlice(f, inst),
 
-            .cmp_gt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gt),
-            .cmp_gte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gte),
-            .cmp_lt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lt),
-            .cmp_lte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lte),
+            .cmp_gt  => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .gt),
+            .cmp_gte => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .gte),
+            .cmp_lt  => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .lt),
+            .cmp_lte => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .lte),
 
             .cmp_eq  => try airEquality(f, inst, .eq),
             .cmp_neq => try airEquality(f, inst, .neq),
 
             .cmp_vector => blk: {
-                const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
                 break :blk try airCmpOp(f, inst, extra, extra.compareOperator());
             },
@@ -3324,11 +3325,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airUnBuiltinCall(f, inst, "clz", .bits),
-            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .bits),
-            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .bits),
-            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .bits),
-            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .bits),
+            .clz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "clz", .bits),
+            .ctz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "ctz", .bits),
+            .popcount         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "popcount", .bits),
+            .byte_swap        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "byte_swap", .bits),
+            .bit_reverse      => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "bit_reverse", .bits),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
@@ -4139,7 +4140,7 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand_ty = f.typeOf(ty_op.operand);
     const scalar_ty = operand_ty.scalarType(zcu);
-    if (scalar_ty.toIntern() != .bool_type) return try airUnBuiltinCall(f, inst, "not", .bits);
+    if (scalar_ty.toIntern() != .bool_type) return try airUnBuiltinCall(f, inst, ty_op.operand, "not", .bits);
 
     const op = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -4389,10 +4390,8 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(zcu);
 
-    if (inst_scalar_ty.isInt(zcu) and inst_scalar_ty.bitSize(zcu) > 64)
-        return try airBinBuiltinCall(f, inst, operation[1..], .none);
-    if (inst_scalar_ty.isRuntimeFloat())
-        return try airBinFloatOp(f, inst, operation);
+    if ((inst_scalar_ty.isInt(zcu) and inst_scalar_ty.bitSize(zcu) > 64) or inst_scalar_ty.isRuntimeFloat())
+        return try airBinBuiltinCall(f, inst, operation, .none);
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -6276,17 +6275,17 @@ fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airUnBuiltinCall(
     f: *Function,
     inst: Air.Inst.Index,
+    operand_ref: Air.Inst.Ref,
     operation: []const u8,
     info: BuiltinInfo,
 ) !CValue {
     const zcu = f.object.dg.zcu;
-    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
-    const operand = try f.resolveInst(ty_op.operand);
-    try reap(f, inst, &.{ty_op.operand});
+    const operand = try f.resolveInst(operand_ref);
+    try reap(f, inst, &.{operand_ref});
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(zcu);
-    const operand_ty = f.typeOf(ty_op.operand);
+    const operand_ty = f.typeOf(operand_ref);
     const scalar_ty = operand_ty.scalarType(zcu);
 
     const inst_scalar_ctype = try f.ctypeFromType(inst_scalar_ty, .complete);
@@ -6799,11 +6798,27 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     const src_ty = f.typeOf(bin_op.rhs);
     const writer = f.object.writer();
 
+    if (dest_ty.ptrSize(zcu) != .One) {
+        try writer.writeAll("if (");
+        try writeArrayLen(f, writer, dest_ptr, dest_ty);
+        try writer.writeAll(" != 0) ");
+    }
     try writer.writeAll("memcpy(");
     try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
     try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
+    try writeArrayLen(f, writer, dest_ptr, dest_ty);
+    try writer.writeAll(" * sizeof(");
+    try f.renderType(writer, dest_ty.elemType2(zcu));
+    try writer.writeAll("));\n");
+
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+    return .none;
+}
+
+fn writeArrayLen(f: *Function, writer: ArrayListWriter, dest_ptr: CValue, dest_ty: Type) !void {
+    const zcu = f.object.dg.zcu;
     switch (dest_ty.ptrSize(zcu)) {
         .One => try writer.print("{}", .{
             try f.fmtIntLiteral(try zcu.intValue(Type.usize, dest_ty.childType(zcu).arrayLen(zcu))),
@@ -6811,12 +6826,6 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
         .Many, .C => unreachable,
         .Slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
     }
-    try writer.writeAll(" * sizeof(");
-    try f.renderType(writer, dest_ty.elemType2(zcu));
-    try writer.writeAll("));\n");
-
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-    return .none;
 }
 
 fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -6999,7 +7008,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const use_operator = scalar_ty.bitSize(zcu) <= 64;
     const op: union(enum) {
         const Func = struct { operation: []const u8, info: BuiltinInfo = .none };
-        float_op: Func,
         builtin: Func,
         infix: []const u8,
         ternary: []const u8,
@@ -7008,30 +7016,22 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
         .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " < " } else .{
-                .builtin = .{ .operation = "min" },
-            },
-            .Float => .{ .float_op = .{ .operation = "fmin" } },
+            .Int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
+            .Float => .{ .builtin = .{ .operation = "min" } },
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " > " } else .{
-                .builtin = .{ .operation = "max" },
-            },
-            .Float => .{ .float_op = .{ .operation = "fmax" } },
+            .Int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
+            .Float => .{ .builtin = .{ .operation = "max" } },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " += " } else .{
-                .builtin = .{ .operation = "addw", .info = .bits },
-            },
+            .Int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
             .Float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " *= " } else .{
-                .builtin = .{ .operation = "mulw", .info = .bits },
-            },
+            .Int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
             .Float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
         },
@@ -7095,17 +7095,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorize.start(f, inst, writer, operand_ty);
     try f.writeCValue(writer, accum, .Other);
     switch (op) {
-        .float_op => |func| {
-            try writer.writeAll(" = zig_float_fn_");
-            try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-            try writer.print("_{s}(", .{func.operation});
-            try f.writeCValue(writer, accum, .FunctionArgument);
-            try writer.writeAll(", ");
-            try f.writeCValue(writer, operand, .Other);
-            try v.elem(f, writer);
-            try f.object.dg.renderBuiltinInfo(writer, scalar_ty, func.info);
-            try writer.writeByte(')');
-        },
         .builtin => |func| {
             try writer.print(" = zig_{s}_", .{func.operation});
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
@@ -7386,110 +7375,6 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airFloatNeg(f: *Function, inst: Air.Inst.Index) !CValue {
-    const zcu = f.object.dg.zcu;
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
-
-    const operand_ty = f.typeOf(un_op);
-    const scalar_ty = operand_ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, operand_ty);
-    const v = try Vectorize.start(f, inst, writer, operand_ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_neg_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-    try writer.writeByte('(');
-    try f.writeCValue(writer, operand, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
-fn airAbs(f: *Function, inst: Air.Inst.Index) !CValue {
-    const zcu = f.object.dg.zcu;
-    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const operand = try f.resolveInst(ty_op.operand);
-    const ty = f.typeOf(ty_op.operand);
-    const scalar_ty = ty.scalarType(zcu);
-
-    switch (scalar_ty.zigTypeTag(zcu)) {
-        .Int => if (ty.zigTypeTag(zcu) == .Vector) {
-            return f.fail("TODO implement airAbs for '{}'", .{ty.fmt(zcu)});
-        } else {
-            return airUnBuiltinCall(f, inst, "abs", .none);
-        },
-        .Float => return unFloatOp(f, inst, operand, ty, "fabs"),
-        else => unreachable,
-    }
-}
-
-fn unFloatOp(f: *Function, inst: Air.Inst.Index, operand: CValue, ty: Type, operation: []const u8) !CValue {
-    const zcu = f.object.dg.zcu;
-    const scalar_ty = ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, ty);
-    const v = try Vectorize.start(f, inst, writer, ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-    try writer.print("_{s}(", .{operation});
-    try f.writeCValue(writer, operand, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
-fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
-
-    const inst_ty = f.typeOfIndex(inst);
-    return unFloatOp(f, inst, operand, inst_ty, operation);
-}
-
-fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
-    const zcu = f.object.dg.zcu;
-    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const lhs = try f.resolveInst(bin_op.lhs);
-    const rhs = try f.resolveInst(bin_op.rhs);
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-
-    const inst_ty = f.typeOfIndex(inst);
-    const inst_scalar_ty = inst_ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
-    const v = try Vectorize.start(f, inst, writer, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.print("_{s}(", .{operation});
-    try f.writeCValue(writer, lhs, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, rhs, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
 fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const zcu = f.object.dg.zcu;
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -7508,9 +7393,9 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorize.start(f, inst, writer, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
+    try writer.writeAll(" = zig_fma_");
     try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.writeAll("_fma(");
+    try writer.writeByte('(');
     try f.writeCValue(writer, mulend1, .FunctionArgument);
     try v.elem(f, writer);
     try writer.writeAll(", ");
