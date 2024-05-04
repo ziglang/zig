@@ -5,7 +5,6 @@ const Step = Build.Step;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
-const ArrayList = std.ArrayList;
 const EnvMap = process.EnvMap;
 const assert = std.debug.assert;
 
@@ -16,7 +15,7 @@ pub const base_id: Step.Id = .run;
 step: Step,
 
 /// See also addArg and addArgs to modifying this directly
-argv: ArrayList(Arg),
+argv: std.ArrayListUnmanaged(Arg),
 
 /// Use `setCwd` to set the initial current working directory
 cwd: ?Build.LazyPath,
@@ -32,22 +31,26 @@ env_map: ?*EnvMap,
 /// If the Run step is determined to not have side-effects, then execution will
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
-stdio: StdIo = .infer_from_args,
+stdio: StdIo,
 
 /// This field must be `.none` if stdio is `inherit`.
 /// It should be only set using `setStdIn`.
-stdin: StdIn = .none,
+stdin: StdIn,
 
-/// Additional file paths relative to build.zig that, when modified, indicate
-/// that the Run step should be re-executed.
-/// If the Run step is determined to have side-effects, this field is ignored
-/// and the Run step is always executed when it appears in the build graph.
-extra_file_dependencies: []const []const u8 = &.{},
+/// Deprecated: use `addFileInput`
+extra_file_dependencies: []const []const u8,
+
+/// Additional input files that, when modified, indicate that the Run step
+/// should be re-executed.
+/// If the Run step is determined to have side-effects, the Run step is always
+/// executed when it appears in the build graph, regardless of whether these
+/// files have been modified.
+file_inputs: std.ArrayListUnmanaged(std.Build.LazyPath),
 
 /// After adding an output argument, this step will by default rename itself
 /// for a better display name in the build summary.
 /// This can be disabled by setting this to false.
-rename_step_with_output_arg: bool = true,
+rename_step_with_output_arg: bool,
 
 /// If this is true, a Run step which is configured to check the output of the
 /// executed binary will not fail the build if the binary cannot be executed
@@ -58,25 +61,25 @@ rename_step_with_output_arg: bool = true,
 /// Rosetta (macOS) and binfmt_misc (Linux).
 /// If this Run step is considered to have side-effects, then this flag does
 /// nothing.
-skip_foreign_checks: bool = false,
+skip_foreign_checks: bool,
 
 /// If this is true, failing to execute a foreign binary will be considered an
 /// error. However if this is false, the step will be skipped on failure instead.
 ///
 /// This allows for a Run step to attempt to execute a foreign binary using an
 /// external executor (such as qemu) but not fail if the executor is unavailable.
-failing_to_execute_foreign_is_an_error: bool = true,
+failing_to_execute_foreign_is_an_error: bool,
 
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
-max_stdio_size: usize = 10 * 1024 * 1024,
+max_stdio_size: usize,
 
-captured_stdout: ?*Output = null,
-captured_stderr: ?*Output = null,
+captured_stdout: ?*Output,
+captured_stderr: ?*Output,
 
-dep_output_file: ?*Output = null,
+dep_output_file: ?*Output,
 
-has_side_effects: bool = false,
+has_side_effects: bool,
 
 pub const StdIn = union(enum) {
     none,
@@ -103,7 +106,7 @@ pub const StdIo = union(enum) {
     /// conditions.
     /// Note that an explicit check for exit code 0 needs to be added to this
     /// list if such a check is desirable.
-    check: std.ArrayList(Check),
+    check: std.ArrayListUnmanaged(Check),
     /// This Run step is running a zig unit test binary and will communicate
     /// extra metadata over the IPC protocol.
     zig_test,
@@ -145,9 +148,21 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
             .owner = owner,
             .makeFn = make,
         }),
-        .argv = ArrayList(Arg).init(owner.allocator),
+        .argv = .{},
         .cwd = null,
         .env_map = null,
+        .stdio = .infer_from_args,
+        .stdin = .none,
+        .extra_file_dependencies = &.{},
+        .file_inputs = .{},
+        .rename_step_with_output_arg = true,
+        .skip_foreign_checks = false,
+        .failing_to_execute_foreign_is_an_error = true,
+        .max_stdio_size = 10 * 1024 * 1024,
+        .captured_stdout = null,
+        .captured_stderr = null,
+        .dep_output_file = null,
+        .has_side_effects = false,
     };
     return self;
 }
@@ -163,9 +178,10 @@ pub fn enableTestRunnerMode(self: *Run) void {
 }
 
 pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
+    const b = self.step.owner;
     const bin_file = artifact.getEmittedBin();
     bin_file.addStepDependencies(&self.step);
-    self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
+    self.argv.append(b.allocator, Arg{ .artifact = artifact }) catch @panic("OOM");
 }
 
 /// Provides a file path as a command line argument to the command being run.
@@ -181,6 +197,7 @@ pub fn addOutputFileArg(self: *Run, basename: []const u8) std.Build.LazyPath {
 }
 
 /// Provides a file path as a command line argument to the command being run.
+/// Asserts `basename` is not empty.
 ///
 /// For example, a prefix of "-o" and basename of "output.txt" will result in
 /// the child process seeing something like this: "-ozig-cache/.../output.txt"
@@ -200,14 +217,15 @@ pub fn addPrefixedOutputFileArg(
     basename: []const u8,
 ) std.Build.LazyPath {
     const b = self.step.owner;
+    if (basename.len == 0) @panic("basename must not be empty");
 
     const output = b.allocator.create(Output) catch @panic("OOM");
     output.* = .{
-        .prefix = prefix,
-        .basename = basename,
+        .prefix = b.dupe(prefix),
+        .basename = b.dupe(basename),
         .generated_file = .{ .step = &self.step },
     };
-    self.argv.append(.{ .output = output }) catch @panic("OOM");
+    self.argv.append(b.allocator, .{ .output = output }) catch @panic("OOM");
 
     if (self.rename_step_with_output_arg) {
         self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
@@ -248,7 +266,7 @@ pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, lp: std.Build.LazyPath
         .prefix = b.dupe(prefix),
         .lazy_path = lp.dupe(b),
     };
-    self.argv.append(.{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
+    self.argv.append(b.allocator, .{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
     lp.addStepDependencies(&self.step);
 }
 
@@ -269,7 +287,7 @@ pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source:
         .prefix = b.dupe(prefix),
         .lazy_path = directory_source.dupe(b),
     };
-    self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
+    self.argv.append(b.allocator, .{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
@@ -284,9 +302,8 @@ pub fn addDepFileOutputArg(self: *Run, basename: []const u8) std.Build.LazyPath 
 /// write its discovered additional dependencies.
 /// Only one dep file argument is allowed by instance.
 pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []const u8) std.Build.LazyPath {
-    assert(self.dep_output_file == null);
-
     const b = self.step.owner;
+    assert(self.dep_output_file == null);
 
     const dep_file = b.allocator.create(Output) catch @panic("OOM");
     dep_file.* = .{
@@ -297,13 +314,14 @@ pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []c
 
     self.dep_output_file = dep_file;
 
-    self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
+    self.argv.append(b.allocator, .{ .output = dep_file }) catch @panic("OOM");
 
     return .{ .generated = &dep_file.generated_file };
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
-    self.argv.append(.{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
+    const b = self.step.owner;
+    self.argv.append(b.allocator, .{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
 }
 
 pub fn addArgs(self: *Run, args: []const []const u8) void {
@@ -401,12 +419,14 @@ pub fn hasTermCheck(self: Run) bool {
 }
 
 pub fn addCheck(self: *Run, new_check: StdIo.Check) void {
+    const b = self.step.owner;
+
     switch (self.stdio) {
         .infer_from_args => {
-            self.stdio = .{ .check = std.ArrayList(StdIo.Check).init(self.step.owner.allocator) };
-            self.stdio.check.append(new_check) catch @panic("OOM");
+            self.stdio = .{ .check = .{} };
+            self.stdio.check.append(b.allocator, new_check) catch @panic("OOM");
         },
-        .check => |*checks| checks.append(new_check) catch @panic("OOM"),
+        .check => |*checks| checks.append(b.allocator, new_check) catch @panic("OOM"),
         else => @panic("illegal call to addCheck: conflicting helper method calls. Suggest to directly set stdio field of Run instead"),
     }
 }
@@ -439,6 +459,16 @@ pub fn captureStdOut(self: *Run) std.Build.LazyPath {
     };
     self.captured_stdout = output;
     return .{ .generated = &output.generated_file };
+}
+
+/// Adds an additional input files that, when modified, indicates that this Run
+/// step should be re-executed.
+/// If the Run step is determined to have side-effects, the Run step is always
+/// executed when it appears in the build graph, regardless of whether this
+/// file has been modified.
+pub fn addFileInput(self: *Run, file_input: std.Build.LazyPath) void {
+    file_input.addStepDependencies(&self.step);
+    self.file_inputs.append(self.step.owner.allocator, file_input.dupe(self.step.owner)) catch @panic("OOM");
 }
 
 /// Returns whether the Run step has side effects *other than* updating the output arguments.
@@ -500,8 +530,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self: *Run = @fieldParentPtr("step", step);
     const has_side_effects = self.hasSideEffects();
 
-    var argv_list = ArrayList([]const u8).init(arena);
-    var output_placeholders = ArrayList(IndexedOutput).init(arena);
+    var argv_list = std.ArrayList([]const u8).init(arena);
+    var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
@@ -578,6 +608,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     for (self.extra_file_dependencies) |file_path| {
         _ = try man.addFile(b.pathFromRoot(file_path), null);
+    }
+    for (self.file_inputs.items) |lazy_path| {
+        _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
     if (try step.cacheHit(&man)) {
