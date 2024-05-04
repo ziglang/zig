@@ -930,7 +930,7 @@ fn runCommand(
                     b.cache_root, sub_path_dirname, @errorName(err),
                 });
             };
-            b.cache_root.handle.writeFile(sub_path, stream.bytes.?) catch |err| {
+            b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = stream.bytes.? }) catch |err| {
                 return step.fail("unable to write file '{}{s}': {s}", .{
                     b.cache_root, sub_path, @errorName(err),
                 });

@@ -110,11 +110,18 @@ pub const RcSourceFile = struct {
     ///  /x (ignore the INCLUDE environment variable)
     ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
     flags: []const []const u8 = &.{},
+    /// Include paths that may or may not exist yet and therefore need to be
+    /// specified as a LazyPath. Each path will be appended to the flags
+    /// as `/I <resolved path>`.
+    include_paths: []const LazyPath = &.{},
 
     pub fn dupe(self: RcSourceFile, b: *std.Build) RcSourceFile {
+        const include_paths = b.allocator.alloc(LazyPath, self.include_paths.len) catch @panic("OOM");
+        for (include_paths, self.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(b);
         return .{
             .file = self.file.dupe(b),
             .flags = b.dupeStrings(self.flags),
+            .include_paths = include_paths,
         };
     }
 };
@@ -503,6 +510,9 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
     rc_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, source.file);
+    for (source.include_paths) |include_path| {
+        addLazyPathDependenciesOnly(m, include_path);
+    }
 }
 
 pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
