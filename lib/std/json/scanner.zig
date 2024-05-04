@@ -32,6 +32,7 @@ const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 const BitStack = std.BitStack;
 
@@ -193,15 +194,17 @@ pub const TokenType = enum {
 /// At any time, notably just after an error, call `getLine()`, `getColumn()`, and/or `getByteOffset()`
 /// to get meaningful information from this.
 pub const Diagnostics = struct {
+    // continually updated by Scanner:
     line_number: u64 = 1,
-    line_start_cursor: usize = @as(usize, @bitCast(@as(isize, -1))), // Start just "before" the input buffer to get a 1-based column for line 1.
+    line_start_cursor: usize = @bitCast(@as(isize, -1)), // Start just "before" the input buffer to get a 1-based column for line 1.
     total_bytes_before_current_input: u64 = 0,
-    /// While the source is operational, this is a pointer into it.
-    /// If the source is destroyed, this becomes a literal value.
-    cursor: union(enum) {
-        pointer: *const usize,
-        value: usize,
-    } = undefined,
+
+    // updated by Scanner.saveDiagnostics:
+    cursor_in_current_input: usize = undefined,
+    current_input: []const u8 = undefined,
+
+    // updated by recordContext().
+    context_stack: ArrayListUnmanaged([]const u8) = .{},
 
     /// Starts at 1.
     pub fn getLine(self: *const @This()) u64 {
@@ -209,24 +212,67 @@ pub const Diagnostics = struct {
     }
     /// Starts at 1.
     pub fn getColumn(self: *const @This()) u64 {
-        return self.getCursor() -% self.line_start_cursor;
+        return self.cursor_in_current_input -% self.line_start_cursor;
     }
     /// Starts at 0. Measures the byte offset since the start of the input.
     pub fn getByteOffset(self: *const @This()) u64 {
-        return self.total_bytes_before_current_input + self.getCursor();
+        return self.total_bytes_before_current_input + self.cursor_in_current_input;
     }
 
-    fn getCursor(self: *const @This()) usize {
-        return switch (self.cursor) {
-            .pointer => |p| p.*,
-            .value => |v| v,
-        };
+    pub fn recordContext(self: *@This(), allocator: Allocator, context: []const u8) Allocator.Error!void {
+        return self.context_stack.append(allocator, context);
     }
-    fn saveCursor(self: *@This()) void {
-        const value = self.getCursor();
-        self.cursor = .{ .value = value };
+
+    /// Pretty-print diagnostic information to the given writer, such as `std.io.getStdErr().writer()`.
+    /// file_name if non-null will be printed in a line with the line and column numbers;
+    /// it is purely aesthetic and is not touched on any actual file system.
+    pub fn dump(self: *const @This(), writer: anytype, err: anyerror, file_name: ?[]const u8) !void {
+        try writer.print("{s}:{}:{}: {s}\n", .{file_name orelse "<json>", self.getLine(), self.getColumn(), @errorName(err)});
+
+        // Show a "line" of context, or in case of very long lines, just an excerpt of the line.
+        // (Very long lines are common in minified JSON such as in an HTTP API or other machine-to-machine contexts.)
+        var start = self.cursor_in_current_input;
+        var start_elipsis: []const u8 = "";
+        while (true) {
+            if (start == 0 or self.current_input[start - 1] == '\n') break; // found start of line.
+            if (start + 40 <= self.cursor_in_current_input) {
+                // Too far into the line. Show part of the line.
+                start_elipsis = "...";
+                break;
+            }
+            start -= 1;
+        }
+        var end = start;
+        var end_elipsis: []const u8 = "";
+        while (true) {
+            if (end + 1 < self.current_input.len and self.current_input[end + 1] == '\n') break; // found end of line.
+            if (end == self.current_input.len) {
+                // found end of input.
+                // TODO: put elipsis when not is_end_of_input.
+                break;
+            }
+            if (end >= start + 70) {
+                // Line is too long. Show part of it.
+                end_elipsis = "...";
+                break;
+            }
+            end += 1;
+        }
+        try writer.print("{s}{s}{s}\n", .{start_elipsis, self.current_input[start..end], end_elipsis});
+        try writer.writeByteNTimes(' ', start_elipsis.len + self.cursor_in_current_input - start);
+        try writer.writeAll("^\n");
+
+        for (self.context_stack.items) |item| {
+            try writer.print("  in {s}\n", .{item});
+        }
     }
 };
+
+pub inline fn maybeRecordDiagnosticContext(allocator: Allocator, maybe_diagnostics: ?*Diagnostics, context: []const u8) Allocator.Error!void {
+    if (maybe_diagnostics) |diag| {
+        try diag.recordContext(allocator, context);
+    }
+}
 
 /// See the documentation for `std.json.Token`.
 pub const AllocWhen = enum { alloc_if_needed, alloc_always };
@@ -259,10 +305,6 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         /// Calls `std.json.Scanner.enableDiagnostics`.
         pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
             self.scanner.enableDiagnostics(diagnostics);
-        }
-        /// Calls `std.json.Scanner.saveDiagnostics`.
-        pub fn saveDiagnostics(self: *const @This()) void {
-            self.scanner.saveDiagnostics();
         }
 
         pub const NextError = ReaderType.Error || Error || Allocator.Error;
@@ -466,18 +508,18 @@ pub const Scanner = struct {
         self.* = undefined;
     }
 
-    /// See also `saveDiagnostics()`.
     pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
-        diagnostics.cursor = .{ .pointer = &self.cursor };
-        std.log.warn("cursor(enableDiagnostics): {}", .{diagnostics.getCursor()});
         self.diagnostics = diagnostics;
     }
-    /// Call this just before `deinit()` to make the diagnostics available after the `deinit()`.
+    /// For performance reasons, the diagnostics (see `enableDiagnostics`) are not kept up to date continually.
+    /// Call this method to update the diagnostics with the latest information.
+    /// Because diagnostics are usually consulted in case of an error, it is common to call this in an errdefer.
+    /// It is safe to call this regardless of whether diagnostics have been enabled.
+    /// This is already called in an errdefer block in every relevant public method of this class.
     pub fn saveDiagnostics(self: *const @This()) void {
         if (self.diagnostics) |diag| {
-            std.log.warn("cursor(deinit presave): {}", .{diag.getCursor()});
-            diag.saveCursor();
-            std.log.warn("cursor(deinit postsave): {}", .{diag.getCursor()});
+            diag.cursor_in_current_input = self.cursor;
+            diag.current_input = self.input;
         }
     }
 
@@ -520,6 +562,7 @@ pub const Scanner = struct {
     /// See also `std.json.Token` for documentation of `nextAlloc*()` function behavior.
     pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
+        errdefer self.saveDiagnostics();
         const token_type = self.peekNextTokenType() catch |e| switch (e) {
             error.BufferUnderrun => unreachable,
             else => |err| return err,
@@ -577,6 +620,7 @@ pub const Scanner = struct {
     /// This method does not indicate whether the token content being returned is for a `.number` or `.string` token type;
     /// the caller of this method is expected to know which type of token is being processed.
     pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocIntoArrayListError!?[]const u8 {
+        errdefer self.saveDiagnostics();
         while (true) {
             const token = try self.next();
             switch (token) {
@@ -642,6 +686,7 @@ pub const Scanner = struct {
     /// see `peekNextTokenType()`.
     pub fn skipValue(self: *@This()) SkipError!void {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
+        errdefer self.saveDiagnostics();
         switch (self.peekNextTokenType() catch |e| switch (e) {
             error.BufferUnderrun => unreachable,
             else => |err| return err,
@@ -686,6 +731,7 @@ pub const Scanner = struct {
     /// Skip tokens until an `.object_end` or `.array_end` token results in a `stackHeight()` equal the given stack height.
     /// Unlike `skipValue()`, this function is available in streaming mode.
     pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: usize) NextError!void {
+        errdefer self.saveDiagnostics();
         while (true) {
             switch (try self.next()) {
                 .object_end, .array_end => {
@@ -705,11 +751,13 @@ pub const Scanner = struct {
     /// Pre allocate memory to hold the given number of nesting levels.
     /// `stackHeight()` up to the given number will not cause allocations.
     pub fn ensureTotalStackCapacity(self: *@This(), height: usize) Allocator.Error!void {
+        errdefer self.saveDiagnostics();
         try self.stack.ensureTotalCapacity(height);
     }
 
     /// See `std.json.Token` for documentation of this function.
     pub fn next(self: *@This()) NextError!Token {
+        errdefer self.saveDiagnostics();
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
@@ -1463,6 +1511,7 @@ pub const Scanner = struct {
     /// determines which type of token will be returned from the next `next*()` call.
     /// This function is idempotent, only advancing past commas, colons, and inter-token whitespace.
     pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
+        errdefer self.saveDiagnostics();
         state_loop: while (true) {
             switch (self.state) {
                 .value => {

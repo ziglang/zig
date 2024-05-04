@@ -10,6 +10,7 @@ const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Diagnostics = @import("./scanner.zig").Diagnostics;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const maybeRecordDiagnosticContext = @import("./scanner.zig").maybeRecordDiagnosticContext;
 
 const Value = @import("./dynamic.zig").Value;
 const Array = @import("./dynamic.zig").Array;
@@ -144,11 +145,6 @@ pub fn parseFromTokenSourceLeaky(
     if (resolved_options.diagnostics) |diag| {
         scanner_or_reader.enableDiagnostics(diag);
     }
-    defer {
-        if (resolved_options.diagnostics) |_| {
-            scanner_or_reader.saveDiagnostics();
-        }
-    }
 
     const value = try innerParse(T, allocator, scanner_or_reader, resolved_options);
 
@@ -222,6 +218,8 @@ pub fn innerParse(
     source: anytype,
     options: ParseOptions,
 ) ParseError(@TypeOf(source.*))!T {
+    errdefer source.saveDiagnostics();
+    errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T)) catch {};
     switch (@typeInfo(T)) {
         .Bool => {
             return switch (try source.next()) {
@@ -299,7 +297,7 @@ pub fn innerParse(
                     if (u_field.type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         if (.object_begin != try source.next()) return error.UnexpectedToken;
-                        if (.object_end != try source.next()) return error.UnexpectedToken;
+                        if (.object_end != try source.next()) return error.UnknownField;
                         result = @unionInit(T, u_field.name, {});
                     } else {
                         // Recurse.
@@ -347,9 +345,7 @@ pub fn innerParse(
                     .object_end => { // No more fields.
                         break;
                     },
-                    else => {
-                        return error.UnexpectedToken;
-                    },
+                    else => unreachable, // Not possible while in an object.
                 };
 
                 inline for (structInfo.fields, 0..) |field, i| {
@@ -358,6 +354,7 @@ pub fn innerParse(
                         // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
                         // (Recursing into innerParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
+                        errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T) ++ "." ++ field.name) catch {};
                         name_token = null;
                         if (fields_seen[i]) {
                             switch (options.duplicate_field_behavior) {
@@ -624,7 +621,7 @@ pub fn innerParseFromValue(
                     if (u_field.type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         if (kv.value_ptr.* != .object) return error.UnexpectedToken;
-                        if (kv.value_ptr.*.object.count() != 0) return error.UnexpectedToken;
+                        if (kv.value_ptr.*.object.count() != 0) return error.UnknownField;
                         return @unionInit(T, u_field.name, {});
                     }
                     // Recurse.
