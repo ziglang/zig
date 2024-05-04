@@ -722,14 +722,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     const thread_pool = f.job_queue.thread_pool;
 
     for (new_fetches, prog_names) |*new_fetch, prog_name| {
-        f.job_queue.wait_group.start();
-        thread_pool.spawn(workerRun, .{ new_fetch, prog_name }) catch |err| switch (err) {
-            error.OutOfMemory => {
-                new_fetch.oom_flag = true;
-                f.job_queue.wait_group.finish();
-                continue;
-            },
-        };
+        thread_pool.spawnWg(&f.job_queue.wait_group, workerRun, .{ new_fetch, prog_name });
     }
 }
 
@@ -750,8 +743,6 @@ pub fn relativePathDigest(
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
-    defer f.job_queue.wait_group.finish();
-
     var prog_node = f.prog_node.start(prog_name, 0);
     defer prog_node.end();
     prog_node.activate();
@@ -1379,10 +1370,7 @@ fn computeHash(
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                wait_group.start();
-                try thread_pool.spawn(workerDeleteFile, .{
-                    root_dir, deleted_file, &wait_group,
-                });
+                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
                 try deleted_files.append(deleted_file);
                 continue;
             }
@@ -1409,10 +1397,7 @@ fn computeHash(
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
-            wait_group.start();
-            try thread_pool.spawn(workerHashFile, .{
-                root_dir, hashed_file, &wait_group,
-            });
+            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
         }
     }
@@ -1504,13 +1489,11 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     try bw.flush();
 }
 
-fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {
     hashed_file.failure = hashFileFallible(dir, hashed_file);
 }
 
-fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
     deleted_file.failure = deleteFileFallible(dir, deleted_file);
 }
 
