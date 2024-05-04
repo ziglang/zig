@@ -1081,10 +1081,12 @@ pub fn spawnLld(
 
     switch (term) {
         .Exited => |code| if (code != 0) {
+            if (comp.clang_passthrough_mode) std.process.exit(code);
             comp.lockAndParseLldStderr(argv[1], stderr);
             return error.LLDReportedFailure;
         },
         else => {
+            if (comp.clang_passthrough_mode) std.process.abort();
             log.err("{s} terminated with stderr:\n{s}", .{ argv[0], stderr });
             return error.LLDCrashed;
         },
