@@ -2060,6 +2060,9 @@ pub const Inst = struct {
         /// Guaranteed to not have the `ptr_cast` flag.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
+        /// Implements the `@typeId` builtin.
+        /// `operand` is payload index to `UnNode`.
+        type_id,
 
         pub const InstData = struct {
             opcode: Extended,

@@ -1257,6 +1257,7 @@ fn analyzeBodyInner(
                     .work_item_id       => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_size    => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
+                    .type_id            => try sema.zirTypeId(            block, extended),
                     .in_comptime        => try sema.zirInComptime(        block),
                     .closure_get        => try sema.zirClosureGet(        block, extended),
                     // zig fmt: on
@@ -26484,6 +26485,19 @@ fn zirWorkItem(
             .payload = dimension,
         } },
     });
+}
+
+fn zirTypeId(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+
+    const ty = try sema.resolveType(block, ty_src, extra.operand);
+
+    return sema.mod.intRef(Type.u32, @intFromEnum(ty.ip_index));
 }
 
 fn zirInComptime(

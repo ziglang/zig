@@ -9691,6 +9691,14 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
+        .type_id => {
+            const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .type_type } }, params[0]);
+            const result = try gz.addExtendedPayload(.type_id, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, ri, result, node);
+        },
     }
 }
 
