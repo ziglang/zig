@@ -1742,3 +1742,49 @@ pub fn cleanExit() void {
         exit(0);
     }
 }
+
+/// Raise the open file descriptor limit.
+///
+/// On some systems, this raises the limit before seeing ProcessFdQuotaExceeded
+/// errors. On other systems, this does nothing.
+pub fn raiseFileDescriptorLimit() void {
+    const have_rlimit = switch (native_os) {
+        .windows, .wasi => false,
+        else => true,
+    };
+    if (!have_rlimit) return;
+
+    var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
+    if (native_os.isDarwin()) {
+        // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
+        // According to the man pages for setrlimit():
+        //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
+        //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
+        //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
+        lim.max = @min(std.c.OPEN_MAX, lim.max);
+    }
+    if (lim.cur == lim.max) return;
+
+    // Do a binary search for the limit.
+    var min: posix.rlim_t = lim.cur;
+    var max: posix.rlim_t = 1 << 20;
+    // But if there's a defined upper bound, don't search, just set it.
+    if (lim.max != posix.RLIM.INFINITY) {
+        min = lim.max;
+        max = lim.max;
+    }
+
+    while (true) {
+        lim.cur = min + @divTrunc(max - min, 2); // on freebsd rlim_t is signed
+        if (posix.setrlimit(.NOFILE, lim)) |_| {
+            min = lim.cur;
+        } else |_| {
+            max = lim.cur;
+        }
+        if (min + 1 >= max) break;
+    }
+}
+
+test raiseFileDescriptorLimit {
+    raiseFileDescriptorLimit();
+}
