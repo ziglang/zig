@@ -806,14 +806,12 @@ pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
 }
 
 fn getEmittedFileGeneric(compile: *Compile, output_file: *?*GeneratedFile) LazyPath {
-    if (output_file.*) |g| {
-        return .{ .generated = g };
-    }
+    if (output_file.*) |file| return .{ .generated = .{ .file = file } };
     const arena = compile.step.owner.allocator;
     const generated_file = arena.create(GeneratedFile) catch @panic("OOM");
     generated_file.* = .{ .step = &compile.step };
     output_file.* = generated_file;
-    return .{ .generated = generated_file };
+    return .{ .generated = .{ .file = generated_file } };
 }
 
 /// Returns the path to the directory that contains the emitted binary file.

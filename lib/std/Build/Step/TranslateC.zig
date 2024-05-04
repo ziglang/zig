@@ -59,7 +59,7 @@ pub const AddExecutableOptions = struct {
 };
 
 pub fn getOutput(translate_c: *TranslateC) std.Build.LazyPath {
-    return .{ .generated = &translate_c.output_file };
+    return .{ .generated = .{ .file = &translate_c.output_file } };
 }
 
 /// Creates a step to build an executable from the translated source.

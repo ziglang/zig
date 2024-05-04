@@ -84,10 +84,10 @@ pub fn create(
 pub const getOutputSource = getOutput;
 
 pub fn getOutput(objcopy: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = &objcopy.output_file };
+    return .{ .generated = .{ .file = &objcopy.output_file } };
 }
 pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
-    return if (objcopy.output_file_debug) |*file| .{ .generated = file } else null;
+    return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {

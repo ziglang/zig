@@ -125,7 +125,8 @@ pub const Arg = union(enum) {
     lazy_path: PrefixedLazyPath,
     directory_source: PrefixedLazyPath,
     bytes: []u8,
-    output: *Output,
+    output_file: *Output,
+    output_directory: *Output,
 };
 
 pub const PrefixedLazyPath = struct {
@@ -225,13 +226,13 @@ pub fn addPrefixedOutputFileArg(
         .basename = b.dupe(basename),
         .generated_file = .{ .step = &run.step },
     };
-    run.argv.append(b.allocator, .{ .output = output }) catch @panic("OOM");
+    run.argv.append(b.allocator, .{ .output_file = output }) catch @panic("OOM");
 
     if (run.rename_step_with_output_arg) {
         run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
     }
 
-    return .{ .generated = &output.generated_file };
+    return .{ .generated = .{ .file = &output.generated_file } };
 }
 
 /// Appends an input file to the command line arguments.
@@ -268,6 +269,56 @@ pub fn addPrefixedFileArg(run: *Run, prefix: []const u8, lp: std.Build.LazyPath)
     };
     run.argv.append(b.allocator, .{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
     lp.addStepDependencies(&run.step);
+}
+
+/// Provides a directory path as a command line argument to the command being run.
+///
+/// Returns a `std.Build.LazyPath` which can be used as inputs to other APIs
+/// throughout the build system.
+///
+/// Related:
+/// * `addPrefixedOutputDirectoryArg` - same thing but prepends a string to the argument
+/// * `addDirectoryArg` - for input directories given to the child process
+pub fn addOutputDirectoryArg(run: *Run, basename: []const u8) std.Build.LazyPath {
+    return run.addPrefixedOutputDirectoryArg("", basename);
+}
+
+/// Provides a directory path as a command line argument to the command being run.
+/// Asserts `basename` is not empty.
+///
+/// For example, a prefix of "-o" and basename of "output_dir" will result in
+/// the child process seeing something like this: "-ozig-cache/.../output_dir"
+///
+/// The child process will see a single argument, regardless of whether the
+/// prefix or basename have spaces.
+///
+/// The returned `std.Build.LazyPath` can be used as inputs to other APIs
+/// throughout the build system.
+///
+/// Related:
+/// * `addOutputDirectoryArg` - same thing but without the prefix
+/// * `addDirectoryArg` - for input directories given to the child process
+pub fn addPrefixedOutputDirectoryArg(
+    run: *Run,
+    prefix: []const u8,
+    basename: []const u8,
+) std.Build.LazyPath {
+    if (basename.len == 0) @panic("basename must not be empty");
+    const b = run.step.owner;
+
+    const output = b.allocator.create(Output) catch @panic("OOM");
+    output.* = .{
+        .prefix = b.dupe(prefix),
+        .basename = b.dupe(basename),
+        .generated_file = .{ .step = &run.step },
+    };
+    run.argv.append(b.allocator, .{ .output_directory = output }) catch @panic("OOM");
+
+    if (run.rename_step_with_output_arg) {
+        run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
+    }
+
+    return .{ .generated = .{ .file = &output.generated_file } };
 }
 
 /// deprecated: use `addDirectoryArg`
@@ -314,9 +365,9 @@ pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []co
 
     run.dep_output_file = dep_file;
 
-    run.argv.append(b.allocator, .{ .output = dep_file }) catch @panic("OOM");
+    run.argv.append(b.allocator, .{ .output_file = dep_file }) catch @panic("OOM");
 
-    return .{ .generated = &dep_file.generated_file };
+    return .{ .generated = .{ .file = &dep_file.generated_file } };
 }
 
 pub fn addArg(run: *Run, arg: []const u8) void {
@@ -432,7 +483,7 @@ pub fn addCheck(run: *Run, new_check: StdIo.Check) void {
 pub fn captureStdErr(run: *Run) std.Build.LazyPath {
     assert(run.stdio != .inherit);
 
-    if (run.captured_stderr) |output| return .{ .generated = &output.generated_file };
+    if (run.captured_stderr) |output| return .{ .generated = .{ .file = &output.generated_file } };
 
     const output = run.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -441,13 +492,13 @@ pub fn captureStdErr(run: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &run.step },
     };
     run.captured_stderr = output;
-    return .{ .generated = &output.generated_file };
+    return .{ .generated = .{ .file = &output.generated_file } };
 }
 
 pub fn captureStdOut(run: *Run) std.Build.LazyPath {
     assert(run.stdio != .inherit);
 
-    if (run.captured_stdout) |output| return .{ .generated = &output.generated_file };
+    if (run.captured_stdout) |output| return .{ .generated = .{ .file = &output.generated_file } };
 
     const output = run.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -456,7 +507,7 @@ pub fn captureStdOut(run: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &run.step },
     };
     run.captured_stdout = output;
-    return .{ .generated = &output.generated_file };
+    return .{ .generated = .{ .file = &output.generated_file } };
 }
 
 /// Adds an additional input files that, when modified, indicates that this Run
@@ -484,7 +535,7 @@ fn hasAnyOutputArgs(run: Run) bool {
     if (run.captured_stdout != null) return true;
     if (run.captured_stderr != null) return true;
     for (run.argv.items) |arg| switch (arg) {
-        .output => return true,
+        .output_file, .output_directory => return true,
         else => continue,
     };
     return false;
@@ -520,6 +571,7 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 
 const IndexedOutput = struct {
     index: usize,
+    tag: @typeInfo(Arg).Union.tag_type.?,
     output: *Output,
 };
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
@@ -563,17 +615,18 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
                 _ = try man.addFile(file_path, null);
             },
-            .output => |output| {
+            .output_file, .output_directory => |output| {
                 man.hash.addBytes(output.prefix);
                 man.hash.addBytes(output.basename);
                 // Add a placeholder into the argument list because we need the
                 // manifest hash to be updated with all arguments before the
                 // object directory is computed.
-                try argv_list.append("");
                 try output_placeholders.append(.{
-                    .index = argv_list.items.len - 1,
+                    .index = argv_list.items.len,
+                    .tag = arg,
                     .output = output,
                 });
+                _ = try argv_list.addOne();
             },
         }
     }
@@ -599,11 +652,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     hashStdIo(&man.hash, run.stdio);
 
-    if (has_side_effects) {
-        try runCommand(run, argv_list.items, has_side_effects, null, prog_node);
-        return;
-    }
-
     for (run.extra_file_dependencies) |file_path| {
         _ = try man.addFile(b.pathFromRoot(file_path), null);
     }
@@ -611,7 +659,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
-    if (try step.cacheHit(&man)) {
+    if (try step.cacheHit(&man) and !has_side_effects) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -628,13 +676,54 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         return;
     }
 
+    const dep_output_file = run.dep_output_file orelse {
+        // We already know the final output paths, use them directly.
+        const digest = man.final();
+
+        try populateGeneratedPaths(
+            arena,
+            output_placeholders.items,
+            run.captured_stdout,
+            run.captured_stderr,
+            b.cache_root,
+            &digest,
+        );
+
+        const output_dir_path = "o" ++ fs.path.sep_str ++ &digest;
+        for (output_placeholders.items) |placeholder| {
+            const output_sub_path = b.pathJoin(&.{ output_dir_path, placeholder.output.basename });
+            const output_sub_dir_path = switch (placeholder.tag) {
+                .output_file => fs.path.dirname(output_sub_path).?,
+                .output_directory => output_sub_path,
+                else => unreachable,
+            };
+            b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
+                return step.fail("unable to make path '{}{s}': {s}", .{
+                    b.cache_root, output_sub_dir_path, @errorName(err),
+                });
+            };
+            const output_path = placeholder.output.generated_file.path.?;
+            argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
+                output_path
+            else
+                b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+        }
+
+        return runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
+    };
+
+    // We do not know the final output paths yet, use temp paths to run the command.
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
 
     for (output_placeholders.items) |placeholder| {
         const output_components = .{ tmp_dir_path, placeholder.output.basename };
         const output_sub_path = b.pathJoin(&output_components);
-        const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
+        const output_sub_dir_path = switch (placeholder.tag) {
+            .output_file => fs.path.dirname(output_sub_path).?,
+            .output_directory => output_sub_path,
+            else => unreachable,
+        };
         b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
             return step.fail("unable to make path '{}{s}': {s}", .{
                 b.cache_root, output_sub_dir_path, @errorName(err),
@@ -642,17 +731,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
         const output_path = try b.cache_root.join(arena, &output_components);
         placeholder.output.generated_file.path = output_path;
-        const cli_arg = if (placeholder.output.prefix.len == 0)
+        argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
             output_path
         else
             b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
-        argv_list.items[placeholder.index] = cli_arg;
     }
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
 
-    if (run.dep_output_file) |dep_output_file|
-        try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
+    try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
 
     const digest = man.final();
 
@@ -777,7 +864,7 @@ fn runCommand(
     run: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
-    tmp_dir_path: ?[]const u8,
+    output_dir_path: []const u8,
     prog_node: *std.Progress.Node,
 ) !void {
     const step = &run.step;
@@ -950,7 +1037,7 @@ fn runCommand(
         },
     }) |stream| {
         if (stream.captured) |output| {
-            const output_components = .{ tmp_dir_path.?, output.basename };
+            const output_components = .{ output_dir_path, output.basename };
             const output_path = try b.cache_root.join(arena, &output_components);
             output.generated_file.path = output_path;
 

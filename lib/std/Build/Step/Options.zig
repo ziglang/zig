@@ -407,7 +407,7 @@ pub const getSource = getOutput;
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.
 pub fn getOutput(options: *Options) LazyPath {
-    return .{ .generated = &options.generated_file };
+    return .{ .generated = .{ .file = &options.generated_file } };
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
