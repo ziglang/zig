@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const FileOpenError = error {
+const FileOpenError = error{
     AccessDenied,
     OutOfMemory,
     FileNotFound,
 };
 
-const AllocationError = error {
+const AllocationError = error{
     OutOfMemory,
 };
 
