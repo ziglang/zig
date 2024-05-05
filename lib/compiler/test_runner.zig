@@ -252,6 +252,6 @@ pub fn mainSimple() anyerror!void {
     }
     if (print_summary) {
         stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
-        if (failed != 0) std.process.exit(1);
     }
+    if (failed != 0) std.process.exit(1);
 }
