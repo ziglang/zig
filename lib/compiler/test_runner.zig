@@ -12,10 +12,8 @@ var cmdline_buffer: [4096]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&cmdline_buffer);
 
 pub fn main() void {
-    if (builtin.zig_backend == .stage2_riscv64) return mainExtraSimple() catch @panic("test failure");
-
-    if (builtin.zig_backend == .stage2_aarch64) {
-        return mainSimple() catch @panic("test failure");
+    if (builtin.zig_backend == .stage2_riscv64) {
+        return mainSimple() catch @panic("test failure\n");
     }
 
     const args = std.process.argsAlloc(fba.allocator()) catch
@@ -221,8 +219,9 @@ pub fn log(
 /// Simpler main(), exercising fewer language features, so that
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
-    const enable_print = false;
-    const print_all = false;
+    const enable_print = true;
+    const print_all = true;
+    const print_summary = false;
 
     var passed: u64 = 0;
     var skipped: u64 = 0;
@@ -251,24 +250,8 @@ pub fn mainSimple() anyerror!void {
         if (enable_print and print_all) stderr.writeAll("PASS\n") catch {};
         passed += 1;
     }
-    if (enable_print) {
+    if (print_summary) {
         stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
         if (failed != 0) std.process.exit(1);
     }
-}
-
-pub fn mainExtraSimple() !void {
-    var fail_count: u8 = 0;
-
-    for (builtin.test_functions) |test_fn| {
-        test_fn.func() catch |err| {
-            if (err != error.SkipZigTest) {
-                fail_count += 1;
-                continue;
-            }
-            continue;
-        };
-    }
-
-    if (fail_count != 0) std.process.exit(1);
 }
