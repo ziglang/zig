@@ -545,14 +545,6 @@ pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {
     return b.addObjCopy(cs.getEmittedBin(), copy);
 }
 
-/// This function would run in the context of the package that created the executable,
-/// which is undesirable when running an executable provided by a dependency package.
-pub const run = @compileError("deprecated; use std.Build.addRunArtifact");
-
-/// This function would install in the context of the package that created the artifact,
-/// which is undesirable when installing an artifact provided by a dependency package.
-pub const install = @compileError("deprecated; use std.Build.installArtifact");
-
 pub fn checkObject(self: *Compile) *Step.CheckObject {
     return Step.CheckObject.create(self.step.owner, self.getEmittedBin(), self.rootModuleTarget().ofmt);
 }
@@ -1281,7 +1273,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .win32_resource_file => |rc_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (rc_source_file.flags.len == 0) {
+                        if (rc_source_file.flags.len == 0 and rc_source_file.include_paths.len == 0) {
                             if (prev_has_rcflags) {
                                 try zig_args.append("-rcflags");
                                 try zig_args.append("--");
@@ -1291,6 +1283,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             try zig_args.append("-rcflags");
                             for (rc_source_file.flags) |arg| {
                                 try zig_args.append(arg);
+                            }
+                            for (rc_source_file.include_paths) |include_path| {
+                                try zig_args.append("/I");
+                                try zig_args.append(include_path.getPath2(module.owner, step));
                             }
                             try zig_args.append("--");
                             prev_has_rcflags = true;
@@ -1715,7 +1711,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         );
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(args_file, args);
+        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",

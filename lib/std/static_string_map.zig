@@ -70,10 +70,14 @@ pub fn StaticStringMapWithEql(
         /// (only keys) tuples if `V` is `void`.
         pub inline fn initComptime(comptime kvs_list: anytype) Self {
             comptime {
-                @setEvalBranchQuota(30 * kvs_list.len);
                 var self = Self{};
                 if (kvs_list.len == 0)
                     return self;
+
+                // Since the KVs are sorted, a linearly-growing bound will never
+                // be sufficient for extreme cases. So we grow proportional to
+                // N*log2(N).
+                @setEvalBranchQuota(10 * kvs_list.len * std.math.log2_int_ceil(usize, kvs_list.len));
 
                 var sorted_keys: [kvs_list.len][]const u8 = undefined;
                 var sorted_vals: [kvs_list.len]V = undefined;
@@ -212,8 +216,12 @@ pub fn StaticStringMapWithEql(
             }
         }
 
-        /// Returns the longest key, value pair where key is a prefix of `str`
+        /// Returns the key-value pair where key is the longest prefix of `str`
         /// else null.
+        ///
+        /// This is effectively an O(N) algorithm which loops from `max_len` to
+        /// `min_len` and calls `getIndex()` to check all keys with the given
+        /// len.
         pub fn getLongestPrefix(self: Self, str: []const u8) ?KV {
             if (self.kvs.len == 0)
                 return null;
@@ -497,6 +505,33 @@ test "getLongestPrefix2" {
     try testing.expectEqual(null, map.getLongestPrefix("xxx"));
 }
 
-test "long kvs_list doesn't exceed @setEvalBranchQuota" {
-    _ = TestMapVoid.initComptime([1]TestKVVoid{.{"x"}} ** 1_000);
+test "sorting kvs doesn't exceed eval branch quota" {
+    // from https://github.com/ziglang/zig/issues/19803
+    const TypeToByteSizeLUT = std.StaticStringMap(u32).initComptime(.{
+        .{ "bool", 0 },
+        .{ "c_int", 0 },
+        .{ "c_long", 0 },
+        .{ "c_longdouble", 0 },
+        .{ "t20", 0 },
+        .{ "t19", 0 },
+        .{ "t18", 0 },
+        .{ "t17", 0 },
+        .{ "t16", 0 },
+        .{ "t15", 0 },
+        .{ "t14", 0 },
+        .{ "t13", 0 },
+        .{ "t12", 0 },
+        .{ "t11", 0 },
+        .{ "t10", 0 },
+        .{ "t9", 0 },
+        .{ "t8", 0 },
+        .{ "t7", 0 },
+        .{ "t6", 0 },
+        .{ "t5", 0 },
+        .{ "t4", 0 },
+        .{ "t3", 0 },
+        .{ "t2", 0 },
+        .{ "t1", 1 },
+    });
+    try testing.expectEqual(1, TypeToByteSizeLUT.get("t1"));
 }

@@ -173,13 +173,13 @@ pub const W_OK = system.W_OK;
 pub const X_OK = system.X_OK;
 
 pub const iovec = extern struct {
-    iov_base: [*]u8,
-    iov_len: usize,
+    base: [*]u8,
+    len: usize,
 };
 
 pub const iovec_const = extern struct {
-    iov_base: [*]const u8,
-    iov_len: usize,
+    base: [*]const u8,
+    len: usize,
 };
 
 pub const ACCMODE = enum(u2) {
@@ -717,7 +717,7 @@ pub fn raise(sig: u8) RaiseError!void {
         }
     }
 
-    @compileError("std.os.raise unimplemented for this target");
+    @compileError("std.posix.raise unimplemented for this target");
 }
 
 pub const KillError = error{ ProcessNotFound, PermissionDenied } || UnexpectedError;
@@ -796,8 +796,8 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
+            .base = buf.ptr,
+            .len = buf.len,
         }};
 
         var nread: usize = undefined;
@@ -865,7 +865,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
         // TODO improve this to use ReadFileScatter
         if (iov.len == 0) return 0;
         const first = iov[0];
-        return read(fd, first.iov_base[0..first.iov_len]);
+        return read(fd, first.base[0..first.len]);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var nread: usize = undefined;
@@ -932,8 +932,8 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
+            .base = buf.ptr,
+            .len = buf.len,
         }};
 
         var nread: usize = undefined;
@@ -1077,7 +1077,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
         // So we simply read into the first vector only.
         if (iov.len == 0) return 0;
         const first = iov[0];
-        return pread(fd, first.iov_base[0..first.iov_len], offset);
+        return pread(fd, first.base[0..first.len], offset);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var nread: usize = undefined;
@@ -1186,8 +1186,8 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 
     if (native_os == .wasi and !builtin.link_libc) {
         const ciovs = [_]iovec_const{iovec_const{
-            .iov_base = bytes.ptr,
-            .iov_len = bytes.len,
+            .base = bytes.ptr,
+            .len = bytes.len,
         }};
         var nwritten: usize = undefined;
         switch (wasi.fd_write(fd, &ciovs, ciovs.len, &nwritten)) {
@@ -1263,7 +1263,7 @@ pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
         // TODO improve this to use WriteFileScatter
         if (iov.len == 0) return 0;
         const first = iov[0];
-        return write(fd, first.iov_base[0..first.iov_len]);
+        return write(fd, first.base[0..first.len]);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var nwritten: usize = undefined;
@@ -1340,8 +1340,8 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const ciovs = [1]iovec_const{iovec_const{
-            .iov_base = bytes.ptr,
-            .iov_len = bytes.len,
+            .base = bytes.ptr,
+            .len = bytes.len,
         }};
 
         var nwritten: usize = undefined;
@@ -1432,7 +1432,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         // So we simply write the first vector only.
         if (iov.len == 0) return 0;
         const first = iov[0];
-        return pwrite(fd, first.iov_base[0..first.iov_len], offset);
+        return pwrite(fd, first.base[0..first.len], offset);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var nwritten: usize = undefined;
@@ -1932,7 +1932,7 @@ pub fn execvpeZ(
 /// See also `getenvZ`.
 pub fn getenv(key: []const u8) ?[:0]const u8 {
     if (native_os == .windows) {
-        @compileError("std.os.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
+        @compileError("std.posix.getenv is unavailable for Windows because environment strings are in WTF-16 format. See std.process.getEnvVarOwned for a cross-platform API or std.process.getenvW for a Windows-specific API.");
     }
     if (builtin.link_libc) {
         var ptr = std.c.environ;
@@ -1948,7 +1948,7 @@ pub fn getenv(key: []const u8) ?[:0]const u8 {
         return null;
     }
     if (native_os == .wasi) {
-        @compileError("std.os.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
+        @compileError("std.posix.getenv is unavailable for WASI. See std.process.getEnvMap or std.process.getEnvVarOwned for a cross-platform API.");
     }
     // The simplified start logic doesn't populate environ.
     if (std.start.simplified_logic) return null;
@@ -1972,7 +1972,7 @@ pub fn getenvZ(key: [*:0]const u8) ?[:0]const u8 {
         return mem.sliceTo(value, 0);
     }
     if (native_os == .windows) {
-        @compileError("std.os.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.process.getenvW for Windows-specific API.");
+        @compileError("std.posix.getenvZ is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.process.getenvW for Windows-specific API.");
     }
     return getenv(mem.sliceTo(key, 0));
 }
@@ -6361,7 +6361,7 @@ pub fn sendfile(
 fn count_iovec_bytes(iovs: []const iovec_const) usize {
     var count: usize = 0;
     for (iovs) |iov| {
-        count += iov.iov_len;
+        count += iov.len;
     }
     return count;
 }

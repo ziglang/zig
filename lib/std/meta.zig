@@ -13,10 +13,6 @@ test {
     _ = TrailerFlags;
 }
 
-pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
-
-pub const isTag = @compileError("deprecated; use 'tagged_value == @field(E, tag_name)' directly");
-
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // Using StaticStringMap here is more performant, but it will start to take too

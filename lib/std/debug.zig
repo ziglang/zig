@@ -1150,7 +1150,7 @@ pub fn readElfDebugInfo(
         };
 
         const mapped_mem = try mapWholeFile(elf_file);
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.InvalidDebugInfo;
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
@@ -1524,7 +1524,7 @@ test printLineFromFileAnyOs {
     {
         const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+        try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
@@ -1535,11 +1535,14 @@ test printLineFromFileAnyOs {
     {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("three_lines.zig",
+        try test_dir.dir.writeFile(.{
+            .sub_path = "three_lines.zig",
+            .data =
             \\1
             \\2
             \\3
-        );
+            ,
+        });
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("1\n", output.items);

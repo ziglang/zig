@@ -648,7 +648,6 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const ptr_size = self.ptrWidthBytes();
     const target = self.base.comp.root_mod.resolved_target.result;
     const ptr_bit_width = target.ptrBitWidth();
-    const has_os = target.os.tag != .freestanding;
     const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
@@ -684,9 +683,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_got_index == null) {
-            // We really only need ptr alignment but since we are using PROGBITS, linux requires
-            // page align.
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_got_index = try self.addPhdr(.{
@@ -701,7 +698,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_ro_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
@@ -716,7 +713,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_rw_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             const filesz: u64 = 1024;
             const off = self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
@@ -731,7 +728,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
 
         if (self.phdr_zig_load_zerofill_index == null) {
-            const alignment = if (has_os) self.page_size else @as(u16, ptr_size);
+            const alignment = self.page_size;
             self.phdr_zig_load_zerofill_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
@@ -2511,7 +2508,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append("-pie");
         }
 
-        if (is_dyn_lib and target.os.tag == .netbsd) {
+        if (is_exe_or_dyn_lib and target.os.tag == .netbsd) {
             // Add options to produce shared objects with only 2 PT_LOAD segments.
             // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
             // ld.elf_so fails loading dynamic libraries with "not found" error.
@@ -2729,74 +2726,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append("-Bsymbolic");
         }
 
-        if (comp.verbose_link) {
-            // Skip over our own name so that the LLD linker name is the first argv item.
-            Compilation.dump_argv(argv.items[1..]);
-        }
-
-        if (std.process.can_spawn) {
-            // If possible, we run LLD as a child process because it does not always
-            // behave properly as a library, unfortunately.
-            // https://github.com/ziglang/zig/issues/3825
-            var child = std.ChildProcess.init(argv.items, arena);
-            if (comp.clang_passthrough_mode) {
-                child.stdin_behavior = .Inherit;
-                child.stdout_behavior = .Inherit;
-                child.stderr_behavior = .Inherit;
-
-                const term = child.spawnAndWait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            std.process.exit(code);
-                        }
-                    },
-                    else => std.process.abort(),
-                }
-            } else {
-                child.stdin_behavior = .Ignore;
-                child.stdout_behavior = .Ignore;
-                child.stderr_behavior = .Pipe;
-
-                try child.spawn();
-
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
-
-                const term = child.wait() catch |err| {
-                    log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-                    return error.UnableToSpawnSelf;
-                };
-
-                switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            comp.lockAndParseLldStderr(linker_command, stderr);
-                            return error.LLDReportedFailure;
-                        }
-                    },
-                    else => {
-                        log.err("{s} terminated with stderr:\n{s}", .{ argv.items[0], stderr });
-                        return error.LLDCrashed;
-                    },
-                }
-
-                if (stderr.len != 0) {
-                    log.warn("unexpected LLD stderr:\n{s}", .{stderr});
-                }
-            }
-        } else {
-            const exit_code = try lldMain(arena, argv.items, false);
-            if (exit_code != 0) {
-                if (comp.clang_passthrough_mode) {
-                    std.process.exit(exit_code);
-                } else {
-                    return error.LLDReportedFailure;
-                }
-            }
-        }
+        try link.spawnLld(comp, arena, argv.items);
     }
 
     if (!self.base.disable_lld_caching) {
@@ -6503,7 +6433,6 @@ const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");
 const link = @import("../link.zig");
-const lldMain = @import("../main.zig").lldMain;
 const merge_section = @import("Elf/merge_section.zig");
 const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");

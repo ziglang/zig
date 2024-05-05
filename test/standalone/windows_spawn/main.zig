@@ -53,9 +53,9 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from exe\n");
 
     // now add a .bat
-    try tmp.dir.writeFile("hello.bat", "@echo hello from bat");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.bat", .data = "@echo hello from bat" });
     // and a .cmd
-    try tmp.dir.writeFile("hello.cmd", "@echo hello from cmd");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.cmd", .data = "@echo hello from cmd" });
 
     // with extension should find the .bat (case insensitive)
     try testExec(allocator, "heLLo.bat", "hello from bat\r\n");
@@ -87,7 +87,7 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from bat\r\n");
 
     // Add a hello.exe that is not a valid executable
-    try tmp.dir.writeFile("hello.exe", "invalid");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.exe", .data = "invalid" });
 
     // Trying to execute it with extension will give InvalidExe. This is a special
     // case for .EXE extensions, where if they ever try to get executed but they are
