@@ -92,6 +92,12 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
+if(APPLE AND ZIG_STATIC)
+  set(ZIG_STATIC_CURSES on)
+else()
+  set(ZIG_STATIC_CURSES off)
+endif()
+set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache")
 
 if(ZIG_USE_CCACHE)
@@ -160,7 +166,7 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
-if(APPLE AND ZIG_STATIC)
+if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
       PATHS
