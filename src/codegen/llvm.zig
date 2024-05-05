@@ -4649,8 +4649,8 @@ pub const DeclGen = struct {
                 debug_global_var,
                 debug_expression,
             );
-            if (!is_internal_linkage or decl.isExtern(zcu))
-                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+
+            variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
             try o.debug_globals.append(o.gpa, debug_global_var_expression);
         }
     }
