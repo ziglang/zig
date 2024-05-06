@@ -637,7 +637,10 @@ pub fn generateCompdb(self: *std.Build) !void {
     }
     entries_string = self.fmt("[{s}]", .{entries_string});
 
-    try self.build_root.handle.writeFile("compile_commands.json", entries_string);
+    try self.build_root.handle.writeFile(.{
+        .data = entries_string,
+        .sub_path = "compile_commands.json",
+    });
 }
 
 pub fn destroy(b: *Build) void {
@@ -645,10 +648,6 @@ pub fn destroy(b: *Build) void {
         set.deinit();
         b.allocator.destroy(set);
     }
-
-    b.env_map.deinit();
-    b.top_level_steps.deinit(b.allocator);
-    b.allocator.destroy(b);
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.
