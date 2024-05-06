@@ -3,12 +3,41 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "@byteSwap integers" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) {
+        // TODO: Remove when self-hosted wasm supports more types for byteswap
+        const ByteSwapIntTest = struct {
+            fn run() !void {
+                try t(u8, 0x12, 0x12);
+                try t(u16, 0x1234, 0x3412);
+                try t(u24, 0x123456, 0x563412);
+                try t(i24, @as(i24, @bitCast(@as(u24, 0xf23456))), 0x5634f2);
+                try t(i24, 0x1234f6, @as(i24, @bitCast(@as(u24, 0xf63412))));
+                try t(u32, 0x12345678, 0x78563412);
+                try t(i32, @as(i32, @bitCast(@as(u32, 0xf2345678))), 0x785634f2);
+                try t(i32, 0x123456f8, @as(i32, @bitCast(@as(u32, 0xf8563412))));
+                try t(u64, 0x123456789abcdef1, 0xf1debc9a78563412);
+
+                try t(u0, @as(u0, 0), 0);
+                try t(i8, @as(i8, -50), -50);
+                try t(i16, @as(i16, @bitCast(@as(u16, 0x1234))), @as(i16, @bitCast(@as(u16, 0x3412))));
+                try t(i24, @as(i24, @bitCast(@as(u24, 0x123456))), @as(i24, @bitCast(@as(u24, 0x563412))));
+                try t(i32, @as(i32, @bitCast(@as(u32, 0x12345678))), @as(i32, @bitCast(@as(u32, 0x78563412))));
+                try t(i64, @as(i64, @bitCast(@as(u64, 0x123456789abcdef1))), @as(i64, @bitCast(@as(u64, 0xf1debc9a78563412))));
+            }
+            fn t(comptime I: type, input: I, expected_output: I) !void {
+                try std.testing.expect(expected_output == @byteSwap(input));
+            }
+        };
+        try comptime ByteSwapIntTest.run();
+        try ByteSwapIntTest.run();
+        return;
+    }
+
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const ByteSwapIntTest = struct {
         fn run() !void {

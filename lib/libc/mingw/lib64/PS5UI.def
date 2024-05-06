@@ -8,7 +8,6 @@ LIBRARY ps5ui.dll
 EXPORTS
 DrvSplDeviceCaps
 DevQueryPrintEx
-DllMain
 DrvConvertDevMode
 DrvDeviceCapabilities
 DrvDevicePropertySheets

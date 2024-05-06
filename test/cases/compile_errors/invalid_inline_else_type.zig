@@ -27,4 +27,5 @@ pub export fn entry3() void {
 //
 // :5:21: error: cannot enumerate values of type 'anyerror' for 'inline else'
 // :13:21: error: cannot enumerate values of type 'tmp.E' for 'inline else'
+// :8:11: note: enum declared here
 // :20:21: error: cannot enumerate values of type '*u32' for 'inline else'

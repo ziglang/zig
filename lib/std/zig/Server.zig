@@ -38,8 +38,6 @@ pub const Message = struct {
     /// Trailing:
     /// * name: [tests_len]u32
     ///   - null-terminated string_bytes index
-    /// * async_frame_len: [tests_len]u32,
-    ///   - 0 means not async
     /// * expected_panic_msg: [tests_len]u32,
     ///   - null-terminated string_bytes index
     ///   - 0 means does not expect pani
@@ -148,16 +146,16 @@ pub fn serveMessage(
     header: OutMessage.Header,
     bufs: []const []const u8,
 ) !void {
-    var iovecs: [10]std.os.iovec_const = undefined;
+    var iovecs: [10]std.posix.iovec_const = undefined;
     const header_le = bswap(header);
     iovecs[0] = .{
-        .iov_base = @as([*]const u8, @ptrCast(&header_le)),
-        .iov_len = @sizeOf(OutMessage.Header),
+        .base = @as([*]const u8, @ptrCast(&header_le)),
+        .len = @sizeOf(OutMessage.Header),
     };
     for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
         iovec.* = .{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
+            .base = buf.ptr,
+            .len = buf.len,
         };
     }
     try s.out.writevAll(iovecs[0 .. bufs.len + 1]);
@@ -210,7 +208,6 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
 
 pub const TestMetadata = struct {
     names: []u32,
-    async_frame_sizes: []u32,
     expected_panic_msgs: []u32,
     string_bytes: []const u8,
 };
@@ -220,17 +217,16 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
         .tests_len = bswap(@as(u32, @intCast(test_metadata.names.len))),
         .string_bytes_len = bswap(@as(u32, @intCast(test_metadata.string_bytes.len))),
     };
+    const trailing = 2;
     const bytes_len = @sizeOf(OutMessage.TestMetadata) +
-        3 * 4 * test_metadata.names.len + test_metadata.string_bytes.len;
+        trailing * @sizeOf(u32) * test_metadata.names.len + test_metadata.string_bytes.len;
 
     if (need_bswap) {
         bswap_u32_array(test_metadata.names);
-        bswap_u32_array(test_metadata.async_frame_sizes);
         bswap_u32_array(test_metadata.expected_panic_msgs);
     }
     defer if (need_bswap) {
         bswap_u32_array(test_metadata.names);
-        bswap_u32_array(test_metadata.async_frame_sizes);
         bswap_u32_array(test_metadata.expected_panic_msgs);
     };
 
@@ -241,7 +237,6 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
         std.mem.asBytes(&header),
         // TODO: implement @ptrCast between slices changing the length
         std.mem.sliceAsBytes(test_metadata.names),
-        std.mem.sliceAsBytes(test_metadata.async_frame_sizes),
         std.mem.sliceAsBytes(test_metadata.expected_panic_msgs),
         test_metadata.string_bytes,
     });
@@ -255,18 +250,18 @@ fn bswap(x: anytype) @TypeOf(x) {
         .Enum => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
         .Int => return @byteSwap(x),
         .Struct => |info| switch (info.layout) {
-            .Extern => {
+            .@"extern" => {
                 var result: T = undefined;
                 inline for (info.fields) |field| {
                     @field(result, field.name) = bswap(@field(x, field.name));
                 }
                 return result;
             },
-            .Packed => {
+            .@"packed" => {
                 const I = info.backing_integer.?;
                 return @as(T, @bitCast(@byteSwap(@as(I, @bitCast(x)))));
             },
-            .Auto => @compileError("auto layout struct"),
+            .auto => @compileError("auto layout struct"),
         },
         else => @compileError("bswap on type " ++ @typeName(T)),
     }

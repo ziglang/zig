@@ -7,7 +7,6 @@
 LIBRARY SCRIPT.dll
 EXPORTS
 DestinationModule
-DllMain
 ModuleInitialize
 ModuleTerminate
 SourceModule

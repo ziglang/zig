@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-memory-l1-1-2
+
+EXPORTS
+
+DiscardVirtualMemory@8
+OfferVirtualMemory@12
+ReclaimVirtualMemory@8

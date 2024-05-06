@@ -29,19 +29,19 @@ fn doMemCheckClientRequestStmt(request: MemCheckClientRequest, a1: usize, a2: us
 }
 
 /// Mark memory at qzz.ptr as unaddressable for qzz.len bytes.
-pub fn makeMemNoAccess(qzz: []u8) void {
+pub fn makeMemNoAccess(qzz: []const u8) void {
     _ = doMemCheckClientRequestExpr(0, // default return
         .MakeMemNoAccess, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Mark memory at qzz.ptr as addressable but undefined for qzz.len bytes.
-pub fn makeMemUndefined(qzz: []u8) void {
+pub fn makeMemUndefined(qzz: []const u8) void {
     _ = doMemCheckClientRequestExpr(0, // default return
         .MakeMemUndefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
 /// Mark memory at qzz.ptr as addressable and defined or qzz.len bytes.
-pub fn makeMemDefined(qzz: []u8) void {
+pub fn makeMemDefined(qzz: []const u8) void {
     _ = doMemCheckClientRequestExpr(0, // default return
         .MakeMemDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
@@ -49,7 +49,7 @@ pub fn makeMemDefined(qzz: []u8) void {
 /// Similar to makeMemDefined except that addressability is
 /// not altered: bytes which are addressable are marked as defined,
 /// but those which are not addressable are left unchanged.
-pub fn makeMemDefinedIfAddressable(qzz: []u8) void {
+pub fn makeMemDefinedIfAddressable(qzz: []const u8) void {
     _ = doMemCheckClientRequestExpr(0, // default return
         .MakeMemDefinedIfAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
@@ -58,7 +58,7 @@ pub fn makeMemDefinedIfAddressable(qzz: []u8) void {
 /// string which is included in any messages pertaining to addresses
 /// within the specified memory range.  Has no other effect on the
 /// properties of the memory range.
-pub fn createBlock(qzz: []u8, desc: [*]u8) usize {
+pub fn createBlock(qzz: []const u8, desc: [*:0]const u8) usize {
     return doMemCheckClientRequestExpr(0, // default return
         .CreateBlock, @intFromPtr(qzz.ptr), qzz.len, @intFromPtr(desc), 0, 0);
 }
@@ -74,7 +74,7 @@ pub fn discard(blkindex: usize) bool {
 /// If suitable addressability is not established, Valgrind prints an
 /// error message and returns the address of the first offending byte.
 /// Otherwise it returns zero.
-pub fn checkMemIsAddressable(qzz: []u8) usize {
+pub fn checkMemIsAddressable(qzz: []const u8) usize {
     return doMemCheckClientRequestExpr(0, .CheckMemIsAddressable, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
@@ -82,7 +82,7 @@ pub fn checkMemIsAddressable(qzz: []u8) usize {
 /// qzz.len bytes.  If suitable addressability and definedness are not
 /// established, Valgrind prints an error message and returns the
 /// address of the first offending byte.  Otherwise it returns zero.
-pub fn checkMemIsDefined(qzz: []u8) usize {
+pub fn checkMemIsDefined(qzz: []const u8) usize {
     return doMemCheckClientRequestExpr(0, .CheckMemIsDefined, @intFromPtr(qzz.ptr), qzz.len, 0, 0, 0);
 }
 
@@ -137,7 +137,7 @@ pub fn countLeaks() CountResult {
     return res;
 }
 
-test "countLeaks" {
+test countLeaks {
     try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,
@@ -167,7 +167,7 @@ pub fn countLeakBlocks() CountResult {
     return res;
 }
 
-test "countLeakBlocks" {
+test countLeakBlocks {
     try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,

@@ -6,7 +6,7 @@ const expect = std.testing.expect;
 /// Zig only supports binary base IEEE-754 floats. Hence FLT_RADIX=2, and this is an alias for ldexp.
 pub const scalbn = @import("ldexp.zig").ldexp;
 
-test "math.scalbn" {
+test scalbn {
     // Verify we are using base 2.
     try expect(scalbn(@as(f16, 1.5), 4) == 24.0);
     try expect(scalbn(@as(f32, 1.5), 4) == 24.0);

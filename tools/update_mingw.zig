@@ -94,7 +94,10 @@ pub fn main() !void {
 
             if (blacklisted) continue;
 
-            if (std.mem.startsWith(u8, entry.basename, "api-ms-win-"))
+            if (std.mem.endsWith(u8, entry.basename, "_windowsapp.def"))
+                continue;
+
+            if (std.mem.endsWith(u8, entry.basename, "_onecore.def"))
                 continue;
 
             src_crt_dir.copyFile(entry.path, dest_crt_dir, entry.path, .{}) catch |err| {
@@ -148,7 +151,10 @@ const blacklist = [_][]const u8{
     "msvcr80.def.in",
     "msvcr90.def.in",
     "msvcr90d.def.in",
+    "msvcrt.def.in",
     "msvcrt10.def.in",
     "msvcrt20.def.in",
     "msvcrt40.def.in",
+
+    "crtdll.def.in",
 };

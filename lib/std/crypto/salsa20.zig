@@ -302,7 +302,10 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
     };
 }
 
-const SalsaImpl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64) SalsaVecImpl else SalsaNonVecImpl;
+const SalsaImpl = if (builtin.cpu.arch == .x86_64)
+    SalsaVecImpl
+else
+    SalsaNonVecImpl;
 
 fn keyToWords(key: [32]u8) [8]u32 {
     var k: [8]u32 = undefined;

@@ -240,7 +240,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectApproxEqRel = std.testing.expectApproxEqRel;
 
-test "math.gamma" {
+test gamma {
     inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, 120), gamma(T, 6), eps);
@@ -261,7 +261,7 @@ test "math.gamma" {
     }
 }
 
-test "math.gamma.special" {
+test "gamma.special" {
     inline for (&.{ f32, f64 }) |T| {
         try expect(std.math.isNan(gamma(T, -std.math.nan(T))));
         try expect(std.math.isNan(gamma(T, std.math.nan(T))));
@@ -286,7 +286,7 @@ test "math.gamma.special" {
     }
 }
 
-test "math.lgamma" {
+test lgamma {
     inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, @log(24.0)), lgamma(T, 5), eps);
@@ -307,7 +307,7 @@ test "math.lgamma" {
     }
 }
 
-test "math.lgamma.special" {
+test "lgamma.special" {
     inline for (&.{ f32, f64 }) |T| {
         try expect(std.math.isNan(lgamma(T, -std.math.nan(T))));
         try expect(std.math.isNan(lgamma(T, std.math.nan(T))));

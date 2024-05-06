@@ -1,0 +1,384 @@
+LIBRARY api-ms-win-crt-math-l1-1-0
+
+EXPORTS
+
+#include "func.def.in"
+
+#ifdef DEF_I386
+_CIacos
+_CIasin
+_CIatan
+_CIatan2
+_CIcos
+_CIcosh
+_CIexp
+_CIfmod
+_CIlog
+_CIlog10
+_CIpow
+_CIsin
+_CIsinh
+_CIsqrt
+_CItan
+_CItanh
+#endif
+_Cbuild
+_Cmulcc
+_Cmulcr
+_FCbuild
+_FCmulcc
+_FCmulcr
+_LCbuild
+_LCmulcc
+_LCmulcr
+#ifdef DEF_I386
+__libm_sse2_acos
+__libm_sse2_acosf
+__libm_sse2_asin
+__libm_sse2_asinf
+__libm_sse2_atan
+__libm_sse2_atan2
+__libm_sse2_atanf
+__libm_sse2_cos
+__libm_sse2_cosf
+__libm_sse2_exp
+__libm_sse2_expf
+__libm_sse2_log
+__libm_sse2_log10
+__libm_sse2_log10f
+__libm_sse2_logf
+__libm_sse2_pow
+__libm_sse2_powf
+__libm_sse2_sin
+__libm_sse2_sinf
+__libm_sse2_tan
+__libm_sse2_tanf
+#endif
+__setusermatherr
+; DATA set manually
+_cabs DATA
+_chgsign
+chgsign == _chgsign
+_chgsignf
+_copysign
+_copysignf
+_d_int
+_dclass
+_dexp
+_dlog
+_dnorm
+_dpcomp
+_dpoly
+_dscale
+_dsign
+_dsin
+_dtest
+_dunscale
+_except1
+_fd_int
+_fdclass
+_fdexp
+_fdlog
+_fdnorm
+_fdopen
+fdopen == _fdopen
+_fdpcomp
+_fdpoly
+_fdscale
+_fdsign
+_fdsin
+_fdtest
+_fdunscale
+_finite
+finite == _finite
+F_NON_I386(_finitef)
+_fpclass
+fpclass == _fpclass
+_fpclassf
+F_I386(_ftol)
+_get_FMA3_enable
+_hypot
+_hypotf
+_isnan
+F_X64(_isnanf)
+_j0
+j0 == _j0
+_j1
+j1 == _j1
+_jn
+jn == _jn
+_ld_int
+_ldclass
+_ldexp
+_ldlog
+_ldpcomp
+_ldpoly
+_ldscale
+_ldsign
+_ldsin
+_ldtest
+_ldunscale
+#ifdef DEF_I386
+_libm_sse2_acos_precise
+_libm_sse2_asin_precise
+_libm_sse2_atan_precise
+_libm_sse2_cos_precise
+_libm_sse2_exp_precise
+_libm_sse2_log10_precise
+_libm_sse2_log_precise
+_libm_sse2_pow_precise
+_libm_sse2_sin_precise
+_libm_sse2_sqrt_precise
+_libm_sse2_tan_precise
+#endif
+_logb
+F_NON_I386(_logbf)
+_nextafter
+F_X64(_nextafterf)
+_scalb
+F_X64(_scalbf)
+F64(_set_FMA3_enable)
+F_I386(_set_SSE2_enable)
+_y0
+y0 == _y0
+_y1
+y1 == _y1
+_yn
+yn == _yn
+acos
+F_NON_I386(acosf)
+F_ARM_ANY(acosl == acos)
+acosh
+acoshf
+acoshl F_X86_ANY(DATA)
+asin
+F_NON_I386(asinf)
+F_ARM_ANY(asinl == asin)
+asinh
+asinhf
+asinhl F_X86_ANY(DATA)
+atan
+atan2
+F_NON_I386(atan2f)
+F_ARM_ANY(atan2l == atan2)
+F_NON_I386(atanf)
+F_ARM_ANY(atanl == atan)
+atanh
+atanhf
+atanhl F_X86_ANY(DATA)
+cabs
+cabsf
+cabsl
+cacos
+cacosf
+cacosh
+cacoshf
+cacoshl
+cacosl
+carg
+cargf
+cargl
+casin
+casinf
+casinh
+casinhf
+casinhl
+casinl
+catan
+catanf
+catanh
+catanhf
+catanhl
+catanl
+cbrt
+cbrtf
+cbrtl F_X86_ANY(DATA)
+ccos
+ccosf
+ccosh
+ccoshf
+ccoshl
+ccosl
+ceil
+F_NON_I386(ceilf)
+F_ARM_ANY(ceill == ceil)
+cexp
+cexpf
+cexpl
+cimag
+cimagf
+cimagl
+clog
+clog10
+clog10f
+clog10l
+clogf
+clogl
+conj
+conjf
+conjl
+copysign
+copysignf
+copysignl F_X86_ANY(DATA)
+cos
+F_NON_I386(cosf)
+F_ARM_ANY(cosl == cos)
+cosh
+F_NON_I386(coshf)
+cpow
+cpowf
+cpowl
+cproj
+cprojf
+cprojl
+creal
+crealf
+creall
+csin
+csinf
+csinh
+csinhf
+csinhl
+csinl
+csqrt
+csqrtf
+csqrtl
+ctan
+ctanf
+ctanh
+ctanhf
+ctanhl
+ctanl
+erf
+erfc
+erfcf
+erfcl F_X86_ANY(DATA)
+erff
+erfl F_X86_ANY(DATA)
+exp
+exp2
+exp2f
+exp2l F_X86_ANY(DATA)
+F_NON_I386(expf)
+F_ARM_ANY(expl == exp)
+expm1
+expm1f
+expm1l F_X86_ANY(DATA)
+fabs
+F_ARM_ANY(fabsf)
+fdim
+fdimf
+fdiml F_X86_ANY(DATA)
+floor
+F_NON_I386(floorf)
+F_ARM_ANY(floorl == floor)
+fma
+fmaf
+fmal F_X86_ANY(DATA)
+fmax
+fmaxf
+fmaxl F_X86_ANY(DATA)
+fmin
+fminf
+fminl F_X86_ANY(DATA)
+fmod
+F_NON_I386(fmodf)
+F_ARM_ANY(fmodl == fmod)
+frexp
+hypot
+ilogb
+ilogbf
+ilogbl F_X86_ANY(DATA)
+ldexp
+; The UCRT lgamma functions don't set/provide the signgam variable like
+; the mingw ones do. Therefore prefer the libmingwex version instead.
+lgamma DATA
+lgammaf DATA
+lgammal DATA
+llrint
+llrintf
+llrintl F_X86_ANY(DATA)
+llround
+llroundf
+llroundl F_X86_ANY(DATA)
+log
+log10
+F_NON_I386(log10f)
+F_ARM_ANY(log10l == log10)
+log1p
+log1pf
+log1pl F_X86_ANY(DATA)
+log2
+log2f
+log2l F_X86_ANY(DATA)
+logb
+logbf
+logbl F_X86_ANY(DATA)
+F_NON_I386(logf)
+F_ARM_ANY(logl == log)
+lrint
+lrintf
+lrintl F_X86_ANY(DATA)
+lround
+lroundf
+lroundl F_X86_ANY(DATA)
+modf
+F_NON_I386(modff)
+nan
+nanf
+nanl F_X86_ANY(DATA)
+nearbyint
+nearbyintf
+nearbyintl F_X86_ANY(DATA)
+nextafter
+nextafterf
+nextafterl F_X86_ANY(DATA)
+; All of the nexttoward functions take the second parameter as long doubke,
+; making them unusable for x86.
+nexttoward F_X86_ANY(DATA)
+nexttowardf F_X86_ANY(DATA)
+nexttowardl F_X86_ANY(DATA)
+norm
+normf
+norml
+pow
+F_NON_I386(powf)
+F_ARM_ANY(powl == pow)
+remainder
+remainderf
+remainderl F_X86_ANY(DATA)
+remquo
+remquof
+remquol F_X86_ANY(DATA)
+rint
+rintf
+rintl F_X86_ANY(DATA)
+round
+roundf
+roundl F_X86_ANY(DATA)
+scalbln
+scalblnf
+scalblnl F_X86_ANY(DATA)
+scalbn
+scalbnf
+scalbnl F_X86_ANY(DATA)
+sin
+F_NON_I386(sinf)
+F_ARM_ANY(sinl == sin)
+; if we implement sinh, we can set it DATA only.
+sinh
+F_NON_I386(sinhf)
+sqrt
+F_NON_I386(sqrtf)
+tan
+F_NON_I386(tanf)
+F_ARM_ANY(tanl == tan)
+; if we implement tanh, we can set it to DATA only.
+tanh
+F_NON_I386(tanhf)
+tgamma
+tgammaf
+tgammal F_X86_ANY(DATA)
+trunc
+truncf
+truncl F_X86_ANY(DATA)

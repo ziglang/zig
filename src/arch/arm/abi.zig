@@ -33,7 +33,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            if (ty.containerLayout(mod) == .@"packed") {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
@@ -56,7 +56,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
         .Union => {
             const bit_size = ty.bitSize(mod);
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) == .Packed) {
+            if (union_obj.getLayout(ip) == .@"packed") {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }

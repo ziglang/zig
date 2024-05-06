@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const bootloader = b.addExecutable(.{
         .name = "bootloader",
-        .root_source_file = .{ .path = "bootloader.zig" },
+        .root_source_file = b.path("bootloader.zig"),
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .x86,
             .os_tag = .freestanding,
@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = .Debug,
     });
     exe.root_module.addAnonymousImport("bootloader.elf", .{

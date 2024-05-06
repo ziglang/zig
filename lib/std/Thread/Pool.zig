@@ -35,10 +35,9 @@ pub fn init(pool: *Pool, options: Options) !void {
     }
 
     const thread_count = options.n_jobs orelse @max(1, std.Thread.getCpuCount() catch 1);
-    pool.threads = try allocator.alloc(std.Thread, thread_count);
-    errdefer allocator.free(pool.threads);
 
-    // kill and join any threads we spawned previously on error.
+    // kill and join any threads we spawned and free memory on error.
+    pool.threads = try allocator.alloc(std.Thread, thread_count);
     var spawned: usize = 0;
     errdefer pool.join(spawned);
 
@@ -76,6 +75,65 @@ fn join(pool: *Pool, spawned: usize) void {
     pool.allocator.free(pool.threads);
 }
 
+/// Runs `func` in the thread pool, calling `WaitGroup.start` beforehand, and
+/// `WaitGroup.finish` after it returns.
+///
+/// In the case that queuing the function call fails to allocate memory, or the
+/// target is single-threaded, the function is called directly.
+pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args: anytype) void {
+    wait_group.start();
+
+    if (builtin.single_threaded) {
+        @call(.auto, func, args);
+        wait_group.finish();
+        return;
+    }
+
+    const Args = @TypeOf(args);
+    const Closure = struct {
+        arguments: Args,
+        pool: *Pool,
+        run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
+        wait_group: *WaitGroup,
+
+        fn runFn(runnable: *Runnable) void {
+            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
+            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
+            @call(.auto, func, closure.arguments);
+            closure.wait_group.finish();
+
+            // The thread pool's allocator is protected by the mutex.
+            const mutex = &closure.pool.mutex;
+            mutex.lock();
+            defer mutex.unlock();
+
+            closure.pool.allocator.destroy(closure);
+        }
+    };
+
+    {
+        pool.mutex.lock();
+
+        const closure = pool.allocator.create(Closure) catch {
+            pool.mutex.unlock();
+            @call(.auto, func, args);
+            wait_group.finish();
+            return;
+        };
+        closure.* = .{
+            .arguments = args,
+            .pool = pool,
+            .wait_group = wait_group,
+        };
+
+        pool.run_queue.prepend(&closure.run_node);
+        pool.mutex.unlock();
+    }
+
+    // Notify waiting threads outside the lock to try and keep the critical section small.
+    pool.cond.signal();
+}
+
 pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     if (builtin.single_threaded) {
         @call(.auto, func, args);
@@ -89,8 +147,8 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
 
         fn runFn(runnable: *Runnable) void {
-            const run_node = @fieldParentPtr(RunQueue.Node, "data", runnable);
-            const closure = @fieldParentPtr(@This(), "run_node", run_node);
+            const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
+            const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
 
             // The thread pool's allocator is protected by the mutex.

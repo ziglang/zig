@@ -11,7 +11,7 @@ const Tag = @Type(.{
 });
 const Tagged = @Type(.{
     .Union = .{
-        .layout = .Auto,
+        .layout = .auto,
         .tag_type = Tag,
         .fields = &.{},
         .decls = &.{},
@@ -26,7 +26,7 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :12:16: error: enum field(s) missing in union
+// :12:16: error: enum fields missing in union
 // :1:13: note: field 'signed' missing, declared here
 // :1:13: note: field 'unsigned' missing, declared here
 // :1:13: note: enum declared here

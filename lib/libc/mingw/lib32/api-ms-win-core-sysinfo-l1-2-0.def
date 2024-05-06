@@ -1,0 +1,13 @@
+LIBRARY api-ms-win-core-sysinfo-l1-2-0
+
+EXPORTS
+
+EnumSystemFirmwareTables@12
+GetNativeSystemInfo@4
+GetOsSafeBootMode@4
+GetProductInfo@20
+GetSystemFirmwareTable@16
+GetSystemTimePreciseAsFileTime@4
+SetComputerNameExW@8
+SetSystemTime@4
+VerSetConditionMask@16

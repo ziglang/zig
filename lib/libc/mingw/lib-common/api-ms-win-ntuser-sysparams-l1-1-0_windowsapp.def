@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-ntuser-sysparams-l1-1-0
+
+EXPORTS
+
+EnumDisplayDevicesW
+EnumDisplayMonitors
+EnumDisplaySettingsExW
+GetMonitorInfoW
+GetSystemMetrics
+SystemParametersInfoW

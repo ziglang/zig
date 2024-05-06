@@ -286,12 +286,12 @@ fn expm1_64(x_: f64) f64 {
     }
 }
 
-test "math.exp1m" {
+test expm1 {
     try expect(expm1(@as(f32, 0.0)) == expm1_32(0.0));
     try expect(expm1(@as(f64, 0.0)) == expm1_64(0.0));
 }
 
-test "math.expm1_32" {
+test expm1_32 {
     const epsilon = 0.000001;
 
     try expect(math.isPositiveZero(expm1_32(0.0)));
@@ -301,7 +301,7 @@ test "math.expm1_32" {
     try expect(math.approxEqAbs(f32, expm1_32(1.5), 3.481689, epsilon));
 }
 
-test "math.expm1_64" {
+test expm1_64 {
     const epsilon = 0.000001;
 
     try expect(math.isPositiveZero(expm1_64(0.0)));
@@ -311,13 +311,13 @@ test "math.expm1_64" {
     try expect(math.approxEqAbs(f64, expm1_64(1.5), 3.481689, epsilon));
 }
 
-test "math.expm1_32.special" {
+test "expm1_32.special" {
     try expect(math.isPositiveInf(expm1_32(math.inf(f32))));
     try expect(expm1_32(-math.inf(f32)) == -1.0);
     try expect(math.isNan(expm1_32(math.nan(f32))));
 }
 
-test "math.expm1_64.special" {
+test "expm1_64.special" {
     try expect(math.isPositiveInf(expm1_64(math.inf(f64))));
     try expect(expm1_64(-math.inf(f64)) == -1.0);
     try expect(math.isNan(expm1_64(math.nan(f64))));

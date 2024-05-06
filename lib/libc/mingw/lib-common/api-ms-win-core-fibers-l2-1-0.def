@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-fibers-l2-1-0
+
+EXPORTS
+
+ConvertFiberToThread
+ConvertThreadToFiber
+CreateFiber
+DeleteFiber
+SwitchToFiber

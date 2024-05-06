@@ -5,14 +5,13 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the absolute value (modulus) of z.
-pub fn abs(z: anytype) @TypeOf(z.re) {
-    const T = @TypeOf(z.re);
-    return math.hypot(T, z.re, z.im);
+pub fn abs(z: anytype) @TypeOf(z.re, z.im) {
+    return math.hypot(z.re, z.im);
 }
 
 const epsilon = 0.0001;
 
-test "complex.cabs" {
+test abs {
     const a = Complex(f32).init(5, 3);
     const c = abs(a);
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));

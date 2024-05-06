@@ -114,25 +114,24 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
 
 pub fn __udivei4(r_q: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.C) void {
     @setRuntimeSafety(builtin.is_test);
-    const u = u_p[0 .. bits / 32];
-    const v = v_p[0 .. bits / 32];
-    const q = r_q[0 .. bits / 32];
+    const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
+    const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
+    const q = r_q[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     @call(.always_inline, divmod, .{ q, null, u, v }) catch unreachable;
 }
 
 pub fn __umodei4(r_p: [*]u32, u_p: [*]const u32, v_p: [*]const u32, bits: usize) callconv(.C) void {
     @setRuntimeSafety(builtin.is_test);
-    const u = u_p[0 .. bits / 32];
-    const v = v_p[0 .. bits / 32];
-    const r = r_p[0 .. bits / 32];
+    const u = u_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
+    const v = v_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
+    const r = r_p[0 .. std.math.divCeil(usize, bits, 32) catch unreachable];
     @call(.always_inline, divmod, .{ null, r, u, v }) catch unreachable;
 }
 
 test "__udivei4/__umodei4" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
-    const RndGen = std.rand.DefaultPrng;
+    const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: usize = 10000;
     while (i > 0) : (i -= 1) {

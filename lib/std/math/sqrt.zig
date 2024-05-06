@@ -61,7 +61,7 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
     }
 }
 
-test "math.sqrt_int" {
+test sqrt_int {
     try expect(sqrt_int(u32, 3) == 1);
     try expect(sqrt_int(u32, 4) == 2);
     try expect(sqrt_int(u32, 5) == 2);

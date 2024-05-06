@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-namedpipe-l1-2-2
+
+EXPORTS
+
+CallNamedPipeW@28

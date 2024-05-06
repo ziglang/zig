@@ -528,6 +528,14 @@ const known_options = [_]KnownOpt{
         .name = "x",
         .ident = "x",
     },
+    .{
+        .name = "ObjC",
+        .ident = "force_load_objc",
+    },
+    .{
+        .name = "municode",
+        .ident = "mingw_unicode_entry_point",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

@@ -8,18 +8,15 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
-const GenerateDef = @import("deps/aro/build/GenerateDef.zig");
 
-const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 13, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
-        if (only_c) {
-            default_target.ofmt = .c;
-        }
+        default_target.ofmt = b.option(std.Target.ObjectFormat, "ofmt", "Object format to target") orelse if (only_c) .c else null;
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
 
@@ -32,42 +29,28 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
-    const skip_install_autodocs = b.option(bool, "no-autodocs", "skip copying of standard library autodocs to the installation prefix") orelse skip_install_lib_files;
+    const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
-    const only_reduce = b.option(bool, "only-reduce", "only build zig reduce") orelse false;
 
-    const docgen_exe = b.addExecutable(.{
-        .name = "docgen",
-        .root_source_file = .{ .path = "tools/docgen.zig" },
-        .target = b.host,
-        .optimize = .Debug,
-        .single_threaded = single_threaded,
-    });
-
-    const docgen_cmd = b.addRunArtifact(docgen_exe);
-    docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
-    if (b.zig_lib_dir) |p| {
-        docgen_cmd.addArg("--zig-lib-dir");
-        docgen_cmd.addDirectoryArg(p);
-    }
-    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
-    const langref_file = docgen_cmd.addOutputFileArg("langref.html");
+    const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const autodoc_test = b.addTest(.{
-        .root_source_file = .{ .path = "lib/std/std.zig" },
+    const autodoc_test = b.addObject(.{
+        .name = "std",
+        .root_source_file = b.path("lib/std/std.zig"),
         .target = target,
-        .zig_lib_dir = .{ .path = "lib" },
+        .zig_lib_dir = b.path("lib"),
+        .optimize = .Debug,
     });
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "doc/std",
     });
-    if (!skip_install_autodocs) {
+    if (std_docs) {
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
 
@@ -88,7 +71,7 @@ pub fn build(b: *std.Build) !void {
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .root_source_file = b.path("test/src/Cases.zig"),
         .target = b.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
@@ -101,9 +84,9 @@ pub fn build(b: *std.Build) !void {
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
-    const skip_cross_glibc = b.option(bool, "skip-cross-glibc", "Main test suite skips builds that require cross glibc") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
+    const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
@@ -137,7 +120,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(.{
-            .source_dir = .{ .path = "lib" },
+            .source_dir = b.path("lib"),
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
@@ -145,12 +128,12 @@ pub fn build(b: *std.Build) !void {
                 ".gz",
                 ".z.0",
                 ".z.9",
-                ".zstd.3",
-                ".zstd.19",
+                ".zst.3",
+                ".zst.19",
                 "rfc1951.txt",
                 "rfc1952.txt",
                 "rfc8478.txt",
-                // exclude files from lib/std/compress/deflate/testdata
+                // exclude files from lib/std/compress/flate/testdata
                 ".expect",
                 ".expect-noinput",
                 ".golden",
@@ -246,7 +229,6 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "only_core_functionality", only_c);
-    exe_options.addOption(bool, "only_reduce", only_reduce);
 
     if (link_libc) {
         exe.linkLibC();
@@ -254,6 +236,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     const is_debug = optimize == .Debug;
+    const enable_debug_extensions = b.option(bool, "debug-extensions", "Enable commands and options useful for debugging the compiler") orelse is_debug;
     const enable_logging = b.option(bool, "log", "Enable debug logging with --debug-log") orelse is_debug;
     const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
@@ -361,6 +344,7 @@ pub fn build(b: *std.Build) !void {
     const semver = try std.SemanticVersion.parse(version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
+    exe_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
     exe_options.addOption(bool, "enable_logging", enable_logging);
     exe_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     exe_options.addOption(bool, "enable_tracy", tracy != null);
@@ -391,16 +375,16 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const test_cases_options = b.addOptions();
     check_case_exe.root_module.addOptions("build_options", test_cases_options);
 
     test_cases_options.addOption(bool, "enable_tracy", false);
+    test_cases_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
-    test_cases_options.addOption(bool, "skip_cross_glibc", skip_cross_glibc);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -409,7 +393,6 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
     test_cases_options.addOption(bool, "only_core_functionality", true);
-    test_cases_options.addOption(bool, "only_reduce", false);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -420,7 +403,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
-    test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
+    test_cases_options.addOption([]const []const u8, "test_filters", test_filters);
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
@@ -456,7 +439,10 @@ pub fn build(b: *std.Build) !void {
     }).step);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filter, check_case_exe, .{
+    try tests.addCases(b, test_cases_step, test_filters, check_case_exe, target, .{
+        .skip_translate_c = skip_translate_c,
+        .skip_run_translated_c = skip_run_translated_c,
+    }, .{
         .enable_llvm = enable_llvm,
         .llvm_has_m68k = llvm_has_m68k,
         .llvm_has_csky = llvm_has_csky,
@@ -466,70 +452,76 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
-        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
+        .root_src = "test/c_import.zig",
+        .name = "c-import",
+        .desc = "Run the @cImport tests",
+        .optimize_modes = optimization_modes,
+        .include_paths = &.{"test/c_import"},
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_libc = skip_libc,
+    }));
+
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filters = test_filters,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
-        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "lib/c.zig",
         .name = "universal-libc",
         .desc = "Run the universal libc tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
-        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = true,
     }));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         optimization_modes,
         enable_macos_sdk,
         enable_ios_sdk,
-        false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, false, enable_symlinks_windows));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
-    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
-    if (!skip_run_translated_c) {
-        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
-    }
-
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "lib/std/std.zig",
         .name = "std",
         .desc = "Run the standard library tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
-        .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
         // I observed a value of 4572626944 on the M2 CI.
         .max_rss = 5029889638,
@@ -545,10 +537,10 @@ pub fn build(b: *std.Build) !void {
     const update_mingw_exe = b.addExecutable(.{
         .name = "update_mingw",
         .target = b.host,
-        .root_source_file = .{ .path = "tools/update_mingw.zig" },
+        .root_source_file = b.path("tools/update_mingw.zig"),
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
-    update_mingw_run.addDirectoryArg(.{ .path = "lib" });
+    update_mingw_run.addDirectoryArg(b.path("lib"));
     if (opt_mingw_src_path) |mingw_src_path| {
         update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
     } else {
@@ -582,6 +574,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "only_c", true);
     exe_options.addOption([:0]const u8, "version", version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
+    exe_options.addOption(bool, "enable_debug_extensions", false);
     exe_options.addOption(bool, "enable_logging", false);
     exe_options.addOption(bool, "enable_link_snapshots", false);
     exe_options.addOption(bool, "enable_tracy", false);
@@ -589,7 +582,6 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(bool, "only_core_functionality", true);
-    exe_options.addOption(bool, "only_reduce", false);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -599,10 +591,10 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileArg(.{ .path = "stage1/zig1.wasm" });
+    run_opt.addFileArg(b.path("stage1/zig1.wasm"));
 
     const copy_zig_h = b.addWriteFiles();
-    copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
+    copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
     update_zig1_step.dependOn(&run_opt.step);
@@ -620,7 +612,7 @@ const AddCompilerStepOptions = struct {
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = 7_000_000_000,
@@ -630,34 +622,22 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     });
     exe.stack_size = stack_size;
 
-    const aro_options = b.addOptions();
-    aro_options.addOption([]const u8, "version_str", "aro-zig");
-    const aro_options_module = aro_options.createModule();
-    const aro_backend = b.createModule(.{
-        .root_source_file = .{ .path = "deps/aro/backend.zig" },
-        .imports = &.{.{
-            .name = "build_options",
-            .module = aro_options_module,
-        }},
-    });
     const aro_module = b.createModule(.{
-        .root_source_file = .{ .path = "deps/aro/aro.zig" },
+        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
+    });
+
+    const aro_translate_c_module = b.createModule(.{
+        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
         .imports = &.{
             .{
-                .name = "build_options",
-                .module = aro_options_module,
+                .name = "aro",
+                .module = aro_module,
             },
-            .{
-                .name = "backend",
-                .module = aro_backend,
-            },
-            GenerateDef.create(b, .{ .name = "Builtins/Builtin.def", .src_prefix = "deps/aro/aro" }),
-            GenerateDef.create(b, .{ .name = "Attribute/names.def", .src_prefix = "deps/aro/aro" }),
-            GenerateDef.create(b, .{ .name = "Diagnostics/messages.def", .src_prefix = "deps/aro/aro", .kind = .named }),
         },
     });
 
     exe.root_module.addImport("aro", aro_module);
+    exe.root_module.addImport("aro_translate_c", aro_translate_c_module);
     return exe;
 }
 
@@ -752,6 +732,9 @@ fn addCmakeCfgOptionsToExe(
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
+            .haiku => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
             else => {},
         }
     }
@@ -811,10 +794,14 @@ fn addCxxKnownPath(
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
 
-    const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
-        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
-    else
-        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+    const path_padded = run: {
+        var args = std.ArrayList([]const u8).init(b.allocator);
+        try args.append(ctx.cxx_compiler);
+        var it = std.mem.tokenizeAny(u8, ctx.cxx_compiler_arg1, &std.ascii.whitespace);
+        while (it.next()) |arg| try args.append(arg);
+        try args.append(b.fmt("-print-file-name={s}", .{objname}));
+        break :run b.run(args.items);
+    };
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
@@ -853,7 +840,7 @@ fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.Build.Step.Compile.Linkage,
+    llvm_linkage: std.builtin.LinkMode,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,
@@ -880,11 +867,11 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
             return path;
         } else |_| {
             std.log.err("Could not open provided config.h: \"{s}\"", .{path});
-            std.os.exit(1);
+            std.process.exit(1);
         }
     }
 
-    var check_dir = fs.path.dirname(b.zig_exe).?;
+    var check_dir = fs.path.dirname(b.graph.zig_exe).?;
     while (true) {
         var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
         defer dir.close();
@@ -1254,3 +1241,57 @@ const llvm_libs = [_][]const u8{
     "LLVMSupport",
     "LLVMDemangle",
 };
+
+fn generateLangRef(b: *std.Build) std.Build.LazyPath {
+    const doctest_exe = b.addExecutable(.{
+        .name = "doctest",
+        .root_source_file = b.path("tools/doctest.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
+        std.debug.panic("unable to open 'doc/langref' directory: {s}", .{@errorName(err)});
+    };
+    defer dir.close();
+
+    var wf = b.addWriteFiles();
+
+    var it = dir.iterateAssumeFirstIteration();
+    while (it.next() catch @panic("failed to read dir")) |entry| {
+        if (std.mem.startsWith(u8, entry.name, ".") or entry.kind != .file)
+            continue;
+
+        const out_basename = b.fmt("{s}.out", .{std.fs.path.stem(entry.name)});
+        const cmd = b.addRunArtifact(doctest_exe);
+        cmd.addArgs(&.{
+            "--zig",        b.graph.zig_exe,
+            // TODO: enhance doctest to use "--listen=-" rather than operating
+            // in a temporary directory
+            "--cache-root", b.cache_root.path orelse ".",
+        });
+        if (b.zig_lib_dir) |p| {
+            cmd.addArg("--zig-lib-dir");
+            cmd.addDirectoryArg(p);
+        }
+        cmd.addArgs(&.{"-i"});
+        cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
+
+        cmd.addArgs(&.{"-o"});
+        _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
+    }
+
+    const docgen_exe = b.addExecutable(.{
+        .name = "docgen",
+        .root_source_file = b.path("tools/docgen.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    const docgen_cmd = b.addRunArtifact(docgen_exe);
+    docgen_cmd.addArgs(&.{"--code-dir"});
+    docgen_cmd.addDirectoryArg(wf.getDirectory());
+
+    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
+    return docgen_cmd.addOutputFileArg("langref.html");
+}

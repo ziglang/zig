@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-security-isolatedcontainer-l1-1-1
+
+EXPORTS
+
+IsProcessInWDAGContainer

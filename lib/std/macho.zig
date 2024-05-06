@@ -126,16 +126,20 @@ pub const build_tool_version = extern struct {
 };
 
 pub const PLATFORM = enum(u32) {
-    MACOS = 0x1,
-    IOS = 0x2,
-    TVOS = 0x3,
-    WATCHOS = 0x4,
-    BRIDGEOS = 0x5,
-    MACCATALYST = 0x6,
-    IOSSIMULATOR = 0x7,
-    TVOSSIMULATOR = 0x8,
-    WATCHOSSIMULATOR = 0x9,
-    DRIVERKIT = 0x10,
+    UNKNOWN = 0,
+    ANY = 0xffffffff,
+    MACOS = 1,
+    IOS = 2,
+    TVOS = 3,
+    WATCHOS = 4,
+    BRIDGEOS = 5,
+    MACCATALYST = 6,
+    IOSSIMULATOR = 7,
+    TVOSSIMULATOR = 8,
+    WATCHOSSIMULATOR = 9,
+    DRIVERKIT = 10,
+    VISIONOS = 11,
+    VISIONOSSIMULATOR = 12,
     _,
 };
 
@@ -1226,6 +1230,12 @@ pub const MH_APP_EXTENSION_SAFE = 0x02000000;
 /// The external symbols listed in the nlist symbol table do not include all the symbols listed in the dyld info.
 pub const MH_NLIST_OUTOFSYNC_WITH_DYLDINFO = 0x04000000;
 
+/// Allow LC_MIN_VERSION_MACOS and LC_BUILD_VERSION load commands with the platforms macOS, iOSMac, iOSSimulator, tvOSSimulator and watchOSSimulator.
+pub const MH_SIM_SUPPORT = 0x08000000;
+
+/// Only for use on dylibs. When this bit is set, the dylib is part of the dyld shared cache, rather than loose in the filesystem.
+pub const MH_DYLIB_IN_CACHE = 0x80000000;
+
 // Constants for the flags field of the fat_header
 
 /// the fat magic number
@@ -1239,6 +1249,22 @@ pub const FAT_MAGIC_64 = 0xcafebabf;
 
 /// NXSwapLong(FAT_MAGIC_64)
 pub const FAT_CIGAM_64 = 0xbfbafeca;
+
+/// Segment flags
+/// The file contents for this segment is for the high part of the VM space, the low part
+/// is zero filled (for stacks in core files).
+pub const SG_HIGHVM = 0x1;
+/// This segment is the VM that is allocated by a fixed VM library, for overlap checking in
+/// the link editor.
+pub const SG_FVMLIB = 0x2;
+/// This segment has nothing that was relocated in it and nothing relocated to it, that is
+/// it maybe safely replaced without relocation.
+pub const SG_NORELOC = 0x4;
+/// This segment is protected.  If the segment starts at file offset 0, the
+/// first page of the segment is not protected.  All other pages of the segment are protected.
+pub const SG_PROTECTED_VERSION_1 = 0x8;
+/// This segment is made read-only after fixups
+pub const SG_READ_ONLY = 0x10;
 
 /// The flags field of a section structure is separated into two parts a section
 /// type and section attributes.  The section types are mutually exclusive (it

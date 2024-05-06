@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
     const lib = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = .Debug,
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,

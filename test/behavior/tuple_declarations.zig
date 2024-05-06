@@ -12,7 +12,7 @@ test "tuple declaration type info" {
         const T = struct { comptime u32 align(2) = 1, []const u8 };
         const info = @typeInfo(T).Struct;
 
-        try expect(info.layout == .Auto);
+        try expect(info.layout == .auto);
         try expect(info.backing_integer == null);
         try expect(info.fields.len == 2);
         try expect(info.decls.len == 0);

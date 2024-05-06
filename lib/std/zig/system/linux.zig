@@ -71,6 +71,53 @@ test "cpuinfo: SPARC" {
     );
 }
 
+const RiscvCpuinfoImpl = struct {
+    model: ?*const Target.Cpu.Model = null,
+
+    const cpu_names = .{
+        .{ "sifive,u54", &Target.riscv.cpu.sifive_u54 },
+        .{ "sifive,u7", &Target.riscv.cpu.sifive_7_series },
+        .{ "sifive,u74", &Target.riscv.cpu.sifive_u74 },
+        .{ "sifive,u74-mc", &Target.riscv.cpu.sifive_u74 },
+    };
+
+    fn line_hook(self: *RiscvCpuinfoImpl, key: []const u8, value: []const u8) !bool {
+        if (mem.eql(u8, key, "uarch")) {
+            inline for (cpu_names) |pair| {
+                if (mem.eql(u8, value, pair[0])) {
+                    self.model = pair[1];
+                    break;
+                }
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    fn finalize(self: *const RiscvCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
+        const model = self.model orelse return null;
+        return Target.Cpu{
+            .arch = arch,
+            .model = model,
+            .features = model.features,
+        };
+    }
+};
+
+const RiscvCpuinfoParser = CpuinfoParser(RiscvCpuinfoImpl);
+
+test "cpuinfo: RISC-V" {
+    try testParser(RiscvCpuinfoParser, .riscv64, &Target.riscv.cpu.sifive_u74,
+        \\processor	: 0
+        \\hart		: 1
+        \\isa		: rv64imafdc
+        \\mmu		: sv39
+        \\isa-ext       :
+        \\uarch		: sifive,u74-mc
+    );
+}
+
 const PowerpcCpuinfoImpl = struct {
     model: ?*const Target.Cpu.Model = null,
 
@@ -327,22 +374,50 @@ fn CpuinfoParser(comptime impl: anytype) type {
     };
 }
 
+inline fn getAArch64CpuFeature(comptime feat_reg: []const u8) u64 {
+    return asm ("mrs %[ret], " ++ feat_reg
+        : [ret] "=r" (-> u64),
+    );
+}
+
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
-    var f = fs.openFileAbsolute("/proc/cpuinfo", .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
+    var f = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch |err| switch (err) {
         else => return null,
     };
     defer f.close();
 
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
-        .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be, .aarch64_32 => {
+        .arm, .armeb, .thumb, .thumbeb => {
             return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
+        },
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            const registers = [12]u64{
+                getAArch64CpuFeature("MIDR_EL1"),
+                getAArch64CpuFeature("ID_AA64PFR0_EL1"),
+                getAArch64CpuFeature("ID_AA64PFR1_EL1"),
+                getAArch64CpuFeature("ID_AA64DFR0_EL1"),
+                getAArch64CpuFeature("ID_AA64DFR1_EL1"),
+                getAArch64CpuFeature("ID_AA64AFR0_EL1"),
+                getAArch64CpuFeature("ID_AA64AFR1_EL1"),
+                getAArch64CpuFeature("ID_AA64ISAR0_EL1"),
+                getAArch64CpuFeature("ID_AA64ISAR1_EL1"),
+                getAArch64CpuFeature("ID_AA64MMFR0_EL1"),
+                getAArch64CpuFeature("ID_AA64MMFR1_EL1"),
+                getAArch64CpuFeature("ID_AA64MMFR2_EL1"),
+            };
+
+            const core = @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
+            return core;
         },
         .sparc64 => {
             return SparcCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
             return PowerpcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+        },
+        .riscv64, .riscv32 => {
+            return RiscvCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
         else => {},
     }

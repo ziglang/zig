@@ -1,10 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const math = std.math;
 const testing = std.testing;
-const maxInt = std.math.maxInt;
-const assert = std.debug.assert;
-const Log2Int = std.math.Log2Int;
 
 /// Returns the base-10 logarithm of x.
 ///
@@ -38,13 +34,13 @@ pub fn log10(x: anytype) @TypeOf(x) {
 
 /// Return the log base 10 of integer value x, rounding down to the
 /// nearest integer.
-pub fn log10_int(x: anytype) Log2Int(@TypeOf(x)) {
+pub fn log10_int(x: anytype) std.math.Log2Int(@TypeOf(x)) {
     const T = @TypeOf(x);
-    const OutT = Log2Int(T);
+    const OutT = std.math.Log2Int(T);
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log10_int requires an unsigned integer, found " ++ @typeName(T));
 
-    assert(x != 0);
+    std.debug.assert(x != 0);
 
     const bit_size = @typeInfo(T).Int.bits;
 
@@ -133,18 +129,7 @@ inline fn less_than_5(x: u32) u32 {
     return (((x + C1) & (x + C2)) ^ ((x + C3) & (x + C4))) >> 17;
 }
 
-fn oldlog10(x: anytype) u8 {
-    return @as(u8, @intFromFloat(@log10(@as(f64, @floatFromInt(x)))));
-}
-
-test "oldlog10 doesn't work" {
-    try testing.expect(14 != oldlog10(pow10(15) - 1));
-
-    // log10(10**15 -1) should indeed be 14
-    try testing.expect(14 == log10_int(@as(u64, pow10(15) - 1)));
-}
-
-test "log10_int vs old implementation" {
+test log10_int {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -152,53 +137,22 @@ test "log10_int vs old implementation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
 
-    const int_types = .{ u8, u16, u32, u64, u128 };
+    inline for (
+        .{ u8, u16, u32, u64, u128, u256, u512 },
+        .{ 2, 4, 9, 19, 38, 77, 154 },
+    ) |T, max_exponent| {
+        for (0..max_exponent + 1) |exponent_usize| {
+            const exponent: std.math.Log2Int(T) = @intCast(exponent_usize);
+            const power_of_ten = try std.math.powi(T, 10, exponent);
 
-    inline for (int_types) |T| {
-        const last = @min(maxInt(T), 100_000);
-        for (1..last) |i| {
-            const x = @as(T, @intCast(i));
-            try testing.expectEqual(oldlog10(x), log10_int(x));
-        }
-
-        const max_int: T = maxInt(T);
-        try testing.expectEqual(oldlog10(max_int), log10_int(max_int));
-    }
-}
-
-test "log10_int close to powers of 10" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and comptime builtin.target.isWasm()) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
-    const int_types = .{ u8, u16, u32, u64, u128, u256, u512 };
-    const max_log_values: [7]usize = .{ 2, 4, 9, 19, 38, 77, 154 };
-
-    inline for (int_types, max_log_values) |T, expected_max_ilog| {
-        const max_val: T = maxInt(T);
-
-        try testing.expectEqual(expected_max_ilog, log10_int(max_val));
-
-        for (0..(expected_max_ilog + 1)) |idx| {
-            const i = @as(T, @intCast(idx));
-            const p: T = try math.powi(T, 10, i);
-
-            const b = @as(Log2Int(T), @intCast(i));
-
-            if (p >= 10) {
-                try testing.expectEqual(b - 1, log10_int(p - 9));
-                try testing.expectEqual(b - 1, log10_int(p - 1));
+            if (exponent > 0) {
+                try testing.expectEqual(exponent - 1, log10_int(power_of_ten - 9));
+                try testing.expectEqual(exponent - 1, log10_int(power_of_ten - 1));
             }
-
-            try testing.expectEqual(b, log10_int(p));
-            try testing.expectEqual(b, log10_int(p + 1));
-            if (p >= 10) {
-                try testing.expectEqual(b, log10_int(p + 9));
-            }
+            try testing.expectEqual(exponent, log10_int(power_of_ten));
+            try testing.expectEqual(exponent, log10_int(power_of_ten + 1));
+            try testing.expectEqual(exponent, log10_int(power_of_ten + 8));
         }
+        try testing.expectEqual(max_exponent, log10_int(@as(T, std.math.maxInt(T))));
     }
 }

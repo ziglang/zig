@@ -9,8 +9,7 @@ const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
-const TypedValue = @import("../../TypedValue.zig");
+const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
@@ -342,7 +341,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.ty;
+    const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
     const target = &namespace.file_scope.mod.resolved_target.result;
 
@@ -747,7 +746,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(),
             .cond_br         => try self.airCondBr(inst),
-            .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
@@ -766,6 +764,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .not             => try self.airNot(inst),
             .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
+            .ret_safe        => try self.airRet(inst), // TODO
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
             .store_safe      => try self.airStore(inst, true),
@@ -804,27 +803,21 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          => try self.airTry(inst),
             .try_ptr         => try self.airTryPtr(inst),
 
+            .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
-
-            .dbg_inline_begin,
-            .dbg_inline_end,
-            => try self.airDbgInline(inst),
-
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try self.airDbgBlock(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
 
-            .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
-            .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
-            .atomic_store_release   => try self.airAtomicStore(inst, .Release),
-            .atomic_store_seq_cst   => try self.airAtomicStore(inst, .SeqCst),
+            .atomic_store_unordered => try self.airAtomicStore(inst, .unordered),
+            .atomic_store_monotonic => try self.airAtomicStore(inst, .monotonic),
+            .atomic_store_release   => try self.airAtomicStore(inst, .release),
+            .atomic_store_seq_cst   => try self.airAtomicStore(inst, .seq_cst),
 
             .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
             .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -4013,10 +4006,11 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .import => unreachable,
                                 };
                                 const atom_index = switch (self.bin_file.tag) {
-                                    .macho => blk: {
-                                        const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                        const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                        break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                    .macho => {
+                                        // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                        // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                        // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                        @panic("TODO store");
                                     },
                                     .coff => blk: {
                                         const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -4321,14 +4315,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
                 try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
-                const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(Type.u64, .x30, .{
-                    .linker_load = .{
-                        .type = .got,
-                        .sym_index = sym_index,
-                    },
-                });
+                _ = macho_file;
+                @panic("TODO airCall");
+                // const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
+                // const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
+                // try self.genSetReg(Type.u64, .x30, .{
+                //     .linker_load = .{
+                //         .type = .got,
+                //         .sym_index = sym_index,
+                //     },
+                // });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -4349,21 +4345,23 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 .data = .{ .reg = .x30 },
             });
         } else if (func_value.getExternFunc(mod)) |extern_func| {
-            const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
-            const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
+            const decl_name = mod.declPtr(extern_func.decl).name.toSlice(&mod.intern_pool);
+            const lib_name = extern_func.lib_name.toSlice(&mod.intern_pool);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
-                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                _ = try self.addInst(.{
-                    .tag = .call_extern,
-                    .data = .{
-                        .relocation = .{
-                            .atom_index = atom_index,
-                            .sym_index = sym_index,
-                        },
-                    },
-                });
+                _ = macho_file;
+                @panic("TODO airCall");
+                // const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
+                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                // const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
+                // _ = try self.addInst(.{
+                //     .tag = .call_extern,
+                //     .data = .{
+                //         .relocation = .{
+                //             .atom_index = atom_index,
+                //             .sym_index = sym_index,
+                //         },
+                //     },
+                // });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 try self.genSetReg(Type.u64, .x30, .{
@@ -4619,18 +4617,14 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirBookkeeping();
 }
 
-fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
+fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
-    const func = mod.funcInfo(ty_fn.func);
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const func = mod.funcInfo(extra.data.func);
     // TODO emit debug info for function change
     _ = func;
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
-}
-
-fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
-    // TODO emit debug info lexical block
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -5045,6 +5039,12 @@ fn jump(self: *Self, inst: Mir.Inst.Index) !void {
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{
         // A block is a setup to be able to jump to the end.
         .relocs = .{},
@@ -5057,9 +5057,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
 
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+    // TODO emit debug info lexical block
     try self.genBody(body);
 
     // relocations for `br` instructions
@@ -5532,10 +5530,11 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .import => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => blk: {
-                                const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            .macho => {
+                                // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                                @panic("TODO genSetStack");
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -5653,10 +5652,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .import => .load_memory_import,
             };
             const atom_index = switch (self.bin_file.tag) {
-                .macho => blk: {
-                    const macho_file = self.bin_file.cast(link.File.MachO).?;
-                    const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                    break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                .macho => {
+                    @panic("TODO genSetReg");
+                    // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                    // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                    // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                 },
                 .coff => blk: {
                     const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -5850,10 +5850,11 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .import => unreachable,
                         };
                         const atom_index = switch (self.bin_file.tag) {
-                            .macho => blk: {
-                                const macho_file = self.bin_file.cast(link.File.MachO).?;
-                                const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
-                                break :blk macho_file.getAtom(atom).getSymbolIndex().?;
+                            .macho => {
+                                @panic("TODO genSetStackArgument");
+                                // const macho_file = self.bin_file.cast(link.File.MachO).?;
+                                // const atom = try macho_file.getOrCreateAtomForDecl(self.owner_decl);
+                                // break :blk macho_file.getAtom(atom).getSymbolIndex().?;
                             },
                             .coff => blk: {
                                 const coff_file = self.bin_file.cast(link.File.Coff).?;
@@ -6141,10 +6142,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     if (!inst_ty.hasRuntimeBitsIgnoreComptime(mod) and !inst_ty.isError(mod))
         return MCValue{ .none = {} };
 
-    const inst_index = inst.toIndex() orelse return self.genTypedValue(.{
-        .ty = inst_ty,
-        .val = (try self.air.value(inst, mod)).?,
-    });
+    const inst_index = inst.toIndex() orelse return self.genTypedValue((try self.air.value(inst, mod)).?);
 
     return self.getResolvedInstValue(inst_index);
 }
@@ -6161,11 +6159,11 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     }
 }
 
-fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
+fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
-        arg_tv,
+        val,
         self.owner_decl,
     )) {
         .mcv => |mcv| switch (mcv) {

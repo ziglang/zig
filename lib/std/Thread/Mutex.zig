@@ -23,7 +23,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Mutex = @This();
 
-const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Thread = std.Thread;
@@ -72,23 +71,23 @@ const DebugImpl = struct {
     inline fn tryLock(self: *@This()) bool {
         const locking = self.impl.tryLock();
         if (locking) {
-            self.locking_thread.store(Thread.getCurrentId(), .Unordered);
+            self.locking_thread.store(Thread.getCurrentId(), .unordered);
         }
         return locking;
     }
 
     inline fn lock(self: *@This()) void {
         const current_id = Thread.getCurrentId();
-        if (self.locking_thread.load(.Unordered) == current_id and current_id != 0) {
+        if (self.locking_thread.load(.unordered) == current_id and current_id != 0) {
             @panic("Deadlock detected");
         }
         self.impl.lock();
-        self.locking_thread.store(current_id, .Unordered);
+        self.locking_thread.store(current_id, .unordered);
     }
 
     inline fn unlock(self: *@This()) void {
-        assert(self.locking_thread.load(.Unordered) == Thread.getCurrentId());
-        self.locking_thread.store(0, .Unordered);
+        assert(self.locking_thread.load(.unordered) == Thread.getCurrentId());
+        self.locking_thread.store(0, .unordered);
         self.impl.unlock();
     }
 };
@@ -117,36 +116,40 @@ const SingleThreadedImpl = struct {
 // SRWLOCK on windows is almost always faster than Futex solution.
 // It also implements an efficient Condition with requeue support for us.
 const WindowsImpl = struct {
-    srwlock: os.windows.SRWLOCK = .{},
+    srwlock: windows.SRWLOCK = .{},
 
     fn tryLock(self: *@This()) bool {
-        return os.windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != os.windows.FALSE;
+        return windows.kernel32.TryAcquireSRWLockExclusive(&self.srwlock) != windows.FALSE;
     }
 
     fn lock(self: *@This()) void {
-        os.windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
+        windows.kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
 
     fn unlock(self: *@This()) void {
-        os.windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
+        windows.kernel32.ReleaseSRWLockExclusive(&self.srwlock);
     }
+
+    const windows = std.os.windows;
 };
 
 // os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
 const DarwinImpl = struct {
-    oul: os.darwin.os_unfair_lock = .{},
+    oul: c.os_unfair_lock = .{},
 
     fn tryLock(self: *@This()) bool {
-        return os.darwin.os_unfair_lock_trylock(&self.oul);
+        return c.os_unfair_lock_trylock(&self.oul);
     }
 
     fn lock(self: *@This()) void {
-        os.darwin.os_unfair_lock_lock(&self.oul);
+        c.os_unfair_lock_lock(&self.oul);
     }
 
     fn unlock(self: *@This()) void {
-        os.darwin.os_unfair_lock_unlock(&self.oul);
+        c.os_unfair_lock_unlock(&self.oul);
     }
+
+    const c = std.c;
 };
 
 const FutexImpl = struct {
@@ -167,12 +170,12 @@ const FutexImpl = struct {
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
             const locked_bit = @ctz(locked);
-            return self.state.bitSet(locked_bit, .Acquire) == 0;
+            return self.state.bitSet(locked_bit, .acquire) == 0;
         }
 
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        return self.state.cmpxchgWeak(unlocked, locked, .Acquire, .Monotonic) == null;
+        return self.state.cmpxchgWeak(unlocked, locked, .acquire, .monotonic) == null;
     }
 
     fn lockSlow(self: *@This()) void {
@@ -180,7 +183,7 @@ const FutexImpl = struct {
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
-        if (self.state.load(.Monotonic) == contended) {
+        if (self.state.load(.monotonic) == contended) {
             Futex.wait(&self.state, contended);
         }
 
@@ -193,7 +196,7 @@ const FutexImpl = struct {
         //
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        while (self.state.swap(contended, .Acquire) != unlocked) {
+        while (self.state.swap(contended, .acquire) != unlocked) {
             Futex.wait(&self.state, contended);
         }
     }
@@ -206,7 +209,7 @@ const FutexImpl = struct {
         //
         // Release barrier ensures the critical section happens before we let go of the lock
         // and that our critical section happens before the next lock holder grabs the lock.
-        const state = self.state.swap(unlocked, .Release);
+        const state = self.state.swap(unlocked, .release);
         assert(state != unlocked);
 
         if (state == contended) {
@@ -215,7 +218,7 @@ const FutexImpl = struct {
     }
 };
 
-test "Mutex - smoke test" {
+test "smoke test" {
     var mutex = Mutex{};
 
     try testing.expect(mutex.tryLock());
@@ -243,7 +246,7 @@ const NonAtomicCounter = struct {
     }
 };
 
-test "Mutex - many uncontended" {
+test "many uncontended" {
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -274,7 +277,7 @@ test "Mutex - many uncontended" {
     for (runners) |r| try testing.expectEqual(r.counter.get(), num_increments);
 }
 
-test "Mutex - many contended" {
+test "many contended" {
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;

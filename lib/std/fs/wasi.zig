@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const fs = std.fs;
@@ -14,10 +13,10 @@ pub const Preopens = struct {
     // Indexed by file descriptor number.
     names: []const []const u8,
 
-    pub fn find(p: Preopens, name: []const u8) ?os.fd_t {
+    pub fn find(p: Preopens, name: []const u8) ?std.posix.fd_t {
         for (p.names, 0..) |elem_name, i| {
             if (mem.eql(u8, elem_name, name)) {
-                return @as(os.fd_t, @intCast(i));
+                return @intCast(i);
             }
         }
         return null;

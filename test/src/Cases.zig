@@ -533,11 +533,103 @@ pub fn init(gpa: Allocator, arena: Allocator) Cases {
     };
 }
 
+pub const TranslateCOptions = struct {
+    skip_translate_c: bool = false,
+    skip_run_translated_c: bool = false,
+};
+pub fn lowerToTranslateCSteps(
+    self: *Cases,
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
+    target: std.Build.ResolvedTarget,
+    translate_c_options: TranslateCOptions,
+) void {
+    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
+        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+
+    const tests = @import("../tests.zig");
+    const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
+    if (!translate_c_options.skip_translate_c) {
+        tests.addTranslateCTests(b, test_translate_c_step, test_filters);
+        parent_step.dependOn(test_translate_c_step);
+    }
+
+    const test_run_translated_c_step = b.step("test-run-translated-c", "Run the Run-Translated-C tests");
+    if (!translate_c_options.skip_run_translated_c) {
+        tests.addRunTranslatedCTests(b, test_run_translated_c_step, test_filters, target);
+        parent_step.dependOn(test_run_translated_c_step);
+    }
+
+    for (self.translate.items) |case| switch (case.kind) {
+        .run => |output| {
+            if (translate_c_options.skip_run_translated_c) continue;
+            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
+            for (test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+            } else if (test_filters.len > 0) continue;
+            if (!std.process.can_spawn) {
+                std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
+                continue; // Pass test.
+            }
+
+            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
+                // We wouldn't be able to run the compiled C code.
+                continue; // Pass test.
+            }
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .root_source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
+
+            const run_exe = translate_c.addExecutable(.{});
+            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
+            run_exe.linkLibC();
+            const run = b.addRunArtifact(run_exe);
+            run.step.name = b.fmt("{s} run", .{annotated_case_name});
+            run.expectStdOutEqual(output);
+
+            test_run_translated_c_step.dependOn(&run.step);
+        },
+        .translate => |output| {
+            if (translate_c_options.skip_translate_c) continue;
+            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
+            for (test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+            } else if (test_filters.len > 0) continue;
+
+            const write_src = b.addWriteFiles();
+            const file_source = write_src.add("tmp.c", case.input);
+
+            const translate_c = b.addTranslateC(.{
+                .root_source_file = file_source,
+                .optimize = .Debug,
+                .target = case.target,
+                .link_libc = case.link_libc,
+                .use_clang = case.c_frontend == .clang,
+            });
+            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
+
+            const check_file = translate_c.addCheckFile(output);
+            check_file.step.name = b.fmt("{s} CheckFile", .{annotated_case_name});
+            test_translate_c_step.dependOn(&check_file.step);
+        },
+    };
+}
+
 pub fn lowerToBuildSteps(
     self: *Cases,
     b: *std.Build,
     parent_step: *std.Build.Step,
-    opt_test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     cases_dir_path: []const u8,
     incremental_exe: *std.Build.Step.Compile,
 ) void {
@@ -552,9 +644,9 @@ pub fn lowerToBuildSteps(
             // compilation is in a happier state.
             continue;
         }
-        if (opt_test_filter) |test_filter| {
-            if (std.mem.indexOf(u8, incr_case.base_path, test_filter) == null) continue;
-        }
+        for (test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, incr_case.base_path, test_filter)) |_| break;
+        } else if (test_filters.len > 0) continue;
         const case_base_path_with_dir = std.fs.path.join(b.allocator, &.{
             cases_dir_path, incr_case.base_path,
         }) catch @panic("OOM");
@@ -562,7 +654,7 @@ pub fn lowerToBuildSteps(
         run.setName(incr_case.base_path);
         run.addArgs(&.{
             case_base_path_with_dir,
-            b.zig_exe,
+            b.graph.zig_exe,
         });
         run.expectStdOutEqual("");
         parent_step.dependOn(&run.step);
@@ -573,9 +665,9 @@ pub fn lowerToBuildSteps(
         assert(case.updates.items.len == 1);
         const update = case.updates.items[0];
 
-        if (opt_test_filter) |test_filter| {
-            if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
-        }
+        for (test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
+        } else if (test_filters.len > 0) continue;
 
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
@@ -653,7 +745,7 @@ pub fn lowerToBuildSteps(
                         break :no_exec;
                     }
                     const run_c = b.addSystemCommand(&.{
-                        b.zig_exe,
+                        b.graph.zig_exe,
                         "run",
                         "-cflags",
                         "-Ilib",
@@ -681,66 +773,6 @@ pub fn lowerToBuildSteps(
             .Header => @panic("TODO"),
         }
     }
-
-    for (self.translate.items) |case| switch (case.kind) {
-        .run => |output| {
-            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
-            if (!std.process.can_spawn) {
-                std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
-                continue; // Pass test.
-            }
-
-            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
-                // We wouldn't be able to run the compiled C code.
-                continue; // Pass test.
-            }
-
-            const write_src = b.addWriteFiles();
-            const file_source = write_src.add("tmp.c", case.input);
-
-            const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
-                .optimize = .Debug,
-                .target = case.target,
-                .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
-            });
-            translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
-
-            const run_exe = translate_c.addExecutable(.{});
-            run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-            run_exe.linkLibC();
-            const run = b.addRunArtifact(run_exe);
-            run.step.name = b.fmt("{s} run", .{annotated_case_name});
-            run.expectStdOutEqual(output);
-
-            parent_step.dependOn(&run.step);
-        },
-        .translate => |output| {
-            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
-
-            const write_src = b.addWriteFiles();
-            const file_source = write_src.add("tmp.c", case.input);
-
-            const translate_c = b.addTranslateC(.{
-                .source_file = file_source,
-                .optimize = .Debug,
-                .target = case.target,
-                .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
-            });
-            translate_c.step.name = annotated_case_name;
-
-            const check_file = translate_c.addCheckFile(output);
-            parent_step.dependOn(&check_file.step);
-        },
-    };
 }
 
 /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
@@ -961,6 +993,15 @@ const TestManifest = struct {
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
+    const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "is_test", {} },
+        .{ "output_mode", {} },
+        .{ "target", {} },
+        .{ "c_frontend", {} },
+        .{ "link_libc", {} },
+        .{ "backend", {} },
+    });
+
     const Type = enum {
         @"error",
         run,
@@ -1059,6 +1100,7 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
+            if (!valid_keys.has(key)) return error.InvalidKey;
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 
@@ -1207,8 +1249,8 @@ const WaitGroup = std.Thread.WaitGroup;
 const build_options = @import("build_options");
 const Package = @import("../../src/Package.zig");
 
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .err;
+pub const std_options = .{
+    .log_level = .err,
 };
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
@@ -1440,9 +1482,9 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
 
             assert(case.backend != .stage1);
 
-            if (build_options.test_filter) |test_filter| {
-                if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
-            }
+            for (build_options.test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
+            } else if (build_options.test_filters.len > 0) continue;
 
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();
@@ -1599,7 +1641,7 @@ fn runOneCase(
         var sync_node = update_node.start("write", 0);
         sync_node.activate();
         for (update.files.items) |file| {
-            try tmp.dir.writeFile(file.path, file.src);
+            try tmp.dir.writeFile(.{ .sub_path = file.path, .data = file.src });
         }
         sync_node.end();
 

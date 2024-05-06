@@ -32,32 +32,22 @@ test "type pun signed and unsigned as array pointer" {
 }
 
 test "type pun signed and unsigned as offset many pointer" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
-        var x: u32 = 0;
-        var y = @as([*]i32, @ptrCast(&x));
+        var x: [11]u32 = undefined;
+        var y: [*]i32 = @ptrCast(&x[10]);
         y -= 10;
         y[10] = -1;
-        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
+        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x[10]);
     }
 }
 
 test "type pun signed and unsigned as array pointer with pointer arithemtic" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
-        var x: u32 = 0;
-        const y = @as([*]i32, @ptrCast(&x)) - 10;
+        var x: [11]u32 = undefined;
+        const y = @as([*]i32, @ptrCast(&x[10])) - 10;
         const z: *[15]i32 = y[0..15];
         z[10] = -1;
-        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
+        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x[10]);
     }
 }
 
@@ -171,10 +161,13 @@ fn doTypePunBitsTest(as_bits: *Bits) !void {
 
 test "type pun bits" {
     if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
+        // TODO: currently, marking one bit of `Bits` as `undefined` does
+        // mark the whole value as `undefined`, since the pointer interpretation
+        // logic reads it back in as a `u32`, which is partially-undef and thus
+        // has value `undefined`. We need an improved comptime memory representation
+        // to make this work.
         return error.SkipZigTest;
     }
-
     comptime {
         var v: u32 = undefined;
         try doTypePunBitsTest(@as(*Bits, @ptrCast(&v)));
@@ -296,11 +289,6 @@ test "dance on linker values" {
 }
 
 test "offset array ptr by element size" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{
@@ -310,15 +298,10 @@ test "offset array ptr by element size" {
             .{ .x = bigToNativeEndian(u32, 0x03070b0f) },
         };
 
-        const address = @intFromPtr(&arr);
-        try testing.expectEqual(@intFromPtr(&arr[0]), address);
-        try testing.expectEqual(@intFromPtr(&arr[0]) + 10, address + 10);
-        try testing.expectEqual(@intFromPtr(&arr[1]), address + @sizeOf(VirtualStruct));
-        try testing.expectEqual(@intFromPtr(&arr[2]), address + 2 * @sizeOf(VirtualStruct));
-        try testing.expectEqual(@intFromPtr(&arr[3]), address + @sizeOf(VirtualStruct) * 3);
+        const buf: [*]align(@alignOf(VirtualStruct)) u8 = @ptrCast(&arr);
 
-        const secondElement = @as(*VirtualStruct, @ptrFromInt(@intFromPtr(&arr[0]) + 2 * @sizeOf(VirtualStruct)));
-        try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), secondElement.x);
+        const second_element: *VirtualStruct = @ptrCast(buf + 2 * @sizeOf(VirtualStruct));
+        try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), second_element.x);
     }
 }
 
@@ -364,7 +347,7 @@ test "offset field ptr by enclosing array element size" {
 
         var i: usize = 0;
         while (i < 4) : (i += 1) {
-            var ptr: [*]u8 = @as([*]u8, @ptrCast(&arr[0]));
+            var ptr: [*]u8 = @ptrCast(&arr[0]);
             ptr += i;
             ptr += @offsetOf(VirtualStruct, "x");
             var j: usize = 0;
@@ -401,18 +384,17 @@ test "accessing reinterpreted memory of parent object" {
 
 test "bitcast packed union to integer" {
     const U = packed union {
-        x: u1,
+        x: i2,
         y: u2,
     };
 
     comptime {
-        const a = U{ .x = 1 };
-        const b = U{ .y = 2 };
-        const cast_a = @as(u2, @bitCast(a));
-        const cast_b = @as(u2, @bitCast(b));
+        const a: U = .{ .x = -1 };
+        const b: U = .{ .y = 2 };
+        const cast_a: u2 = @bitCast(a);
+        const cast_b: u2 = @bitCast(b);
 
-        // truncated because the upper bit is garbage memory that we don't care about
-        try testing.expectEqual(@as(u1, 1), @as(u1, @truncate(cast_a)));
+        try testing.expectEqual(@as(u2, 3), cast_a);
         try testing.expectEqual(@as(u2, 2), cast_b);
     }
 }
@@ -457,5 +439,79 @@ test "write empty array to end" {
     array[5..5].* = .{};
     array[5..5].* = [0]u8{};
     array[5..5].* = [_]u8{};
-    try testing.expectEqualStrings("hello", &array);
+    comptime std.debug.assert(std.mem.eql(u8, "hello", &array));
+}
+
+fn doublePtrTest() !void {
+    var a: u32 = 0;
+    const ptr = &a;
+    const double_ptr = &ptr;
+    setDoublePtr(double_ptr, 1);
+    setDoublePtr(double_ptr, 2);
+    setDoublePtr(double_ptr, 1);
+    try std.testing.expect(a == 1);
+}
+fn setDoublePtr(ptr: *const *const u32, value: u32) void {
+    setPtr(ptr.*, value);
+}
+fn setPtr(ptr: *const u32, value: u32) void {
+    const mut_ptr: *u32 = @constCast(ptr);
+    mut_ptr.* = value;
+}
+test "double pointer can mutate comptime state" {
+    try comptime doublePtrTest();
+}
+
+fn GenericIntApplier(
+    comptime Context: type,
+    comptime applyFn: fn (context: Context, arg: u32) void,
+) type {
+    return struct {
+        context: Context,
+
+        const Self = @This();
+
+        inline fn any(self: *const Self) IntApplier {
+            return .{
+                .context = @ptrCast(&self.context),
+                .applyFn = typeErasedApplyFn,
+            };
+        }
+
+        fn typeErasedApplyFn(context: *const anyopaque, arg: u32) void {
+            const ptr: *const Context = @alignCast(@ptrCast(context));
+            applyFn(ptr.*, arg);
+        }
+    };
+}
+const IntApplier = struct {
+    context: *const anyopaque,
+    applyFn: *const fn (context: *const anyopaque, arg: u32) void,
+
+    fn apply(ia: IntApplier, arg: u32) void {
+        ia.applyFn(ia.context, arg);
+    }
+};
+const Accumulator = struct {
+    value: u32,
+
+    const Applier = GenericIntApplier(*u32, add);
+
+    fn applier(a: *Accumulator) Applier {
+        return .{ .context = &a.value };
+    }
+
+    fn add(context: *u32, arg: u32) void {
+        context.* += arg;
+    }
+};
+fn fieldPtrTest() u32 {
+    var a: Accumulator = .{ .value = 0 };
+    const applier = a.applier();
+    applier.any().apply(1);
+    applier.any().apply(1);
+    return a.value;
+}
+test "pointer in aggregate field can mutate comptime state" {
+    try comptime std.testing.expect(fieldPtrTest() == 2);
 }

@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-xstate-l1-1-1
+
+EXPORTS
+
+RtlCopyContext@12

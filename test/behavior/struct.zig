@@ -1392,13 +1392,13 @@ test "fieldParentPtr of a zero-bit field" {
             {
                 const a = A{ .u = 0 };
                 const b_ptr = &a.b;
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const b_ptr = &a.b;
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
         }
@@ -1406,17 +1406,17 @@ test "fieldParentPtr of a zero-bit field" {
             {
                 const a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
-                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
                 try std.testing.expectEqual(&a.b, b_ptr);
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
-                const b_ptr = @fieldParentPtr(@TypeOf(a.b), "c", c_ptr);
+                const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
                 try std.testing.expectEqual(&a.b, b_ptr);
-                const a_ptr = @fieldParentPtr(A, "b", b_ptr);
+                const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
                 try std.testing.expectEqual(&a, a_ptr);
             }
         }
@@ -1744,8 +1744,6 @@ test "struct init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known struct init" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var side_effects: u4 = 0;
     const S = struct { a: u4, b: u4, c: u4, d: u4 };
     const init = S{
@@ -2056,6 +2054,8 @@ test "struct field default value is a call" {
 }
 
 test "aggregate initializers should allow initializing comptime fields, verifying equality" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var x: u32 = 15;
     _ = &x;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
@@ -2113,4 +2113,40 @@ test "initiate global variable with runtime value" {
         .field = S.couldFail() catch 0,
     };
     try expect(S.some_struct.field == 1);
+}
+
+test "struct containing optional pointer to array of @This()" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        x: ?*const [1]@This(),
+    };
+
+    var s: S = .{ .x = &.{.{ .x = null }} };
+    _ = &s;
+    try expect(s.x.?[0].x == null);
+}
+
+test "matching captures causes struct equivalence" {
+    const S = struct {
+        fn UnsignedWrapper(comptime I: type) type {
+            const bits = @typeInfo(I).Int.bits;
+            return struct {
+                x: @Type(.{ .Int = .{
+                    .signedness = .unsigned,
+                    .bits = bits,
+                } }),
+            };
+        }
+    };
+
+    comptime assert(S.UnsignedWrapper(u8) == S.UnsignedWrapper(i8));
+    comptime assert(S.UnsignedWrapper(u16) == S.UnsignedWrapper(i16));
+    comptime assert(S.UnsignedWrapper(u8) != S.UnsignedWrapper(u16));
+
+    const a: S.UnsignedWrapper(u8) = .{ .x = 10 };
+    const b: S.UnsignedWrapper(i8) = .{ .x = 10 };
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try expect(a.x == b.x);
 }

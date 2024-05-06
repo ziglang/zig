@@ -119,7 +119,7 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     }
 }
 
-test "complex.cexp32" {
+test exp32 {
     const tolerance_f32 = @sqrt(math.floatEps(f32));
 
     {
@@ -139,7 +139,7 @@ test "complex.cexp32" {
     }
 }
 
-test "complex.cexp64" {
+test exp64 {
     const tolerance_f64 = @sqrt(math.floatEps(f64));
 
     {

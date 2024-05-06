@@ -74,7 +74,7 @@ const SpinlockTable = struct {
                         : "memory"
                     );
                 } else flag: {
-                    break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .Acquire);
+                    break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .acquire);
                 };
 
                 switch (flag) {
@@ -91,7 +91,7 @@ const SpinlockTable = struct {
                     : "memory"
                 );
             } else {
-                @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .Release);
+                @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .release);
             }
         }
     };
@@ -172,7 +172,7 @@ inline fn atomic_load_N(comptime T: type, src: *T, model: i32) T {
         defer sl.release();
         return src.*;
     } else {
-        return @atomicLoad(T, src, .SeqCst);
+        return @atomicLoad(T, src, .seq_cst);
     }
 }
 
@@ -203,7 +203,7 @@ inline fn atomic_store_N(comptime T: type, dst: *T, value: T, model: i32) void {
         defer sl.release();
         dst.* = value;
     } else {
-        @atomicStore(T, dst, value, .SeqCst);
+        @atomicStore(T, dst, value, .seq_cst);
     }
 }
 
@@ -239,12 +239,12 @@ fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
 
     const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
 
-    var wide_old = @atomicLoad(WideAtomic, wide_ptr, .SeqCst);
+    var wide_old = @atomicLoad(WideAtomic, wide_ptr, .seq_cst);
     while (true) {
         const old = @as(T, @truncate((wide_old & mask) >> inner_shift));
         const new = update(val, old);
         const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
-        if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .SeqCst, .SeqCst)) |new_wide_old| {
+        if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .seq_cst, .seq_cst)) |new_wide_old| {
             wide_old = new_wide_old;
         } else {
             return old;
@@ -270,7 +270,7 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
         };
         return wideUpdate(T, ptr, val, Updater.update);
     } else {
-        return @atomicRmw(T, ptr, .Xchg, val, .SeqCst);
+        return @atomicRmw(T, ptr, .Xchg, val, .seq_cst);
     }
 }
 
@@ -315,7 +315,7 @@ inline fn atomic_compare_exchange_N(
         expected.* = value;
         return 0;
     } else {
-        if (@cmpxchgStrong(T, ptr, expected.*, desired, .SeqCst, .SeqCst)) |old_value| {
+        if (@cmpxchgStrong(T, ptr, expected.*, desired, .seq_cst, .seq_cst)) |old_value| {
             expected.* = old_value;
             return 0;
         }
@@ -373,7 +373,7 @@ inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr
         return wideUpdate(T, ptr, val, Updater.update);
     }
 
-    return @atomicRmw(T, ptr, op, val, .SeqCst);
+    return @atomicRmw(T, ptr, op, val, .seq_cst);
 }
 
 fn __atomic_fetch_add_1(ptr: *u8, val: u8, model: i32) callconv(.C) u8 {
