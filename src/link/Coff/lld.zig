@@ -78,6 +78,9 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
+        for (comp.natvis_source_files) |nv| {
+            _ = try man.addFile(nv.src_path, null);
+        }
         if (!build_options.only_core_functionality) {
             for (comp.win32_resource_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.res_path, null);
@@ -269,6 +272,11 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             } else {
                 argv.appendAssumeCapacity(obj.path);
             }
+        }
+
+        try argv.ensureUnusedCapacity(comp.natvis_source_files.len);
+        for (comp.natvis_source_files) |nv| {
+            argv.appendAssumeCapacity(try allocPrint(arena, "-NATVIS:{s}", .{nv.src_path}));
         }
 
         for (comp.c_object_table.keys()) |key| {

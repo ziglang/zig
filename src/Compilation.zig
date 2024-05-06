@@ -163,6 +163,7 @@ last_update_was_cache_hit: bool = false,
 
 c_source_files: []const CSourceFile,
 rc_source_files: []const RcSourceFile,
+natvis_source_files: []const NatvisSourceFile,
 global_cc_argv: []const []const u8,
 cache_parent: *Cache,
 /// Path to own executable for invoking `zig clang`.
@@ -297,6 +298,12 @@ pub const RcSourceFile = struct {
     owner: *Package.Module,
     src_path: []const u8,
     extra_flags: []const []const u8 = &.{},
+};
+
+/// For passing to the linker.
+pub const NatvisSourceFile = struct {
+    owner: *Package.Module,
+    src_path: []const u8,
 };
 
 pub const RcIncludes = enum {
@@ -1005,6 +1012,7 @@ pub const CreateOptions = struct {
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &.{},
     rc_source_files: []const RcSourceFile = &.{},
+    natvis_source_files: []const NatvisSourceFile = &.{},
     manifest_file: ?[]const u8 = null,
     rc_includes: RcIncludes = .any,
     link_objects: []LinkObject = &[0]LinkObject{},
@@ -1424,6 +1432,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
+            .natvis_source_files = options.natvis_source_files,
             .cache_parent = cache,
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
@@ -2412,6 +2421,10 @@ fn addNonIncrementalStuffToCacheManifest(
         _ = try man.addFile(key.src.src_path, null);
         man.hash.addOptional(key.src.ext);
         man.hash.addListOfBytes(key.src.extra_flags);
+    }
+
+    for (comp.natvis_source_files) |nv| {
+        _ = try man.addFile(nv.src_path, null);
     }
 
     if (!build_options.only_core_functionality) {
@@ -5381,7 +5394,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-unwind-tables");
             }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest => {},
+        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest, .natvis => {},
         .assembly, .assembly_with_cpp => {
             if (ext == .assembly_with_cpp) {
                 const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
@@ -5613,6 +5626,7 @@ pub const FileExt = enum {
     rc,
     res,
     manifest,
+    natvis,
     unknown,
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
@@ -5631,6 +5645,7 @@ pub const FileExt = enum {
             .rc,
             .res,
             .manifest,
+            .natvis,
             .unknown,
             => false,
         };
@@ -5659,6 +5674,7 @@ pub const FileExt = enum {
             .rc => ".rc",
             .res => ".res",
             .manifest => ".manifest",
+            .natvis => ".natvis",
             .unknown => "",
         };
     }
@@ -5756,6 +5772,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .res;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".manifest")) {
         return .manifest;
+    } else if (std.ascii.endsWithIgnoreCase(filename, ".natvis")) {
+        return .natvis;
     } else {
         return .unknown;
     }

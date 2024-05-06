@@ -791,6 +791,8 @@ const CliModule = struct {
     c_source_files_end: usize,
     rc_source_files_start: usize,
     rc_source_files_end: usize,
+    natvis_source_files_start: usize,
+    natvis_source_files_end: usize,
 
     const Dep = struct {
         key: []const u8,
@@ -923,6 +925,8 @@ fn buildOutputType(
     var c_source_files_owner_index: usize = 0;
     // Tracks the position in rc_source_files which have already their owner populated.
     var rc_source_files_owner_index: usize = 0;
+    // Tracks the position in natvis_source_files which have already their owner populated.
+    var natvis_source_files_owner_index: usize = 0;
 
     // null means replace with the test executable binary
     var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .{};
@@ -971,6 +975,7 @@ fn buildOutputType(
 
         .c_source_files = .{},
         .rc_source_files = .{},
+        .natvis_source_files = .{},
 
         .llvm_m_args = .{},
         .sysroot = null,
@@ -1071,6 +1076,7 @@ fn buildOutputType(
                             &deps,
                             &c_source_files_owner_index,
                             &rc_source_files_owner_index,
+                            &natvis_source_files_owner_index,
                             &cssan,
                         );
                     } else if (mem.startsWith(u8, arg, "-M")) {
@@ -1089,6 +1095,7 @@ fn buildOutputType(
                             &deps,
                             &c_source_files_owner_index,
                             &rc_source_files_owner_index,
+                            &natvis_source_files_owner_index,
                             &cssan,
                         );
                     } else if (mem.eql(u8, arg, "--error-limit")) {
@@ -1719,6 +1726,12 @@ fn buildOutputType(
                             .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
                         });
                     },
+                    .natvis => {
+                        try create_module.natvis_source_files.append(arena, .{
+                            .owner = undefined,
+                            .src_path = arg,
+                        });
+                    },
                     .zig => {
                         if (root_src_file) |other| {
                             fatal("found another zig file '{s}' after root source file '{s}'", .{ arg, other });
@@ -1834,6 +1847,13 @@ fn buildOutputType(
                         },
                         .rc => {
                             try create_module.rc_source_files.append(arena, .{
+                                // Populated after module creation.
+                                .owner = undefined,
+                                .src_path = it.only_arg,
+                            });
+                        },
+                        .natvis => {
+                            try create_module.natvis_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
                                 .src_path = it.only_arg,
@@ -2640,6 +2660,8 @@ fn buildOutputType(
             .c_source_files_end = create_module.c_source_files.items.len,
             .rc_source_files_start = rc_source_files_owner_index,
             .rc_source_files_end = create_module.rc_source_files.items.len,
+            .natvis_source_files_start = natvis_source_files_owner_index,
+            .natvis_source_files_end = create_module.natvis_source_files.items.len,
         });
         cssan.reset();
         mod_opts = .{};
@@ -2647,6 +2669,7 @@ fn buildOutputType(
         target_mcpu = null;
         c_source_files_owner_index = create_module.c_source_files.items.len;
         rc_source_files_owner_index = create_module.rc_source_files.items.len;
+        natvis_source_files_owner_index = create_module.natvis_source_files.items.len;
     }
 
     if (!create_module.opts.have_zcu and arg_mode == .zig_test) {
@@ -2662,6 +2685,12 @@ fn buildOutputType(
     if (rc_source_files_owner_index != create_module.rc_source_files.items.len) {
         fatal("resource file '{s}' has no parent module", .{
             create_module.rc_source_files.items[rc_source_files_owner_index].src_path,
+        });
+    }
+
+    if (natvis_source_files_owner_index != create_module.natvis_source_files.items.len) {
+        fatal("resource file '{s}' has no parent module", .{
+            create_module.natvis_source_files.items[natvis_source_files_owner_index].src_path,
         });
     }
 
@@ -2811,6 +2840,9 @@ fn buildOutputType(
         }
         if (create_module.rc_source_files.items.len != 0) {
             fatal("rc files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
+        }
+        if (create_module.natvis_source_files.items.len != 0) {
+            fatal("natvis files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
         }
         if (contains_res_file) {
             fatal("res files are not allowed unless the target object format is coff (Windows/UEFI)", .{});
@@ -3223,6 +3255,7 @@ fn buildOutputType(
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = create_module.c_source_files.items,
         .rc_source_files = create_module.rc_source_files.items,
+        .natvis_source_files = create_module.natvis_source_files.items,
         .manifest_file = manifest_file,
         .rc_includes = rc_includes,
         .mingw_unicode_entry_point = mingw_unicode_entry_point,
@@ -3495,6 +3528,7 @@ const CreateModule = struct {
 
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
     rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
+    natvis_source_files: std.ArrayListUnmanaged(Compilation.NatvisSourceFile),
 
     /// e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     /// This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -3981,6 +4015,8 @@ fn createModule(
     for (create_module.c_source_files.items[cli_mod.c_source_files_start..cli_mod.c_source_files_end]) |*item| item.owner = mod;
 
     for (create_module.rc_source_files.items[cli_mod.rc_source_files_start..cli_mod.rc_source_files_end]) |*item| item.owner = mod;
+
+    for (create_module.natvis_source_files.items[cli_mod.natvis_source_files_start..cli_mod.natvis_source_files_end]) |*item| item.owner = mod;
 
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
@@ -7241,6 +7277,7 @@ fn handleModArg(
     deps: *std.ArrayListUnmanaged(CliModule.Dep),
     c_source_files_owner_index: *usize,
     rc_source_files_owner_index: *usize,
+    natvis_source_files_owner_index: *usize,
     cssan: *ClangSearchSanitizer,
 ) !void {
     const gop = try create_module.modules.getOrPut(arena, mod_name);
@@ -7291,6 +7328,8 @@ fn handleModArg(
         .c_source_files_end = create_module.c_source_files.items.len,
         .rc_source_files_start = rc_source_files_owner_index.*,
         .rc_source_files_end = create_module.rc_source_files.items.len,
+        .natvis_source_files_start = natvis_source_files_owner_index.*,
+        .natvis_source_files_end = create_module.natvis_source_files.items.len,
     };
     cssan.reset();
     mod_opts.* = .{};
@@ -7298,4 +7337,5 @@ fn handleModArg(
     target_mcpu.* = null;
     c_source_files_owner_index.* = create_module.c_source_files.items.len;
     rc_source_files_owner_index.* = create_module.rc_source_files.items.len;
+    natvis_source_files_owner_index.* = create_module.natvis_source_files.items.len;
 }
