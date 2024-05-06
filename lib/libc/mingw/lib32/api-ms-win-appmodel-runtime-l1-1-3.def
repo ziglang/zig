@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-appmodel-runtime-l1-1-3
+
+EXPORTS
+
+GetCurrentPackageInfo2@20
+GetCurrentPackagePath2@12
+GetPackageInfo2@24
+GetPackagePathByFullName2@16
+GetStagedPackagePathByFullName2@16

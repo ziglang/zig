@@ -1,0 +1,14 @@
+LIBRARY api-ms-win-core-memory-l1-1-1
+
+EXPORTS
+
+CreateFileMappingFromApp@24
+GetLargePageMinimum@0
+GetProcessWorkingSetSizeEx@16
+GetWriteWatch@24
+MapViewOfFileFromApp@20
+ResetWriteWatch@8
+SetProcessWorkingSetSizeEx@16
+UnmapViewOfFileEx@8
+VirtualLock@8
+VirtualUnlock@8

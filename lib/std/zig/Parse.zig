@@ -874,24 +874,13 @@ fn parseGlobalVarDecl(p: *Parse) !Node.Index {
     return var_decl;
 }
 
-/// ContainerField
-///     <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
-///      / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
+/// ContainerField <- doc_comment? KEYWORD_comptime? !KEYWORD_fn (IDENTIFIER COLON)? TypeExpr ByteAlign? (EQUAL Expr)?
 fn expectContainerField(p: *Parse) !Node.Index {
-    var main_token = p.tok_i;
     _ = p.eatToken(.keyword_comptime);
-    const tuple_like = p.token_tags[p.tok_i] != .identifier or p.token_tags[p.tok_i + 1] != .colon;
-    if (!tuple_like) {
-        main_token = p.assertToken(.identifier);
-    }
-
-    var align_expr: Node.Index = 0;
-    var type_expr: Node.Index = 0;
-    if (p.eatToken(.colon) != null or tuple_like) {
-        type_expr = try p.expectTypeExpr();
-        align_expr = try p.parseByteAlign();
-    }
-
+    const main_token = p.tok_i;
+    if (p.token_tags[p.tok_i] == .identifier and p.token_tags[p.tok_i + 1] == .colon) p.tok_i += 2;
+    const type_expr = try p.expectTypeExpr();
+    const align_expr = try p.parseByteAlign();
     const value_expr: Node.Index = if (p.eatToken(.equal) == null) 0 else try p.expectExpr();
 
     if (align_expr == 0) {
@@ -956,7 +945,14 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
         } else {
             const assign = try p.expectAssignExpr();
             try p.expectSemicolon(.expected_semi_after_stmt, true);
-            return assign;
+            return p.addNode(.{
+                .tag = .@"comptime",
+                .main_token = comptime_token,
+                .data = .{
+                    .lhs = assign,
+                    .rhs = undefined,
+                },
+            });
         }
     }
 

@@ -109,11 +109,14 @@ const Command = enum {
 
     fn fromString(s: []const u8) ?Command {
         inline for (@typeInfo(Command).Enum.fields) |field| {
-            comptime var buf: [field.name.len]u8 = undefined;
-            inline for (field.name, 0..) |c, i| {
-                buf[i] = comptime std.ascii.toUpper(c);
-            }
-            if (std.mem.eql(u8, &buf, s)) return @field(Command, field.name);
+            const upper_name = n: {
+                comptime var buf: [field.name.len]u8 = undefined;
+                inline for (field.name, 0..) |c, i| {
+                    buf[i] = comptime std.ascii.toUpper(c);
+                }
+                break :n buf;
+            };
+            if (std.mem.eql(u8, &upper_name, s)) return @field(Command, field.name);
         }
         return null;
     }
@@ -139,6 +142,7 @@ const Parser = struct {
             } else return error.UnexpectedToken;
         };
         if (std.mem.eql(u8, value, "elf64-x86-64")) return .x86_64;
+        if (std.mem.eql(u8, value, "elf64-littleaarch64")) return .aarch64;
         return error.UnknownCpuArch;
     }
 

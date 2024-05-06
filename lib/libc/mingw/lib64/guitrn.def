@@ -6,7 +6,6 @@
 ;
 LIBRARY GUITRN.dll
 EXPORTS
-DllMain
 ModuleInitialize
 ModuleTerminate
 TransportModule

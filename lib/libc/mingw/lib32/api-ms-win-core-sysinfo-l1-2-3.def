@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-sysinfo-l1-2-3
+
+EXPORTS
+
+GetIntegratedDisplaySize@4
+GetOsManufacturingMode@4
+SetComputerNameA@4
+SetComputerNameExA@8
+SetComputerNameW@4

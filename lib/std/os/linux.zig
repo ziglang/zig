@@ -18,8 +18,9 @@ const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPPC();
 const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
+const ACCMODE = std.posix.ACCMODE;
 
 test {
     if (builtin.os.tag == .linux) {
@@ -109,65 +110,297 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
-pub const MAP = struct {
-    pub usingnamespace arch_bits.MAP;
-
-    /// Share changes
-    pub const SHARED = 0x01;
-    /// Changes are private
-    pub const PRIVATE = 0x02;
-    /// share + validate extension flags
-    pub const SHARED_VALIDATE = 0x03;
-    /// Mask for type of mapping
-    pub const TYPE = 0x0f;
-    /// Interpret addr exactly
-    pub const FIXED = 0x10;
-    /// don't use a file
-    pub const ANONYMOUS = if (is_mips) 0x800 else 0x20;
-    // MAP_ 0x0100 - 0x4000 flags are per architecture
-    /// populate (prefault) pagetables
-    pub const POPULATE = if (is_mips) 0x10000 else 0x8000;
-    /// do not block on IO
-    pub const NONBLOCK = if (is_mips) 0x20000 else 0x10000;
-    /// give out an address that is best suited for process/thread stacks
-    pub const STACK = if (is_mips) 0x40000 else 0x20000;
-    /// create a huge page mapping
-    pub const HUGETLB = if (is_mips) 0x80000 else 0x40000;
-    /// perform synchronous page faults for the mapping
-    pub const SYNC = 0x80000;
-    /// MAP_FIXED which doesn't unmap underlying mapping
-    pub const FIXED_NOREPLACE = 0x100000;
-    /// For anonymous mmap, memory could be uninitialized
-    pub const UNINITIALIZED = 0x4000000;
+pub const MAP_TYPE = enum(u4) {
+    SHARED = 0x01,
+    PRIVATE = 0x02,
+    SHARED_VALIDATE = 0x03,
 };
 
-pub const O = struct {
-    pub usingnamespace arch_bits.O;
-
-    pub const RDONLY = 0o0;
-    pub const WRONLY = 0o1;
-    pub const RDWR = 0o2;
+pub const MAP = switch (native_arch) {
+    .x86_64, .x86 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        @"32BIT": bool = false,
+        _7: u1 = 0,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _6: u2 = 0,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .riscv64 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _6: u9 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        NORESERVE: bool = false,
+        _7: u1 = 0,
+        LOCKED: bool = false,
+        GROWSDOWN: bool = false,
+        _10: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        _13: u2 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        _5: u1 = 0,
+        @"32BIT": bool = false,
+        _7: u3 = 0,
+        NORESERVE: bool = false,
+        ANONYMOUS: bool = false,
+        GROWSDOWN: bool = false,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        NORESERVE: bool = false,
+        LOCKED: bool = false,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        _13: u2 = 0,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _21: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
+    else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
-pub usingnamespace @import("linux/io_uring.zig");
+pub const O = switch (native_arch) {
+    .x86_64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        _15: u1 = 0,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .x86, .riscv64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        _4: u2 = 0,
+        ASYNC: bool = false,
+        _7: u2 = 0,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u1 = 0,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false,
+        NOCTTY: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        _18: u2 = 0,
+        DIRECT: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u6 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        DSYNC: bool = false,
+        _5: u2 = 0,
+        NONBLOCK: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        ASYNC: bool = false,
+        LARGEFILE: bool = false,
+        SYNC: bool = false,
+        DIRECT: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        LARGEFILE: bool = false,
+        DIRECT: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    else => @compileError("missing std.os.linux.O constants for this architecture"),
+};
 
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
-pub usingnamespace if (switch (builtin.zig_backend) {
+const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
     .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
     else => !builtin.link_libc,
-}) struct {
-    /// See `std.elf` for the constants.
-    /// This matches the libc getauxval function.
-    pub extern fn getauxval(index: usize) usize;
-    comptime {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
-    }
-} else struct {
-    pub const getauxval = getauxvalImpl;
 };
+
+comptime {
+    if (extern_getauxval) {
+        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+    }
+}
+
+pub const getauxval = if (extern_getauxval) struct {
+    extern fn getauxval(index: usize) usize;
+}.getauxval else getauxvalImpl;
 
 fn getauxvalImpl(index: usize) callconv(.C) usize {
     const auxv = elf_aux_maybe orelse return 0;
@@ -218,10 +451,11 @@ fn splitValue64(val: i64) [2]u32 {
 }
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: usize) E {
-    const signed_r = @as(isize, @bitCast(r));
+/// The public API is exposed via the `E` namespace.
+fn errnoFromSyscall(r: usize) E {
+    const signed_r: isize = @bitCast(r);
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-    return @as(E, @enumFromInt(int));
+    return @enumFromInt(int);
 }
 
 pub fn dup(old: i32) usize {
@@ -520,20 +754,20 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @intFromPtr(special), flags);
 }
 
-pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: i64) usize {
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.INVAL))));
+            return @bitCast(-@as(isize, @intFromEnum(E.INVAL)));
 
         return syscall6(
             .mmap2,
             @intFromPtr(address),
             length,
             prot,
-            flags,
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(usize, @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT)),
+            @as(u32, @bitCast(flags)),
+            @bitCast(@as(isize, fd)),
+            @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
         return syscall6(
@@ -541,8 +775,8 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             @intFromPtr(address),
             length,
             prot,
-            flags,
-            @as(usize, @bitCast(@as(isize, fd))),
+            @as(u32, @bitCast(flags)),
+            @bitCast(@as(isize, fd)),
             @as(u64, @bitCast(offset)),
         );
     }
@@ -740,12 +974,12 @@ pub fn pipe(fd: *[2]i32) usize {
     }
 }
 
-pub fn pipe2(fd: *[2]i32, flags: u32) usize {
-    return syscall2(.pipe2, @intFromPtr(fd), flags);
+pub fn pipe2(fd: *[2]i32, flags: O) usize {
+    return syscall2(.pipe2, @intFromPtr(fd), @as(u32, @bitCast(flags)));
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall3(.write, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf), count);
+    return syscall3(.write, @bitCast(@as(isize, fd)), @intFromPtr(buf), count);
 }
 
 pub fn ftruncate(fd: i32, length: i64) usize {
@@ -826,7 +1060,7 @@ pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
     }
 }
 
-pub fn renameat(oldfd: i32, oldpath: [*]const u8, newfd: i32, newpath: [*]const u8) usize {
+pub fn renameat(oldfd: i32, oldpath: [*:0]const u8, newfd: i32, newpath: [*:0]const u8) usize {
     if (@hasField(SYS, "renameat")) {
         return syscall4(
             .renameat,
@@ -858,15 +1092,15 @@ pub fn renameat2(oldfd: i32, oldpath: [*:0]const u8, newfd: i32, newpath: [*:0]c
     );
 }
 
-pub fn open(path: [*:0]const u8, flags: u32, perm: mode_t) usize {
+pub fn open(path: [*:0]const u8, flags: O, perm: mode_t) usize {
     if (@hasField(SYS, "open")) {
-        return syscall3(.open, @intFromPtr(path), flags, perm);
+        return syscall3(.open, @intFromPtr(path), @as(u32, @bitCast(flags)), perm);
     } else {
         return syscall4(
             .openat,
-            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
+            @bitCast(@as(isize, AT.FDCWD)),
             @intFromPtr(path),
-            flags,
+            @as(u32, @bitCast(flags)),
             perm,
         );
     }
@@ -876,9 +1110,9 @@ pub fn create(path: [*:0]const u8, perm: mode_t) usize {
     return syscall2(.creat, @intFromPtr(path), perm);
 }
 
-pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, mode: mode_t) usize {
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: O, mode: mode_t) usize {
     // dirfd could be negative, for example AT.FDCWD is -100
-    return syscall4(.openat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), flags, mode);
+    return syscall4(.openat, @bitCast(@as(isize, dirfd)), @intFromPtr(path), @as(u32, @bitCast(flags)), mode);
 }
 
 /// See also `clone` (from the arch-specific include)
@@ -1094,16 +1328,14 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
 
-var vdso_clock_gettime = @as(?*const anyopaque, @ptrCast(&init_vdso_clock_gettime));
-
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
-        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .Unordered);
-        if (ptr) |fn_ptr| {
-            const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
+        const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
+        if (ptr) |f| {
             const rc = f(clk_id, tp);
             switch (rc) {
                 0, @as(usize, @bitCast(-@as(isize, @intFromEnum(E.INVAL)))) => return rc,
@@ -1115,15 +1347,12 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
 }
 
 fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
-    const ptr = @as(?*const anyopaque, @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM)));
+    const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .Monotonic);
+    @atomicStore(?VdsoClockGettime, &vdso_clock_gettime, ptr, .monotonic);
     // Call into the VDSO if available
-    if (ptr) |fn_ptr| {
-        const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
-        return f(clk, ts);
-    }
+    if (ptr) |f| return f(clk, ts);
     return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
 }
 
@@ -1333,7 +1562,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
         .sparc, .sparc64 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @intFromPtr(ksa.restorer), mask_size),
         else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
     };
-    if (getErrno(result) != .SUCCESS) return result;
+    if (E.init(result) != .SUCCESS) return result;
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
@@ -1380,18 +1609,18 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
-pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
+pub fn setsockopt(fd: i32, level: i32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
+        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
     }
-    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
+    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
 }
 
-pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
+pub fn getsockopt(fd: i32, level: i32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen) });
+        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen) });
     }
-    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen));
+    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
@@ -1415,29 +1644,29 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
             var size: i32 = 0;
             const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
             for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
-                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.iov_len)))[1] != 0) {
+                if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (getErrno(r) != 0) return next_unsent;
+                        if (E.init(r) != 0) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
                     const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (getErrno(r) != 0) return r;
+                    if (E.init(r) != 0) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
                     msg.msg_len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.iov_len;
+                size += iov.len;
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (getErrno(r) != 0) return r;
+            if (E.init(r) != 0) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -1585,7 +1814,7 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
     }
 }
 
-pub fn statx(dirfd: i32, path: [*]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
     if (@hasField(SYS, "statx")) {
         return syscall5(
             .statx,
@@ -1664,7 +1893,7 @@ pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
 
     switch (std.os.errno(rc)) {
         .SUCCESS => return,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return std.posix.unexpectedErrno(err),
     }
 }
 
@@ -1700,8 +1929,8 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: i32, flags: u32) usize {
-    return syscall2(.timerfd_create, @as(usize, @bitCast(@as(isize, clockid))), flags);
+pub fn timerfd_create(clockid: i32, flags: TFD) usize {
+    return syscall2(.timerfd_create, @bitCast(@as(isize, clockid)), @as(u32, @bitCast(flags)));
 }
 
 pub const itimerspec = extern struct {
@@ -1710,11 +1939,11 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(.timerfd_gettime, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(curr_value));
+    return syscall2(.timerfd_gettime, @bitCast(@as(isize, fd)), @intFromPtr(curr_value));
 }
 
-pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timerfd_settime, @as(usize, @bitCast(@as(isize, fd))), flags, @intFromPtr(new_value), @intFromPtr(old_value));
+pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall4(.timerfd_settime, @bitCast(@as(isize, fd)), @as(u32, @bitCast(flags)), @intFromPtr(new_value), @intFromPtr(old_value));
 }
 
 // Flags for the 'setitimer' system call
@@ -2035,13 +2264,609 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => @import("linux/errno/mips.zig").E,
-    .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
-    else => @import("linux/errno/generic.zig").E,
+    .mips, .mipsel => enum(u16) {
+        /// No error occurred.
+        SUCCESS = 0,
+
+        PERM = 1,
+        NOENT = 2,
+        SRCH = 3,
+        INTR = 4,
+        IO = 5,
+        NXIO = 6,
+        @"2BIG" = 7,
+        NOEXEC = 8,
+        BADF = 9,
+        CHILD = 10,
+        /// Also used for WOULDBLOCK.
+        AGAIN = 11,
+        NOMEM = 12,
+        ACCES = 13,
+        FAULT = 14,
+        NOTBLK = 15,
+        BUSY = 16,
+        EXIST = 17,
+        XDEV = 18,
+        NODEV = 19,
+        NOTDIR = 20,
+        ISDIR = 21,
+        INVAL = 22,
+        NFILE = 23,
+        MFILE = 24,
+        NOTTY = 25,
+        TXTBSY = 26,
+        FBIG = 27,
+        NOSPC = 28,
+        SPIPE = 29,
+        ROFS = 30,
+        MLINK = 31,
+        PIPE = 32,
+        DOM = 33,
+        RANGE = 34,
+
+        NOMSG = 35,
+        IDRM = 36,
+        CHRNG = 37,
+        L2NSYNC = 38,
+        L3HLT = 39,
+        L3RST = 40,
+        LNRNG = 41,
+        UNATCH = 42,
+        NOCSI = 43,
+        L2HLT = 44,
+        DEADLK = 45,
+        NOLCK = 46,
+        BADE = 50,
+        BADR = 51,
+        XFULL = 52,
+        NOANO = 53,
+        BADRQC = 54,
+        BADSLT = 55,
+        DEADLOCK = 56,
+        BFONT = 59,
+        NOSTR = 60,
+        NODATA = 61,
+        TIME = 62,
+        NOSR = 63,
+        NONET = 64,
+        NOPKG = 65,
+        REMOTE = 66,
+        NOLINK = 67,
+        ADV = 68,
+        SRMNT = 69,
+        COMM = 70,
+        PROTO = 71,
+        DOTDOT = 73,
+        MULTIHOP = 74,
+        BADMSG = 77,
+        NAMETOOLONG = 78,
+        OVERFLOW = 79,
+        NOTUNIQ = 80,
+        BADFD = 81,
+        REMCHG = 82,
+        LIBACC = 83,
+        LIBBAD = 84,
+        LIBSCN = 85,
+        LIBMAX = 86,
+        LIBEXEC = 87,
+        ILSEQ = 88,
+        NOSYS = 89,
+        LOOP = 90,
+        RESTART = 91,
+        STRPIPE = 92,
+        NOTEMPTY = 93,
+        USERS = 94,
+        NOTSOCK = 95,
+        DESTADDRREQ = 96,
+        MSGSIZE = 97,
+        PROTOTYPE = 98,
+        NOPROTOOPT = 99,
+        PROTONOSUPPORT = 120,
+        SOCKTNOSUPPORT = 121,
+        OPNOTSUPP = 122,
+        PFNOSUPPORT = 123,
+        AFNOSUPPORT = 124,
+        ADDRINUSE = 125,
+        ADDRNOTAVAIL = 126,
+        NETDOWN = 127,
+        NETUNREACH = 128,
+        NETRESET = 129,
+        CONNABORTED = 130,
+        CONNRESET = 131,
+        NOBUFS = 132,
+        ISCONN = 133,
+        NOTCONN = 134,
+        UCLEAN = 135,
+        NOTNAM = 137,
+        NAVAIL = 138,
+        ISNAM = 139,
+        REMOTEIO = 140,
+        SHUTDOWN = 143,
+        TOOMANYREFS = 144,
+        TIMEDOUT = 145,
+        CONNREFUSED = 146,
+        HOSTDOWN = 147,
+        HOSTUNREACH = 148,
+        ALREADY = 149,
+        INPROGRESS = 150,
+        STALE = 151,
+        CANCELED = 158,
+        NOMEDIUM = 159,
+        MEDIUMTYPE = 160,
+        NOKEY = 161,
+        KEYEXPIRED = 162,
+        KEYREVOKED = 163,
+        KEYREJECTED = 164,
+        OWNERDEAD = 165,
+        NOTRECOVERABLE = 166,
+        RFKILL = 167,
+        HWPOISON = 168,
+        DQUOT = 1133,
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
+    .sparc, .sparcel, .sparc64 => enum(u16) {
+        /// No error occurred.
+        SUCCESS = 0,
+
+        PERM = 1,
+        NOENT = 2,
+        SRCH = 3,
+        INTR = 4,
+        IO = 5,
+        NXIO = 6,
+        @"2BIG" = 7,
+        NOEXEC = 8,
+        BADF = 9,
+        CHILD = 10,
+        /// Also used for WOULDBLOCK
+        AGAIN = 11,
+        NOMEM = 12,
+        ACCES = 13,
+        FAULT = 14,
+        NOTBLK = 15,
+        BUSY = 16,
+        EXIST = 17,
+        XDEV = 18,
+        NODEV = 19,
+        NOTDIR = 20,
+        ISDIR = 21,
+        INVAL = 22,
+        NFILE = 23,
+        MFILE = 24,
+        NOTTY = 25,
+        TXTBSY = 26,
+        FBIG = 27,
+        NOSPC = 28,
+        SPIPE = 29,
+        ROFS = 30,
+        MLINK = 31,
+        PIPE = 32,
+        DOM = 33,
+        RANGE = 34,
+
+        INPROGRESS = 36,
+        ALREADY = 37,
+        NOTSOCK = 38,
+        DESTADDRREQ = 39,
+        MSGSIZE = 40,
+        PROTOTYPE = 41,
+        NOPROTOOPT = 42,
+        PROTONOSUPPORT = 43,
+        SOCKTNOSUPPORT = 44,
+        /// Also used for NOTSUP
+        OPNOTSUPP = 45,
+        PFNOSUPPORT = 46,
+        AFNOSUPPORT = 47,
+        ADDRINUSE = 48,
+        ADDRNOTAVAIL = 49,
+        NETDOWN = 50,
+        NETUNREACH = 51,
+        NETRESET = 52,
+        CONNABORTED = 53,
+        CONNRESET = 54,
+        NOBUFS = 55,
+        ISCONN = 56,
+        NOTCONN = 57,
+        SHUTDOWN = 58,
+        TOOMANYREFS = 59,
+        TIMEDOUT = 60,
+        CONNREFUSED = 61,
+        LOOP = 62,
+        NAMETOOLONG = 63,
+        HOSTDOWN = 64,
+        HOSTUNREACH = 65,
+        NOTEMPTY = 66,
+        PROCLIM = 67,
+        USERS = 68,
+        DQUOT = 69,
+        STALE = 70,
+        REMOTE = 71,
+        NOSTR = 72,
+        TIME = 73,
+        NOSR = 74,
+        NOMSG = 75,
+        BADMSG = 76,
+        IDRM = 77,
+        DEADLK = 78,
+        NOLCK = 79,
+        NONET = 80,
+        RREMOTE = 81,
+        NOLINK = 82,
+        ADV = 83,
+        SRMNT = 84,
+        COMM = 85,
+        PROTO = 86,
+        MULTIHOP = 87,
+        DOTDOT = 88,
+        REMCHG = 89,
+        NOSYS = 90,
+        STRPIPE = 91,
+        OVERFLOW = 92,
+        BADFD = 93,
+        CHRNG = 94,
+        L2NSYNC = 95,
+        L3HLT = 96,
+        L3RST = 97,
+        LNRNG = 98,
+        UNATCH = 99,
+        NOCSI = 100,
+        L2HLT = 101,
+        BADE = 102,
+        BADR = 103,
+        XFULL = 104,
+        NOANO = 105,
+        BADRQC = 106,
+        BADSLT = 107,
+        DEADLOCK = 108,
+        BFONT = 109,
+        LIBEXEC = 110,
+        NODATA = 111,
+        LIBBAD = 112,
+        NOPKG = 113,
+        LIBACC = 114,
+        NOTUNIQ = 115,
+        RESTART = 116,
+        UCLEAN = 117,
+        NOTNAM = 118,
+        NAVAIL = 119,
+        ISNAM = 120,
+        REMOTEIO = 121,
+        ILSEQ = 122,
+        LIBMAX = 123,
+        LIBSCN = 124,
+        NOMEDIUM = 125,
+        MEDIUMTYPE = 126,
+        CANCELED = 127,
+        NOKEY = 128,
+        KEYEXPIRED = 129,
+        KEYREVOKED = 130,
+        KEYREJECTED = 131,
+        OWNERDEAD = 132,
+        NOTRECOVERABLE = 133,
+        RFKILL = 134,
+        HWPOISON = 135,
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
+    else => enum(u16) {
+        /// No error occurred.
+        /// Same code used for `NSROK`.
+        SUCCESS = 0,
+        /// Operation not permitted
+        PERM = 1,
+        /// No such file or directory
+        NOENT = 2,
+        /// No such process
+        SRCH = 3,
+        /// Interrupted system call
+        INTR = 4,
+        /// I/O error
+        IO = 5,
+        /// No such device or address
+        NXIO = 6,
+        /// Arg list too long
+        @"2BIG" = 7,
+        /// Exec format error
+        NOEXEC = 8,
+        /// Bad file number
+        BADF = 9,
+        /// No child processes
+        CHILD = 10,
+        /// Try again
+        /// Also means: WOULDBLOCK: operation would block
+        AGAIN = 11,
+        /// Out of memory
+        NOMEM = 12,
+        /// Permission denied
+        ACCES = 13,
+        /// Bad address
+        FAULT = 14,
+        /// Block device required
+        NOTBLK = 15,
+        /// Device or resource busy
+        BUSY = 16,
+        /// File exists
+        EXIST = 17,
+        /// Cross-device link
+        XDEV = 18,
+        /// No such device
+        NODEV = 19,
+        /// Not a directory
+        NOTDIR = 20,
+        /// Is a directory
+        ISDIR = 21,
+        /// Invalid argument
+        INVAL = 22,
+        /// File table overflow
+        NFILE = 23,
+        /// Too many open files
+        MFILE = 24,
+        /// Not a typewriter
+        NOTTY = 25,
+        /// Text file busy
+        TXTBSY = 26,
+        /// File too large
+        FBIG = 27,
+        /// No space left on device
+        NOSPC = 28,
+        /// Illegal seek
+        SPIPE = 29,
+        /// Read-only file system
+        ROFS = 30,
+        /// Too many links
+        MLINK = 31,
+        /// Broken pipe
+        PIPE = 32,
+        /// Math argument out of domain of func
+        DOM = 33,
+        /// Math result not representable
+        RANGE = 34,
+        /// Resource deadlock would occur
+        DEADLK = 35,
+        /// File name too long
+        NAMETOOLONG = 36,
+        /// No record locks available
+        NOLCK = 37,
+        /// Function not implemented
+        NOSYS = 38,
+        /// Directory not empty
+        NOTEMPTY = 39,
+        /// Too many symbolic links encountered
+        LOOP = 40,
+        /// No message of desired type
+        NOMSG = 42,
+        /// Identifier removed
+        IDRM = 43,
+        /// Channel number out of range
+        CHRNG = 44,
+        /// Level 2 not synchronized
+        L2NSYNC = 45,
+        /// Level 3 halted
+        L3HLT = 46,
+        /// Level 3 reset
+        L3RST = 47,
+        /// Link number out of range
+        LNRNG = 48,
+        /// Protocol driver not attached
+        UNATCH = 49,
+        /// No CSI structure available
+        NOCSI = 50,
+        /// Level 2 halted
+        L2HLT = 51,
+        /// Invalid exchange
+        BADE = 52,
+        /// Invalid request descriptor
+        BADR = 53,
+        /// Exchange full
+        XFULL = 54,
+        /// No anode
+        NOANO = 55,
+        /// Invalid request code
+        BADRQC = 56,
+        /// Invalid slot
+        BADSLT = 57,
+        /// Bad font file format
+        BFONT = 59,
+        /// Device not a stream
+        NOSTR = 60,
+        /// No data available
+        NODATA = 61,
+        /// Timer expired
+        TIME = 62,
+        /// Out of streams resources
+        NOSR = 63,
+        /// Machine is not on the network
+        NONET = 64,
+        /// Package not installed
+        NOPKG = 65,
+        /// Object is remote
+        REMOTE = 66,
+        /// Link has been severed
+        NOLINK = 67,
+        /// Advertise error
+        ADV = 68,
+        /// Srmount error
+        SRMNT = 69,
+        /// Communication error on send
+        COMM = 70,
+        /// Protocol error
+        PROTO = 71,
+        /// Multihop attempted
+        MULTIHOP = 72,
+        /// RFS specific error
+        DOTDOT = 73,
+        /// Not a data message
+        BADMSG = 74,
+        /// Value too large for defined data type
+        OVERFLOW = 75,
+        /// Name not unique on network
+        NOTUNIQ = 76,
+        /// File descriptor in bad state
+        BADFD = 77,
+        /// Remote address changed
+        REMCHG = 78,
+        /// Can not access a needed shared library
+        LIBACC = 79,
+        /// Accessing a corrupted shared library
+        LIBBAD = 80,
+        /// .lib section in a.out corrupted
+        LIBSCN = 81,
+        /// Attempting to link in too many shared libraries
+        LIBMAX = 82,
+        /// Cannot exec a shared library directly
+        LIBEXEC = 83,
+        /// Illegal byte sequence
+        ILSEQ = 84,
+        /// Interrupted system call should be restarted
+        RESTART = 85,
+        /// Streams pipe error
+        STRPIPE = 86,
+        /// Too many users
+        USERS = 87,
+        /// Socket operation on non-socket
+        NOTSOCK = 88,
+        /// Destination address required
+        DESTADDRREQ = 89,
+        /// Message too long
+        MSGSIZE = 90,
+        /// Protocol wrong type for socket
+        PROTOTYPE = 91,
+        /// Protocol not available
+        NOPROTOOPT = 92,
+        /// Protocol not supported
+        PROTONOSUPPORT = 93,
+        /// Socket type not supported
+        SOCKTNOSUPPORT = 94,
+        /// Operation not supported on transport endpoint
+        /// This code also means `NOTSUP`.
+        OPNOTSUPP = 95,
+        /// Protocol family not supported
+        PFNOSUPPORT = 96,
+        /// Address family not supported by protocol
+        AFNOSUPPORT = 97,
+        /// Address already in use
+        ADDRINUSE = 98,
+        /// Cannot assign requested address
+        ADDRNOTAVAIL = 99,
+        /// Network is down
+        NETDOWN = 100,
+        /// Network is unreachable
+        NETUNREACH = 101,
+        /// Network dropped connection because of reset
+        NETRESET = 102,
+        /// Software caused connection abort
+        CONNABORTED = 103,
+        /// Connection reset by peer
+        CONNRESET = 104,
+        /// No buffer space available
+        NOBUFS = 105,
+        /// Transport endpoint is already connected
+        ISCONN = 106,
+        /// Transport endpoint is not connected
+        NOTCONN = 107,
+        /// Cannot send after transport endpoint shutdown
+        SHUTDOWN = 108,
+        /// Too many references: cannot splice
+        TOOMANYREFS = 109,
+        /// Connection timed out
+        TIMEDOUT = 110,
+        /// Connection refused
+        CONNREFUSED = 111,
+        /// Host is down
+        HOSTDOWN = 112,
+        /// No route to host
+        HOSTUNREACH = 113,
+        /// Operation already in progress
+        ALREADY = 114,
+        /// Operation now in progress
+        INPROGRESS = 115,
+        /// Stale NFS file handle
+        STALE = 116,
+        /// Structure needs cleaning
+        UCLEAN = 117,
+        /// Not a XENIX named type file
+        NOTNAM = 118,
+        /// No XENIX semaphores available
+        NAVAIL = 119,
+        /// Is a named type file
+        ISNAM = 120,
+        /// Remote I/O error
+        REMOTEIO = 121,
+        /// Quota exceeded
+        DQUOT = 122,
+        /// No medium found
+        NOMEDIUM = 123,
+        /// Wrong medium type
+        MEDIUMTYPE = 124,
+        /// Operation canceled
+        CANCELED = 125,
+        /// Required key not available
+        NOKEY = 126,
+        /// Key has expired
+        KEYEXPIRED = 127,
+        /// Key has been revoked
+        KEYREVOKED = 128,
+        /// Key was rejected by service
+        KEYREJECTED = 129,
+        // for robust mutexes
+        /// Owner died
+        OWNERDEAD = 130,
+        /// State not recoverable
+        NOTRECOVERABLE = 131,
+        /// Operation not possible due to RF-kill
+        RFKILL = 132,
+        /// Memory page has hardware error
+        HWPOISON = 133,
+        // nameserver query return codes
+        /// DNS server returned answer with no data
+        NSRNODATA = 160,
+        /// DNS server claims query was misformatted
+        NSRFORMERR = 161,
+        /// DNS server returned general failure
+        NSRSERVFAIL = 162,
+        /// Domain name not found
+        NSRNOTFOUND = 163,
+        /// DNS server does not implement requested operation
+        NSRNOTIMP = 164,
+        /// DNS server refused query
+        NSRREFUSED = 165,
+        /// Misformatted DNS query
+        NSRBADQUERY = 166,
+        /// Misformatted domain name
+        NSRBADNAME = 167,
+        /// Unsupported address family
+        NSRBADFAMILY = 168,
+        /// Misformatted DNS reply
+        NSRBADRESP = 169,
+        /// Could not contact DNS servers
+        NSRCONNREFUSED = 170,
+        /// Timeout while contacting DNS servers
+        NSRTIMEOUT = 171,
+        /// End of file
+        NSROF = 172,
+        /// Error reading file
+        NSRFILE = 173,
+        /// Out of memory
+        NSRNOMEM = 174,
+        /// Application terminated lookup
+        NSRDESTRUCTION = 175,
+        /// Domain name is too long
+        NSRQUERYDOMAINTOOLONG = 176,
+        /// Domain name is too long
+        NSRCNAMELOOP = 177,
+
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
 };
 
 pub const pid_t = i32;
 pub const fd_t = i32;
+pub const socket_t = i32;
 pub const uid_t = u32;
 pub const gid_t = u32;
 pub const clock_t = isize;
@@ -2283,9 +3108,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else if (is_sparc) struct {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -2327,9 +3152,9 @@ pub const SIG = if (is_mips) struct {
     pub const PWR = LOST;
     pub const IO = SIG.POLL;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else struct {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
@@ -2370,27 +3195,18 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 };
 
 pub const kernel_rwf = u32;
 
 pub const RWF = struct {
-    /// high priority request, poll if possible
     pub const HIPRI: kernel_rwf = 0x00000001;
-
-    /// per-IO O.DSYNC
     pub const DSYNC: kernel_rwf = 0x00000002;
-
-    /// per-IO O.SYNC
     pub const SYNC: kernel_rwf = 0x00000004;
-
-    /// per-IO, return -EAGAIN if operation would block
     pub const NOWAIT: kernel_rwf = 0x00000008;
-
-    /// per-IO O.APPEND
     pub const APPEND: kernel_rwf = 0x00000010;
 };
 
@@ -2598,284 +3414,282 @@ pub const AF = struct {
     pub const MAX = PF.MAX;
 };
 
-pub const SO = struct {
-    pub usingnamespace if (is_mips) struct {
-        pub const DEBUG = 1;
-        pub const REUSEADDR = 0x0004;
-        pub const KEEPALIVE = 0x0008;
-        pub const DONTROUTE = 0x0010;
-        pub const BROADCAST = 0x0020;
-        pub const LINGER = 0x0080;
-        pub const OOBINLINE = 0x0100;
-        pub const REUSEPORT = 0x0200;
-        pub const SNDBUF = 0x1001;
-        pub const RCVBUF = 0x1002;
-        pub const SNDLOWAT = 0x1003;
-        pub const RCVLOWAT = 0x1004;
-        pub const RCVTIMEO = 0x1006;
-        pub const SNDTIMEO = 0x1005;
-        pub const ERROR = 0x1007;
-        pub const TYPE = 0x1008;
-        pub const ACCEPTCONN = 0x1009;
-        pub const PROTOCOL = 0x1028;
-        pub const DOMAIN = 0x1029;
-        pub const NO_CHECK = 11;
-        pub const PRIORITY = 12;
-        pub const BSDCOMPAT = 14;
-        pub const PASSCRED = 17;
-        pub const PEERCRED = 18;
-        pub const PEERSEC = 30;
-        pub const SNDBUFFORCE = 31;
-        pub const RCVBUFFORCE = 33;
-        pub const SECURITY_AUTHENTICATION = 22;
-        pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-        pub const SECURITY_ENCRYPTION_NETWORK = 24;
-        pub const BINDTODEVICE = 25;
-        pub const ATTACH_FILTER = 26;
-        pub const DETACH_FILTER = 27;
-        pub const GET_FILTER = ATTACH_FILTER;
-        pub const PEERNAME = 28;
-        pub const TIMESTAMP_OLD = 29;
-        pub const PASSSEC = 34;
-        pub const TIMESTAMPNS_OLD = 35;
-        pub const MARK = 36;
-        pub const TIMESTAMPING_OLD = 37;
-        pub const RXQ_OVFL = 40;
-        pub const WIFI_STATUS = 41;
-        pub const PEEK_OFF = 42;
-        pub const NOFCS = 43;
-        pub const LOCK_FILTER = 44;
-        pub const SELECT_ERR_QUEUE = 45;
-        pub const BUSY_POLL = 46;
-        pub const MAX_PACING_RATE = 47;
-        pub const BPF_EXTENSIONS = 48;
-        pub const INCOMING_CPU = 49;
-        pub const ATTACH_BPF = 50;
-        pub const DETACH_BPF = DETACH_FILTER;
-        pub const ATTACH_REUSEPORT_CBPF = 51;
-        pub const ATTACH_REUSEPORT_EBPF = 52;
-        pub const CNX_ADVICE = 53;
-        pub const MEMINFO = 55;
-        pub const INCOMING_NAPI_ID = 56;
-        pub const COOKIE = 57;
-        pub const PEERGROUPS = 59;
-        pub const ZEROCOPY = 60;
-        pub const TXTIME = 61;
-        pub const BINDTOIFINDEX = 62;
-        pub const TIMESTAMP_NEW = 63;
-        pub const TIMESTAMPNS_NEW = 64;
-        pub const TIMESTAMPING_NEW = 65;
-        pub const RCVTIMEO_NEW = 66;
-        pub const SNDTIMEO_NEW = 67;
-        pub const DETACH_REUSEPORT_BPF = 68;
-    } else if (is_ppc or is_ppc64) struct {
-        pub const DEBUG = 1;
-        pub const REUSEADDR = 2;
-        pub const TYPE = 3;
-        pub const ERROR = 4;
-        pub const DONTROUTE = 5;
-        pub const BROADCAST = 6;
-        pub const SNDBUF = 7;
-        pub const RCVBUF = 8;
-        pub const KEEPALIVE = 9;
-        pub const OOBINLINE = 10;
-        pub const NO_CHECK = 11;
-        pub const PRIORITY = 12;
-        pub const LINGER = 13;
-        pub const BSDCOMPAT = 14;
-        pub const REUSEPORT = 15;
-        pub const RCVLOWAT = 16;
-        pub const SNDLOWAT = 17;
-        pub const RCVTIMEO = 18;
-        pub const SNDTIMEO = 19;
-        pub const PASSCRED = 20;
-        pub const PEERCRED = 21;
-        pub const ACCEPTCONN = 30;
-        pub const PEERSEC = 31;
-        pub const SNDBUFFORCE = 32;
-        pub const RCVBUFFORCE = 33;
-        pub const PROTOCOL = 38;
-        pub const DOMAIN = 39;
-        pub const SECURITY_AUTHENTICATION = 22;
-        pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-        pub const SECURITY_ENCRYPTION_NETWORK = 24;
-        pub const BINDTODEVICE = 25;
-        pub const ATTACH_FILTER = 26;
-        pub const DETACH_FILTER = 27;
-        pub const GET_FILTER = ATTACH_FILTER;
-        pub const PEERNAME = 28;
-        pub const TIMESTAMP_OLD = 29;
-        pub const PASSSEC = 34;
-        pub const TIMESTAMPNS_OLD = 35;
-        pub const MARK = 36;
-        pub const TIMESTAMPING_OLD = 37;
-        pub const RXQ_OVFL = 40;
-        pub const WIFI_STATUS = 41;
-        pub const PEEK_OFF = 42;
-        pub const NOFCS = 43;
-        pub const LOCK_FILTER = 44;
-        pub const SELECT_ERR_QUEUE = 45;
-        pub const BUSY_POLL = 46;
-        pub const MAX_PACING_RATE = 47;
-        pub const BPF_EXTENSIONS = 48;
-        pub const INCOMING_CPU = 49;
-        pub const ATTACH_BPF = 50;
-        pub const DETACH_BPF = DETACH_FILTER;
-        pub const ATTACH_REUSEPORT_CBPF = 51;
-        pub const ATTACH_REUSEPORT_EBPF = 52;
-        pub const CNX_ADVICE = 53;
-        pub const MEMINFO = 55;
-        pub const INCOMING_NAPI_ID = 56;
-        pub const COOKIE = 57;
-        pub const PEERGROUPS = 59;
-        pub const ZEROCOPY = 60;
-        pub const TXTIME = 61;
-        pub const BINDTOIFINDEX = 62;
-        pub const TIMESTAMP_NEW = 63;
-        pub const TIMESTAMPNS_NEW = 64;
-        pub const TIMESTAMPING_NEW = 65;
-        pub const RCVTIMEO_NEW = 66;
-        pub const SNDTIMEO_NEW = 67;
-        pub const DETACH_REUSEPORT_BPF = 68;
-    } else if (is_sparc) struct {
-        pub const DEBUG = 1;
-        pub const REUSEADDR = 4;
-        pub const TYPE = 4104;
-        pub const ERROR = 4103;
-        pub const DONTROUTE = 16;
-        pub const BROADCAST = 32;
-        pub const SNDBUF = 4097;
-        pub const RCVBUF = 4098;
-        pub const KEEPALIVE = 8;
-        pub const OOBINLINE = 256;
-        pub const NO_CHECK = 11;
-        pub const PRIORITY = 12;
-        pub const LINGER = 128;
-        pub const BSDCOMPAT = 1024;
-        pub const REUSEPORT = 512;
-        pub const PASSCRED = 2;
-        pub const PEERCRED = 64;
-        pub const RCVLOWAT = 2048;
-        pub const SNDLOWAT = 4096;
-        pub const RCVTIMEO = 8192;
-        pub const SNDTIMEO = 16384;
-        pub const ACCEPTCONN = 32768;
-        pub const PEERSEC = 30;
-        pub const SNDBUFFORCE = 4106;
-        pub const RCVBUFFORCE = 4107;
-        pub const PROTOCOL = 4136;
-        pub const DOMAIN = 4137;
-        pub const SECURITY_AUTHENTICATION = 20481;
-        pub const SECURITY_ENCRYPTION_TRANSPORT = 20482;
-        pub const SECURITY_ENCRYPTION_NETWORK = 20484;
-        pub const BINDTODEVICE = 13;
-        pub const ATTACH_FILTER = 26;
-        pub const DETACH_FILTER = 27;
-        pub const GET_FILTER = 26;
-        pub const PEERNAME = 28;
-        pub const TIMESTAMP_OLD = 29;
-        pub const PASSSEC = 31;
-        pub const TIMESTAMPNS_OLD = 33;
-        pub const MARK = 34;
-        pub const TIMESTAMPING_OLD = 35;
-        pub const RXQ_OVFL = 36;
-        pub const WIFI_STATUS = 37;
-        pub const PEEK_OFF = 38;
-        pub const NOFCS = 39;
-        pub const LOCK_FILTER = 40;
-        pub const SELECT_ERR_QUEUE = 41;
-        pub const BUSY_POLL = 48;
-        pub const MAX_PACING_RATE = 49;
-        pub const BPF_EXTENSIONS = 50;
-        pub const INCOMING_CPU = 51;
-        pub const ATTACH_BPF = 52;
-        pub const DETACH_BPF = 27;
-        pub const ATTACH_REUSEPORT_CBPF = 53;
-        pub const ATTACH_REUSEPORT_EBPF = 54;
-        pub const CNX_ADVICE = 55;
-        pub const MEMINFO = 57;
-        pub const INCOMING_NAPI_ID = 58;
-        pub const COOKIE = 59;
-        pub const PEERGROUPS = 61;
-        pub const ZEROCOPY = 62;
-        pub const TXTIME = 63;
-        pub const BINDTOIFINDEX = 65;
-        pub const TIMESTAMP_NEW = 70;
-        pub const TIMESTAMPNS_NEW = 66;
-        pub const TIMESTAMPING_NEW = 67;
-        pub const RCVTIMEO_NEW = 68;
-        pub const SNDTIMEO_NEW = 69;
-        pub const DETACH_REUSEPORT_BPF = 71;
-    } else struct {
-        pub const DEBUG = 1;
-        pub const REUSEADDR = 2;
-        pub const TYPE = 3;
-        pub const ERROR = 4;
-        pub const DONTROUTE = 5;
-        pub const BROADCAST = 6;
-        pub const SNDBUF = 7;
-        pub const RCVBUF = 8;
-        pub const KEEPALIVE = 9;
-        pub const OOBINLINE = 10;
-        pub const NO_CHECK = 11;
-        pub const PRIORITY = 12;
-        pub const LINGER = 13;
-        pub const BSDCOMPAT = 14;
-        pub const REUSEPORT = 15;
-        pub const PASSCRED = 16;
-        pub const PEERCRED = 17;
-        pub const RCVLOWAT = 18;
-        pub const SNDLOWAT = 19;
-        pub const RCVTIMEO = 20;
-        pub const SNDTIMEO = 21;
-        pub const ACCEPTCONN = 30;
-        pub const PEERSEC = 31;
-        pub const SNDBUFFORCE = 32;
-        pub const RCVBUFFORCE = 33;
-        pub const PROTOCOL = 38;
-        pub const DOMAIN = 39;
-        pub const SECURITY_AUTHENTICATION = 22;
-        pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-        pub const SECURITY_ENCRYPTION_NETWORK = 24;
-        pub const BINDTODEVICE = 25;
-        pub const ATTACH_FILTER = 26;
-        pub const DETACH_FILTER = 27;
-        pub const GET_FILTER = ATTACH_FILTER;
-        pub const PEERNAME = 28;
-        pub const TIMESTAMP_OLD = 29;
-        pub const PASSSEC = 34;
-        pub const TIMESTAMPNS_OLD = 35;
-        pub const MARK = 36;
-        pub const TIMESTAMPING_OLD = 37;
-        pub const RXQ_OVFL = 40;
-        pub const WIFI_STATUS = 41;
-        pub const PEEK_OFF = 42;
-        pub const NOFCS = 43;
-        pub const LOCK_FILTER = 44;
-        pub const SELECT_ERR_QUEUE = 45;
-        pub const BUSY_POLL = 46;
-        pub const MAX_PACING_RATE = 47;
-        pub const BPF_EXTENSIONS = 48;
-        pub const INCOMING_CPU = 49;
-        pub const ATTACH_BPF = 50;
-        pub const DETACH_BPF = DETACH_FILTER;
-        pub const ATTACH_REUSEPORT_CBPF = 51;
-        pub const ATTACH_REUSEPORT_EBPF = 52;
-        pub const CNX_ADVICE = 53;
-        pub const MEMINFO = 55;
-        pub const INCOMING_NAPI_ID = 56;
-        pub const COOKIE = 57;
-        pub const PEERGROUPS = 59;
-        pub const ZEROCOPY = 60;
-        pub const TXTIME = 61;
-        pub const BINDTOIFINDEX = 62;
-        pub const TIMESTAMP_NEW = 63;
-        pub const TIMESTAMPNS_NEW = 64;
-        pub const TIMESTAMPING_NEW = 65;
-        pub const RCVTIMEO_NEW = 66;
-        pub const SNDTIMEO_NEW = 67;
-        pub const DETACH_REUSEPORT_BPF = 68;
-    };
+pub const SO = if (is_mips) struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 0x0004;
+    pub const KEEPALIVE = 0x0008;
+    pub const DONTROUTE = 0x0010;
+    pub const BROADCAST = 0x0020;
+    pub const LINGER = 0x0080;
+    pub const OOBINLINE = 0x0100;
+    pub const REUSEPORT = 0x0200;
+    pub const SNDBUF = 0x1001;
+    pub const RCVBUF = 0x1002;
+    pub const SNDLOWAT = 0x1003;
+    pub const RCVLOWAT = 0x1004;
+    pub const RCVTIMEO = 0x1006;
+    pub const SNDTIMEO = 0x1005;
+    pub const ERROR = 0x1007;
+    pub const TYPE = 0x1008;
+    pub const ACCEPTCONN = 0x1009;
+    pub const PROTOCOL = 0x1028;
+    pub const DOMAIN = 0x1029;
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const BSDCOMPAT = 14;
+    pub const PASSCRED = 17;
+    pub const PEERCRED = 18;
+    pub const PEERSEC = 30;
+    pub const SNDBUFFORCE = 31;
+    pub const RCVBUFFORCE = 33;
+    pub const SECURITY_AUTHENTICATION = 22;
+    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
+    pub const SECURITY_ENCRYPTION_NETWORK = 24;
+    pub const BINDTODEVICE = 25;
+    pub const ATTACH_FILTER = 26;
+    pub const DETACH_FILTER = 27;
+    pub const GET_FILTER = ATTACH_FILTER;
+    pub const PEERNAME = 28;
+    pub const TIMESTAMP_OLD = 29;
+    pub const PASSSEC = 34;
+    pub const TIMESTAMPNS_OLD = 35;
+    pub const MARK = 36;
+    pub const TIMESTAMPING_OLD = 37;
+    pub const RXQ_OVFL = 40;
+    pub const WIFI_STATUS = 41;
+    pub const PEEK_OFF = 42;
+    pub const NOFCS = 43;
+    pub const LOCK_FILTER = 44;
+    pub const SELECT_ERR_QUEUE = 45;
+    pub const BUSY_POLL = 46;
+    pub const MAX_PACING_RATE = 47;
+    pub const BPF_EXTENSIONS = 48;
+    pub const INCOMING_CPU = 49;
+    pub const ATTACH_BPF = 50;
+    pub const DETACH_BPF = DETACH_FILTER;
+    pub const ATTACH_REUSEPORT_CBPF = 51;
+    pub const ATTACH_REUSEPORT_EBPF = 52;
+    pub const CNX_ADVICE = 53;
+    pub const MEMINFO = 55;
+    pub const INCOMING_NAPI_ID = 56;
+    pub const COOKIE = 57;
+    pub const PEERGROUPS = 59;
+    pub const ZEROCOPY = 60;
+    pub const TXTIME = 61;
+    pub const BINDTOIFINDEX = 62;
+    pub const TIMESTAMP_NEW = 63;
+    pub const TIMESTAMPNS_NEW = 64;
+    pub const TIMESTAMPING_NEW = 65;
+    pub const RCVTIMEO_NEW = 66;
+    pub const SNDTIMEO_NEW = 67;
+    pub const DETACH_REUSEPORT_BPF = 68;
+} else if (is_ppc or is_ppc64) struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 2;
+    pub const TYPE = 3;
+    pub const ERROR = 4;
+    pub const DONTROUTE = 5;
+    pub const BROADCAST = 6;
+    pub const SNDBUF = 7;
+    pub const RCVBUF = 8;
+    pub const KEEPALIVE = 9;
+    pub const OOBINLINE = 10;
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const LINGER = 13;
+    pub const BSDCOMPAT = 14;
+    pub const REUSEPORT = 15;
+    pub const RCVLOWAT = 16;
+    pub const SNDLOWAT = 17;
+    pub const RCVTIMEO = 18;
+    pub const SNDTIMEO = 19;
+    pub const PASSCRED = 20;
+    pub const PEERCRED = 21;
+    pub const ACCEPTCONN = 30;
+    pub const PEERSEC = 31;
+    pub const SNDBUFFORCE = 32;
+    pub const RCVBUFFORCE = 33;
+    pub const PROTOCOL = 38;
+    pub const DOMAIN = 39;
+    pub const SECURITY_AUTHENTICATION = 22;
+    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
+    pub const SECURITY_ENCRYPTION_NETWORK = 24;
+    pub const BINDTODEVICE = 25;
+    pub const ATTACH_FILTER = 26;
+    pub const DETACH_FILTER = 27;
+    pub const GET_FILTER = ATTACH_FILTER;
+    pub const PEERNAME = 28;
+    pub const TIMESTAMP_OLD = 29;
+    pub const PASSSEC = 34;
+    pub const TIMESTAMPNS_OLD = 35;
+    pub const MARK = 36;
+    pub const TIMESTAMPING_OLD = 37;
+    pub const RXQ_OVFL = 40;
+    pub const WIFI_STATUS = 41;
+    pub const PEEK_OFF = 42;
+    pub const NOFCS = 43;
+    pub const LOCK_FILTER = 44;
+    pub const SELECT_ERR_QUEUE = 45;
+    pub const BUSY_POLL = 46;
+    pub const MAX_PACING_RATE = 47;
+    pub const BPF_EXTENSIONS = 48;
+    pub const INCOMING_CPU = 49;
+    pub const ATTACH_BPF = 50;
+    pub const DETACH_BPF = DETACH_FILTER;
+    pub const ATTACH_REUSEPORT_CBPF = 51;
+    pub const ATTACH_REUSEPORT_EBPF = 52;
+    pub const CNX_ADVICE = 53;
+    pub const MEMINFO = 55;
+    pub const INCOMING_NAPI_ID = 56;
+    pub const COOKIE = 57;
+    pub const PEERGROUPS = 59;
+    pub const ZEROCOPY = 60;
+    pub const TXTIME = 61;
+    pub const BINDTOIFINDEX = 62;
+    pub const TIMESTAMP_NEW = 63;
+    pub const TIMESTAMPNS_NEW = 64;
+    pub const TIMESTAMPING_NEW = 65;
+    pub const RCVTIMEO_NEW = 66;
+    pub const SNDTIMEO_NEW = 67;
+    pub const DETACH_REUSEPORT_BPF = 68;
+} else if (is_sparc) struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 4;
+    pub const TYPE = 4104;
+    pub const ERROR = 4103;
+    pub const DONTROUTE = 16;
+    pub const BROADCAST = 32;
+    pub const SNDBUF = 4097;
+    pub const RCVBUF = 4098;
+    pub const KEEPALIVE = 8;
+    pub const OOBINLINE = 256;
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const LINGER = 128;
+    pub const BSDCOMPAT = 1024;
+    pub const REUSEPORT = 512;
+    pub const PASSCRED = 2;
+    pub const PEERCRED = 64;
+    pub const RCVLOWAT = 2048;
+    pub const SNDLOWAT = 4096;
+    pub const RCVTIMEO = 8192;
+    pub const SNDTIMEO = 16384;
+    pub const ACCEPTCONN = 32768;
+    pub const PEERSEC = 30;
+    pub const SNDBUFFORCE = 4106;
+    pub const RCVBUFFORCE = 4107;
+    pub const PROTOCOL = 4136;
+    pub const DOMAIN = 4137;
+    pub const SECURITY_AUTHENTICATION = 20481;
+    pub const SECURITY_ENCRYPTION_TRANSPORT = 20482;
+    pub const SECURITY_ENCRYPTION_NETWORK = 20484;
+    pub const BINDTODEVICE = 13;
+    pub const ATTACH_FILTER = 26;
+    pub const DETACH_FILTER = 27;
+    pub const GET_FILTER = 26;
+    pub const PEERNAME = 28;
+    pub const TIMESTAMP_OLD = 29;
+    pub const PASSSEC = 31;
+    pub const TIMESTAMPNS_OLD = 33;
+    pub const MARK = 34;
+    pub const TIMESTAMPING_OLD = 35;
+    pub const RXQ_OVFL = 36;
+    pub const WIFI_STATUS = 37;
+    pub const PEEK_OFF = 38;
+    pub const NOFCS = 39;
+    pub const LOCK_FILTER = 40;
+    pub const SELECT_ERR_QUEUE = 41;
+    pub const BUSY_POLL = 48;
+    pub const MAX_PACING_RATE = 49;
+    pub const BPF_EXTENSIONS = 50;
+    pub const INCOMING_CPU = 51;
+    pub const ATTACH_BPF = 52;
+    pub const DETACH_BPF = 27;
+    pub const ATTACH_REUSEPORT_CBPF = 53;
+    pub const ATTACH_REUSEPORT_EBPF = 54;
+    pub const CNX_ADVICE = 55;
+    pub const MEMINFO = 57;
+    pub const INCOMING_NAPI_ID = 58;
+    pub const COOKIE = 59;
+    pub const PEERGROUPS = 61;
+    pub const ZEROCOPY = 62;
+    pub const TXTIME = 63;
+    pub const BINDTOIFINDEX = 65;
+    pub const TIMESTAMP_NEW = 70;
+    pub const TIMESTAMPNS_NEW = 66;
+    pub const TIMESTAMPING_NEW = 67;
+    pub const RCVTIMEO_NEW = 68;
+    pub const SNDTIMEO_NEW = 69;
+    pub const DETACH_REUSEPORT_BPF = 71;
+} else struct {
+    pub const DEBUG = 1;
+    pub const REUSEADDR = 2;
+    pub const TYPE = 3;
+    pub const ERROR = 4;
+    pub const DONTROUTE = 5;
+    pub const BROADCAST = 6;
+    pub const SNDBUF = 7;
+    pub const RCVBUF = 8;
+    pub const KEEPALIVE = 9;
+    pub const OOBINLINE = 10;
+    pub const NO_CHECK = 11;
+    pub const PRIORITY = 12;
+    pub const LINGER = 13;
+    pub const BSDCOMPAT = 14;
+    pub const REUSEPORT = 15;
+    pub const PASSCRED = 16;
+    pub const PEERCRED = 17;
+    pub const RCVLOWAT = 18;
+    pub const SNDLOWAT = 19;
+    pub const RCVTIMEO = 20;
+    pub const SNDTIMEO = 21;
+    pub const ACCEPTCONN = 30;
+    pub const PEERSEC = 31;
+    pub const SNDBUFFORCE = 32;
+    pub const RCVBUFFORCE = 33;
+    pub const PROTOCOL = 38;
+    pub const DOMAIN = 39;
+    pub const SECURITY_AUTHENTICATION = 22;
+    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
+    pub const SECURITY_ENCRYPTION_NETWORK = 24;
+    pub const BINDTODEVICE = 25;
+    pub const ATTACH_FILTER = 26;
+    pub const DETACH_FILTER = 27;
+    pub const GET_FILTER = ATTACH_FILTER;
+    pub const PEERNAME = 28;
+    pub const TIMESTAMP_OLD = 29;
+    pub const PASSSEC = 34;
+    pub const TIMESTAMPNS_OLD = 35;
+    pub const MARK = 36;
+    pub const TIMESTAMPING_OLD = 37;
+    pub const RXQ_OVFL = 40;
+    pub const WIFI_STATUS = 41;
+    pub const PEEK_OFF = 42;
+    pub const NOFCS = 43;
+    pub const LOCK_FILTER = 44;
+    pub const SELECT_ERR_QUEUE = 45;
+    pub const BUSY_POLL = 46;
+    pub const MAX_PACING_RATE = 47;
+    pub const BPF_EXTENSIONS = 48;
+    pub const INCOMING_CPU = 49;
+    pub const ATTACH_BPF = 50;
+    pub const DETACH_BPF = DETACH_FILTER;
+    pub const ATTACH_REUSEPORT_CBPF = 51;
+    pub const ATTACH_REUSEPORT_EBPF = 52;
+    pub const CNX_ADVICE = 53;
+    pub const MEMINFO = 55;
+    pub const INCOMING_NAPI_ID = 56;
+    pub const COOKIE = 57;
+    pub const PEERGROUPS = 59;
+    pub const ZEROCOPY = 60;
+    pub const TXTIME = 61;
+    pub const BINDTOIFINDEX = 62;
+    pub const TIMESTAMP_NEW = 63;
+    pub const TIMESTAMPNS_NEW = 64;
+    pub const TIMESTAMPING_NEW = 65;
+    pub const RCVTIMEO_NEW = 66;
+    pub const SNDTIMEO_NEW = 67;
+    pub const DETACH_REUSEPORT_BPF = 68;
 };
 
 pub const SCM = struct {
@@ -3157,7 +3971,7 @@ pub const T = struct {
 };
 
 pub const EPOLL = struct {
-    pub const CLOEXEC = O.CLOEXEC;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
 
     pub const CTL_ADD = 1;
     pub const CTL_DEL = 2;
@@ -3238,8 +4052,8 @@ pub const CLONE = struct {
 
 pub const EFD = struct {
     pub const SEMAPHORE = 1;
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 };
 
 pub const MS = struct {
@@ -3288,8 +4102,8 @@ pub const MNT = struct {
 pub const UMOUNT_NOFOLLOW = 8;
 
 pub const IN = struct {
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 
     pub const ACCESS = 0x00000001;
     pub const MODIFY = 0x00000002;
@@ -3434,12 +4248,40 @@ pub const UTIME = struct {
     pub const OMIT = 0x3ffffffe;
 };
 
-pub const TFD = struct {
-    pub const NONBLOCK = O.NONBLOCK;
-    pub const CLOEXEC = O.CLOEXEC;
+const TFD_TIMER = packed struct(u32) {
+    ABSTIME: bool = false,
+    CANCEL_ON_SET: bool = false,
+    _: u30 = 0,
+};
 
-    pub const TIMER_ABSTIME = 1;
-    pub const TIMER_CANCEL_ON_SET = (1 << 1);
+pub const TFD = switch (native_arch) {
+    .sparc64 => packed struct(u32) {
+        _0: u14 = 0,
+        NONBLOCK: bool = false,
+        _15: u7 = 0,
+        CLOEXEC: bool = false,
+        _: u9 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        _0: u7 = 0,
+        NONBLOCK: bool = false,
+        _8: u11 = 0,
+        CLOEXEC: bool = false,
+        _: u12 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
+    else => packed struct(u32) {
+        _0: u11 = 0,
+        NONBLOCK: bool = false,
+        _12: u7 = 0,
+        CLOEXEC: bool = false,
+        _: u12 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
 };
 
 pub const winsize = extern struct {
@@ -3459,7 +4301,7 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*const fn (c_int) align(1) callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.C) void;
     const restorer = *const fn () callconv(.C) void;
 };
 
@@ -3486,8 +4328,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -3503,8 +4345,8 @@ pub const empty_sigset = [_]u32{0} ** sigset_len;
 pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 };
 
 pub const signalfd_siginfo = extern struct {
@@ -3765,15 +4607,11 @@ pub const inotify_event = extern struct {
 };
 
 pub const dirent64 = extern struct {
-    d_ino: u64,
-    d_off: u64,
-    d_reclen: u16,
-    d_type: u8,
-    d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
-
-    pub fn reclen(self: dirent64) u16 {
-        return self.d_reclen;
-    }
+    ino: u64,
+    off: u64,
+    reclen: u16,
+    type: u8,
+    name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 };
 
 pub const dl_phdr_info = extern struct {
@@ -3852,7 +4690,7 @@ const siginfo_fields_union = extern union {
         },
     },
     sigfault: extern struct {
-        addr: *anyopaque,
+        addr: *allowzero anyopaque,
         addr_lsb: i16,
         first: extern union {
             addr_bnd: extern struct {
@@ -3940,22 +4778,9 @@ pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
 pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
 
 /// IO submission data structure (Submission Queue Entry)
-pub const io_uring_sqe = extern struct {
-    opcode: IORING_OP,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
-    off: u64,
-    addr: u64,
-    len: u32,
-    rw_flags: u32,
-    user_data: u64,
-    buf_index: u16,
-    personality: u16,
-    splice_fd_in: i32,
-    addr3: u64,
-    resv: u64,
-};
+pub const io_uring_sqe = @import("linux/io_uring_sqe.zig").io_uring_sqe;
+
+pub const IoUring = @import("linux/IoUring.zig");
 
 /// If sqe->file_index is set to this for opcodes that instantiate a new
 /// direct descriptor (like openat/openat2/accept), then io_uring will allocate
@@ -4051,6 +4876,13 @@ pub const IORING_OP = enum(u8) {
     URING_CMD,
     SEND_ZC,
     SENDMSG_ZC,
+    READ_MULTISHOT,
+    WAITID,
+    FUTEX_WAIT,
+    FUTEX_WAKE,
+    FUTEX_WAITV,
+    FIXED_FD_INSTALL,
+    FTRUNCATE,
 
     _,
 };
@@ -4146,6 +4978,16 @@ pub const io_uring_cqe = extern struct {
             return @as(E, @enumFromInt(-self.res));
         }
         return .SUCCESS;
+    }
+
+    // On successful completion of the provided buffers IO request, the CQE flags field
+    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
+    // the upper 16-bits of the flags field.
+    pub fn buffer_id(self: io_uring_cqe) !u16 {
+        if (self.flags & IORING_CQE_F_BUFFER != IORING_CQE_F_BUFFER) {
+            return error.NoBufferSelected;
+        }
+        return @as(u16, @intCast(self.flags >> IORING_CQE_BUFFER_SHIFT));
     }
 };
 
@@ -4427,8 +5269,12 @@ pub const io_uring_buf = extern struct {
     resv: u16,
 };
 
-// io_uring_buf_ring struct omitted
-// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+pub const io_uring_buf_ring = extern struct {
+    resv1: u64,
+    resv2: u32,
+    resv3: u16,
+    tail: u16,
+};
 
 /// argument for IORING_(UN)REGISTER_PBUF_RING
 pub const io_uring_buf_reg = extern struct {
@@ -4748,175 +5594,295 @@ pub const rusage = extern struct {
     pub const THREAD = 1;
 };
 
-pub const cc_t = u8;
-pub const speed_t = u32;
-pub const tcflag_t = u32;
+pub const NCCS = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
+    else => 32,
+};
 
-pub const NCCS = 32;
+pub const speed_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum(u32) {
+        B0 = 0o0000000,
+        B50 = 0o0000001,
+        B75 = 0o0000002,
+        B110 = 0o0000003,
+        B134 = 0o0000004,
+        B150 = 0o0000005,
+        B200 = 0o0000006,
+        B300 = 0o0000007,
+        B600 = 0o0000010,
+        B1200 = 0o0000011,
+        B1800 = 0o0000012,
+        B2400 = 0o0000013,
+        B4800 = 0o0000014,
+        B9600 = 0o0000015,
+        B19200 = 0o0000016,
+        B38400 = 0o0000017,
 
-pub const B0 = 0o0000000;
-pub const B50 = 0o0000001;
-pub const B75 = 0o0000002;
-pub const B110 = 0o0000003;
-pub const B134 = 0o0000004;
-pub const B150 = 0o0000005;
-pub const B200 = 0o0000006;
-pub const B300 = 0o0000007;
-pub const B600 = 0o0000010;
-pub const B1200 = 0o0000011;
-pub const B1800 = 0o0000012;
-pub const B2400 = 0o0000013;
-pub const B4800 = 0o0000014;
-pub const B9600 = 0o0000015;
-pub const B19200 = 0o0000016;
-pub const B38400 = 0o0000017;
-pub const BOTHER = 0o0010000;
-pub const B57600 = 0o0010001;
-pub const B115200 = 0o0010002;
-pub const B230400 = 0o0010003;
-pub const B460800 = 0o0010004;
-pub const B500000 = 0o0010005;
-pub const B576000 = 0o0010006;
-pub const B921600 = 0o0010007;
-pub const B1000000 = 0o0010010;
-pub const B1152000 = 0o0010011;
-pub const B1500000 = 0o0010012;
-pub const B2000000 = 0o0010013;
-pub const B2500000 = 0o0010014;
-pub const B3000000 = 0o0010015;
-pub const B3500000 = 0o0010016;
-pub const B4000000 = 0o0010017;
+        B57600 = 0o00020,
+        B115200 = 0o00021,
+        B230400 = 0o00022,
+        B460800 = 0o00023,
+        B500000 = 0o00024,
+        B576000 = 0o00025,
+        B921600 = 0o00026,
+        B1000000 = 0o00027,
+        B1152000 = 0o00030,
+        B1500000 = 0o00031,
+        B2000000 = 0o00032,
+        B2500000 = 0o00033,
+        B3000000 = 0o00034,
+        B3500000 = 0o00035,
+        B4000000 = 0o00036,
+    },
+    else => enum(u32) {
+        B0 = 0o0000000,
+        B50 = 0o0000001,
+        B75 = 0o0000002,
+        B110 = 0o0000003,
+        B134 = 0o0000004,
+        B150 = 0o0000005,
+        B200 = 0o0000006,
+        B300 = 0o0000007,
+        B600 = 0o0000010,
+        B1200 = 0o0000011,
+        B1800 = 0o0000012,
+        B2400 = 0o0000013,
+        B4800 = 0o0000014,
+        B9600 = 0o0000015,
+        B19200 = 0o0000016,
+        B38400 = 0o0000017,
 
-pub const V = switch (native_arch) {
-    .powerpc, .powerpc64, .powerpc64le => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const MIN = 5;
-        pub const EOL = 6;
-        pub const TIME = 7;
-        pub const EOL2 = 8;
-        pub const SWTC = 9;
-        pub const WERASE = 10;
-        pub const REPRINT = 11;
-        pub const SUSP = 12;
-        pub const START = 13;
-        pub const STOP = 14;
-        pub const LNEXT = 15;
-        pub const DISCARD = 16;
-    },
-    .sparc, .sparc64 => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const EOL = 5;
-        pub const EOL2 = 6;
-        pub const SWTC = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const DSUSP = 11;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const MIN = EOF;
-        pub const TIME = EOL;
-    },
-    .mips, .mipsel, .mips64, .mips64el => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const MIN = 4;
-        pub const TIME = 5;
-        pub const EOL2 = 6;
-        pub const SWTC = 7;
-        pub const SWTCH = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const EOF = 16;
-        pub const EOL = 17;
-    },
-    else => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const TIME = 5;
-        pub const MIN = 6;
-        pub const SWTC = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const EOL = 11;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const EOL2 = 16;
+        B57600 = 0o0010001,
+        B115200 = 0o0010002,
+        B230400 = 0o0010003,
+        B460800 = 0o0010004,
+        B500000 = 0o0010005,
+        B576000 = 0o0010006,
+        B921600 = 0o0010007,
+        B1000000 = 0o0010010,
+        B1152000 = 0o0010011,
+        B1500000 = 0o0010012,
+        B2000000 = 0o0010013,
+        B2500000 = 0o0010014,
+        B3000000 = 0o0010015,
+        B3500000 = 0o0010016,
+        B4000000 = 0o0010017,
     },
 };
 
-pub const IGNBRK: tcflag_t = 1;
-pub const BRKINT: tcflag_t = 2;
-pub const IGNPAR: tcflag_t = 4;
-pub const PARMRK: tcflag_t = 8;
-pub const INPCK: tcflag_t = 16;
-pub const ISTRIP: tcflag_t = 32;
-pub const INLCR: tcflag_t = 64;
-pub const IGNCR: tcflag_t = 128;
-pub const ICRNL: tcflag_t = 256;
-pub const IUCLC: tcflag_t = 512;
-pub const IXON: tcflag_t = 1024;
-pub const IXANY: tcflag_t = 2048;
-pub const IXOFF: tcflag_t = 4096;
-pub const IMAXBEL: tcflag_t = 8192;
-pub const IUTF8: tcflag_t = 16384;
+pub const tc_iflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        IGNBRK: bool = false,
+        BRKINT: bool = false,
+        IGNPAR: bool = false,
+        PARMRK: bool = false,
+        INPCK: bool = false,
+        ISTRIP: bool = false,
+        INLCR: bool = false,
+        IGNCR: bool = false,
+        ICRNL: bool = false,
+        IXON: bool = false,
+        IXOFF: bool = false,
+        IXANY: bool = false,
+        IUCLC: bool = false,
+        IMAXBEL: bool = false,
+        IUTF8: bool = false,
+        _: u17 = 0,
+    },
+    else => packed struct(u32) {
+        IGNBRK: bool = false,
+        BRKINT: bool = false,
+        IGNPAR: bool = false,
+        PARMRK: bool = false,
+        INPCK: bool = false,
+        ISTRIP: bool = false,
+        INLCR: bool = false,
+        IGNCR: bool = false,
+        ICRNL: bool = false,
+        IUCLC: bool = false,
+        IXON: bool = false,
+        IXANY: bool = false,
+        IXOFF: bool = false,
+        IMAXBEL: bool = false,
+        IUTF8: bool = false,
+        _: u17 = 0,
+    },
+};
 
-pub const OPOST: tcflag_t = 1;
-pub const OLCUC: tcflag_t = 2;
-pub const ONLCR: tcflag_t = 4;
-pub const OCRNL: tcflag_t = 8;
-pub const ONOCR: tcflag_t = 16;
-pub const ONLRET: tcflag_t = 32;
-pub const OFILL: tcflag_t = 64;
-pub const OFDEL: tcflag_t = 128;
-pub const VTDLY: tcflag_t = 16384;
-pub const VT0: tcflag_t = 0;
-pub const VT1: tcflag_t = 16384;
+pub const tc_oflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        OPOST: bool = false,
+        ONLCR: bool = false,
+        OLCUC: bool = false,
+        OCRNL: bool = false,
+        ONOCR: bool = false,
+        ONLRET: bool = false,
+        OFILL: bool = false,
+        OFDEL: bool = false,
+        NLDLY: u2 = 0,
+        TABDLY: u2 = 0,
+        CRDLY: u2 = 0,
+        FFDLY: u1 = 0,
+        BSDLY: u1 = 0,
+        VTDLY: u1 = 0,
+        _: u15 = 0,
+    },
+    else => packed struct(u32) {
+        OPOST: bool = false,
+        OLCUC: bool = false,
+        ONLCR: bool = false,
+        OCRNL: bool = false,
+        ONOCR: bool = false,
+        ONLRET: bool = false,
+        OFILL: bool = false,
+        OFDEL: bool = false,
+        NLDLY: u1 = 0,
+        CRDLY: u2 = 0,
+        TABDLY: u2 = 0,
+        BSDLY: u1 = 0,
+        VTDLY: u1 = 0,
+        FFDLY: u1 = 0,
+        _: u16 = 0,
+    },
+};
 
-pub const CSIZE: tcflag_t = 48;
-pub const CS5: tcflag_t = 0;
-pub const CS6: tcflag_t = 16;
-pub const CS7: tcflag_t = 32;
-pub const CS8: tcflag_t = 48;
-pub const CSTOPB: tcflag_t = 64;
-pub const CREAD: tcflag_t = 128;
-pub const PARENB: tcflag_t = 256;
-pub const PARODD: tcflag_t = 512;
-pub const HUPCL: tcflag_t = 1024;
-pub const CLOCAL: tcflag_t = 2048;
+pub const CSIZE = enum(u2) { CS5, CS6, CS7, CS8 };
 
-pub const ISIG: tcflag_t = 1;
-pub const ICANON: tcflag_t = 2;
-pub const ECHO: tcflag_t = 8;
-pub const ECHOE: tcflag_t = 16;
-pub const ECHOK: tcflag_t = 32;
-pub const ECHONL: tcflag_t = 64;
-pub const NOFLSH: tcflag_t = 128;
-pub const TOSTOP: tcflag_t = 256;
-pub const IEXTEN: tcflag_t = 32768;
+pub const tc_cflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        _0: u8 = 0,
+        CSIZE: CSIZE = .CS5,
+        CSTOPB: bool = false,
+        CREAD: bool = false,
+        PARENB: bool = false,
+        PARODD: bool = false,
+        HUPCL: bool = false,
+        CLOCAL: bool = false,
+        _: u16 = 0,
+    },
+    else => packed struct(u32) {
+        _0: u4 = 0,
+        CSIZE: CSIZE = .CS5,
+        CSTOPB: bool = false,
+        CREAD: bool = false,
+        PARENB: bool = false,
+        PARODD: bool = false,
+        HUPCL: bool = false,
+        CLOCAL: bool = false,
+        _: u20 = 0,
+    },
+};
+
+pub const tc_lflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        _0: u1 = 0,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHO: bool = false,
+        ECHONL: bool = false,
+        _5: u2 = 0,
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _9: u1 = 0,
+        IEXTEN: bool = false,
+        _11: u11 = 0,
+        TOSTOP: bool = false,
+        _23: u8 = 0,
+        NOFLSH: bool = false,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _2: u1 = 0,
+        ECHO: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHONL: bool = false,
+        NOFLSH: bool = false,
+        IEXTEN: bool = false,
+        _9: u6 = 0,
+        TOSTOP: bool = false,
+        _: u16 = 0,
+    },
+    else => packed struct(u32) {
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _2: u1 = 0,
+        ECHO: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHONL: bool = false,
+        NOFLSH: bool = false,
+        TOSTOP: bool = false,
+        _9: u6 = 0,
+        IEXTEN: bool = false,
+        _: u16 = 0,
+    },
+};
+
+pub const cc_t = u8;
+
+/// Indices into the `cc` array in the `termios` struct.
+pub const V = switch (native_arch) {
+    .mips, .mipsel, .mips64, .mips64el => enum {
+        INTR,
+        QUIT,
+        ERASE,
+        KILL,
+        MIN,
+        TIME,
+        EOL2,
+        SWTC,
+        START,
+        STOP,
+        SUSP,
+        reserved,
+        REPRINT,
+        DISCARD,
+        WERASE,
+        LNEXT,
+        EOF,
+        EOL,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum {
+        INTR,
+        QUIT,
+        ERASE,
+        KILL,
+        EOF,
+        MIN,
+        EOL,
+        TIME,
+        EOL2,
+        SWTC,
+        WERASE,
+        REPRINT,
+        SUSP,
+        START,
+        STOP,
+        LNEXT,
+        DISCARD,
+    },
+    else => enum {
+        INTR,
+        QUIT,
+        ERASE,
+        KILL,
+        EOF,
+        TIME,
+        MIN,
+        SWTC,
+        START,
+        STOP,
+        SUSP,
+        EOL,
+        REPRINT,
+        DISCARD,
+        WERASE,
+        LNEXT,
+        EOL2,
+    },
+};
 
 pub const TCSA = enum(c_uint) {
     NOW,
@@ -4925,15 +5891,27 @@ pub const TCSA = enum(c_uint) {
     _,
 };
 
-pub const termios = extern struct {
-    iflag: tcflag_t,
-    oflag: tcflag_t,
-    cflag: tcflag_t,
-    lflag: tcflag_t,
-    line: cc_t,
-    cc: [NCCS]cc_t,
-    ispeed: speed_t,
-    ospeed: speed_t,
+pub const termios = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
+        iflag: tc_iflag_t,
+        oflag: tc_oflag_t,
+        cflag: tc_cflag_t,
+        lflag: tc_lflag_t,
+        cc: [NCCS]cc_t,
+        line: cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
+    else => extern struct {
+        iflag: tc_iflag_t,
+        oflag: tc_oflag_t,
+        cflag: tc_cflag_t,
+        lflag: tc_lflag_t,
+        line: cc_t,
+        cc: [NCCS]cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
 };
 
 pub const SIOCGIFINDEX = 0x8933;

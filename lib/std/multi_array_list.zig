@@ -558,7 +558,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .alignment = fields[i].alignment,
             };
             break :entry @Type(.{ .Struct = .{
-                .layout = .Extern,
+                .layout = .@"extern",
                 .fields = &entry_fields,
                 .decls = &.{},
                 .is_tuple = false,
@@ -574,7 +574,7 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         comptime {
-            if (builtin.mode == .Debug) {
+            if (!builtin.strip_debug_info) {
                 _ = &dbHelper;
                 _ = &Slice.dbHelper;
             }

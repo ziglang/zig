@@ -84,14 +84,14 @@ pub fn resolveGlobalCacheDir(allocator: mem.Allocator) ![]u8 {
     if (builtin.os.tag == .wasi)
         @compileError("on WASI the global cache dir must be resolved with preopens");
 
-    if (try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(allocator)) |value| return value;
+    if (try std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(allocator)) |value| return value;
 
     const appname = "zig";
 
     if (builtin.os.tag != .windows) {
-        if (EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
+        if (std.zig.EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
             return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
-        } else if (EnvVar.HOME.getPosix()) |home| {
+        } else if (std.zig.EnvVar.HOME.getPosix()) |home| {
             return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
         }
     }
@@ -141,40 +141,3 @@ pub fn resolvePath(
 pub fn isUpDir(p: []const u8) bool {
     return mem.startsWith(u8, p, "..") and (p.len == 2 or p[2] == fs.path.sep);
 }
-
-/// Collects all the environment variables that Zig could possibly inspect, so
-/// that we can do reflection on this and print them with `zig env`.
-pub const EnvVar = enum {
-    ZIG_GLOBAL_CACHE_DIR,
-    ZIG_LOCAL_CACHE_DIR,
-    ZIG_LIB_DIR,
-    ZIG_LIBC,
-    ZIG_BUILD_RUNNER,
-    ZIG_VERBOSE_LINK,
-    ZIG_VERBOSE_CC,
-    ZIG_BTRFS_WORKAROUND,
-    CC,
-    NO_COLOR,
-    XDG_CACHE_HOME,
-    HOME,
-
-    pub fn isSet(comptime ev: EnvVar) bool {
-        return std.process.hasEnvVarConstant(@tagName(ev));
-    }
-
-    pub fn get(ev: EnvVar, arena: mem.Allocator) !?[]u8 {
-        // Env vars aren't used in the bootstrap stage.
-        if (build_options.only_c) return null;
-
-        if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
-            return value;
-        } else |err| switch (err) {
-            error.EnvironmentVariableNotFound => return null,
-            else => |e| return e,
-        }
-    }
-
-    pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
-        return std.os.getenvZ(@tagName(ev));
-    }
-};

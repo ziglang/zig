@@ -14,7 +14,6 @@ test {
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
-    _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/call_tail.zig");
     _ = @import("behavior/cast.zig");
@@ -92,14 +91,12 @@ test {
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/threadlocal.zig");
-    _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
     _ = @import("behavior/tuple.zig");
     _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
-    _ = @import("behavior/type_info_only_pub_decls.zig");
     _ = @import("behavior/type_info_mul_linksection_addrspace_decls.zig");
     _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
@@ -128,4 +125,11 @@ test {
     {
         _ = @import("behavior/export_keyword.zig");
     }
+}
+
+// This bug only repros in the root file
+test "deference @embedFile() of a file full of zero bytes" {
+    const contents = @embedFile("behavior/zero.bin").*;
+    try @import("std").testing.expect(contents.len == 456);
+    for (contents) |byte| try @import("std").testing.expect(byte == 0);
 }

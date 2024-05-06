@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-const iovec = std.os.iovec;
+const iovec = std.posix.iovec;
 
 extern "c" threadlocal var errno: c_int;
 pub fn _errno() *c_int {
@@ -12,7 +12,7 @@ pub fn _errno() *c_int {
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
@@ -22,20 +22,9 @@ pub extern "c" fn lwp_gettid() c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
-pub const pthread_mutex_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-pub const pthread_cond_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-
 pub const pthread_attr_t = extern struct { // copied from freebsd
     __size: [56]u8,
     __align: c_long,
-};
-
-pub const pthread_rwlock_t = extern struct {
-    ptr: ?*anyopaque = null,
 };
 
 pub const sem_t = ?*opaque {};
@@ -223,28 +212,6 @@ pub const PROT = struct {
     pub const EXEC = 4;
 };
 
-pub const MAP = struct {
-    pub const FILE = 0;
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const ANONYMOUS = ANON;
-    pub const COPY = PRIVATE;
-    pub const SHARED = 1;
-    pub const PRIVATE = 2;
-    pub const FIXED = 16;
-    pub const RENAME = 32;
-    pub const NORESERVE = 64;
-    pub const INHERIT = 128;
-    pub const NOEXTEND = 256;
-    pub const HASSEMAPHORE = 512;
-    pub const STACK = 1024;
-    pub const NOSYNC = 2048;
-    pub const ANON = 4096;
-    pub const VPAGETABLE = 8192;
-    pub const TRYFIXED = 65536;
-    pub const NOCORE = 131072;
-    pub const SIZEALIGN = 262144;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
@@ -416,35 +383,6 @@ pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
 
-pub const O = struct {
-    pub const RDONLY = 0;
-    pub const NDELAY = NONBLOCK;
-    pub const WRONLY = 1;
-    pub const RDWR = 2;
-    pub const ACCMODE = 3;
-    pub const NONBLOCK = 4;
-    pub const APPEND = 8;
-    pub const SHLOCK = 16;
-    pub const EXLOCK = 32;
-    pub const ASYNC = 64;
-    pub const FSYNC = 128;
-    pub const SYNC = 128;
-    pub const NOFOLLOW = 256;
-    pub const CREAT = 512;
-    pub const TRUNC = 1024;
-    pub const EXCL = 2048;
-    pub const NOCTTY = 32768;
-    pub const DIRECT = 65536;
-    pub const CLOEXEC = 131072;
-    pub const FBLOCKING = 262144;
-    pub const FNONBLOCKING = 524288;
-    pub const FAPPEND = 1048576;
-    pub const FOFFSET = 2097152;
-    pub const FSYNCWRITE = 4194304;
-    pub const FASYNCWRITE = 8388608;
-    pub const DIRECTORY = 134217728;
-};
-
 pub const SEEK = struct {
     pub const SET = 0;
     pub const CUR = 1;
@@ -480,24 +418,16 @@ pub const F = struct {
 
 pub const FD_CLOEXEC = 1;
 
-pub const AT = struct {
-    pub const FDCWD = -328243;
-    pub const SYMLINK_NOFOLLOW = 1;
-    pub const REMOVEDIR = 2;
-    pub const EACCESS = 4;
-    pub const SYMLINK_FOLLOW = 8;
-};
-
 pub const dirent = extern struct {
-    d_fileno: c_ulong,
-    d_namlen: u16,
-    d_type: u8,
-    d_unused1: u8,
-    d_unused2: u32,
-    d_name: [256]u8,
+    fileno: c_ulong,
+    namlen: u16,
+    type: u8,
+    unused1: u8,
+    unused2: u32,
+    name: [256]u8,
 
     pub fn reclen(self: dirent) u16 {
-        return (@offsetOf(dirent, "d_name") + self.d_namlen + 1 + 7) & ~@as(u16, 7);
+        return (@offsetOf(dirent, "name") + self.namlen + 1 + 7) & ~@as(u16, 7);
     }
 };
 
@@ -564,6 +494,12 @@ pub const sockaddr = extern struct {
         addr: [16]u8,
         scope_id: u32,
     };
+
+    pub const un = extern struct {
+        len: u8 = @sizeOf(un),
+        family: sa_family_t = AF.UNIX,
+        path: [104]u8,
+    };
 };
 
 pub const Kevent = extern struct {
@@ -627,6 +563,13 @@ pub const NOTE_FFCTRLMASK = 3221225472;
 pub const NOTE_FFCOPY = 3221225472;
 pub const NOTE_PCTRLMASK = 4026531840;
 
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
 pub const stack_t = extern struct {
     sp: [*]u8,
     size: isize,
@@ -673,9 +616,9 @@ pub const S = struct {
 pub const BADSIG = SIG.ERR;
 
 pub const SIG = struct {
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
 
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -725,7 +668,7 @@ pub const siginfo_t = extern struct {
     pid: c_int,
     uid: uid_t,
     status: c_int,
-    addr: ?*anyopaque,
+    addr: *allowzero anyopaque,
     value: sigval,
     band: c_long,
     __spare__: [7]c_int,
@@ -747,8 +690,8 @@ pub const empty_sigset = sigset_t{ .__bits = [_]c_uint{0} ** _SIG_WORDS };
 pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -759,7 +702,7 @@ pub const Sigaction = extern struct {
     mask: sigset_t,
 };
 
-pub const sig_t = *const fn (c_int) callconv(.C) void;
+pub const sig_t = *const fn (i32) callconv(.C) void;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -900,6 +843,8 @@ pub const EAI = enum(c_int) {
     OVERFLOW = 14,
     _,
 };
+
+pub const IFNAMESIZE = 16;
 
 pub const AI = struct {
     pub const PASSIVE = 0x00000001;

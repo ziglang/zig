@@ -326,15 +326,15 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
 
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(T).Struct.layout != .Auto);
+    comptime assert(@typeInfo(T).Struct.layout != .auto);
     var res: [1]T = undefined;
     try self.readNoEof(mem.sliceAsBytes(res[0..]));
     return res[0];
 }
 
-pub fn readStructBig(self: Self, comptime T: type) anyerror!T {
+pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     var res = try self.readStruct(T);
-    if (native_endian != std.builtin.Endian.big) {
+    if (native_endian != endian) {
         mem.byteSwapAllFields(T, &res);
     }
     return res;
@@ -358,6 +358,18 @@ pub fn readEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) any
     }
 
     return E.InvalidValue;
+}
+
+/// Reads the stream until the end, ignoring all the data.
+/// Returns the number of bytes discarded.
+pub fn discard(self: Self) anyerror!u64 {
+    var trash: [4096]u8 = undefined;
+    var index: u64 = 0;
+    while (true) {
+        const n = try self.read(&trash);
+        if (n == 0) return index;
+        index += n;
+    }
 }
 
 const std = @import("../std.zig");

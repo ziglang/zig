@@ -1,12 +1,12 @@
-//! This module provides functions for working conveniently with SIMD (Single Instruction; Multiple Data),
-//! which may offer a potential boost in performance on some targets by performing the same operations on
-//! multiple elements at once.
-//! Please be aware that some functions are known to not work on MIPS.
+//! SIMD (Single Instruction; Multiple Data) convenience functions.
+//!
+//! May offer a potential boost in performance on some targets by performing
+//! the same operations on multiple elements at once.
+//!
+//! Some functions are known to not work on MIPS.
 
 const std = @import("std");
 const builtin = @import("builtin");
-
-pub const suggestVectorSizeForCpu = @compileError("deprecated; use 'suggestVectorLengthForCpu'");
 
 pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
     // This is guesswork, if you have better suggestions can add it or edit the current here
@@ -54,8 +54,6 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
 
     return @divExact(vector_bit_size, element_bit_size);
 }
-
-pub const suggestVectorSize = @compileError("deprecated; use 'suggestVectorLength'");
 
 /// Suggests a target-dependant vector length for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.

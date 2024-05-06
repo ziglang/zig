@@ -1154,7 +1154,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            decl.analysis = .codegen_failure;
+            func.analysis(&mod.intern_pool).state = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
@@ -1167,7 +1167,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
+pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1176,11 +1176,12 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.Dec
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
     const index = unnamed_consts.items.len;
-    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
+    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(sym_name);
-    const atom_index = switch (try self.lowerConst(sym_name, tv, tv.ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
+    const ty = val.typeOf(mod);
+    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1198,7 +1199,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1209,7 +1210,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     try self.setSymbolName(sym, name);
     sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
 
-    const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, src_loc, val, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1222,7 +1223,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     atom.getSymbolPtr(self).value = try self.allocateAtom(
         atom_index,
         atom.size,
-        @intCast(required_alignment.toByteUnitsOptional().?),
+        @intCast(required_alignment.toByteUnits().?),
     );
     errdefer self.freeAtom(atom_index);
 
@@ -1256,8 +1257,8 @@ pub fn updateDecl(
     if (decl.isExtern(mod)) {
         // TODO make this part of getGlobalSymbol
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const name = decl.name.toSlice(&mod.intern_pool);
+        const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         const global_index = try self.getGlobalSymbol(name, lib_name);
         try self.need_got_table.put(gpa, global_index, {});
         return;
@@ -1271,10 +1272,7 @@ pub fn updateDecl(
     defer code_buffer.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1346,7 +1344,7 @@ fn updateLazySymbolAtom(
     symbol.section_number = @as(coff.SectionNumber, @enumFromInt(section_index + 1));
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
-    const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits(0)));
+    const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
@@ -1399,8 +1397,8 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !At
 
 fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     const decl = self.base.comp.module.?.declPtr(decl_index);
-    const ty = decl.ty;
     const mod = self.base.comp.module.?;
+    const ty = decl.typeOf(mod);
     const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const index: u16 = blk: {
@@ -1427,10 +1425,10 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = try decl.fullyQualifiedName(mod);
 
-    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment: u32 = @intCast(decl.getAlignment(mod).toByteUnits(0));
+    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
+    const required_alignment: u32 = @intCast(decl.getAlignment(mod).toByteUnits() orelse 0);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -1441,7 +1439,7 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name);
+        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
@@ -1449,7 +1447,7 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growAtom(atom_index, code_len, required_alignment);
-            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, sym.value, vaddr });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
             if (vaddr != sym.value) {
@@ -1465,13 +1463,13 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
         self.getAtomPtr(atom_index).size = code_len;
     } else {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name);
+        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
         errdefer self.freeAtom(atom_index);
-        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, vaddr });
+        log.debug("allocated atom for {} at 0x{x}", .{ decl_name.fmt(&mod.intern_pool), vaddr });
         self.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 
@@ -1535,21 +1533,19 @@ pub fn updateExports(
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
-            const decl_cc = exported_decl.ty.fnCallingConvention(mod);
-            if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
-                comp.config.link_libc)
-            {
+            const decl_cc = exported_decl.typeOf(mod).fnCallingConvention(mod);
+            if (decl_cc == .C and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
                 mod.stage1_flags.have_c_main = true;
             } else if (decl_cc == winapi_cc and target.os.tag == .windows) {
-                if (ip.stringEqlSlice(exp.opts.name, "WinMain")) {
+                if (exp.opts.name.eqlSlice("WinMain", ip)) {
                     mod.stage1_flags.have_winmain = true;
-                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMain")) {
+                } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {
                     mod.stage1_flags.have_wwinmain = true;
-                } else if (ip.stringEqlSlice(exp.opts.name, "WinMainCRTStartup")) {
+                } else if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) {
                     mod.stage1_flags.have_winmain_crt_startup = true;
-                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMainCRTStartup")) {
+                } else if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
                     mod.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (ip.stringEqlSlice(exp.opts.name, "DllMainCRTStartup")) {
+                } else if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) {
                     mod.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
@@ -1587,7 +1583,7 @@ pub fn updateExports(
     for (exports) |exp| {
         log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
 
-        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section_name| {
+        if (exp.opts.section.toSlice(&mod.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
                 try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                     gpa,
@@ -1599,17 +1595,17 @@ pub fn updateExports(
             }
         }
 
-        if (exp.opts.linkage == .LinkOnce) {
+        if (exp.opts.linkage == .link_once) {
             try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
                 exp.getSrcLoc(mod),
-                "Unimplemented: GlobalLinkage.LinkOnce",
+                "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
             continue;
         }
 
-        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         const sym_index = metadata.getExport(self, exp_name) orelse blk: {
             const sym_index = if (self.getGlobalIndex(exp_name)) |global_index| ind: {
                 const global = self.globals.items[global_index];
@@ -1633,11 +1629,11 @@ pub fn updateExports(
         sym.type = atom.getSymbol(self).type;
 
         switch (exp.opts.linkage) {
-            .Strong => {
+            .strong => {
                 sym.storage_class = .EXTERNAL;
             },
-            .Internal => @panic("TODO Internal"),
-            .Weak => @panic("TODO WeakExternal"),
+            .internal => @panic("TODO Internal"),
+            .weak => @panic("TODO WeakExternal"),
             else => unreachable,
         }
 
@@ -1648,18 +1644,18 @@ pub fn updateExports(
 pub fn deleteDeclExport(
     self: *Coff,
     decl_index: InternPool.DeclIndex,
-    name_ip: InternPool.NullTerminatedString,
+    name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
     const mod = self.base.comp.module.?;
-    const name = mod.intern_pool.stringToSlice(name_ip);
-    const sym_index = metadata.getExportPtr(self, name) orelse return;
+    const name_slice = name.toSlice(&mod.intern_pool);
+    const sym_index = metadata.getExportPtr(self, name_slice) orelse return;
 
     const gpa = self.base.comp.gpa;
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
     const sym = self.getSymbolPtr(sym_loc);
-    log.debug("deleting export '{s}'", .{name});
+    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
         .name = [_]u8{0} ** 8,
@@ -1671,7 +1667,7 @@ pub fn deleteDeclExport(
     };
     self.locals_free_list.append(gpa, sym_index.*) catch {};
 
-    if (self.resolver.fetchRemove(name)) |entry| {
+    if (self.resolver.fetchRemove(name_slice)) |entry| {
         defer gpa.free(entry.key);
         self.globals_free_list.append(gpa, entry.value) catch {};
         self.globals.items[entry.value] = .{
@@ -1887,14 +1883,13 @@ pub fn lowerAnonDecl(
     }
 
     const val = Value.fromInterned(decl_val);
-    const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(decl_val),
     }) catch unreachable;
     const res = self.lowerConst(
         name,
-        tv,
+        val,
         decl_alignment,
         self.rdata_section_index.?,
         src_loc,
@@ -2275,7 +2270,7 @@ fn writeHeader(self: *Coff) !void {
         .p32 => flags.@"32BIT_MACHINE" = 1,
         .p64 => flags.LARGE_ADDRESS_AWARE = 1,
     }
-    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .Dynamic) {
+    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .dynamic) {
         flags.DLL = 1;
     }
 
@@ -2753,8 +2748,7 @@ const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
-const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../Value.zig");
 
 pub const base_tag: link.File.Tag = .coff;
 

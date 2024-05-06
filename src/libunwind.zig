@@ -58,10 +58,11 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const root_name = "unwind";
-    const link_mode = .Static;
+    const link_mode = .static;
     const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,

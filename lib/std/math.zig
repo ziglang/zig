@@ -37,6 +37,12 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
+/// pi/180.0
+pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;
+
+/// 180.0/pi
+pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
+
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
 pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
@@ -49,63 +55,6 @@ pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
 pub const nan = @import("math/float.zig").nan;
 pub const snan = @import("math/float.zig").snan;
-
-pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
-pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
-pub const f64_true_min = @compileError("Deprecated: use `floatTrueMin(f64)` instead");
-pub const f80_true_min = @compileError("Deprecated: use `floatTrueMin(f80)` instead");
-pub const f128_true_min = @compileError("Deprecated: use `floatTrueMin(f128)` instead");
-pub const f16_min = @compileError("Deprecated: use `floatMin(f16)` instead");
-pub const f32_min = @compileError("Deprecated: use `floatMin(f32)` instead");
-pub const f64_min = @compileError("Deprecated: use `floatMin(f64)` instead");
-pub const f80_min = @compileError("Deprecated: use `floatMin(f80)` instead");
-pub const f128_min = @compileError("Deprecated: use `floatMin(f128)` instead");
-pub const f16_max = @compileError("Deprecated: use `floatMax(f16)` instead");
-pub const f32_max = @compileError("Deprecated: use `floatMax(f32)` instead");
-pub const f64_max = @compileError("Deprecated: use `floatMax(f64)` instead");
-pub const f80_max = @compileError("Deprecated: use `floatMax(f80)` instead");
-pub const f128_max = @compileError("Deprecated: use `floatMax(f128)` instead");
-pub const f16_epsilon = @compileError("Deprecated: use `floatEps(f16)` instead");
-pub const f32_epsilon = @compileError("Deprecated: use `floatEps(f32)` instead");
-pub const f64_epsilon = @compileError("Deprecated: use `floatEps(f64)` instead");
-pub const f80_epsilon = @compileError("Deprecated: use `floatEps(f80)` instead");
-pub const f128_epsilon = @compileError("Deprecated: use `floatEps(f128)` instead");
-pub const f16_toint = @compileError("Deprecated: use `1.0 / floatEps(f16)` instead");
-pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` instead");
-pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
-pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
-pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
-pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
-pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
-pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
-pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
-pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
-pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
-pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
-pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
-pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
-pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
-pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
-pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
-pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
-pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
-pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
-pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
-pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
-pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
-pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
-pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
-pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
-pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
-pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
-pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
-pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
-pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
-pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -161,26 +110,16 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
 }
 
-test "approxEqAbs and approxEqRel" {
+test approxEqAbs {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const eps_value = comptime floatEps(T);
-        const sqrt_eps_value = comptime sqrt(eps_value);
-        const nan_value = comptime nan(T);
-        const inf_value = comptime inf(T);
         const min_value = comptime floatMin(T);
 
         try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
         try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
         try testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
-        try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
-        try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
         try testing.expect(!approxEqAbs(T, 1.0 + 2 * eps_value, 1.0, eps_value));
         try testing.expect(approxEqAbs(T, 1.0 + 1 * eps_value, 1.0, eps_value));
-        try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
-        try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
         try testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
         try testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
     }
@@ -192,19 +131,45 @@ test "approxEqAbs and approxEqRel" {
         // possible epsilon value like we do in the tests above. In the same vein, we
         // also can't represent a max/min, `NaN` or `Inf` values.
         const eps_value = 1e-4;
-        const sqrt_eps_value = sqrt(eps_value);
 
         try testing.expect(approxEqAbs(comptime_float, 0.0, 0.0, eps_value));
         try testing.expect(approxEqAbs(comptime_float, -0.0, -0.0, eps_value));
         try testing.expect(approxEqAbs(comptime_float, 0.0, -0.0, eps_value));
-        try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
-        try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
         try testing.expect(!approxEqAbs(comptime_float, 1.0 + 2 * eps_value, 1.0, eps_value));
         try testing.expect(approxEqAbs(comptime_float, 1.0 + 1 * eps_value, 1.0, eps_value));
     }
 }
 
-pub const doNotOptimizeAway = @compileError("Deprecated: use `std.mem.doNotOptimizeAway` instead");
+test approxEqRel {
+    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+        const eps_value = comptime floatEps(T);
+        const sqrt_eps_value = comptime sqrt(eps_value);
+        const nan_value = comptime nan(T);
+        const inf_value = comptime inf(T);
+        const min_value = comptime floatMin(T);
+
+        try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
+        try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
+        try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
+    }
+
+    comptime {
+        // `comptime_float` is guaranteed to have the same precision and operations of
+        // the largest other floating point type, which is f128 but it doesn't have a
+        // defined layout so we can't rely on `@bitCast` to construct the smallest
+        // possible epsilon value like we do in the tests above. In the same vein, we
+        // also can't represent a max/min, `NaN` or `Inf` values.
+        const eps_value = 1e-4;
+        const sqrt_eps_value = sqrt(eps_value);
+
+        try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
+        try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
+    }
+}
 
 pub fn raiseInvalid() void {
     // Raise INVALID fpu exception
@@ -231,8 +196,7 @@ pub const isSignalNan = @import("math/isnan.zig").isSignalNan;
 pub const frexp = @import("math/frexp.zig").frexp;
 pub const Frexp = @import("math/frexp.zig").Frexp;
 pub const modf = @import("math/modf.zig").modf;
-pub const modf32_result = @import("math/modf.zig").modf32_result;
-pub const modf64_result = @import("math/modf.zig").modf64_result;
+pub const Modf = @import("math/modf.zig").Modf;
 pub const copysign = @import("math/copysign.zig").copysign;
 pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
@@ -293,32 +257,68 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-/// Converts an angle in radians to degrees. T must be a float type.
-pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_radians * 180.0 / pi;
+/// Converts an angle in radians to degrees. T must be a float or comptime number or a vector of floats.
+pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * deg_per_rad,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(deg_per_rad)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
-test "radiansToDegrees" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(f32, 0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(f32, pi / 2.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(f32, -pi / 4.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(f32, pi), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(f32, 2.0 * pi), 1e-6);
+test radiansToDegrees {
+    const zero: f32 = 0;
+    const half_pi: f32 = pi / 2.0;
+    const neg_quart_pi: f32 = -pi / 4.0;
+    const one_pi: f32 = pi;
+    const two_pi: f32 = 2.0 * pi;
+    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(zero), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(half_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(neg_quart_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
+
+    const result = radiansToDegrees(@Vector(4, f32){
+        half_pi,
+        neg_quart_pi,
+        one_pi,
+        two_pi,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, 90), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), result[2], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), result[3], 1e-6);
 }
 
-/// Converts an angle in degrees to radians. T must be a float type.
-pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_degrees * pi / 180.0;
+/// Converts an angle in degrees to radians. T must be a float or comptime number or a vector of floats.
+pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * rad_per_deg,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(rad_per_deg)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
-test "degreesToRadians" {
-    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(f32, 90), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(f32, -270), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(f32, 360), 1e-6);
+test degreesToRadians {
+    const ninety: f32 = 90;
+    const neg_two_seventy: f32 = -270;
+    const three_sixty: f32 = 360;
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(ninety), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(neg_two_seventy), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(three_sixty), 1e-6);
+
+    const result = degreesToRadians(@Vector(3, f32){
+        ninety,
+        neg_two_seventy,
+        three_sixty,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), result[2], 1e-6);
 }
 
 /// Base-e exponential function on a floating point number.
@@ -358,8 +358,7 @@ test {
     _ = frexp;
     _ = Frexp;
     _ = modf;
-    _ = modf32_result;
-    _ = modf64_result;
+    _ = Modf;
     _ = copysign;
     _ = isFinite;
     _ = isInf;
@@ -422,12 +421,6 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
-pub const min = @compileError("deprecated; use @min instead");
-pub const max = @compileError("deprecated; use @max instead");
-pub const min3 = @compileError("deprecated; use @min instead");
-pub const max3 = @compileError("deprecated; use @max instead");
-pub const ln = @compileError("deprecated; use @log instead");
-
 /// Odd sawtooth function
 /// ```
 ///         |
@@ -464,7 +457,7 @@ pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
         },
     }
 }
-test "wrap" {
+test wrap {
     // Within range
     try testing.expect(wrap(@as(i32, -75), @as(i32, 180)) == -75);
     try testing.expect(wrap(@as(i32, -75), @as(i32, -180)) == -75);
@@ -501,8 +494,7 @@ test "wrap" {
     var i: i32 = 1;
     _ = &i;
     try testing.expect(wrap(i, 10) == 1);
-}
-test wrap {
+
     const limit: i32 = 180;
     // Within range
     try testing.expect(wrap(@as(i32, -75), limit) == -75);
@@ -527,7 +519,7 @@ pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, u
     assert(lower <= upper);
     return @max(lower, @min(val, upper));
 }
-test "clamp" {
+test clamp {
     // Within range
     try testing.expect(std.math.clamp(@as(i32, -1), @as(i32, -4), @as(i32, 7)) == -1);
     // Below
@@ -608,7 +600,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
     return a << casted_shift_amt;
 }
 
-test "shl" {
+test shl {
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -653,7 +645,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
     return a >> casted_shift_amt;
 }
 
-test "shr" {
+test shr {
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -682,15 +674,15 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x >> ar | x << (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -699,7 +691,7 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
     }
 }
 
-test "rotr" {
+test rotr {
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -713,6 +705,7 @@ test "rotr" {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
+    try testing.expect(rotr(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
@@ -727,15 +720,15 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x << ar | x >> 1 +% ~ar;
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -744,7 +737,7 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
     }
 }
 
-test "rotl" {
+test rotl {
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
@@ -758,6 +751,7 @@ test "rotl" {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
+    try testing.expect(rotl(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
@@ -806,7 +800,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
     return std.meta.Int(signedness, magnitude_bits);
 }
 
-test "IntFittingRange" {
+test IntFittingRange {
     try testing.expect(IntFittingRange(0, 0) == u0);
     try testing.expect(IntFittingRange(0, 1) == u1);
     try testing.expect(IntFittingRange(0, 2) == u2);
@@ -874,7 +868,7 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     return @divTrunc(numerator, denominator);
 }
 
-test "divTrunc" {
+test divTrunc {
     try testDivTrunc();
     try comptime testDivTrunc();
 }
@@ -898,7 +892,7 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     return @divFloor(numerator, denominator);
 }
 
-test "divFloor" {
+test divFloor {
     try testDivFloor();
     try comptime testDivFloor();
 }
@@ -935,7 +929,7 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
     }
 }
 
-test "divCeil" {
+test divCeil {
     try testDivCeil();
     try comptime testDivCeil();
 }
@@ -979,7 +973,7 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     return result;
 }
 
-test "divExact" {
+test divExact {
     try testDivExact();
     try comptime testDivExact();
 }
@@ -1005,7 +999,7 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     return @mod(numerator, denominator);
 }
 
-test "mod" {
+test mod {
     try testMod();
     try comptime testMod();
 }
@@ -1031,7 +1025,7 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     return @rem(numerator, denominator);
 }
 
-test "rem" {
+test rem {
     try testRem();
     try comptime testRem();
 }
@@ -1060,7 +1054,7 @@ pub fn negateCast(x: anytype) !std.meta.Int(.signed, @bitSizeOf(@TypeOf(x))) {
     return -@as(int, @intCast(x));
 }
 
-test "negateCast" {
+test negateCast {
     try testing.expect((negateCast(@as(u32, 999)) catch unreachable) == -999);
     try testing.expect(@TypeOf(negateCast(@as(u32, 999)) catch unreachable) == i32);
 
@@ -1085,7 +1079,7 @@ pub fn cast(comptime T: type, x: anytype) ?T {
     }
 }
 
-test "cast" {
+test cast {
     try testing.expect(cast(u8, 300) == null);
     try testing.expect(cast(u8, @as(u32, 300)) == null);
     try testing.expect(cast(i8, -200) == null);
@@ -1144,7 +1138,7 @@ pub fn ByteAlignedInt(comptime T: type) type {
     return extended_type;
 }
 
-test "ByteAlignedInt" {
+test ByteAlignedInt {
     try testing.expect(ByteAlignedInt(u0) == u0);
     try testing.expect(ByteAlignedInt(i0) == i0);
     try testing.expect(ByteAlignedInt(u3) == u8);
@@ -1182,7 +1176,7 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
     return @as(T, 1) << log2_int(uT, @as(uT, @intCast(value)));
 }
 
-test "floorPowerOfTwo" {
+test floorPowerOfTwo {
     try testFloorPowerOfTwo();
     try comptime testFloorPowerOfTwo();
 }
@@ -1244,7 +1238,7 @@ pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
     return ceilPowerOfTwo(T, value) catch unreachable;
 }
 
-test "ceilPowerOfTwoPromote" {
+test ceilPowerOfTwoPromote {
     try testCeilPowerOfTwoPromote();
     try comptime testCeilPowerOfTwoPromote();
 }
@@ -1261,7 +1255,7 @@ fn testCeilPowerOfTwoPromote() !void {
     try testing.expectEqual(@as(u5, 16), ceilPowerOfTwoPromote(u4, 9));
 }
 
-test "ceilPowerOfTwo" {
+test ceilPowerOfTwo {
     try testCeilPowerOfTwo();
     try comptime testCeilPowerOfTwo();
 }
@@ -1298,7 +1292,7 @@ pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
     return log2_val + 1;
 }
 
-test "std.math.log2_int_ceil" {
+test log2_int_ceil {
     try testing.expect(log2_int_ceil(u32, 1) == 0);
     try testing.expect(log2_int_ceil(u32, 2) == 1);
     try testing.expect(log2_int_ceil(u32, 3) == 2);
@@ -1354,7 +1348,7 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
     }
 }
 
-test "lossyCast" {
+test lossyCast {
     try testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
@@ -1363,27 +1357,17 @@ test "lossyCast" {
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
-/// *t* must be in range 0.0 to 1.0. Supports floats and vectors of floats.
+/// *t* ranges from 0.0 to 1.0, but may exceed these bounds.
+/// Supports floats and vectors of floats.
 ///
 /// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
 /// This is monotonic.
 pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
     const Type = @TypeOf(a, b, t);
-
-    switch (@typeInfo(Type)) {
-        .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => {
-            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
-            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
-            assert(lower_bound and upper_bound);
-        },
-        else => comptime unreachable,
-    }
-
     return @mulAdd(Type, b - a, t, a);
 }
 
-test "lerp" {
+test lerp {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/17884
     if (builtin.zig_backend == .stage2_x86_64 and
         !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
@@ -1391,6 +1375,9 @@ test "lerp" {
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
+
+    try testing.expectEqual(@as(f64, 30), lerp(10, 20, 2.0));
+    try testing.expectEqual(@as(f64, 5), lerp(10, 20, -0.5));
 
     try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(-10000.12345, -5000.12345, 0.56789), 1e-19);
     try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
@@ -1405,8 +1392,8 @@ test "lerp" {
         const b: @Vector(3, f32) = @splat(50);
         const t: @Vector(3, f32) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f32){ 25, 25, 25 },
+            lerp(a, b, t),
         );
     }
     {
@@ -1414,8 +1401,17 @@ test "lerp" {
         const b: @Vector(3, f64) = @splat(100);
         const t: @Vector(3, f64) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f64){ 75, 75, 75 },
+            lerp(a, b, t),
+        );
+    }
+    {
+        const a: @Vector(2, f32) = @splat(40);
+        const b: @Vector(2, f32) = @splat(80);
+        const t: @Vector(2, f32) = @Vector(2, f32){ 0.25, 0.75 };
+        try testing.expectEqual(
+            @Vector(2, f32){ 50, 70 },
+            lerp(a, b, t),
         );
     }
 }
@@ -1437,7 +1433,7 @@ pub fn minInt(comptime T: type) comptime_int {
     return -(1 << (bit_count - 1));
 }
 
-test "minInt and maxInt" {
+test maxInt {
     try testing.expect(maxInt(u0) == 0);
     try testing.expect(maxInt(u1) == 1);
     try testing.expect(maxInt(u8) == 255);
@@ -1454,7 +1450,9 @@ test "minInt and maxInt" {
     try testing.expect(maxInt(i63) == 4611686018427387903);
     try testing.expect(maxInt(i64) == 9223372036854775807);
     try testing.expect(maxInt(i128) == 170141183460469231731687303715884105727);
+}
 
+test minInt {
     try testing.expect(minInt(u0) == 0);
     try testing.expect(minInt(u1) == 0);
     try testing.expect(minInt(u8) == 0);
@@ -1492,7 +1490,7 @@ pub fn mulWide(comptime T: type, a: T, b: T) std.meta.Int(
     return @as(ResultInt, a) * @as(ResultInt, b);
 }
 
-test "mulWide" {
+test mulWide {
     try testing.expect(mulWide(u8, 5, 5) == 25);
     try testing.expect(mulWide(i8, 5, -5) == -25);
     try testing.expect(mulWide(u8, 100, 100) == 10000);
@@ -1515,6 +1513,37 @@ pub const Order = enum {
             .eq => .eq,
             .gt => .lt,
         };
+    }
+
+    test invert {
+        try testing.expect(Order.invert(order(0, 0)) == .eq);
+        try testing.expect(Order.invert(order(1, 0)) == .lt);
+        try testing.expect(Order.invert(order(-1, 0)) == .gt);
+    }
+
+    pub fn differ(self: Order) ?Order {
+        return if (self != .eq) self else null;
+    }
+
+    test differ {
+        const neg: i32 = -1;
+        const zero: i32 = 0;
+        const pos: i32 = 1;
+        try testing.expect(order(zero, neg).differ() orelse
+            order(pos, zero) == .gt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(zero, zero) == .eq);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(neg, zero) == .lt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(pos, neg).differ() orelse
+            order(neg, zero) == .gt);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(pos, pos).differ() orelse
+            order(neg, neg) == .eq);
+        try testing.expect(order(zero, pos).differ() orelse
+            order(neg, pos).differ() orelse
+            order(pos, neg) == .lt);
     }
 
     pub fn compare(self: Order, op: CompareOperator) bool {
@@ -1544,6 +1573,18 @@ pub const Order = enum {
                 .neq => true,
             },
         };
+    }
+
+    // https://github.com/ziglang/zig/issues/19295
+    test "compare" {
+        try testing.expect(order(-1, 0).compare(.lt));
+        try testing.expect(order(-1, 0).compare(.lte));
+        try testing.expect(order(0, 0).compare(.lte));
+        try testing.expect(order(0, 0).compare(.eq));
+        try testing.expect(order(0, 0).compare(.gte));
+        try testing.expect(order(1, 0).compare(.gte));
+        try testing.expect(order(1, 0).compare(.gt));
+        try testing.expect(order(1, 0).compare(.neq));
     }
 };
 
@@ -1587,6 +1628,15 @@ pub const CompareOperator = enum {
             .neq => .neq,
         };
     }
+
+    test reverse {
+        inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
+            const op = @as(CompareOperator, @enumFromInt(op_field.value));
+            try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
+            try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
+            try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
+        }
+    }
 };
 
 /// This function does the same thing as comparison operators, however the
@@ -1603,7 +1653,7 @@ pub fn compare(a: anytype, op: CompareOperator, b: anytype) bool {
     };
 }
 
-test "compare between signed and unsigned" {
+test compare {
     try testing.expect(compare(@as(i8, -1), .lt, @as(u8, 255)));
     try testing.expect(compare(@as(i8, 2), .gt, @as(u8, 1)));
     try testing.expect(!compare(@as(i8, -1), .gte, @as(u8, 255)));
@@ -1623,36 +1673,10 @@ test "compare between signed and unsigned" {
     try testing.expect(compare(@as(u8, 1), .eq, @as(u8, 1)));
 }
 
-test "order" {
+test order {
     try testing.expect(order(0, 0) == .eq);
     try testing.expect(order(1, 0) == .gt);
     try testing.expect(order(-1, 0) == .lt);
-}
-
-test "order.invert" {
-    try testing.expect(Order.invert(order(0, 0)) == .eq);
-    try testing.expect(Order.invert(order(1, 0)) == .lt);
-    try testing.expect(Order.invert(order(-1, 0)) == .gt);
-}
-
-test "order.compare" {
-    try testing.expect(order(-1, 0).compare(.lt));
-    try testing.expect(order(-1, 0).compare(.lte));
-    try testing.expect(order(0, 0).compare(.lte));
-    try testing.expect(order(0, 0).compare(.eq));
-    try testing.expect(order(0, 0).compare(.gte));
-    try testing.expect(order(1, 0).compare(.gte));
-    try testing.expect(order(1, 0).compare(.gt));
-    try testing.expect(order(1, 0).compare(.neq));
-}
-
-test "compare.reverse" {
-    inline for (@typeInfo(CompareOperator).Enum.fields) |op_field| {
-        const op = @as(CompareOperator, @enumFromInt(op_field.value));
-        try testing.expect(compare(2, op, 3) == compare(3, op.reverse(), 2));
-        try testing.expect(compare(3, op, 3) == compare(3, op.reverse(), 3));
-        try testing.expect(compare(4, op, 3) == compare(3, op.reverse(), 4));
-    }
 }
 
 /// Returns a mask of all ones if value is true,
@@ -1676,7 +1700,7 @@ pub inline fn boolMask(comptime MaskInt: type, value: bool) MaskInt {
     return -%@as(MaskInt, @intCast(@intFromBool(value)));
 }
 
-test "boolMask" {
+test boolMask {
     const runTest = struct {
         fn runTest() !void {
             try testing.expectEqual(@as(u1, 0), boolMask(u1, false));
@@ -1824,7 +1848,7 @@ fn testSign() !void {
     try std.testing.expectEqual(0.0, sign(0.0));
 }
 
-test "sign" {
+test sign {
     if (builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;

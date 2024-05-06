@@ -8,10 +8,10 @@ const CallingConvention = std.builtin.CallingConvention;
 const clang = @import("clang.zig");
 const aro = @import("aro");
 const CToken = aro.Tokenizer.Token;
-const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
-const common = @import("translate_c/common.zig");
+const common = @import("aro_translate_c");
+const ast = common.ast;
 const Error = common.Error;
 const MacroProcessingError = common.MacroProcessingError;
 const TypeError = common.TypeError;
@@ -20,10 +20,8 @@ const SymbolTable = common.SymbolTable;
 const AliasList = common.AliasList;
 const ResultUsed = common.ResultUsed;
 const Scope = common.ScopeExtra(Context, clang.QualType);
-
-// Maps macro parameter names to token position, for determining if different
-// identifiers refer to the same positional argument in different macros.
-const ArgsPositionMap = std.StringArrayHashMapUnmanaged(usize);
+const PatternList = common.PatternList;
+const MacroSlicer = common.MacroSlicer;
 
 pub const Context = struct {
     gpa: mem.Allocator,
@@ -673,7 +671,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, var_name, node);
 }
 
-const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
+const builtin_typedef_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
     .{ "uint16_t", "u16" },
@@ -2088,6 +2086,11 @@ fn finishBoolExpr(
             }
         },
         .Pointer => {
+            if (node.tag() == .string_literal) {
+                // @intFromPtr(node) != 0
+                const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+                return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+            }
             // node != null
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
@@ -2504,6 +2507,11 @@ fn transInitListExprRecord(
     const init_count = expr.getNumInits();
     var field_inits = std.ArrayList(ast.Payload.ContainerInit.Initializer).init(c.gpa);
     defer field_inits.deinit();
+
+    if (init_count == 0) {
+        const source_loc = @as(*const clang.Expr, @ptrCast(expr)).getBeginLoc();
+        return transZeroInitExpr(c, scope, source_loc, ty);
+    }
 
     var init_i: c_uint = 0;
     var it = record_def.field_begin();
@@ -5088,265 +5096,6 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
 }
 
-pub const PatternList = struct {
-    patterns: []Pattern,
-
-    /// Templates must be function-like macros
-    /// first element is macro source, second element is the name of the function
-    /// in std.lib.zig.c_translation.Macros which implements it
-    const templates = [_][2][]const u8{
-        [2][]const u8{ "f_SUFFIX(X) (X ## f)", "F_SUFFIX" },
-        [2][]const u8{ "F_SUFFIX(X) (X ## F)", "F_SUFFIX" },
-
-        [2][]const u8{ "u_SUFFIX(X) (X ## u)", "U_SUFFIX" },
-        [2][]const u8{ "U_SUFFIX(X) (X ## U)", "U_SUFFIX" },
-
-        [2][]const u8{ "l_SUFFIX(X) (X ## l)", "L_SUFFIX" },
-        [2][]const u8{ "L_SUFFIX(X) (X ## L)", "L_SUFFIX" },
-
-        [2][]const u8{ "ul_SUFFIX(X) (X ## ul)", "UL_SUFFIX" },
-        [2][]const u8{ "uL_SUFFIX(X) (X ## uL)", "UL_SUFFIX" },
-        [2][]const u8{ "Ul_SUFFIX(X) (X ## Ul)", "UL_SUFFIX" },
-        [2][]const u8{ "UL_SUFFIX(X) (X ## UL)", "UL_SUFFIX" },
-
-        [2][]const u8{ "ll_SUFFIX(X) (X ## ll)", "LL_SUFFIX" },
-        [2][]const u8{ "LL_SUFFIX(X) (X ## LL)", "LL_SUFFIX" },
-
-        [2][]const u8{ "ull_SUFFIX(X) (X ## ull)", "ULL_SUFFIX" },
-        [2][]const u8{ "uLL_SUFFIX(X) (X ## uLL)", "ULL_SUFFIX" },
-        [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
-        [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
-
-        [2][]const u8{ "f_SUFFIX(X) X ## f", "F_SUFFIX" },
-        [2][]const u8{ "F_SUFFIX(X) X ## F", "F_SUFFIX" },
-
-        [2][]const u8{ "u_SUFFIX(X) X ## u", "U_SUFFIX" },
-        [2][]const u8{ "U_SUFFIX(X) X ## U", "U_SUFFIX" },
-
-        [2][]const u8{ "l_SUFFIX(X) X ## l", "L_SUFFIX" },
-        [2][]const u8{ "L_SUFFIX(X) X ## L", "L_SUFFIX" },
-
-        [2][]const u8{ "ul_SUFFIX(X) X ## ul", "UL_SUFFIX" },
-        [2][]const u8{ "uL_SUFFIX(X) X ## uL", "UL_SUFFIX" },
-        [2][]const u8{ "Ul_SUFFIX(X) X ## Ul", "UL_SUFFIX" },
-        [2][]const u8{ "UL_SUFFIX(X) X ## UL", "UL_SUFFIX" },
-
-        [2][]const u8{ "ll_SUFFIX(X) X ## ll", "LL_SUFFIX" },
-        [2][]const u8{ "LL_SUFFIX(X) X ## LL", "LL_SUFFIX" },
-
-        [2][]const u8{ "ull_SUFFIX(X) X ## ull", "ULL_SUFFIX" },
-        [2][]const u8{ "uLL_SUFFIX(X) X ## uLL", "ULL_SUFFIX" },
-        [2][]const u8{ "Ull_SUFFIX(X) X ## Ull", "ULL_SUFFIX" },
-        [2][]const u8{ "ULL_SUFFIX(X) X ## ULL", "ULL_SUFFIX" },
-
-        [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
-        [2][]const u8{ "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL" },
-
-        [2][]const u8{
-            \\wl_container_of(ptr, sample, member)                     \
-            \\(__typeof__(sample))((char *)(ptr) -                     \
-            \\     offsetof(__typeof__(*sample), member))
-            ,
-            "WL_CONTAINER_OF",
-        },
-
-        [2][]const u8{ "IGNORE_ME(X) ((void)(X))", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) (void)(X)", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) ((const void)(X))", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) (const void)(X)", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) ((volatile void)(X))", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) (volatile void)(X)", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) (const volatile void)(X)", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD" },
-        [2][]const u8{ "IGNORE_ME(X) (volatile const void)(X)", "DISCARD" },
-    };
-
-    /// Assumes that `ms` represents a tokenized function-like macro.
-    fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
-        assert(ms.tokens.len > 2);
-        assert(ms.tokens[0].id == .identifier or ms.tokens[0].id == .extended_identifier);
-        assert(ms.tokens[1].id == .l_paren);
-
-        var i: usize = 2;
-        while (true) : (i += 1) {
-            const token = ms.tokens[i];
-            switch (token.id) {
-                .r_paren => break,
-                .comma => continue,
-                .identifier, .extended_identifier => {
-                    const identifier = ms.slice(token);
-                    try hash.put(allocator, identifier, i);
-                },
-                else => return error.UnexpectedMacroToken,
-            }
-        }
-    }
-
-    const Pattern = struct {
-        tokens: []const CToken,
-        source: []const u8,
-        impl: []const u8,
-        args_hash: ArgsPositionMap,
-
-        fn init(self: *Pattern, allocator: mem.Allocator, template: [2][]const u8) Error!void {
-            const source = template[0];
-            const impl = template[1];
-
-            var tok_list = std.ArrayList(CToken).init(allocator);
-            defer tok_list.deinit();
-            try tokenizeMacro(source, &tok_list);
-            const tokens = try allocator.dupe(CToken, tok_list.items);
-
-            self.* = .{
-                .tokens = tokens,
-                .source = source,
-                .impl = impl,
-                .args_hash = .{},
-            };
-            const ms = MacroSlicer{ .source = source, .tokens = tokens };
-            buildArgsHash(allocator, ms, &self.args_hash) catch |err| switch (err) {
-                error.UnexpectedMacroToken => unreachable,
-                else => |e| return e,
-            };
-        }
-
-        fn deinit(self: *Pattern, allocator: mem.Allocator) void {
-            self.args_hash.deinit(allocator);
-            allocator.free(self.tokens);
-        }
-
-        /// This function assumes that `ms` has already been validated to contain a function-like
-        /// macro, and that the parsed template macro in `self` also contains a function-like
-        /// macro. Please review this logic carefully if changing that assumption. Two
-        /// function-like macros are considered equivalent if and only if they contain the same
-        /// list of tokens, modulo parameter names.
-        pub fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
-            if (self.tokens.len != ms.tokens.len) return false;
-            if (args_hash.count() != self.args_hash.count()) return false;
-
-            var i: usize = 2;
-            while (self.tokens[i].id != .r_paren) : (i += 1) {}
-
-            const pattern_slicer = MacroSlicer{ .source = self.source, .tokens = self.tokens };
-            while (i < self.tokens.len) : (i += 1) {
-                const pattern_token = self.tokens[i];
-                const macro_token = ms.tokens[i];
-                if (pattern_token.id != macro_token.id) return false;
-
-                const pattern_bytes = pattern_slicer.slice(pattern_token);
-                const macro_bytes = ms.slice(macro_token);
-                switch (pattern_token.id) {
-                    .identifier, .extended_identifier => {
-                        const pattern_arg_index = self.args_hash.get(pattern_bytes);
-                        const macro_arg_index = args_hash.get(macro_bytes);
-
-                        if (pattern_arg_index == null and macro_arg_index == null) {
-                            if (!mem.eql(u8, pattern_bytes, macro_bytes)) return false;
-                        } else if (pattern_arg_index != null and macro_arg_index != null) {
-                            if (pattern_arg_index.? != macro_arg_index.?) return false;
-                        } else {
-                            return false;
-                        }
-                    },
-                    .string_literal, .char_literal, .pp_num => {
-                        if (!mem.eql(u8, pattern_bytes, macro_bytes)) return false;
-                    },
-                    else => {
-                        // other tags correspond to keywords and operators that do not contain a "payload"
-                        // that can vary
-                    },
-                }
-            }
-            return true;
-        }
-    };
-
-    pub fn init(allocator: mem.Allocator) Error!PatternList {
-        const patterns = try allocator.alloc(Pattern, templates.len);
-        for (templates, 0..) |template, i| {
-            try patterns[i].init(allocator, template);
-        }
-        return PatternList{ .patterns = patterns };
-    }
-
-    pub fn deinit(self: *PatternList, allocator: mem.Allocator) void {
-        for (self.patterns) |*pattern| pattern.deinit(allocator);
-        allocator.free(self.patterns);
-    }
-
-    pub fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
-        var args_hash: ArgsPositionMap = .{};
-        defer args_hash.deinit(allocator);
-
-        buildArgsHash(allocator, ms, &args_hash) catch |err| switch (err) {
-            error.UnexpectedMacroToken => return null,
-            else => |e| return e,
-        };
-
-        for (self.patterns) |pattern| if (pattern.isEquivalent(ms, args_hash)) return pattern;
-        return null;
-    }
-};
-
-const MacroSlicer = struct {
-    source: []const u8,
-    tokens: []const CToken,
-    fn slice(self: MacroSlicer, token: CToken) []const u8 {
-        return self.source[token.start..token.end];
-    }
-};
-
-// Testing here instead of test/translate_c.zig allows us to also test that the
-// mapped function exists in `std.zig.c_translation.Macros`
-test "Macro matching" {
-    const helper = struct {
-        const MacroFunctions = std.zig.c_translation.Macros;
-        fn checkMacro(allocator: mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
-            var tok_list = std.ArrayList(CToken).init(allocator);
-            defer tok_list.deinit();
-            try tokenizeMacro(source, &tok_list);
-            const macro_slicer = MacroSlicer{ .source = source, .tokens = tok_list.items };
-            const matched = try pattern_list.match(allocator, macro_slicer);
-            if (expected_match) |expected| {
-                try testing.expectEqualStrings(expected, matched.?.impl);
-                try testing.expect(@hasDecl(MacroFunctions, expected));
-            } else {
-                try testing.expectEqual(@as(@TypeOf(matched), null), matched);
-            }
-        }
-    };
-    const allocator = std.testing.allocator;
-    var pattern_list = try PatternList.init(allocator);
-    defer pattern_list.deinit(allocator);
-
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## F)", "F_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## U)", "U_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## L)", "L_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## LL)", "LL_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## UL)", "UL_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list, "BAR(Z) (Z ## ULL)", "ULL_SUFFIX");
-    try helper.checkMacro(allocator, pattern_list,
-        \\container_of(a, b, c)                             \
-        \\(__typeof__(b))((char *)(a) -                     \
-        \\     offsetof(__typeof__(*b), c))
-    , "WL_CONTAINER_OF");
-
-    try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
-    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
-    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const void)(X))", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile void)(X)", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile void)(X))", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const volatile void)(X)", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((const volatile void)(X))", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (volatile const void)(X)", "DISCARD");
-    try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
-}
-
 const MacroCtx = struct {
     source: []const u8,
     list: []const CToken,
@@ -5387,7 +5136,7 @@ const MacroCtx = struct {
     }
 
     fn makeSlicer(self: *const MacroCtx) MacroSlicer {
-        return MacroSlicer{ .source = self.source, .tokens = self.list };
+        return .{ .source = self.source, .tokens = self.list };
     }
 
     const MacroTranslateError = union(enum) {
@@ -5426,26 +5175,6 @@ const MacroCtx = struct {
         return null;
     }
 };
-
-fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
-    var tokenizer: aro.Tokenizer = .{
-        .buf = source,
-        .source = .unused,
-        .langopts = .{},
-    };
-    while (true) {
-        const tok = tokenizer.next();
-        switch (tok.id) {
-            .whitespace => continue,
-            .nl, .eof => {
-                try tok_list.append(tok);
-                break;
-            },
-            else => {},
-        }
-        try tok_list.append(tok);
-    }
-}
 
 fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) ![]const u8 {
     const begin_loc = macro.getSourceRange_getBegin();
@@ -5486,7 +5215,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 
                 const source = try getMacroText(unit, c, macro);
 
-                try tokenizeMacro(source, &tok_list);
+                try common.tokenizeMacro(source, &tok_list);
 
                 var macro_ctx = MacroCtx{
                     .source = source,
@@ -6000,7 +5729,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     };
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -6030,7 +5759,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .identifier, .extended_identifier => {
             if (c.global_scope.blank_macros.contains(slice)) {
-                return parseCPrimaryExprInner(c, m, scope);
+                return parseCPrimaryExpr(c, m, scope);
             }
             const mangled_name = scope.getAlias(slice);
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
@@ -6057,35 +5786,6 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
     }
 }
 
-fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    var node = try parseCPrimaryExprInner(c, m, scope);
-    // In C the preprocessor would handle concatting strings while expanding macros.
-    // This should do approximately the same by concatting any strings and identifiers
-    // after a primary expression.
-    while (true) {
-        switch (m.peek().?) {
-            .string_literal,
-            .string_literal_utf_16,
-            .string_literal_utf_8,
-            .string_literal_utf_32,
-            .string_literal_wide,
-            => {},
-            .identifier, .extended_identifier => {
-                const tok = m.list[m.i + 1];
-                const slice = m.source[tok.start..tok.end];
-                if (c.global_scope.blank_macros.contains(slice)) {
-                    m.i += 1;
-                    continue;
-                }
-            },
-            else => break,
-        }
-        const rhs = try parseCPrimaryExprInner(c, m, scope);
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
-    }
-    return node;
-}
-
 fn macroIntFromBool(c: *Context, node: Node) !Node {
     if (!isBoolRes(node)) {
         return node;
@@ -6098,7 +5798,12 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
     if (isBoolRes(node)) {
         return node;
     }
-
+    if (node.tag() == .string_literal) {
+        // @intFromPtr(node) != 0
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+        return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+    }
+    // node != 0
     return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
 }
 
@@ -6517,6 +6222,35 @@ fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, node: Node) ParseError!No
 }
 
 fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
+    var node = try parseCPostfixExprInner(c, m, scope, type_name);
+    // In C the preprocessor would handle concatting strings while expanding macros.
+    // This should do approximately the same by concatting any strings and identifiers
+    // after a primary or postfix expression.
+    while (true) {
+        switch (m.peek().?) {
+            .string_literal,
+            .string_literal_utf_16,
+            .string_literal_utf_8,
+            .string_literal_utf_32,
+            .string_literal_wide,
+            => {},
+            .identifier, .extended_identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            else => break,
+        }
+        const rhs = try parseCPostfixExprInner(c, m, scope, type_name);
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
+    }
+    return node;
+}
+
+fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
     var node = type_name orelse try parseCPrimaryExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {

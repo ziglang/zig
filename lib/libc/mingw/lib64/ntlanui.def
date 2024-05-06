@@ -8,7 +8,6 @@ LIBRARY NTLANUI.dll
 EXPORTS
 ShareAsDialogA0
 StopShareDialogA0
-DllMain
 I_SystemFocusDialog
 NPGetPropertyText
 NPPropertyDialog

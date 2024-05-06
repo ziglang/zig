@@ -6,7 +6,6 @@
 ;
 LIBRARY MIGISM.dll
 EXPORTS
-DllMain
 IsmAbandonObjectIdOnCollision
 IsmAbandonObjectOnCollision
 IsmAbortApplyObjectEnum

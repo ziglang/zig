@@ -7,7 +7,7 @@ pub fn main() void {
 fn foo() anyerror!void {}
 
 fn print() void {
-    _ = std.os.write(1, "Hello, World!\n") catch {};
+    _ = std.posix.write(1, "Hello, World!\n") catch {};
 }
 
 // run

@@ -7,4 +7,4 @@ int main() {
 }
 
 // run-translated-c
-// c_frontends=aro,clang
+// c_frontend=clang

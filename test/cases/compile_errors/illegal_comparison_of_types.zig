@@ -22,3 +22,4 @@ export fn entry2() usize {
 //
 // :2:14: error: operator == not allowed for type '[]u8'
 // :9:16: error: operator == not allowed for type 'tmp.EnumWithData'
+// :4:22: note: union declared here

@@ -1,9 +1,9 @@
 export fn entry() void {
-    @fence(.Monotonic);
+    @fence(.monotonic);
 }
 
 // error
 // backend=stage2
 // target=native
 //
-// :2:13: error: atomic ordering must be Acquire or stricter
+// :2:13: error: atomic ordering must be acquire or stricter

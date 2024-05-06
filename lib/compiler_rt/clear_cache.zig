@@ -162,7 +162,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
     }
 }
 
-const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.Internal else std.builtin.GlobalLinkage.Weak;
+const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.internal else std.builtin.GlobalLinkage.weak;
 
 fn exportIt() void {
     @export(clear_cache, .{ .name = "__clear_cache", .linkage = linkage });

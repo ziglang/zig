@@ -175,6 +175,8 @@ pub const Subsystem = enum(u16) {
 
     /// Windows boot application
     WINDOWS_BOOT_APPLICATION = 16,
+
+    _,
 };
 
 pub const OptionalHeader = extern struct {
@@ -300,6 +302,8 @@ pub const DirectoryEntry = enum(u16) {
 
     /// COM Runtime descriptor
     COM_DESCRIPTOR = 14,
+
+    _,
 };
 
 pub const ImageDataDirectory = extern struct {
@@ -383,6 +387,8 @@ pub const BaseRelocationType = enum(u4) {
 
     /// The base relocation applies the difference to the 64-bit field at offset.
     DIR64 = 10,
+
+    _,
 };
 
 pub const DebugDirectoryEntry = extern struct {
@@ -414,6 +420,8 @@ pub const DebugType = enum(u32) {
     MPX = 15,
     REPRO = 16,
     EX_DLLCHARACTERISTICS = 20,
+
+    _,
 };
 
 pub const ImportDirectoryEntry = extern struct {
@@ -736,6 +744,8 @@ pub const BaseType = enum(u8) {
 
     /// An unsigned 4-byte integer
     DWORD = 15,
+
+    _,
 };
 
 pub const ComplexType = enum(u8) {
@@ -750,6 +760,8 @@ pub const ComplexType = enum(u8) {
 
     /// The symbol is an array of base type.
     ARRAY = 48,
+
+    _,
 };
 
 pub const StorageClass = enum(u8) {
@@ -843,6 +855,8 @@ pub const StorageClass = enum(u8) {
     /// A CLR token symbol. The name is an ASCII string that consists of the hexadecimal value of the token.
     /// For more information, see CLR Token Definition (Object Only).
     CLR_TOKEN = 107,
+
+    _,
 };
 
 pub const FunctionDefinition = struct {
@@ -915,6 +929,7 @@ pub const WeakExternalFlag = enum(u32) {
     SEARCH_LIBRARY = 2,
     SEARCH_ALIAS = 3,
     ANTI_DEPENDENCY = 4,
+    _,
 };
 
 pub const ComdatSelection = enum(u8) {
@@ -947,6 +962,8 @@ pub const ComdatSelection = enum(u8) {
     /// The linker chooses the largest definition from among all of the definitions for this symbol.
     /// If multiple definitions have this size, the choice between them is arbitrary.
     LARGEST = 6,
+
+    _,
 };
 
 pub const DebugInfoDefinition = struct {
@@ -975,6 +992,8 @@ pub const MachineType = enum(u16) {
     ARM = 0x1c0,
     /// ARM64 little endian
     ARM64 = 0xaa64,
+    /// ARM64EC
+    ARM64EC = 0xa641,
     /// ARM Thumb-2 little endian
     ARMNT = 0x1c4,
     /// EFI byte code
@@ -1015,6 +1034,8 @@ pub const MachineType = enum(u16) {
     Thumb = 0x1c2,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
+
+    _,
 
     pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
         return switch (arch) {
@@ -1101,7 +1122,7 @@ pub const Coff = struct {
         return coff;
     }
 
-    pub fn getPdbPath(self: *Coff, buffer: []u8) !?usize {
+    pub fn getPdbPath(self: *Coff) !?[]const u8 {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
@@ -1145,17 +1166,9 @@ pub const Coff = struct {
         self.age = try reader.readInt(u32, .little);
 
         // Finally read the null-terminated string.
-        var byte = try reader.readByte();
-        i = 0;
-        while (byte != 0 and i < buffer.len) : (i += 1) {
-            buffer[i] = byte;
-            byte = try reader.readByte();
-        }
-
-        if (byte != 0 and i == buffer.len)
-            return error.NameTooLong;
-
-        return @as(usize, i);
+        const start = reader.context.pos;
+        const len = std.mem.indexOfScalar(u8, self.data[start..], 0) orelse return null;
+        return self.data[start .. start + len];
     }
 
     pub fn getCoffHeader(self: Coff) CoffHeader {
@@ -1408,4 +1421,169 @@ pub const Strtab = struct {
         assert(off < self.buffer.len);
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.buffer.ptr + off)), 0);
     }
+};
+
+pub const ImportHeader = extern struct {
+    sig1: MachineType,
+    sig2: u16,
+    version: u16,
+    machine: MachineType,
+    time_date_stamp: u32,
+    size_of_data: u32,
+    hint: u16,
+    types: packed struct {
+        type: ImportType,
+        name_type: ImportNameType,
+        reserved: u11,
+    },
+};
+
+pub const ImportType = enum(u2) {
+    /// Executable code.
+    CODE = 0,
+    /// Data.
+    DATA = 1,
+    /// Specified as CONST in .def file.
+    CONST = 2,
+    _,
+};
+
+pub const ImportNameType = enum(u3) {
+    /// The import is by ordinal. This indicates that the value in the Ordinal/Hint
+    /// field of the import header is the import's ordinal. If this constant is not
+    /// specified, then the Ordinal/Hint field should always be interpreted as the import's hint.
+    ORDINAL = 0,
+    /// The import name is identical to the public symbol name.
+    NAME = 1,
+    /// The import name is the public symbol name, but skipping the leading ?, @, or optionally _.
+    NAME_NOPREFIX = 2,
+    /// The import name is the public symbol name, but skipping the leading ?, @, or optionally _,
+    /// and truncating at the first @.
+    NAME_UNDECORATE = 3,
+    /// https://github.com/llvm/llvm-project/pull/83211
+    NAME_EXPORTAS = 4,
+    _,
+};
+
+pub const Relocation = extern struct {
+    virtual_address: u32,
+    symbol_table_index: u32,
+    type: u16,
+};
+
+pub const ImageRelAmd64 = enum(u16) {
+    /// The relocation is ignored.
+    absolute = 0,
+
+    /// The 64-bit VA of the relocation target.
+    addr64 = 1,
+
+    /// The 32-bit VA of the relocation target.
+    addr32 = 2,
+
+    /// The 32-bit address without an image base.
+    addr32nb = 3,
+
+    /// The 32-bit relative address from the byte following the relocation.
+    rel32 = 4,
+
+    /// The 32-bit address relative to byte distance 1 from the relocation.
+    rel32_1 = 5,
+
+    /// The 32-bit address relative to byte distance 2 from the relocation.
+    rel32_2 = 6,
+
+    /// The 32-bit address relative to byte distance 3 from the relocation.
+    rel32_3 = 7,
+
+    /// The 32-bit address relative to byte distance 4 from the relocation.
+    rel32_4 = 8,
+
+    /// The 32-bit address relative to byte distance 5 from the relocation.
+    rel32_5 = 9,
+
+    /// The 16-bit section index of the section that contains the target.
+    /// This is used to support debugging information.
+    section = 10,
+
+    /// The 32-bit offset of the target from the beginning of its section.
+    /// This is used to support debugging information and static thread local storage.
+    secrel = 11,
+
+    /// A 7-bit unsigned offset from the base of the section that contains the target.
+    secrel7 = 12,
+
+    /// CLR tokens.
+    token = 13,
+
+    /// A 32-bit signed span-dependent value emitted into the object.
+    srel32 = 14,
+
+    /// A pair that must immediately follow every span-dependent value.
+    pair = 15,
+
+    /// A 32-bit signed span-dependent value that is applied at link time.
+    sspan32 = 16,
+
+    _,
+};
+
+pub const ImageRelArm64 = enum(u16) {
+    /// The relocation is ignored.
+    absolute = 0,
+
+    /// The 32-bit VA of the target.
+    addr32 = 1,
+
+    /// The 32-bit RVA of the target.
+    addr32nb = 2,
+
+    /// The 26-bit relative displacement to the target, for B and BL instructions.
+    branch26 = 3,
+
+    /// The page base of the target, for ADRP instruction.
+    pagebase_rel21 = 4,
+
+    /// The 21-bit relative displacement to the target, for instruction ADR.
+    rel21 = 5,
+
+    /// The 12-bit page offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
+    pageoffset_12a = 6,
+
+    /// The 12-bit page offset of the target, for instruction LDR (indexed, unsigned immediate).
+    pageoffset_12l = 7,
+
+    /// The 32-bit offset of the target from the beginning of its section.
+    /// This is used to support debugging information and static thread local storage.
+    secrel = 8,
+
+    /// Bit 0:11 of section offset of the target for instructions ADD/ADDS (immediate) with zero shift.
+    low12a = 9,
+
+    /// Bit 12:23 of section offset of the target, for instructions ADD/ADDS (immediate) with zero shift.
+    high12a = 10,
+
+    /// Bit 0:11 of section offset of the target, for instruction LDR (indexed, unsigned immediate).
+    low12l = 11,
+
+    /// CLR token.
+    token = 12,
+
+    /// The 16-bit section index of the section that contains the target.
+    /// This is used to support debugging information.
+    section = 13,
+
+    /// The 64-bit VA of the relocation target.
+    addr64 = 14,
+
+    /// The 19-bit offset to the relocation target, for conditional B instruction.
+    branch19 = 15,
+
+    /// The 14-bit offset to the relocation target, for instructions TBZ and TBNZ.
+    branch14 = 16,
+
+    /// The 32-bit relative address from the byte following the relocation.
+    rel32 = 17,
+
+    _,
 };

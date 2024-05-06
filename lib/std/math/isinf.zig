@@ -20,7 +20,7 @@ pub inline fn isNegativeInf(x: anytype) bool {
     return x == -math.inf(@TypeOf(x));
 }
 
-test "math.isInf" {
+test isInf {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isInf(@as(T, 0.0)));
         try expect(!isInf(@as(T, -0.0)));
@@ -31,7 +31,7 @@ test "math.isInf" {
     }
 }
 
-test "math.isPositiveInf" {
+test isPositiveInf {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isPositiveInf(@as(T, 0.0)));
         try expect(!isPositiveInf(@as(T, -0.0)));
@@ -42,7 +42,7 @@ test "math.isPositiveInf" {
     }
 }
 
-test "math.isNegativeInf" {
+test isNegativeInf {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!isNegativeInf(@as(T, 0.0)));
         try expect(!isNegativeInf(@as(T, -0.0)));

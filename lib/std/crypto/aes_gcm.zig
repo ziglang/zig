@@ -46,8 +46,8 @@ fn AesGcm(comptime Aes: anytype) type {
             mac.pad();
 
             var final_block = h;
-            mem.writeInt(u64, final_block[0..8], ad.len * 8, .big);
-            mem.writeInt(u64, final_block[8..16], m.len * 8, .big);
+            mem.writeInt(u64, final_block[0..8], @as(u64, ad.len) * 8, .big);
+            mem.writeInt(u64, final_block[8..16], @as(u64, m.len) * 8, .big);
             mac.update(&final_block);
             mac.final(tag);
             for (t, 0..) |x, i| {
@@ -86,8 +86,8 @@ fn AesGcm(comptime Aes: anytype) type {
             mac.pad();
 
             var final_block = h;
-            mem.writeInt(u64, final_block[0..8], ad.len * 8, .big);
-            mem.writeInt(u64, final_block[8..16], m.len * 8, .big);
+            mem.writeInt(u64, final_block[0..8], @as(u64, ad.len) * 8, .big);
+            mem.writeInt(u64, final_block[8..16], @as(u64, m.len) * 8, .big);
             mac.update(&final_block);
             var computed_tag: [Ghash.mac_length]u8 = undefined;
             mac.final(&computed_tag);

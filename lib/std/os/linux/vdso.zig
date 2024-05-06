@@ -5,7 +5,7 @@ const mem = std.mem;
 const maxInt = std.math.maxInt;
 
 pub fn lookup(vername: []const u8, name: []const u8) usize {
-    const vdso_addr = std.os.system.getauxval(std.elf.AT_SYSINFO_EHDR);
+    const vdso_addr = linux.getauxval(std.elf.AT_SYSINFO_EHDR);
     if (vdso_addr == 0) return 0;
 
     const eh = @as(*elf.Ehdr, @ptrFromInt(vdso_addr));

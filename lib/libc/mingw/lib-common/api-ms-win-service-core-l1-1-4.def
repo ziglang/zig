@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-service-core-l1-1-4
+
+EXPORTS
+
+GetServiceDirectory

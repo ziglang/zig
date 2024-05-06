@@ -35,7 +35,7 @@ fn expectPeekNext(scanner_or_reader: anytype, expected_token_type: TokenType, ex
     try expectEqualTokens(expected_token, try scanner_or_reader.next());
 }
 
-test "json.token" {
+test "token" {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
     defer scanner.deinit();
 
@@ -153,7 +153,7 @@ test "peek all types" {
     try testAllTypes(&tiny_json_reader, false);
 }
 
-test "json.token mismatched close" {
+test "token mismatched close" {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "[102, 111, 111 }");
     defer scanner.deinit();
     try expectNext(&scanner, .array_begin);
@@ -163,7 +163,7 @@ test "json.token mismatched close" {
     try std.testing.expectError(error.SyntaxError, scanner.next());
 }
 
-test "json.token premature object close" {
+test "token premature object close" {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "{ \"key\": }");
     defer scanner.deinit();
     try expectNext(&scanner, .object_begin);
@@ -353,7 +353,7 @@ test "BufferUnderrun" {
     }
 }
 
-test "json.validate" {
+test "validate" {
     try std.testing.expectEqual(true, try validate(std.testing.allocator, "{}"));
     try std.testing.expectEqual(true, try validate(std.testing.allocator, "[]"));
     try std.testing.expectEqual(false, try validate(std.testing.allocator, "[{[[[[{}]]]]}]"));

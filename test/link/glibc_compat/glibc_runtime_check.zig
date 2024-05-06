@@ -30,11 +30,11 @@ fn checkStat() !void {
     var stat = std.mem.zeroes(std.c.Stat);
     var result = std.c.fstatat(cwdFd, "a_file_that_definitely_does_not_exist", &stat, 0);
     assert(result == -1);
-    assert(std.c.getErrno(result) == .NOENT);
+    assert(std.posix.errno(result) == .NOENT);
 
     result = std.c.stat("a_file_that_definitely_does_not_exist", &stat);
     assert(result == -1);
-    assert(std.c.getErrno(result) == .NOENT);
+    assert(std.posix.errno(result) == .NOENT);
 }
 
 // PR #17607 - reallocarray not visible in headers
@@ -91,7 +91,7 @@ fn checkStrlcpy() !void {
 fn checkStrlcpy_v2_38() !void {
     var buf: [99]u8 = undefined;
     const used = c_string.strlcpy(&buf, "strlcpy works!", buf.len);
-    assert(used == 15);
+    assert(used == 14);
 }
 
 // atexit is part of libc_nonshared, so ensure its linked in correctly

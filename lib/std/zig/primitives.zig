@@ -2,7 +2,7 @@ const std = @import("std");
 
 /// Set of primitive type and value names.
 /// Does not include `_` or integer type names.
-pub const names = std.ComptimeStringMap(void, .{
+pub const names = std.StaticStringMap(void).initComptime(.{
     .{"anyerror"},
     .{"anyframe"},
     .{"anyopaque"},
@@ -51,7 +51,7 @@ pub fn isPrimitive(name: []const u8) bool {
     return true;
 }
 
-test "isPrimitive" {
+test isPrimitive {
     const expect = std.testing.expect;
     try expect(!isPrimitive(""));
     try expect(!isPrimitive("_"));

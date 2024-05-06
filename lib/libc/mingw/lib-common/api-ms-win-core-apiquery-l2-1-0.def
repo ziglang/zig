@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-core-apiquery-l2-1-0
+
+EXPORTS
+
+IsApiSetImplemented
+TokenBindingDeleteAllBindings
+TokenBindingDeleteBinding
+TokenBindingGenerateBinding
+TokenBindingGenerateID
+TokenBindingGenerateIDForUri
+TokenBindingGenerateMessage
+TokenBindingGetHighestSupportedVersion
+TokenBindingGetKeyTypesClient
+TokenBindingGetKeyTypesServer
+TokenBindingVerifyMessage

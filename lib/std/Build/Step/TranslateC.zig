@@ -19,7 +19,7 @@ link_libc: bool,
 use_clang: bool,
 
 pub const Options = struct {
-    source_file: std.Build.LazyPath,
+    root_source_file: std.Build.LazyPath,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
@@ -28,7 +28,7 @@ pub const Options = struct {
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const self = owner.allocator.create(TranslateC) catch @panic("OOM");
-    const source = options.source_file.dupe(owner);
+    const source = options.root_source_file.dupe(owner);
     self.* = TranslateC{
         .step = Step.init(.{
             .id = .translate_c,
@@ -55,7 +55,7 @@ pub const AddExecutableOptions = struct {
     version: ?std.SemanticVersion = null,
     target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
-    linkage: ?Step.Compile.Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
 };
 
 pub fn getOutput(self: *TranslateC) std.Build.LazyPath {
@@ -79,7 +79,7 @@ pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Com
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
     return self.step.owner.addModule(name, .{
-        .source_file = self.getOutput(),
+        .root_source_file = self.getOutput(),
     });
 }
 
@@ -87,15 +87,9 @@ pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
 /// current package, but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
 pub fn createModule(self: *TranslateC) *std.Build.Module {
-    const b = self.step.owner;
-    const module = b.allocator.create(std.Build.Module) catch @panic("OOM");
-
-    module.* = .{
-        .builder = b,
-        .source_file = self.getOutput(),
-        .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
-    };
-    return module;
+    return self.step.owner.createModule(.{
+        .root_source_file = self.getOutput(),
+    });
 }
 
 pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
@@ -124,10 +118,10 @@ pub fn defineCMacroRaw(self: *TranslateC, name_and_value: []const u8) void {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self = @fieldParentPtr(TranslateC, "step", step);
+    const self: *TranslateC = @fieldParentPtr("step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
-    try argv_list.append(b.zig_exe);
+    try argv_list.append(b.graph.zig_exe);
     try argv_list.append("translate-c");
     if (self.link_libc) {
         try argv_list.append("-lc");

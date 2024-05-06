@@ -7,4 +7,3 @@
 LIBRARY imejpcus.dll
 EXPORTS
 OpenDetailDialog
-DllMain

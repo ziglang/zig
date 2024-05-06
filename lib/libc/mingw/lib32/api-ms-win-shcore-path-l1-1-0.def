@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-shcore-path-l1-1-0
+
+EXPORTS
+
+PathBuildRootA@8
+PathBuildRootW@8
+PathIsNetworkPathA@4
+PathIsNetworkPathW@4

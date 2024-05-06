@@ -1,7 +1,18 @@
+const Rebase = @This();
+
+const std = @import("std");
+const assert = std.debug.assert;
+const leb = std.leb;
+const log = std.log.scoped(.link_dyld_info);
+const macho = std.macho;
+const testing = std.testing;
+
+const Allocator = std.mem.Allocator;
+
 entries: std.ArrayListUnmanaged(Entry) = .{},
 buffer: std.ArrayListUnmanaged(u8) = .{},
 
-const Entry = struct {
+pub const Entry = struct {
     offset: u64,
     segment_id: u8,
 
@@ -27,6 +38,8 @@ pub fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     if (rebase.entries.items.len == 0) return;
 
     const writer = rebase.buffer.writer(gpa);
+
+    log.debug("rebase opcodes", .{});
 
     std.mem.sort(Entry, rebase.entries.items, {}, Entry.lessThan);
 
@@ -561,14 +574,3 @@ test "rebase - composite" {
         macho.REBASE_OPCODE_DONE,
     }, rebase.buffer.items);
 }
-
-const Rebase = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const leb = std.leb;
-const log = std.log.scoped(.dyld_info);
-const macho = std.macho;
-const testing = std.testing;
-
-const Allocator = std.mem.Allocator;

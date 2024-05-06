@@ -1,12 +1,9 @@
-const std = @import("std.zig");
-
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
-const headers = @import("http/Headers.zig");
-
-pub const Headers = headers.Headers;
-pub const Field = headers.Field;
+pub const HeadParser = @import("http/HeadParser.zig");
+pub const ChunkParser = @import("http/ChunkParser.zig");
+pub const HeaderIterator = @import("http/HeaderIterator.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -18,7 +15,7 @@ pub const Version = enum {
 /// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 ///
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
-pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is supported by the C backend, and therefore cannot pass CI
+pub const Method = enum(u64) {
     GET = parse("GET"),
     HEAD = parse("HEAD"),
     POST = parse("POST"),
@@ -44,10 +41,6 @@ pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is s
         const bytes = std.mem.asBytes(&@intFromEnum(self));
         const str = std.mem.sliceTo(bytes, 0);
         try w.writeAll(str);
-    }
-
-    pub fn format(value: Method, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-        return try value.write(writer);
     }
 
     /// Returns true if a request of this method is allowed to have a body
@@ -309,9 +302,22 @@ pub const Connection = enum {
     close,
 };
 
+pub const Header = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
+const builtin = @import("builtin");
+const std = @import("std.zig");
+
 test {
     _ = Client;
     _ = Method;
     _ = Server;
     _ = Status;
+    _ = HeadParser;
+    _ = ChunkParser;
+    if (builtin.os.tag != .wasi) {
+        _ = @import("http/test.zig");
+    }
 }

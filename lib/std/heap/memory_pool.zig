@@ -145,7 +145,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
     };
 }
 
-test "memory pool: basic" {
+test "basic" {
     var pool = MemoryPool(u32).init(std.testing.allocator);
     defer pool.deinit();
 
@@ -165,7 +165,7 @@ test "memory pool: basic" {
     try std.testing.expect(p2 == p4);
 }
 
-test "memory pool: preheating (success)" {
+test "preheating (success)" {
     var pool = try MemoryPool(u32).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
@@ -174,12 +174,12 @@ test "memory pool: preheating (success)" {
     _ = try pool.create();
 }
 
-test "memory pool: preheating (failure)" {
+test "preheating (failure)" {
     const failer = std.testing.failing_allocator;
     try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer, 5));
 }
 
-test "memory pool: growable" {
+test "growable" {
     var pool = try MemoryPoolExtra(u32, .{ .growable = false }).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
@@ -191,7 +191,7 @@ test "memory pool: growable" {
     try std.testing.expectError(error.OutOfMemory, pool.create());
 }
 
-test "memory pool: greater than pointer default alignment" {
+test "greater than pointer default alignment" {
     const Foo = struct {
         data: u64 align(16),
     };
@@ -203,7 +203,7 @@ test "memory pool: greater than pointer default alignment" {
     _ = foo;
 }
 
-test "memory pool: greater than pointer manual alignment" {
+test "greater than pointer manual alignment" {
     const Foo = struct {
         data: u64,
     };

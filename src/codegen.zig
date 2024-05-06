@@ -16,12 +16,12 @@ const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const InternPool = @import("InternPool.zig");
 const Liveness = @import("Liveness.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
+const Module = Zcu;
 const Target = std.Target;
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
-const Value = @import("value.zig").Value;
-const Zir = @import("Zir.zig");
+const Value = @import("Value.zig");
+const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
 
 pub const Result = union(enum) {
@@ -98,7 +98,7 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
     _ = target;
     const bits = @typeInfo(F).Float.bits;
     const Int = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
-    const int = @as(Int, @bitCast(f));
+    const int: Int = @bitCast(f);
     mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }
 
@@ -119,6 +119,7 @@ pub fn generateLazySymbol(
 
     const comp = bin_file.comp;
     const zcu = comp.module.?;
+    const ip = &zcu.intern_pool;
     const target = comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
     const gpa = comp.gpa;
@@ -136,23 +137,24 @@ pub fn generateLazySymbol(
     if (lazy_sym.ty.isAnyError(zcu)) {
         alignment.* = .@"4";
         const err_names = zcu.global_error_set.keys();
-        mem.writeInt(u32, try code.addManyAsArray(4), @as(u32, @intCast(err_names.len)), endian);
+        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(err_names.len), endian);
         var offset = code.items.len;
         try code.resize((1 + err_names.len + 1) * 4);
         for (err_names) |err_name_nts| {
-            const err_name = zcu.intern_pool.stringToSlice(err_name_nts);
-            mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
+            const err_name = err_name_nts.toSlice(ip);
+            mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
             offset += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
             code.appendSliceAssumeCapacity(err_name);
             code.appendAssumeCapacity(0);
         }
-        mem.writeInt(u32, code.items[offset..][0..4], @as(u32, @intCast(code.items.len)), endian);
+        mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
         return Result.ok;
     } else if (lazy_sym.ty.zigTypeTag(zcu) == .Enum) {
         alignment.* = .@"1";
-        for (lazy_sym.ty.enumFields(zcu)) |tag_name_ip| {
-            const tag_name = zcu.intern_pool.stringToSlice(tag_name_ip);
+        const tag_names = lazy_sym.ty.enumFields(zcu);
+        for (0..tag_names.len) |tag_index| {
+            const tag_name = tag_names.get(ip)[tag_index].toSlice(ip);
             try code.ensureUnusedCapacity(tag_name.len + 1);
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);
@@ -169,7 +171,7 @@ pub fn generateLazySymbol(
 pub fn generateSymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    arg_tv: TypedValue,
+    val: Value,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
@@ -179,23 +181,20 @@ pub fn generateSymbol(
 
     const mod = bin_file.comp.module.?;
     const ip = &mod.intern_pool;
-    const typed_value = arg_tv;
+    const ty = val.typeOf(mod);
 
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: ty = {}, val = {}", .{
-        typed_value.ty.fmt(mod),
-        typed_value.val.fmtValue(typed_value.ty, mod),
-    });
+    log.debug("generateSymbol: val = {}", .{val.fmtValue(mod, null)});
 
-    if (typed_value.val.isUndefDeep(mod)) {
-        const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
+    if (val.isUndefDeep(mod)) {
+        const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
         try code.appendNTimes(0xaa, abi_size);
         return .ok;
     }
 
-    switch (ip.indexToKey(typed_value.val.toIntern())) {
+    switch (ip.indexToKey(val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -236,20 +235,20 @@ pub fn generateSymbol(
         .empty_enum_value,
         => unreachable, // non-runtime values
         .int => {
-            const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
+            const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
             var space: Value.BigIntSpace = undefined;
-            const val = typed_value.val.toBigInt(&space, mod);
-            val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian);
+            const int_val = val.toBigInt(&space, mod);
+            int_val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian);
         },
         .err => |err| {
             const int = try mod.getErrorValue(err.name);
-            try code.writer().writeInt(u16, @as(u16, @intCast(int)), endian);
+            try code.writer().writeInt(u16, @intCast(int), endian);
         },
         .error_union => |error_union| {
-            const payload_ty = typed_value.ty.errorUnionPayload(mod);
-            const err_val = switch (error_union.val) {
-                .err_name => |err_name| @as(u16, @intCast(try mod.getErrorValue(err_name))),
-                .payload => @as(u16, 0),
+            const payload_ty = ty.errorUnionPayload(mod);
+            const err_val: u16 = switch (error_union.val) {
+                .err_name => |err_name| @intCast(try mod.getErrorValue(err_name)),
+                .payload => 0,
             };
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -259,7 +258,7 @@ pub fn generateSymbol(
 
             const payload_align = payload_ty.abiAlignment(mod);
             const error_align = Type.anyerror.abiAlignment(mod);
-            const abi_align = typed_value.ty.abiAlignment(mod);
+            const abi_align = ty.abiAlignment(mod);
 
             // error value first when its type is larger than the error union's payload
             if (error_align.order(payload_align) == .gt) {
@@ -269,13 +268,10 @@ pub fn generateSymbol(
             // emit payload part of the error union
             {
                 const begin = code.items.len;
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = payload_ty,
-                    .val = Value.fromInterned(switch (error_union.val) {
-                        .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
-                        .payload => |payload| payload,
-                    }),
-                }, code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(switch (error_union.val) {
+                    .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
+                    .payload => |payload| payload,
+                }), code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return .{ .fail = em },
                 }
@@ -302,11 +298,8 @@ pub fn generateSymbol(
             }
         },
         .enum_tag => |enum_tag| {
-            const int_tag_ty = typed_value.ty.intTagType(mod);
-            switch (try generateSymbol(bin_file, src_loc, .{
-                .ty = int_tag_ty,
-                .val = try mod.getCoerced(Value.fromInterned(enum_tag.int), int_tag_ty),
-            }, code, debug_output, reloc_info)) {
+            const int_tag_ty = ty.intTagType(mod);
+            switch (try generateSymbol(bin_file, src_loc, try mod.getCoerced(Value.fromInterned(enum_tag.int), int_tag_ty), code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
@@ -317,42 +310,33 @@ pub fn generateSymbol(
             .f64 => |f64_val| writeFloat(f64, f64_val, target, endian, try code.addManyAsArray(8)),
             .f80 => |f80_val| {
                 writeFloat(f80, f80_val, target, endian, try code.addManyAsArray(10));
-                const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
+                const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
                 try code.appendNTimes(0, abi_size - 10);
             },
             .f128 => |f128_val| writeFloat(f128, f128_val, target, endian, try code.addManyAsArray(16)),
         },
-        .ptr => |ptr| {
-            // generate ptr
-            switch (try lowerParentPtr(bin_file, src_loc, switch (ptr.len) {
-                .none => typed_value.val,
-                else => typed_value.val.slicePtr(mod),
-            }.toIntern(), code, debug_output, reloc_info)) {
+        .ptr => switch (try lowerPtr(bin_file, src_loc, val.toIntern(), code, debug_output, reloc_info, 0)) {
+            .ok => {},
+            .fail => |em| return .{ .fail = em },
+        },
+        .slice => |slice| {
+            switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(slice.ptr), code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
-            if (ptr.len != .none) {
-                // generate len
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.usize,
-                    .val = Value.fromInterned(ptr.len),
-                }, code, debug_output, reloc_info)) {
-                    .ok => {},
-                    .fail => |em| return Result{ .fail = em },
-                }
+            switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(slice.len), code, debug_output, reloc_info)) {
+                .ok => {},
+                .fail => |em| return .{ .fail = em },
             }
         },
         .opt => {
-            const payload_type = typed_value.ty.optionalChild(mod);
-            const payload_val = typed_value.val.optionalValue(mod);
-            const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
+            const payload_type = ty.optionalChild(mod);
+            const payload_val = val.optionalValue(mod);
+            const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
 
-            if (typed_value.ty.optionalReprIsPayload(mod)) {
+            if (ty.optionalReprIsPayload(mod)) {
                 if (payload_val) |value| {
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = payload_type,
-                        .val = value,
-                    }, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, src_loc, value, code, debug_output, reloc_info)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -363,10 +347,7 @@ pub fn generateSymbol(
                 const padding = abi_size - (math.cast(usize, payload_type.abiSize(mod)) orelse return error.Overflow) - 1;
                 if (payload_type.hasRuntimeBits(mod)) {
                     const value = payload_val orelse Value.fromInterned((try mod.intern(.{ .undef = payload_type.toIntern() })));
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = payload_type,
-                        .val = value,
-                    }, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, src_loc, value, code, debug_output, reloc_info)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -375,25 +356,20 @@ pub fn generateSymbol(
                 try code.appendNTimes(0, padding);
             }
         },
-        .aggregate => |aggregate| switch (ip.indexToKey(typed_value.ty.toIntern())) {
+        .aggregate => |aggregate| switch (ip.indexToKey(ty.toIntern())) {
             .array_type => |array_type| switch (aggregate.storage) {
-                .bytes => |bytes| try code.appendSlice(bytes),
+                .bytes => |bytes| try code.appendSlice(bytes.toSlice(array_type.lenIncludingSentinel(), ip)),
                 .elems, .repeated_elem => {
                     var index: u64 = 0;
-                    const len_including_sentinel =
-                        array_type.len + @intFromBool(array_type.sentinel != .none);
-                    while (index < len_including_sentinel) : (index += 1) {
-                        switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = Type.fromInterned(array_type.child),
-                            .val = Value.fromInterned(switch (aggregate.storage) {
-                                .bytes => unreachable,
-                                .elems => |elems| elems[@as(usize, @intCast(index))],
-                                .repeated_elem => |elem| if (index < array_type.len)
-                                    elem
-                                else
-                                    array_type.sentinel,
-                            }),
-                        }, code, debug_output, reloc_info)) {
+                    while (index < array_type.lenIncludingSentinel()) : (index += 1) {
+                        switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(switch (aggregate.storage) {
+                            .bytes => unreachable,
+                            .elems => |elems| elems[@intCast(index)],
+                            .repeated_elem => |elem| if (index < array_type.len)
+                                elem
+                            else
+                                array_type.sentinel,
+                        }), code, debug_output, reloc_info)) {
                             .ok => {},
                             .fail => |em| return .{ .fail = em },
                         }
@@ -401,9 +377,9 @@ pub fn generateSymbol(
                 },
             },
             .vector_type => |vector_type| {
-                const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
+                const abi_size = math.cast(usize, ty.abiSize(mod)) orelse
                     return error.Overflow;
-                if (Type.fromInterned(vector_type.child).bitSize(mod) == 1) {
+                if (vector_type.child == .bool_type) {
                     const bytes = try code.addManyAsSlice(abi_size);
                     @memset(bytes, 0xaa);
                     var index: usize = 0;
@@ -422,7 +398,7 @@ pub fn generateSymbol(
                         }) {
                             .bool_true => true,
                             .bool_false => false,
-                            else => |elem| switch (mod.intern_pool.indexToKey(elem)) {
+                            else => |elem| switch (ip.indexToKey(elem)) {
                                 .undef => continue,
                                 .int => |int| switch (int.storage) {
                                     .u64 => |x| switch (x) {
@@ -441,37 +417,31 @@ pub fn generateSymbol(
                             },
                         }) byte.* |= mask else byte.* &= ~mask;
                     }
-                } else switch (aggregate.storage) {
-                    .bytes => |bytes| try code.appendSlice(bytes),
-                    .elems, .repeated_elem => {
-                        var index: u64 = 0;
-                        while (index < vector_type.len) : (index += 1) {
-                            switch (try generateSymbol(bin_file, src_loc, .{
-                                .ty = Type.fromInterned(vector_type.child),
-                                .val = Value.fromInterned(switch (aggregate.storage) {
+                } else {
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| try code.appendSlice(bytes.toSlice(vector_type.len, ip)),
+                        .elems, .repeated_elem => {
+                            var index: u64 = 0;
+                            while (index < vector_type.len) : (index += 1) {
+                                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(switch (aggregate.storage) {
                                     .bytes => unreachable,
                                     .elems => |elems| elems[
                                         math.cast(usize, index) orelse return error.Overflow
                                     ],
                                     .repeated_elem => |elem| elem,
-                                }),
-                            }, code, debug_output, reloc_info)) {
-                                .ok => {},
-                                .fail => |em| return .{ .fail = em },
+                                }), code, debug_output, reloc_info)) {
+                                    .ok => {},
+                                    .fail => |em| return .{ .fail = em },
+                                }
                             }
-                        }
-                    },
-                }
+                        },
+                    }
 
-                const padding = abi_size - (math.cast(usize, math.divCeil(
-                    u64,
-                    Type.fromInterned(vector_type.child).bitSize(mod) * vector_type.len,
-                    8,
-                ) catch |err| switch (err) {
-                    error.DivisionByZero => unreachable,
-                    else => |e| return e,
-                }) orelse return error.Overflow);
-                if (padding > 0) try code.appendNTimes(0, padding);
+                    const padding = abi_size -
+                        (math.cast(usize, Type.fromInterned(vector_type.child).abiSize(mod) * vector_type.len) orelse
+                        return error.Overflow);
+                    if (padding > 0) try code.appendNTimes(0, padding);
+                }
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
@@ -486,23 +456,20 @@ pub fn generateSymbol(
                     const field_val = switch (aggregate.storage) {
                         .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                             .ty = field_ty,
-                            .storage = .{ .u64 = bytes[index] },
+                            .storage = .{ .u64 = bytes.at(index, ip) },
                         } }),
                         .elems => |elems| elems[index],
                         .repeated_elem => |elem| elem,
                     };
 
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = Type.fromInterned(field_ty),
-                        .val = Value.fromInterned(field_val),
-                    }, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(field_val), code, debug_output, reloc_info)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
                     const unpadded_field_end = code.items.len - struct_begin;
 
                     // Pad struct members if required
-                    const padded_field_end = typed_value.ty.structFieldOffset(index + 1, mod);
+                    const padded_field_end = ty.structFieldOffset(index + 1, mod);
                     const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse
                         return error.Overflow;
 
@@ -511,123 +478,111 @@ pub fn generateSymbol(
                     }
                 }
             },
-            .struct_type => |struct_type| switch (struct_type.layout) {
-                .Packed => {
-                    const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
-                        return error.Overflow;
-                    const current_pos = code.items.len;
-                    try code.resize(current_pos + abi_size);
-                    var bits: u16 = 0;
+            .struct_type => {
+                const struct_type = ip.loadStructType(ty.toIntern());
+                switch (struct_type.layout) {
+                    .@"packed" => {
+                        const abi_size = math.cast(usize, ty.abiSize(mod)) orelse
+                            return error.Overflow;
+                        const current_pos = code.items.len;
+                        try code.appendNTimes(0, abi_size);
+                        var bits: u16 = 0;
 
-                    for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
-                        const field_val = switch (aggregate.storage) {
-                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field_ty,
-                                .storage = .{ .u64 = bytes[index] },
-                            } }),
-                            .elems => |elems| elems[index],
-                            .repeated_elem => |elem| elem,
-                        };
+                        for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
+                            const field_val = switch (aggregate.storage) {
+                                .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
+                                    .ty = field_ty,
+                                    .storage = .{ .u64 = bytes.at(index, ip) },
+                                } }),
+                                .elems => |elems| elems[index],
+                                .repeated_elem => |elem| elem,
+                            };
 
-                        // pointer may point to a decl which must be marked used
-                        // but can also result in a relocation. Therefore we handle those separately.
-                        if (Type.fromInterned(field_ty).zigTypeTag(mod) == .Pointer) {
-                            const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(mod)) orelse
-                                return error.Overflow;
-                            var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
-                            defer tmp_list.deinit();
-                            switch (try generateSymbol(bin_file, src_loc, .{
-                                .ty = Type.fromInterned(field_ty),
-                                .val = Value.fromInterned(field_val),
-                            }, &tmp_list, debug_output, reloc_info)) {
-                                .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
+                            // pointer may point to a decl which must be marked used
+                            // but can also result in a relocation. Therefore we handle those separately.
+                            if (Type.fromInterned(field_ty).zigTypeTag(mod) == .Pointer) {
+                                const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(mod)) orelse
+                                    return error.Overflow;
+                                var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
+                                defer tmp_list.deinit();
+                                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(field_val), &tmp_list, debug_output, reloc_info)) {
+                                    .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
+                                    .fail => |em| return Result{ .fail = em },
+                                }
+                            } else {
+                                Value.fromInterned(field_val).writeToPackedMemory(Type.fromInterned(field_ty), mod, code.items[current_pos..], bits) catch unreachable;
+                            }
+                            bits += @intCast(Type.fromInterned(field_ty).bitSize(mod));
+                        }
+                    },
+                    .auto, .@"extern" => {
+                        const struct_begin = code.items.len;
+                        const field_types = struct_type.field_types.get(ip);
+                        const offsets = struct_type.offsets.get(ip);
+
+                        var it = struct_type.iterateRuntimeOrder(ip);
+                        while (it.next()) |field_index| {
+                            const field_ty = field_types[field_index];
+                            if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
+
+                            const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                                .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
+                                    .ty = field_ty,
+                                    .storage = .{ .u64 = bytes.at(field_index, ip) },
+                                } }),
+                                .elems => |elems| elems[field_index],
+                                .repeated_elem => |elem| elem,
+                            };
+
+                            const padding = math.cast(
+                                usize,
+                                offsets[field_index] - (code.items.len - struct_begin),
+                            ) orelse return error.Overflow;
+                            if (padding > 0) try code.appendNTimes(0, padding);
+
+                            switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(field_val), code, debug_output, reloc_info)) {
+                                .ok => {},
                                 .fail => |em| return Result{ .fail = em },
                             }
-                        } else {
-                            Value.fromInterned(field_val).writeToPackedMemory(Type.fromInterned(field_ty), mod, code.items[current_pos..], bits) catch unreachable;
                         }
-                        bits += @as(u16, @intCast(Type.fromInterned(field_ty).bitSize(mod)));
-                    }
-                },
-                .Auto, .Extern => {
-                    const struct_begin = code.items.len;
-                    const field_types = struct_type.field_types.get(ip);
-                    const offsets = struct_type.offsets.get(ip);
 
-                    var it = struct_type.iterateRuntimeOrder(ip);
-                    while (it.next()) |field_index| {
-                        const field_ty = field_types[field_index];
-                        if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
-
-                        const field_val = switch (ip.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
-                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field_ty,
-                                .storage = .{ .u64 = bytes[field_index] },
-                            } }),
-                            .elems => |elems| elems[field_index],
-                            .repeated_elem => |elem| elem,
-                        };
+                        const size = struct_type.size(ip).*;
+                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnits().?;
 
                         const padding = math.cast(
                             usize,
-                            offsets[field_index] - (code.items.len - struct_begin),
+                            std.mem.alignForward(u64, size, @max(alignment, 1)) -
+                                (code.items.len - struct_begin),
                         ) orelse return error.Overflow;
                         if (padding > 0) try code.appendNTimes(0, padding);
-
-                        switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = Type.fromInterned(field_ty),
-                            .val = Value.fromInterned(field_val),
-                        }, code, debug_output, reloc_info)) {
-                            .ok => {},
-                            .fail => |em| return Result{ .fail = em },
-                        }
-                    }
-
-                    const size = struct_type.size(ip).*;
-                    const alignment = struct_type.flagsPtr(ip).alignment.toByteUnitsOptional().?;
-
-                    const padding = math.cast(
-                        usize,
-                        std.mem.alignForward(u64, size, @max(alignment, 1)) -
-                            (code.items.len - struct_begin),
-                    ) orelse return error.Overflow;
-                    if (padding > 0) try code.appendNTimes(0, padding);
-                },
+                    },
+                }
             },
             else => unreachable,
         },
         .un => |un| {
-            const layout = typed_value.ty.unionGetLayout(mod);
+            const layout = ty.unionGetLayout(mod);
 
             if (layout.payload_size == 0) {
-                return generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
-                    .val = Value.fromInterned(un.tag),
-                }, code, debug_output, reloc_info);
+                return generateSymbol(bin_file, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info);
             }
 
             // Check if we should store the tag first.
             if (layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align)) {
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagTypeSafety(mod).?,
-                    .val = Value.fromInterned(un.tag),
-                }, code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
 
-            const union_obj = mod.typeToUnion(typed_value.ty).?;
+            const union_obj = mod.typeToUnion(ty).?;
             if (un.tag != .none) {
-                const field_index = typed_value.ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
+                const field_index = ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
                 const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                 if (!field_ty.hasRuntimeBits(mod)) {
                     try code.appendNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
                 } else {
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = field_ty,
-                        .val = Value.fromInterned(un.val),
-                    }, code, debug_output, reloc_info)) {
+                    switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(un.val), code, debug_output, reloc_info)) {
                         .ok => {},
                         .fail => |em| return Result{ .fail = em },
                     }
@@ -638,20 +593,14 @@ pub fn generateSymbol(
                     }
                 }
             } else {
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.fromInterned(ip.typeOf(un.val)),
-                    .val = Value.fromInterned(un.val),
-                }, code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(un.val), code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
             }
 
             if (layout.tag_size > 0 and layout.tag_align.compare(.lt, layout.payload_align)) {
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.fromInterned(union_obj.enum_tag_ty),
-                    .val = Value.fromInterned(un.tag),
-                }, code, debug_output, reloc_info)) {
+                switch (try generateSymbol(bin_file, src_loc, Value.fromInterned(un.tag), code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
                 }
@@ -666,123 +615,88 @@ pub fn generateSymbol(
     return .ok;
 }
 
-fn lowerParentPtr(
+fn lowerPtr(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    parent_ptr: InternPool.Index,
+    ptr_val: InternPool.Index,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    prev_offset: u64,
 ) CodeGenError!Result {
-    const mod = bin_file.comp.module.?;
-    const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
-    assert(ptr.len == .none);
-    return switch (ptr.addr) {
-        .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
-        .mut_decl => |md| try lowerDeclRef(bin_file, src_loc, md.decl, code, debug_output, reloc_info),
-        .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info),
-        .int => |int| try generateSymbol(bin_file, src_loc, .{
-            .ty = Type.usize,
-            .val = Value.fromInterned(int),
-        }, code, debug_output, reloc_info),
-        .eu_payload => |eu_payload| try lowerParentPtr(
+    const zcu = bin_file.comp.module.?;
+    const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
+    const offset: u64 = prev_offset + ptr.byte_offset;
+    return switch (ptr.base_addr) {
+        .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info, offset),
+        .anon_decl => |ad| try lowerAnonDeclRef(bin_file, src_loc, ad, code, debug_output, reloc_info, offset),
+        .int => try generateSymbol(bin_file, src_loc, try zcu.intValue(Type.usize, offset), code, debug_output, reloc_info),
+        .eu_payload => |eu_ptr| try lowerPtr(
             bin_file,
             src_loc,
-            eu_payload,
-            code,
-            debug_output,
-            reloc_info.offset(@as(u32, @intCast(errUnionPayloadOffset(
-                Type.fromInterned(mod.intern_pool.typeOf(eu_payload)),
-                mod,
-            )))),
-        ),
-        .opt_payload => |opt_payload| try lowerParentPtr(
-            bin_file,
-            src_loc,
-            opt_payload,
+            eu_ptr,
             code,
             debug_output,
             reloc_info,
+            offset + errUnionPayloadOffset(
+                Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu).errorUnionPayload(zcu),
+                zcu,
+            ),
         ),
-        .elem => |elem| try lowerParentPtr(
+        .opt_payload => |opt_ptr| try lowerPtr(
             bin_file,
             src_loc,
-            elem.base,
+            opt_ptr,
             code,
             debug_output,
-            reloc_info.offset(@as(u32, @intCast(elem.index *
-                Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).abiSize(mod)))),
+            reloc_info,
+            offset,
         ),
         .field => |field| {
-            const base_ptr_ty = mod.intern_pool.typeOf(field.base);
-            const base_ty = mod.intern_pool.indexToKey(base_ptr_ty).ptr_type.child;
-            return lowerParentPtr(
-                bin_file,
-                src_loc,
-                field.base,
-                code,
-                debug_output,
-                reloc_info.offset(switch (mod.intern_pool.indexToKey(base_ty)) {
-                    .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                        .One, .Many, .C => unreachable,
-                        .Slice => switch (field.index) {
-                            0 => 0,
-                            1 => @divExact(mod.getTarget().ptrBitWidth(), 8),
-                            else => unreachable,
-                        },
-                    },
-                    .struct_type,
-                    .anon_struct_type,
-                    .union_type,
-                    => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
-                        .Auto, .Extern => @intCast(Type.fromInterned(base_ty).structFieldOffset(
-                            @intCast(field.index),
-                            mod,
-                        )),
-                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
-                            if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
-                                @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
-                                    .packed_offset.bit_offset + mod.structPackedFieldBitOffset(
-                                    struct_obj,
-                                    @intCast(field.index),
-                                ), 8)
-                            else
-                                0
-                        else
-                            0,
-                    },
-                    else => unreachable,
-                }),
-            );
+            const base_ptr = Value.fromInterned(field.base);
+            const base_ty = base_ptr.typeOf(zcu).childType(zcu);
+            const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
+                .Pointer => off: {
+                    assert(base_ty.isSlice(zcu));
+                    break :off switch (field.index) {
+                        Value.slice_ptr_index => 0,
+                        Value.slice_len_index => @divExact(zcu.getTarget().ptrBitWidth(), 8),
+                        else => unreachable,
+                    };
+                },
+                .Struct, .Union => switch (base_ty.containerLayout(zcu)) {
+                    .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
+                    .@"extern", .@"packed" => unreachable,
+                },
+                else => unreachable,
+            };
+            return lowerPtr(bin_file, src_loc, field.base, code, debug_output, reloc_info, offset + field_off);
         },
-        .comptime_field => unreachable,
+        .arr_elem, .comptime_field, .comptime_alloc => unreachable,
     };
 }
 
 const RelocInfo = struct {
     parent_atom_index: u32,
-    addend: ?u32 = null,
-
-    fn offset(ri: RelocInfo, addend: u32) RelocInfo {
-        return .{ .parent_atom_index = ri.parent_atom_index, .addend = (ri.addend orelse 0) + addend };
-    }
 };
 
 fn lowerAnonDeclRef(
     lf: *link.File,
     src_loc: Module.SrcLoc,
-    anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+    anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    offset: u64,
 ) CodeGenError!Result {
     _ = debug_output;
     const zcu = lf.comp.module.?;
+    const ip = &zcu.intern_pool;
     const target = lf.comp.root_mod.resolved_target.result;
 
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const decl_val = anon_decl.val;
-    const decl_ty = Type.fromInterned(zcu.intern_pool.typeOf(decl_val));
+    const decl_ty = Type.fromInterned(ip.typeOf(decl_val));
     log.debug("lowerAnonDecl: ty = {}", .{decl_ty.fmt(zcu)});
     const is_fn_body = decl_ty.zigTypeTag(zcu) == .Fn;
     if (!is_fn_body and !decl_ty.hasRuntimeBits(zcu)) {
@@ -790,7 +704,7 @@ fn lowerAnonDeclRef(
         return Result.ok;
     }
 
-    const decl_align = zcu.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
+    const decl_align = ip.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
     const res = try lf.lowerAnonDecl(decl_val, decl_align, src_loc);
     switch (res) {
         .ok => {},
@@ -800,7 +714,7 @@ fn lowerAnonDeclRef(
     const vaddr = try lf.getAnonDeclVAddr(decl_val, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
-        .addend = reloc_info.addend orelse 0,
+        .addend = @intCast(offset),
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width_bytes) {
@@ -820,6 +734,7 @@ fn lowerDeclRef(
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
+    offset: u64,
 ) CodeGenError!Result {
     _ = src_loc;
     _ = debug_output;
@@ -829,23 +744,21 @@ fn lowerDeclRef(
     const target = namespace.file_scope.mod.resolved_target.result;
 
     const ptr_width = target.ptrBitWidth();
-    const is_fn_body = decl.ty.zigTypeTag(zcu) == .Fn;
-    if (!is_fn_body and !decl.ty.hasRuntimeBits(zcu)) {
+    const is_fn_body = decl.typeOf(zcu).zigTypeTag(zcu) == .Fn;
+    if (!is_fn_body and !decl.typeOf(zcu).hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
         return Result.ok;
     }
 
-    try zcu.markDeclAlive(decl);
-
     const vaddr = try lf.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
-        .addend = reloc_info.addend orelse 0,
+        .addend = @intCast(offset),
     });
     const endian = target.cpu.arch.endian();
     switch (ptr_width) {
-        16 => mem.writeInt(u16, try code.addManyAsArray(2), @as(u16, @intCast(vaddr)), endian),
-        32 => mem.writeInt(u32, try code.addManyAsArray(4), @as(u32, @intCast(vaddr)), endian),
+        16 => mem.writeInt(u16, try code.addManyAsArray(2), @intCast(vaddr), endian),
+        32 => mem.writeInt(u32, try code.addManyAsArray(4), @intCast(vaddr), endian),
         64 => mem.writeInt(u64, try code.addManyAsArray(8), vaddr, endian),
         else => unreachable,
     }
@@ -912,11 +825,13 @@ pub const GenResult = union(enum) {
 fn genDeclRef(
     lf: *link.File,
     src_loc: Module.SrcLoc,
-    tv: TypedValue,
+    val: Value,
     ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
-    log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(zcu), tv.val.fmtValue(tv.ty, zcu) });
+    const ip = &zcu.intern_pool;
+    const ty = val.typeOf(zcu);
+    log.debug("genDeclRef: val = {}", .{val.fmtValue(zcu, null)});
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
@@ -925,14 +840,14 @@ fn genDeclRef(
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const decl_index = switch (zcu.intern_pool.indexToKey(try ptr_decl.internValue(zcu))) {
+    const decl_index = switch (ip.indexToKey(ptr_decl.val.toIntern())) {
         .func => |func| func.owner_decl,
         .extern_func => |extern_func| extern_func.decl,
         else => ptr_decl_index,
     };
     const decl = zcu.declPtr(decl_index);
 
-    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+    if (!decl.typeOf(zcu).isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
         const imm: u64 = switch (ptr_bytes) {
             1 => 0xaa,
             2 => 0xaaaa,
@@ -947,32 +862,27 @@ fn genDeclRef(
     const gpa = comp.gpa;
 
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (tv.ty.castPtrToFn(zcu)) |fn_ty| {
+    if (ty.castPtrToFn(zcu)) |fn_ty| {
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(zcu).toByteUnitsOptional().? });
+            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? });
         }
-    } else if (tv.ty.zigTypeTag(zcu) == .Pointer) {
-        const elem_ty = tv.ty.elemType2(zcu);
+    } else if (ty.zigTypeTag(zcu) == .Pointer) {
+        const elem_ty = ty.elemType2(zcu);
         if (!elem_ty.hasRuntimeBits(zcu)) {
-            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnitsOptional().? });
+            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? });
         }
     }
 
-    try zcu.markDeclAlive(decl);
-
     const decl_namespace = zcu.namespacePtr(decl.src_namespace);
     const single_threaded = decl_namespace.file_scope.mod.single_threaded;
-    const is_threadlocal = tv.val.isPtrToThreadLocal(zcu) and !single_threaded;
+    const is_threadlocal = val.isPtrToThreadLocal(zcu) and !single_threaded;
     const is_extern = decl.isExtern(zcu);
 
     if (lf.cast(link.File.Elf)) |elf_file| {
         if (is_extern) {
-            const name = zcu.intern_pool.stringToSlice(decl.name);
+            const name = decl.name.toSlice(ip);
             // TODO audit this
-            const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
-                zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
-            else
-                null;
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
             elf_file.symbol(elf_file.zigObjectPtr().?.symbol(sym_index)).flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
@@ -985,27 +895,23 @@ fn genDeclRef(
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
         if (is_extern) {
-            // TODO make this part of getGlobalSymbol
-            const name = zcu.intern_pool.stringToSlice(decl.name);
-            const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
-            defer gpa.free(sym_name);
-            const global_index = try macho_file.addUndefined(sym_name, .{ .add_got = true });
-            return GenResult.mcv(.{ .load_got = link.File.MachO.global_symbol_bit | global_index });
+            const name = decl.name.toSlice(ip);
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
+            const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
+            macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
+            return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);
-        const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
+        const sym = macho_file.getSymbol(sym_index);
         if (is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym_index });
+            return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
         }
-        return GenResult.mcv(.{ .load_got = sym_index });
+        return GenResult.mcv(.{ .load_symbol = sym.nlist_idx });
     } else if (lf.cast(link.File.Coff)) |coff_file| {
         if (is_extern) {
-            const name = zcu.intern_pool.stringToSlice(decl.name);
+            const name = decl.name.toSlice(ip);
             // TODO audit this
-            const lib_name = if (decl.getOwnedVariable(zcu)) |ov|
-                zcu.intern_pool.stringToSliceUnwrap(ov.lib_name)
-            else
-                null;
+            const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const global_index = try coff_file.getGlobalSymbol(name, lib_name);
             try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
             return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
@@ -1025,14 +931,14 @@ fn genDeclRef(
 fn genUnnamedConst(
     lf: *link.File,
     src_loc: Module.SrcLoc,
-    tv: TypedValue,
+    val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
     const gpa = lf.comp.gpa;
-    log.debug("genUnnamedConst: ty = {}, val = {}", .{ tv.ty.fmt(zcu), tv.val.fmtValue(tv.ty, zcu) });
+    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(zcu, null)});
 
-    const local_sym_index = lf.lowerUnnamedConst(tv, owner_decl_index) catch |err| {
+    const local_sym_index = lf.lowerUnnamedConst(val, owner_decl_index) catch |err| {
         return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
     };
     switch (lf.tag) {
@@ -1041,7 +947,12 @@ fn genUnnamedConst(
             const local = elf_file.symbol(local_sym_index);
             return GenResult.mcv(.{ .load_symbol = local.esym_index });
         },
-        .macho, .coff => {
+        .macho => {
+            const macho_file = lf.cast(link.File.MachO).?;
+            const local = macho_file.getSymbol(local_sym_index);
+            return GenResult.mcv(.{ .load_symbol = local.nlist_idx });
+        },
+        .coff => {
             return GenResult.mcv(.{ .load_direct = local_sym_index });
         },
         .plan9 => {
@@ -1059,18 +970,16 @@ fn genUnnamedConst(
 pub fn genTypedValue(
     lf: *link.File,
     src_loc: Module.SrcLoc,
-    arg_tv: TypedValue,
+    val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
-    const typed_value = arg_tv;
+    const ip = &zcu.intern_pool;
+    const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: ty = {}, val = {}", .{
-        typed_value.ty.fmt(zcu),
-        typed_value.val.fmtValue(typed_value.ty, zcu),
-    });
+    log.debug("genTypedValue: val = {}", .{val.fmtValue(zcu, null)});
 
-    if (typed_value.val.isUndef(zcu))
+    if (val.isUndef(zcu))
         return GenResult.mcv(.undef);
 
     const owner_decl = zcu.declPtr(owner_decl_index);
@@ -1078,86 +987,92 @@ pub fn genTypedValue(
     const target = namespace.file_scope.mod.resolved_target.result;
     const ptr_bits = target.ptrBitWidth();
 
-    if (!typed_value.ty.isSlice(zcu)) switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| return genDeclRef(lf, src_loc, typed_value, decl),
-            .mut_decl => |mut_decl| return genDeclRef(lf, src_loc, typed_value, mut_decl.decl),
+    if (!ty.isSlice(zcu)) switch (ip.indexToKey(val.toIntern())) {
+        .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
+            .decl => |decl| return genDeclRef(lf, src_loc, val, decl),
             else => {},
         },
         else => {},
     };
 
-    switch (typed_value.ty.zigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .Void => return GenResult.mcv(.none),
-        .Pointer => switch (typed_value.ty.ptrSize(zcu)) {
+        .Pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {},
-            else => switch (typed_value.val.toIntern()) {
+            else => switch (val.toIntern()) {
                 .null_value => {
                     return GenResult.mcv(.{ .immediate = 0 });
                 },
                 .none => {},
-                else => switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern())) {
+                else => switch (ip.indexToKey(val.toIntern())) {
                     .int => {
-                        return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(zcu) });
+                        return GenResult.mcv(.{ .immediate = val.toUnsignedInt(zcu) });
                     },
                     else => {},
                 },
             },
         },
         .Int => {
-            const info = typed_value.ty.intInfo(zcu);
+            const info = ty.intInfo(zcu);
             if (info.bits <= ptr_bits) {
-                const unsigned = switch (info.signedness) {
-                    .signed => @as(u64, @bitCast(typed_value.val.toSignedInt(zcu))),
-                    .unsigned => typed_value.val.toUnsignedInt(zcu),
+                const unsigned: u64 = switch (info.signedness) {
+                    .signed => @bitCast(val.toSignedInt(zcu)),
+                    .unsigned => val.toUnsignedInt(zcu),
                 };
                 return GenResult.mcv(.{ .immediate = unsigned });
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @intFromBool(typed_value.val.toBool()) });
+            return GenResult.mcv(.{ .immediate = @intFromBool(val.toBool()) });
         },
         .Optional => {
-            if (typed_value.ty.isPtrLikeOptional(zcu)) {
-                return genTypedValue(lf, src_loc, .{
-                    .ty = typed_value.ty.optionalChild(zcu),
-                    .val = typed_value.val.optionalValue(zcu) orelse return GenResult.mcv(.{ .immediate = 0 }),
-                }, owner_decl_index);
-            } else if (typed_value.ty.abiSize(zcu) == 1) {
-                return GenResult.mcv(.{ .immediate = @intFromBool(!typed_value.val.isNull(zcu)) });
+            if (ty.isPtrLikeOptional(zcu)) {
+                return genTypedValue(
+                    lf,
+                    src_loc,
+                    val.optionalValue(zcu) orelse return GenResult.mcv(.{ .immediate = 0 }),
+                    owner_decl_index,
+                );
+            } else if (ty.abiSize(zcu) == 1) {
+                return GenResult.mcv(.{ .immediate = @intFromBool(!val.isNull(zcu)) });
             }
         },
         .Enum => {
-            const enum_tag = zcu.intern_pool.indexToKey(typed_value.val.toIntern()).enum_tag;
-            const int_tag_ty = zcu.intern_pool.typeOf(enum_tag.int);
-            return genTypedValue(lf, src_loc, .{
-                .ty = Type.fromInterned(int_tag_ty),
-                .val = Value.fromInterned(enum_tag.int),
-            }, owner_decl_index);
+            const enum_tag = ip.indexToKey(val.toIntern()).enum_tag;
+            return genTypedValue(
+                lf,
+                src_loc,
+                Value.fromInterned(enum_tag.int),
+                owner_decl_index,
+            );
         },
         .ErrorSet => {
-            const err_name = zcu.intern_pool.indexToKey(typed_value.val.toIntern()).err.name;
+            const err_name = ip.indexToKey(val.toIntern()).err.name;
             const error_index = zcu.global_error_set.getIndex(err_name).?;
             return GenResult.mcv(.{ .immediate = error_index });
         },
         .ErrorUnion => {
-            const err_type = typed_value.ty.errorUnionSet(zcu);
-            const payload_type = typed_value.ty.errorUnionPayload(zcu);
+            const err_type = ty.errorUnionSet(zcu);
+            const payload_type = ty.errorUnionPayload(zcu);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(zcu)) {
                 // We use the error type directly as the type.
                 const err_int_ty = try zcu.errorIntType();
-                switch (zcu.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
-                    .err_name => |err_name| return genTypedValue(lf, src_loc, .{
-                        .ty = err_type,
-                        .val = Value.fromInterned((try zcu.intern(.{ .err = .{
+                switch (ip.indexToKey(val.toIntern()).error_union.val) {
+                    .err_name => |err_name| return genTypedValue(
+                        lf,
+                        src_loc,
+                        Value.fromInterned(try zcu.intern(.{ .err = .{
                             .ty = err_type.toIntern(),
                             .name = err_name,
-                        } }))),
-                    }, owner_decl_index),
-                    .payload => return genTypedValue(lf, src_loc, .{
-                        .ty = err_int_ty,
-                        .val = try zcu.intValue(err_int_ty, 0),
-                    }, owner_decl_index),
+                        } })),
+                        owner_decl_index,
+                    ),
+                    .payload => return genTypedValue(
+                        lf,
+                        src_loc,
+                        try zcu.intValue(err_int_ty, 0),
+                        owner_decl_index,
+                    ),
                 }
             }
         },
@@ -1174,7 +1089,7 @@ pub fn genTypedValue(
         else => {},
     }
 
-    return genUnnamedConst(lf, src_loc, typed_value, owner_decl_index);
+    return genUnnamedConst(lf, src_loc, val, owner_decl_index);
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u64 {

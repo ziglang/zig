@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-file-l1-2-3
+
+EXPORTS
+
+GetDiskSpaceInformationA@8
+GetDiskSpaceInformationW@8

@@ -341,3 +341,20 @@ pub extern "ntdll" fn NtProtectVirtualMemory(
 pub extern "ntdll" fn RtlExitUserProcess(
     ExitStatus: u32,
 ) callconv(WINAPI) noreturn;
+
+pub extern "ntdll" fn NtCreateNamedPipeFile(
+    FileHandle: *HANDLE,
+    DesiredAccess: ULONG,
+    ObjectAttributes: *OBJECT_ATTRIBUTES,
+    IoStatusBlock: *IO_STATUS_BLOCK,
+    ShareAccess: ULONG,
+    CreateDisposition: ULONG,
+    CreateOptions: ULONG,
+    NamedPipeType: ULONG,
+    ReadMode: ULONG,
+    CompletionMode: ULONG,
+    MaximumInstances: ULONG,
+    InboundQuota: ULONG,
+    OutboundQuota: ULONG,
+    DefaultTimeout: *LARGE_INTEGER,
+) callconv(WINAPI) NTSTATUS;

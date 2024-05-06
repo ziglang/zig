@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-state-helpers-l1-1-0
+
+EXPORTS
+
+GetRegistryValueWithFallbackW@40

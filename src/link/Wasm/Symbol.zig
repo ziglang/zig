@@ -1,12 +1,8 @@
-//! Represents a wasm symbol. Containing all of its properties,
+//! Represents a WebAssembly symbol. Containing all of its properties,
 //! as well as providing helper methods to determine its functionality
 //! and how it will/must be linked.
 //! The name of the symbol can be found by providing the offset, found
 //! on the `name` field, to a string table in the wasm binary or object file.
-const Symbol = @This();
-
-const std = @import("std");
-const types = @import("types.zig");
 
 /// Bitfield containings flags for a symbol
 /// Can contain any of the flags defined in `Flag`
@@ -23,6 +19,12 @@ tag: Tag,
 /// Contains the virtual address of the symbol, relative to the start of its section.
 /// This differs from the offset of an `Atom` which is relative to the start of a segment.
 virtual_address: u32,
+
+/// Represents a symbol index where `null` represents an invalid index.
+pub const Index = enum(u32) {
+    null,
+    _,
+};
 
 pub const Tag = enum {
     function,
@@ -202,3 +204,7 @@ pub fn format(symbol: Symbol, comptime fmt: []const u8, options: std.fmt.FormatO
         .{ kind_fmt, binding, visible, symbol.index, symbol.name, undef },
     );
 }
+
+const std = @import("std");
+const types = @import("types.zig");
+const Symbol = @This();

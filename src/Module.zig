@@ -13,21 +13,21 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
+const LazySrcLoc = std.zig.LazySrcLoc;
 
 /// Deprecated, use `Zcu`.
 const Module = Zcu;
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const trace = @import("tracy.zig").trace;
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
@@ -100,23 +100,6 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
-/// The index type for this array is `CaptureScope.Index` and the elements here are
-/// the indexes of the parent capture scopes.
-/// Memory is owned by gpa; garbage collected.
-capture_scope_parents: std.ArrayListUnmanaged(CaptureScope.Index) = .{},
-/// Value is index of type
-/// Memory is owned by gpa; garbage collected.
-runtime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-/// Value is index of value
-/// Memory is owned by gpa; garbage collected.
-comptime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-
-/// To be eliminated in a future commit by moving more data into InternPool.
-/// Current uses that must be eliminated:
-/// * comptime pointer mutation
-/// This memory lives until the Module is destroyed.
-tmp_hack_arena: std.heap.ArenaAllocator,
-
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -144,10 +127,26 @@ global_error_set: GlobalErrorSet = .{},
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
-/// Incrementing integer used to compare against the corresponding Decl
-/// field to determine whether a Decl's status applies to an ongoing update, or a
-/// previous analysis.
-generation: u32 = 0,
+/// Value is the number of PO or outdated Decls which this Depender depends on.
+potentially_outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
+/// Value is the number of PO or outdated Decls which this Depender depends on.
+/// Once this value drops to 0, the Depender is a candidate for re-analysis.
+outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
+/// This contains all `Depender`s in `outdated` whose PO dependency count is 0.
+/// Such `Depender`s are ready for immediate re-analysis.
+/// See `findOutdatedToAnalyze` for details.
+outdated_ready: std.AutoArrayHashMapUnmanaged(InternPool.Depender, void) = .{},
+/// This contains a set of Decls which may not be in `outdated`, but are the
+/// root Decls of files which have updated source and thus must be re-analyzed.
+/// If such a Decl is only in this set, the struct type index may be preserved
+/// (only the namespace might change). If such a Decl is also `outdated`, the
+/// struct type index must be recreated.
+outdated_file_root: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+/// This contains a list of Dependers whose analysis or codegen failed, but the
+/// failure was something like running out of disk space, and trying again may
+/// succeed. On the next update, we will flush this list, marking all members of
+/// it as outdated.
+retryable_failures: std.ArrayListUnmanaged(InternPool.Depender) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -273,7 +272,7 @@ pub const Export = struct {
 
     pub const Options = struct {
         name: InternPool.NullTerminatedString,
-        linkage: std.builtin.GlobalLinkage = .Strong,
+        linkage: std.builtin.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
     };
@@ -288,28 +287,6 @@ pub const Export = struct {
     }
 };
 
-pub const CaptureScope = struct {
-    pub const Key = extern struct {
-        zir_index: Zir.Inst.Index,
-        index: Index,
-    };
-
-    /// Index into `capture_scope_parents` which uniquely identifies a capture scope.
-    pub const Index = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn parent(i: Index, mod: *Module) Index {
-            return mod.capture_scope_parents.items[@intFromEnum(i)];
-        }
-    };
-};
-
-pub fn createCaptureScope(mod: *Module, parent: CaptureScope.Index) error{OutOfMemory}!CaptureScope.Index {
-    try mod.capture_scope_parents.append(mod.gpa, parent);
-    return @enumFromInt(mod.capture_scope_parents.items.len - 1);
-}
-
 const ValueArena = struct {
     state: std.heap.ArenaAllocator.State,
     state_acquired: ?*std.heap.ArenaAllocator.State = null,
@@ -322,7 +299,7 @@ const ValueArena = struct {
     /// and must live until the matching call to release().
     pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
         if (self.state_acquired) |state_acquired| {
-            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
+            return @as(*std.heap.ArenaAllocator, @fieldParentPtr("state", state_acquired)).allocator();
         }
 
         out_arena_allocator.* = self.state.promote(child_allocator);
@@ -332,7 +309,7 @@ const ValueArena = struct {
 
     /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
     pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
-        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
+        if (@as(*std.heap.ArenaAllocator, @fieldParentPtr("state", self.state_acquired.?)) == arena_allocator) {
             self.state = self.state_acquired.?.*;
             self.state_acquired = null;
         }
@@ -352,9 +329,6 @@ const ValueArena = struct {
 
 pub const Decl = struct {
     name: InternPool.NullTerminatedString,
-    /// The most recent Type of the Decl after a successful semantic analysis.
-    /// Populated when `has_tv`.
-    ty: Type,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -364,21 +338,11 @@ pub const Decl = struct {
     alignment: Alignment,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The direct parent namespace of the Decl.
-    /// Reference to externally owned memory.
-    /// In the case of the Decl corresponding to a file, this is
-    /// the namespace of the struct, since there is no parent.
+    /// The direct parent namespace of the Decl. In the case of the Decl
+    /// corresponding to a file, this is the namespace of the struct, since
+    /// there is no parent.
     src_namespace: Namespace.Index,
 
-    /// The scope which lexically contains this decl.  A decl must depend
-    /// on its lexical parent, in order to ensure that this pointer is valid.
-    /// This scope is allocated out of the arena of the parent decl.
-    src_scope: CaptureScope.Index,
-
-    /// An integer that can be checked against the corresponding incrementing
-    /// generation field of Module. This is used to determine whether `complete` status
-    /// represents pre- or post- re-analysis.
-    generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: Ast.Node.Index,
@@ -386,11 +350,9 @@ pub const Decl = struct {
     /// do not need to be loaded into memory in order to compute debug line numbers.
     /// This value is absolute.
     src_line: u32,
-    /// Index to ZIR `extra` array to the entry in the parent's decl structure
-    /// (the part that says "for every decls_len"). The first item at this index is
-    /// the contents hash, followed by line, name, etc.
-    /// For anonymous decls and also the root Decl for a File, this is `none`.
-    zir_decl_index: Zir.OptionalExtraIndex,
+    /// Index of the ZIR `declaration` instruction from which this `Decl` was created.
+    /// For the root `Decl` of a `File` and legacy anonymous decls, this is `.none`.
+    zir_decl_index: InternPool.TrackedInst.Index.Optional,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -404,33 +366,22 @@ pub const Decl = struct {
         /// This state detects dependency loops.
         in_progress,
         /// The file corresponding to this Decl had a parse error or ZIR error.
-        /// There will be a corresponding ErrorMsg in Module.failed_files.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_files.
         file_failure,
-        /// This Decl might be OK but it depends on another one which did not successfully complete
-        /// semantic analysis.
+        /// This Decl might be OK but it depends on another one which did not
+        /// successfully complete semantic analysis.
         dependency_failure,
         /// Semantic analysis failure.
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         sema_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting semantic analysis again may succeed.
-        sema_failure_retryable,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        liveness_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         codegen_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting codegen again may succeed.
-        codegen_failure_retryable,
-        /// Everything is done. During an update, this Decl may be out of date, depending
-        /// on its dependencies. The `generation` field can be used to determine if this
-        /// completion status occurred before or after a given update.
+        /// Sematic analysis and constant value codegen of this Decl has
+        /// succeeded. However, the Decl may be outdated due to an in-progress
+        /// update. Note that for a function, this does not mean codegen of the
+        /// function body succeded: that state is indicated by the function's
+        /// `analysis` field.
         complete,
-        /// A Module update is in progress, and this Decl has been flagged as being known
-        /// to require re-analysis.
-        outdated,
     },
     /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
     has_tv: bool,
@@ -442,19 +393,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// Whether the ZIR code provides an align instruction.
-    has_align: bool,
-    /// Whether the ZIR code provides a linksection and address space instruction.
-    has_linksection_or_addrspace: bool,
-    /// Flag used by garbage collection to mark and sweep.
-    /// Decls which correspond to an AST node always have this field set to `true`.
-    /// Anonymous Decls are initialized with this field set to `false` and then it
-    /// is the responsibility of machine code backends to mark it `true` whenever
-    /// a `decl_ref` Value is encountered that points to this Decl.
-    /// When the `codegen_decl` job is encountered in the main work queue, if the
-    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
-    /// deletes the Decl on the spot.
-    alive: bool,
     /// If true `name` is already fully qualified.
     name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
@@ -471,81 +409,12 @@ pub const Decl = struct {
     const Index = InternPool.DeclIndex;
     const OptionalIndex = InternPool.OptionalDeclIndex;
 
-    pub const DepsTable = std.AutoArrayHashMapUnmanaged(Decl.Index, DepType);
-
-    /// Later types take priority; e.g. if a dependent decl has both `normal`
-    /// and `function_body` dependencies on another decl, it will be marked as
-    /// having a `function_body` dependency.
-    pub const DepType = enum {
-        /// The dependent references or uses the dependency's value, so must be
-        /// updated whenever it is changed. However, if the dependency is a
-        /// function and its type is unchanged, the dependent does not need to
-        /// be updated.
-        normal,
-        /// The dependent performs an inline or comptime call to the dependency,
-        /// or is a generic instantiation of it. It must therefore be updated
-        /// whenever the dependency is updated, even if the function type
-        /// remained the same.
-        function_body,
-    };
-
-    /// This name is relative to the containing namespace of the decl.
-    /// The memory is owned by the containing File ZIR.
-    pub fn getName(decl: Decl, mod: *Module) ?[:0]const u8 {
-        const zir = decl.getFileScope(mod).zir;
-        return decl.getNameZir(zir);
-    }
-
-    pub fn getNameZir(decl: Decl, zir: Zir) ?[:0]const u8 {
-        assert(decl.zir_decl_index != .none);
-        const name_index = zir.extra[@intFromEnum(decl.zir_decl_index) + 5];
-        if (name_index <= 1) return null;
-        return zir.nullTerminatedString(name_index);
-    }
-
-    pub fn contentsHash(decl: Decl, mod: *Module) std.zig.SrcHash {
-        const zir = decl.getFileScope(mod).zir;
-        return decl.contentsHashZir(zir);
-    }
-
-    pub fn contentsHashZir(decl: Decl, zir: Zir) std.zig.SrcHash {
-        assert(decl.zir_decl_index != .none);
-        const hash_u32s = zir.extra[@intFromEnum(decl.zir_decl_index)..][0..4];
-        const contents_hash = @as(std.zig.SrcHash, @bitCast(hash_u32s.*));
-        return contents_hash;
-    }
-
-    pub fn zirBlockIndex(decl: *const Decl, mod: *Module) Zir.Inst.Index {
-        assert(decl.zir_decl_index != .none);
-        const zir = decl.getFileScope(mod).zir;
-        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 6]);
-    }
-
-    pub fn zirAlignRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
-        if (!decl.has_align) return .none;
-        assert(decl.zir_decl_index != .none);
-        const zir = decl.getFileScope(mod).zir;
-        return @enumFromInt(zir.extra[@intFromEnum(decl.zir_decl_index) + 8]);
-    }
-
-    pub fn zirLinksectionRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
-        if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != .none);
-        const zir = decl.getFileScope(mod).zir;
-        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align);
-        return @enumFromInt(zir.extra[extra_index]);
-    }
-
-    pub fn zirAddrspaceRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
-        if (!decl.has_linksection_or_addrspace) return .none;
-        assert(decl.zir_decl_index != .none);
-        const zir = decl.getFileScope(mod).zir;
-        const extra_index = @intFromEnum(decl.zir_decl_index) + 8 + @intFromBool(decl.has_align) + 1;
-        return @enumFromInt(zir.extra[extra_index]);
-    }
-
-    pub fn relativeToLine(decl: Decl, offset: u32) u32 {
-        return decl.src_line + offset;
+    pub fn zirBodies(decl: Decl, zcu: *Zcu) Zir.Inst.Declaration.Bodies {
+        const zir = decl.getFileScope(zcu).zir;
+        const zir_index = decl.zir_decl_index.unwrap().?.resolve(&zcu.intern_pool);
+        const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
+        const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+        return extra.data.getBodies(@intCast(extra.end), zir);
     }
 
     pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
@@ -556,124 +425,53 @@ pub const Decl = struct {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(decl.src_node));
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
-        return .{ .token_offset = token_index - decl.srcToken() };
+    pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
+        return decl.nodeOffsetSrcLoc(0, zcu);
     }
 
-    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
-    }
-
-    pub fn srcLoc(decl: Decl, mod: *Module) SrcLoc {
-        return decl.nodeOffsetSrcLoc(0, mod);
-    }
-
-    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, mod: *Module) SrcLoc {
+    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, zcu: *Zcu) SrcLoc {
         return .{
-            .file_scope = decl.getFileScope(mod),
+            .file_scope = decl.getFileScope(zcu),
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
     }
 
-    pub fn srcToken(decl: Decl, mod: *Module) Ast.TokenIndex {
-        const tree = &decl.getFileScope(mod).tree;
-        return tree.firstToken(decl.src_node);
-    }
-
-    pub fn srcByteOffset(decl: Decl, mod: *Module) u32 {
-        const tree = &decl.getFileScope(mod).tree;
-        return tree.tokens.items(.start)[decl.srcToken()];
-    }
-
-    pub fn renderFullyQualifiedName(decl: Decl, mod: *Module, writer: anytype) !void {
+    pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
         if (decl.name_fully_qualified) {
-            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
+            try writer.print("{}", .{decl.name.fmt(&zcu.intern_pool)});
         } else {
-            try mod.namespacePtr(decl.src_namespace).renderFullyQualifiedName(mod, decl.name, writer);
+            try zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedName(zcu, decl.name, writer);
         }
     }
 
-    pub fn renderFullyQualifiedDebugName(decl: Decl, mod: *Module, writer: anytype) !void {
-        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(mod, decl.name, writer);
+    pub fn renderFullyQualifiedDebugName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
+        return zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(zcu, decl.name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, mod: *Module) !InternPool.NullTerminatedString {
-        if (decl.name_fully_qualified) return decl.name;
-
-        const ip = &mod.intern_pool;
-        const count = count: {
-            var count: usize = ip.stringToSlice(decl.name).len + 1;
-            var ns: Namespace.Index = decl.src_namespace;
-            while (true) {
-                const namespace = mod.namespacePtr(ns);
-                const ns_decl = mod.declPtr(namespace.getDeclIndex(mod));
-                count += ip.stringToSlice(ns_decl.name).len + 1;
-                ns = namespace.parent.unwrap() orelse {
-                    count += namespace.file_scope.sub_file_path.len;
-                    break :count count;
-                };
-            }
-        };
-
-        const gpa = mod.gpa;
-        const start = ip.string_bytes.items.len;
-        // Protects reads of interned strings from being reallocated during the call to
-        // renderFullyQualifiedName.
-        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
-        decl.renderFullyQualifiedName(mod, ip.string_bytes.writer(gpa)) catch unreachable;
-
-        // Sanitize the name for nvptx which is more restrictive.
-        // TODO This should be handled by the backend, not the frontend. Have a
-        // look at how the C backend does it for inspiration.
-        const cpu_arch = mod.root_mod.resolved_target.result.cpu.arch;
-        if (cpu_arch.isNvptx()) {
-            for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
-                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
-                else => {},
-            };
-        }
-
-        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+    pub fn fullyQualifiedName(decl: Decl, zcu: *Zcu) !InternPool.NullTerminatedString {
+        return if (decl.name_fully_qualified)
+            decl.name
+        else
+            zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(zcu, decl.name);
     }
 
-    pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
-        if (!decl.has_tv) return error.AnalysisFail;
-        return TypedValue{ .ty = decl.ty, .val = decl.val };
-    }
-
-    pub fn internValue(decl: *Decl, mod: *Module) Allocator.Error!InternPool.Index {
+    pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
         assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.ty, mod);
-        decl.val = Value.fromInterned(ip_index);
-        return ip_index;
+        return decl.val.typeOf(zcu);
     }
 
-    pub fn isFunction(decl: Decl, mod: *const Module) !bool {
-        const tv = try decl.typedValue();
-        return tv.ty.zigTypeTag(mod) == .Fn;
+    /// Small wrapper for Sema to use over direct access to the `val` field.
+    /// If the value is not populated, instead returns `error.AnalysisFail`.
+    pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
+        if (!decl.has_tv) return error.AnalysisFail;
+        return decl.val;
     }
 
-    /// If the Decl owns its value and it is a struct, return it,
-    /// otherwise null.
-    pub fn getOwnedStruct(decl: Decl, mod: *Module) ?InternPool.Key.StructType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return mod.typeToStruct(decl.val.toType());
-    }
-
-    /// If the Decl owns its value and it is a union, return it,
-    /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, mod: *Module) ?InternPool.UnionType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return mod.typeToUnion(decl.val.toType());
-    }
-
-    pub fn getOwnedFunction(decl: Decl, mod: *Module) ?InternPool.Key.Func {
+    pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
         const i = decl.getOwnedFunctionIndex();
         if (i == .none) return null;
-        return switch (mod.intern_pool.indexToKey(i)) {
+        return switch (zcu.intern_pool.indexToKey(i)) {
             .func => |func| func,
             else => null,
         };
@@ -686,93 +484,182 @@ pub const Decl = struct {
 
     /// If the Decl owns its value and it is an extern function, returns it,
     /// otherwise null.
-    pub fn getOwnedExternFunc(decl: Decl, mod: *Module) ?InternPool.Key.ExternFunc {
-        return if (decl.owns_tv) decl.val.getExternFunc(mod) else null;
+    pub fn getOwnedExternFunc(decl: Decl, zcu: *Zcu) ?InternPool.Key.ExternFunc {
+        return if (decl.owns_tv) decl.val.getExternFunc(zcu) else null;
     }
 
     /// If the Decl owns its value and it is a variable, returns it,
     /// otherwise null.
-    pub fn getOwnedVariable(decl: Decl, mod: *Module) ?InternPool.Key.Variable {
-        return if (decl.owns_tv) decl.val.getVariable(mod) else null;
+    pub fn getOwnedVariable(decl: Decl, zcu: *Zcu) ?InternPool.Key.Variable {
+        return if (decl.owns_tv) decl.val.getVariable(zcu) else null;
     }
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
-    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
         if (!decl.has_tv) return .none;
+        const ip = &zcu.intern_pool;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
             .none => .none,
-            else => switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
-                .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
-                .struct_type => |struct_type| struct_type.namespace,
-                .union_type => |union_type| union_type.namespace.toOptional(),
-                .enum_type => |enum_type| enum_type.namespace,
+            else => switch (ip.indexToKey(decl.val.toIntern())) {
+                .opaque_type => ip.loadOpaqueType(decl.val.toIntern()).namespace,
+                .struct_type => ip.loadStructType(decl.val.toIntern()).namespace,
+                .union_type => ip.loadUnionType(decl.val.toIntern()).namespace,
+                .enum_type => ip.loadEnumType(decl.val.toIntern()).namespace,
                 else => .none,
             },
         };
     }
 
     /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
         if (!decl.owns_tv) return .none;
-        return decl.getInnerNamespaceIndex(mod);
+        return decl.getInnerNamespaceIndex(zcu);
     }
 
     /// Same as `getOwnedInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getOwnedInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
-        return mod.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(mod));
+    pub fn getOwnedInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
+        return zcu.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(zcu));
     }
 
     /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
-        return mod.namespacePtrUnwrap(decl.getInnerNamespaceIndex(mod));
+    pub fn getInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
+        return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
     }
 
-    pub fn dump(decl: *Decl) void {
-        const loc = std.zig.findLineColumn(decl.scope.source.bytes, decl.src);
-        std.debug.print("{s}:{d}:{d} name={d} status={s}", .{
-            decl.scope.sub_file_path,
-            loc.line + 1,
-            loc.column + 1,
-            @intFromEnum(decl.name),
-            @tagName(decl.analysis),
-        });
-        if (decl.has_tv) {
-            std.debug.print(" ty={} val={}", .{ decl.ty, decl.val });
-        }
-        std.debug.print("\n", .{});
+    pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
+        return zcu.namespacePtr(decl.src_namespace).file_scope;
     }
 
-    pub fn getFileScope(decl: Decl, mod: *Module) *File {
-        return mod.namespacePtr(decl.src_namespace).file_scope;
-    }
-
-    pub fn removeDependant(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependants.swapRemove(other));
-    }
-
-    pub fn removeDependency(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependencies.swapRemove(other));
-    }
-
-    pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
+    pub fn getExternDecl(decl: Decl, zcu: *Zcu) OptionalIndex {
         assert(decl.has_tv);
-        return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
+        return switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
             .variable => |variable| if (variable.is_extern) variable.decl.toOptional() else .none,
             .extern_func => |extern_func| extern_func.decl.toOptional(),
             else => .none,
         };
     }
 
-    pub fn isExtern(decl: Decl, mod: *Module) bool {
-        return decl.getExternDecl(mod) != .none;
+    pub fn isExtern(decl: Decl, zcu: *Zcu) bool {
+        return decl.getExternDecl(zcu) != .none;
     }
 
-    pub fn getAlignment(decl: Decl, mod: *Module) Alignment {
+    pub fn getAlignment(decl: Decl, zcu: *Zcu) Alignment {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
-        return decl.ty.abiAlignment(mod);
+        return decl.typeOf(zcu).abiAlignment(zcu);
+    }
+
+    /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
+    pub fn toSrcLoc(decl: *Decl, lazy: LazySrcLoc, mod: *Module) SrcLoc {
+        return switch (lazy) {
+            .unneeded,
+            .entire_file,
+            .byte_abs,
+            .token_abs,
+            .node_abs,
+            => .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = 0,
+                .lazy = lazy,
+            },
+
+            .byte_offset,
+            .token_offset,
+            .node_offset,
+            .node_offset_main_token,
+            .node_offset_initializer,
+            .node_offset_var_decl_ty,
+            .node_offset_var_decl_align,
+            .node_offset_var_decl_section,
+            .node_offset_var_decl_addrspace,
+            .node_offset_var_decl_init,
+            .node_offset_builtin_call_arg0,
+            .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
+            .node_offset_ptrcast_operand,
+            .node_offset_array_access_index,
+            .node_offset_slice_ptr,
+            .node_offset_slice_start,
+            .node_offset_slice_end,
+            .node_offset_slice_sentinel,
+            .node_offset_call_func,
+            .node_offset_field_name,
+            .node_offset_field_name_init,
+            .node_offset_deref_ptr,
+            .node_offset_asm_source,
+            .node_offset_asm_ret_ty,
+            .node_offset_if_cond,
+            .node_offset_bin_op,
+            .node_offset_bin_lhs,
+            .node_offset_bin_rhs,
+            .node_offset_switch_operand,
+            .node_offset_switch_special_prong,
+            .node_offset_switch_range,
+            .node_offset_switch_prong_capture,
+            .node_offset_switch_prong_tag_capture,
+            .node_offset_fn_type_align,
+            .node_offset_fn_type_addrspace,
+            .node_offset_fn_type_section,
+            .node_offset_fn_type_cc,
+            .node_offset_fn_type_ret_ty,
+            .node_offset_param,
+            .token_offset_param,
+            .node_offset_anyframe_type,
+            .node_offset_lib_name,
+            .node_offset_array_type_len,
+            .node_offset_array_type_sentinel,
+            .node_offset_array_type_elem,
+            .node_offset_un_op,
+            .node_offset_ptr_elem,
+            .node_offset_ptr_sentinel,
+            .node_offset_ptr_align,
+            .node_offset_ptr_addrspace,
+            .node_offset_ptr_bitoffset,
+            .node_offset_ptr_hostsize,
+            .node_offset_container_tag,
+            .node_offset_field_default,
+            .node_offset_init_ty,
+            .node_offset_store_ptr,
+            .node_offset_store_operand,
+            .node_offset_return_operand,
+            .for_input,
+            .for_capture_from_input,
+            .array_cat_lhs,
+            .array_cat_rhs,
+            => .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = decl.src_node,
+                .lazy = lazy,
+            },
+            inline .call_arg,
+            .fn_proto_param,
+            => |x| .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = mod.declPtr(x.decl).src_node,
+                .lazy = lazy,
+            },
+        };
+    }
+
+    pub fn declPtrType(decl: Decl, zcu: *Zcu) !Type {
+        assert(decl.has_tv);
+        const decl_ty = decl.typeOf(zcu);
+        return zcu.ptrType(.{
+            .child = decl_ty.toIntern(),
+            .flags = .{
+                .alignment = if (decl.alignment == decl_ty.abiAlignment(zcu))
+                    .none
+                else
+                    decl.alignment,
+                .address_space = decl.@"addrspace",
+                .is_const = decl.getOwnedVariable(zcu) == null,
+            },
+        });
     }
 };
 
@@ -782,7 +669,7 @@ pub const EmitH = struct {
 };
 
 pub const DeclAdapter = struct {
-    mod: *Module,
+    zcu: *Zcu,
 
     pub fn hash(self: @This(), s: InternPool.NullTerminatedString) u32 {
         _ = self;
@@ -791,8 +678,7 @@ pub const DeclAdapter = struct {
 
     pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: Decl.Index, b_index: usize) bool {
         _ = b_index;
-        const b_decl = self.mod.declPtr(b_decl_index);
-        return a == b_decl.name;
+        return a == self.zcu.declPtr(b_decl_index).name;
     }
 };
 
@@ -801,14 +687,12 @@ pub const Namespace = struct {
     parent: OptionalIndex,
     file_scope: *File,
     /// Will be a struct, enum, union, or opaque.
-    ty: Type,
-    /// Direct children of the namespace. Used during an update to detect
-    /// which decls have been added/removed from source.
+    decl_index: Decl.Index,
+    /// Direct children of the namespace.
     /// Declaration order is preserved via entry order.
     /// These are only declarations named directly by the AST; anonymous
     /// declarations are not stored here.
     decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
-
     /// Key is usingnamespace Decl itself. To find the namespace being included,
     /// the Decl Value has to be resolved as a Type which has a Namespace.
     /// Value is whether the usingnamespace decl is marked `pub`.
@@ -818,17 +702,17 @@ pub const Namespace = struct {
     const OptionalIndex = InternPool.OptionalNamespaceIndex;
 
     const DeclContext = struct {
-        module: *Module,
+        zcu: *Zcu,
 
         pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
-            const decl = ctx.module.declPtr(decl_index);
+            const decl = ctx.zcu.declPtr(decl_index);
             return std.hash.uint32(@intFromEnum(decl.name));
         }
 
         pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
             _ = b_index;
-            const a_decl = ctx.module.declPtr(a_decl_index);
-            const b_decl = ctx.module.declPtr(b_decl_index);
+            const a_decl = ctx.zcu.declPtr(a_decl_index);
+            const b_decl = ctx.zcu.declPtr(b_decl_index);
             return a_decl.name == b_decl.name;
         }
     };
@@ -836,39 +720,87 @@ pub const Namespace = struct {
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
         ns: Namespace,
-        mod: *Module,
+        zcu: *Zcu,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (ns.parent.unwrap()) |parent| {
-            const decl = mod.declPtr(ns.getDeclIndex(mod));
-            try mod.namespacePtr(parent).renderFullyQualifiedName(mod, decl.name, writer);
+            try zcu.namespacePtr(parent).renderFullyQualifiedName(
+                zcu,
+                zcu.declPtr(ns.decl_index).name,
+                writer,
+            );
         } else {
             try ns.file_scope.renderFullyQualifiedName(writer);
         }
-        if (name != .empty) try writer.print(".{}", .{name.fmt(&mod.intern_pool)});
+        if (name != .empty) try writer.print(".{}", .{name.fmt(&zcu.intern_pool)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
     pub fn renderFullyQualifiedDebugName(
         ns: Namespace,
-        mod: *Module,
+        zcu: *Zcu,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        const separator_char: u8 = if (ns.parent.unwrap()) |parent| sep: {
-            const decl = mod.declPtr(ns.getDeclIndex(mod));
-            try mod.namespacePtr(parent).renderFullyQualifiedDebugName(mod, decl.name, writer);
+        const sep: u8 = if (ns.parent.unwrap()) |parent| sep: {
+            try zcu.namespacePtr(parent).renderFullyQualifiedDebugName(
+                zcu,
+                zcu.declPtr(ns.decl_index).name,
+                writer,
+            );
             break :sep '.';
         } else sep: {
             try ns.file_scope.renderFullyQualifiedDebugName(writer);
             break :sep ':';
         };
-        if (name != .empty) try writer.print("{c}{}", .{ separator_char, name.fmt(&mod.intern_pool) });
+        if (name != .empty) try writer.print("{c}{}", .{ sep, name.fmt(&zcu.intern_pool) });
     }
 
-    pub fn getDeclIndex(ns: Namespace, mod: *Module) Decl.Index {
-        return ns.ty.getOwnerDecl(mod);
+    pub fn fullyQualifiedName(
+        ns: Namespace,
+        zcu: *Zcu,
+        name: InternPool.NullTerminatedString,
+    ) !InternPool.NullTerminatedString {
+        const ip = &zcu.intern_pool;
+        const count = count: {
+            var count: usize = name.length(ip) + 1;
+            var cur_ns = &ns;
+            while (true) {
+                const decl = zcu.declPtr(cur_ns.decl_index);
+                count += decl.name.length(ip) + 1;
+                cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
+                    count += ns.file_scope.sub_file_path.len;
+                    break :count count;
+                });
+            }
+        };
+
+        const gpa = zcu.gpa;
+        const start = ip.string_bytes.items.len;
+        // Protects reads of interned strings from being reallocated during the call to
+        // renderFullyQualifiedName.
+        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
+        ns.renderFullyQualifiedName(zcu, name, ip.string_bytes.writer(gpa)) catch unreachable;
+
+        // Sanitize the name for nvptx which is more restrictive.
+        // TODO This should be handled by the backend, not the frontend. Have a
+        // look at how the C backend does it for inspiration.
+        const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
+        if (cpu_arch.isNvptx()) {
+            for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
+                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
+                else => {},
+            };
+        }
+
+        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
+    }
+
+    pub fn getType(ns: Namespace, zcu: *Zcu) Type {
+        const decl = zcu.declPtr(ns.decl_index);
+        assert(decl.has_tv);
+        return decl.val.toType();
     }
 };
 
@@ -902,14 +834,9 @@ pub const File = struct {
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
     references: std.ArrayListUnmanaged(Reference) = .{},
-
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed in the previous ZIR but not in the new one.
-    deleted_decls: ArrayListUnmanaged(Decl.Index) = .{},
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed both in the previous ZIR and in the new one,
-    /// but their source code has been modified.
-    outdated_decls: ArrayListUnmanaged(Decl.Index) = .{},
+    /// The hash of the path to this file, used to store `InternPool.TrackedInst`.
+    /// undefined until `zir_loaded == true`.
+    path_digest: Cache.BinDigest = undefined,
 
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
@@ -963,8 +890,6 @@ pub const File = struct {
             gpa.free(file.sub_file_path);
             file.unload(gpa);
         }
-        file.deleted_decls.deinit(gpa);
-        file.outdated_decls.deinit(gpa);
         file.references.deinit(gpa);
         if (file.root_decl.unwrap()) |root_decl| {
             mod.destroyDecl(root_decl);
@@ -1056,15 +981,11 @@ pub const File = struct {
         const ip = &mod.intern_pool;
         const start = ip.string_bytes.items.len;
         try file.renderFullyQualifiedName(ip.string_bytes.writer(mod.gpa));
-        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start);
+        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
     }
 
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {
         return file.mod.root.joinString(ally, file.sub_file_path);
-    }
-
-    pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
-        return file.mod.root.joinStringZ(ally, file.sub_file_path);
     }
 
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -1230,11 +1151,7 @@ pub const SrcLoc = struct {
         return @bitCast(offset + @as(i32, @bitCast(src_loc.parent_decl_node)));
     }
 
-    pub const Span = struct {
-        start: u32,
-        end: u32,
-        main: u32,
-    };
+    pub const Span = Ast.Span;
 
     pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
         switch (src_loc.lazy) {
@@ -1251,7 +1168,7 @@ pub const SrcLoc = struct {
             },
             .node_abs => |node| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .byte_offset => |byte_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1272,25 +1189,24 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const main_token = tree.nodes.items(.main_token)[node];
-                return tokensToSpan(tree, main_token, main_token, main_token);
+                return tree.tokensToSpan(main_token, main_token, main_token);
             },
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     tree.firstToken(node) - 3,
                     tree.lastToken(node),
                     tree.nodes.items(.main_token)[node] - 2,
@@ -1308,12 +1224,12 @@ pub const SrcLoc = struct {
                     => tree.fullVarDecl(node).?,
                     .@"usingnamespace" => {
                         const node_data = tree.nodes.items(.data);
-                        return nodeToSpan(tree, node_data[node].lhs);
+                        return tree.nodeToSpan(node_data[node].lhs);
                     },
                     else => unreachable,
                 };
                 if (full.ast.type_node != 0) {
-                    return nodeToSpan(tree, full.ast.type_node);
+                    return tree.nodeToSpan(full.ast.type_node);
                 }
                 const tok_index = full.ast.mut_token + 1; // the name token
                 const start = tree.tokens.items(.start)[tok_index];
@@ -1324,25 +1240,25 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.align_node);
+                return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_var_decl_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.section_node);
+                return tree.nodeToSpan(full.ast.section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.addrspace_node);
+                return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.init_node);
+                return tree.nodeToSpan(full.ast.init_node);
             },
             .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
             .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
@@ -1383,13 +1299,13 @@ pub const SrcLoc = struct {
                     node = node_datas[node].lhs;
                 }
 
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node_datas[node].rhs);
+                return tree.nodeToSpan(node_datas[node].rhs);
             },
             .node_offset_slice_ptr,
             .node_offset_slice_start,
@@ -1406,14 +1322,14 @@ pub const SrcLoc = struct {
                     .node_offset_slice_sentinel => full.ast.sentinel,
                     else => unreachable,
                 };
-                return nodeToSpan(tree, part_node);
+                return tree.nodeToSpan(part_node);
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullCall(&buf, node).?;
-                return nodeToSpan(tree, full.ast.fn_expr);
+                return tree.nodeToSpan(full.ast.fn_expr);
             },
             .node_offset_field_name => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1452,13 +1368,13 @@ pub const SrcLoc = struct {
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullAsm(node).?;
-                return nodeToSpan(tree, full.ast.template);
+                return tree.nodeToSpan(full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1466,7 +1382,7 @@ pub const SrcLoc = struct {
                 const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[asm_output].lhs);
+                return tree.nodeToSpan(node_datas[asm_output].lhs);
             },
 
             .node_offset_if_cond => |node_off| {
@@ -1489,21 +1405,21 @@ pub const SrcLoc = struct {
                         const inputs = tree.fullFor(node).?.ast.inputs;
                         const start = tree.firstToken(inputs[0]);
                         const end = tree.lastToken(inputs[inputs.len - 1]);
-                        return tokensToSpan(tree, start, end, start);
+                        return tree.tokensToSpan(start, end, start);
                     },
 
                     .@"orelse" => node,
                     .@"catch" => node,
                     else => unreachable,
                 };
-                return nodeToSpan(tree, src_node);
+                return tree.nodeToSpan(src_node);
             },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(for_input.for_node_offset);
                 const for_full = tree.fullFor(node).?;
                 const src_node = for_full.ast.inputs[for_input.input_index];
-                return nodeToSpan(tree, src_node);
+                return tree.nodeToSpan(src_node);
             },
             .for_capture_from_input => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1529,12 +1445,12 @@ pub const SrcLoc = struct {
                                             },
                                             .identifier => {
                                                 if (count == 0)
-                                                    return tokensToSpan(tree, tok, tok + 1, tok);
+                                                    return tree.tokensToSpan(tok, tok + 1, tok);
                                                 tok += 1;
                                             },
                                             .asterisk => {
                                                 if (count == 0)
-                                                    return tokensToSpan(tree, tok, tok + 2, tok);
+                                                    return tree.tokensToSpan(tok, tok + 2, tok);
                                                 tok += 1;
                                             },
                                             else => unreachable,
@@ -1566,7 +1482,7 @@ pub const SrcLoc = struct {
                         .array_init_comma,
                         => {
                             const full = tree.fullArrayInit(&buf, call_args_node).?.ast.elements;
-                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                            return tree.nodeToSpan(full[call_arg.arg_index]);
                         },
                         .struct_init_one,
                         .struct_init_one_comma,
@@ -1578,12 +1494,12 @@ pub const SrcLoc = struct {
                         .struct_init_comma,
                         => {
                             const full = tree.fullStructInit(&buf, call_args_node).?.ast.fields;
-                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                            return tree.nodeToSpan(full[call_arg.arg_index]);
                         },
-                        else => return nodeToSpan(tree, call_args_node),
+                        else => return tree.nodeToSpan(call_args_node),
                     }
                 };
-                return nodeToSpan(tree, call_full.ast.params[call_arg.arg_index]);
+                return tree.nodeToSpan(call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1594,12 +1510,11 @@ pub const SrcLoc = struct {
                 var i: usize = 0;
                 while (it.next()) |param| : (i += 1) {
                     if (i == fn_proto_param.param_index) {
-                        if (param.anytype_ellipsis3) |token| return tokenToSpan(tree, token);
+                        if (param.anytype_ellipsis3) |token| return tree.tokenToSpan(token);
                         const first_token = param.comptime_noalias orelse
                             param.name_token orelse
                             tree.firstToken(param.type_expr);
-                        return tokensToSpan(
-                            tree,
+                        return tree.tokensToSpan(
                             first_token,
                             tree.lastToken(param.type_expr),
                             first_token,
@@ -1612,13 +1527,13 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_bin_rhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].rhs);
+                return tree.nodeToSpan(node_datas[node].rhs);
             },
             .array_cat_lhs, .array_cat_rhs => |cat| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1642,9 +1557,9 @@ pub const SrcLoc = struct {
                     .array_init_comma,
                     => {
                         const full = tree.fullArrayInit(&buf, arr_node).?.ast.elements;
-                        return nodeToSpan(tree, full[cat.elem_index]);
+                        return tree.nodeToSpan(full[cat.elem_index]);
                     },
-                    else => return nodeToSpan(tree, arr_node),
+                    else => return tree.nodeToSpan(arr_node),
                 }
             },
 
@@ -1652,7 +1567,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
 
             .node_offset_switch_special_prong => |node_off| {
@@ -1671,7 +1586,7 @@ pub const SrcLoc = struct {
                         mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (!is_special) continue;
 
-                    return nodeToSpan(tree, case_node);
+                    return tree.nodeToSpan(case_node);
                 } else unreachable;
             },
 
@@ -1693,7 +1608,7 @@ pub const SrcLoc = struct {
 
                     for (case.ast.values) |item_node| {
                         if (node_tags[item_node] == .switch_range) {
-                            return nodeToSpan(tree, item_node);
+                            return tree.nodeToSpan(item_node);
                         }
                     }
                 } else unreachable;
@@ -1729,28 +1644,28 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.align_expr);
+                return tree.nodeToSpan(full.ast.align_expr);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.addrspace_expr);
+                return tree.nodeToSpan(full.ast.addrspace_expr);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.section_expr);
+                return tree.nodeToSpan(full.ast.section_expr);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.callconv_expr);
+                return tree.nodeToSpan(full.ast.callconv_expr);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
@@ -1758,7 +1673,7 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.return_type);
+                return tree.nodeToSpan(full.ast.return_type);
             },
             .node_offset_param => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1770,8 +1685,7 @@ pub const SrcLoc = struct {
                     .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
                     else => break,
                 };
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     first_tok,
                     tree.lastToken(node),
                     first_tok,
@@ -1788,8 +1702,7 @@ pub const SrcLoc = struct {
                     .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
                     else => break,
                 };
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     first_tok,
                     tok_index,
                     first_tok,
@@ -1800,7 +1713,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node_datas[parent_node].rhs);
+                return tree.nodeToSpan(node_datas[parent_node].rhs);
             },
 
             .node_offset_lib_name => |node_off| {
@@ -1819,70 +1732,70 @@ pub const SrcLoc = struct {
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.elem_count);
+                return tree.nodeToSpan(full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.sentinel);
+                return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_array_type_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.elem_type);
+                return tree.nodeToSpan(full.ast.elem_type);
             },
             .node_offset_un_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
 
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_ptr_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.child_type);
+                return tree.nodeToSpan(full.ast.child_type);
             },
             .node_offset_ptr_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.sentinel);
+                return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_ptr_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.align_node);
+                return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_ptr_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.addrspace_node);
+                return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_ptr_bitoffset => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.bit_range_start);
+                return tree.nodeToSpan(full.ast.bit_range_start);
             },
             .node_offset_ptr_hostsize => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.bit_range_end);
+                return tree.nodeToSpan(full.ast.bit_range_end);
             },
             .node_offset_container_tag => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1892,13 +1805,12 @@ pub const SrcLoc = struct {
                 switch (node_tags[parent_node]) {
                     .container_decl_arg, .container_decl_arg_trailing => {
                         const full = tree.containerDeclArg(parent_node);
-                        return nodeToSpan(tree, full.ast.arg);
+                        return tree.nodeToSpan(full.ast.arg);
                     },
                     .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => {
                         const full = tree.taggedUnionEnumTag(parent_node);
 
-                        return tokensToSpan(
-                            tree,
+                        return tree.tokensToSpan(
                             tree.firstToken(full.ast.arg) - 2,
                             tree.lastToken(full.ast.arg) + 1,
                             tree.nodes.items(.main_token)[full.ast.arg],
@@ -1917,15 +1829,18 @@ pub const SrcLoc = struct {
                     .container_field_init => tree.containerFieldInit(parent_node),
                     else => unreachable,
                 };
-                return nodeToSpan(tree, full.ast.value_expr);
+                return tree.nodeToSpan(full.ast.value_expr);
             },
             .node_offset_init_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 var buf: [2]Ast.Node.Index = undefined;
-                const full = tree.fullArrayInit(&buf, parent_node).?;
-                return nodeToSpan(tree, full.ast.type_expr);
+                const type_expr = if (tree.fullArrayInit(&buf, parent_node)) |array_init|
+                    array_init.ast.type_expr
+                else
+                    tree.fullStructInit(&buf, parent_node).?.ast.type_expr;
+                return tree.nodeToSpan(type_expr);
             },
             .node_offset_store_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1935,9 +1850,9 @@ pub const SrcLoc = struct {
 
                 switch (node_tags[node]) {
                     .assign => {
-                        return nodeToSpan(tree, node_datas[node].lhs);
+                        return tree.nodeToSpan(node_datas[node].lhs);
                     },
-                    else => return nodeToSpan(tree, node),
+                    else => return tree.nodeToSpan(node),
                 }
             },
             .node_offset_store_operand => |node_off| {
@@ -1948,10 +1863,20 @@ pub const SrcLoc = struct {
 
                 switch (node_tags[node]) {
                     .assign => {
-                        return nodeToSpan(tree, node_datas[node].rhs);
+                        return tree.nodeToSpan(node_datas[node].rhs);
                     },
-                    else => return nodeToSpan(tree, node),
+                    else => return tree.nodeToSpan(node),
                 }
+            },
+            .node_offset_return_operand => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                if (node_tags[node] == .@"return" and node_datas[node].lhs != 0) {
+                    return tree.nodeToSpan(node_datas[node].lhs);
+                }
+                return tree.nodeToSpan(node);
             },
         }
     }
@@ -1975,481 +1900,7 @@ pub const SrcLoc = struct {
             .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
             else => unreachable,
         };
-        return nodeToSpan(tree, param);
-    }
-
-    pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
-        return tokensToSpan(
-            tree,
-            tree.firstToken(node),
-            tree.lastToken(node),
-            tree.nodes.items(.main_token)[node],
-        );
-    }
-
-    fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
-        return tokensToSpan(tree, token, token, token);
-    }
-
-    fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
-        const token_starts = tree.tokens.items(.start);
-        var start_tok = start;
-        var end_tok = end;
-
-        if (tree.tokensOnSameLine(start, end)) {
-            // do nothing
-        } else if (tree.tokensOnSameLine(start, main)) {
-            end_tok = main;
-        } else if (tree.tokensOnSameLine(main, end)) {
-            start_tok = main;
-        } else {
-            start_tok = main;
-            end_tok = main;
-        }
-        const start_off = token_starts[start_tok];
-        const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
-        return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
-    }
-};
-
-/// This wraps a simple integer in debug builds so that later on we can find out
-/// where in semantic analysis the value got set.
-const TracedOffset = struct {
-    x: i32,
-    trace: std.debug.Trace = .{},
-
-    const want_tracing = build_options.value_tracing;
-};
-
-/// Resolving a source location into a byte offset may require doing work
-/// that we would rather not do unless the error actually occurs.
-/// Therefore we need a data structure that contains the information necessary
-/// to lazily produce a `SrcLoc` as required.
-/// Most of the offsets in this data structure are relative to the containing Decl.
-/// This makes the source location resolve properly even when a Decl gets
-/// shifted up or down in the file, as long as the Decl's contents itself
-/// do not change.
-pub const LazySrcLoc = union(enum) {
-    /// When this tag is set, the code that constructed this `LazySrcLoc` is asserting
-    /// that all code paths which would need to resolve the source location are
-    /// unreachable. If you are debugging this tag incorrectly being this value,
-    /// look into using reverse-continue with a memory watchpoint to see where the
-    /// value is being set to this tag.
-    unneeded,
-    /// Means the source location points to an entire file; not any particular
-    /// location within the file. `file_scope` union field will be active.
-    entire_file,
-    /// The source location points to a byte offset within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    byte_abs: u32,
-    /// The source location points to a token within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    token_abs: u32,
-    /// The source location points to an AST node within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    node_abs: u32,
-    /// The source location points to a byte offset within a source file,
-    /// offset from the byte offset of the Decl within the file.
-    /// The Decl is determined contextually.
-    byte_offset: u32,
-    /// This data is the offset into the token list from the Decl token.
-    /// The Decl is determined contextually.
-    token_offset: u32,
-    /// The source location points to an AST node, which is this value offset
-    /// from its containing Decl node AST index.
-    /// The Decl is determined contextually.
-    node_offset: TracedOffset,
-    /// The source location points to the main token of an AST node, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_main_token: i32,
-    /// The source location points to the beginning of a struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_initializer: i32,
-    /// The source location points to a variable declaration type expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a variable declaration AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_ty: i32,
-    /// The source location points to the alignment expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_align: i32,
-    /// The source location points to the linksection expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_section: i32,
-    /// The source location points to the addrspace expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_addrspace: i32,
-    /// The source location points to the initializer of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_init: i32,
-    /// The source location points to the first parameter of a builtin
-    /// function call, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a builtin call AST node. Next, navigate
-    /// to the first parameter.
-    /// The Decl is determined contextually.
-    node_offset_builtin_call_arg0: i32,
-    /// Same as `node_offset_builtin_call_arg0` except arg index 1.
-    node_offset_builtin_call_arg1: i32,
-    node_offset_builtin_call_arg2: i32,
-    node_offset_builtin_call_arg3: i32,
-    node_offset_builtin_call_arg4: i32,
-    node_offset_builtin_call_arg5: i32,
-    /// Like `node_offset_builtin_call_arg0` but recurses through arbitrarily many calls
-    /// to pointer cast builtins.
-    node_offset_ptrcast_operand: i32,
-    /// The source location points to the index expression of an array access
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an array access AST node. Next, navigate
-    /// to the index expression.
-    /// The Decl is determined contextually.
-    node_offset_array_access_index: i32,
-    /// The source location points to the LHS of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_ptr: i32,
-    /// The source location points to start expression of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_start: i32,
-    /// The source location points to the end expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_end: i32,
-    /// The source location points to the sentinel expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_sentinel: i32,
-    /// The source location points to the callee expression of a function
-    /// call expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function call AST node. Next, navigate
-    /// to the callee expression.
-    /// The Decl is determined contextually.
-    node_offset_call_func: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of:
-    ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`)
-    /// The Decl is determined contextually.
-    node_offset_field_name: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of the operand ("b" node)
-    /// of a field initialization expression (`.a = b`)
-    /// The Decl is determined contextually.
-    node_offset_field_name_init: i32,
-    /// The source location points to the pointer of a pointer deref expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a pointer deref AST node. Next, navigate
-    /// to the pointer expression.
-    /// The Decl is determined contextually.
-    node_offset_deref_ptr: i32,
-    /// The source location points to the assembly source code of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the asm template source code.
-    /// The Decl is determined contextually.
-    node_offset_asm_source: i32,
-    /// The source location points to the return type of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the return type expression.
-    /// The Decl is determined contextually.
-    node_offset_asm_ret_ty: i32,
-    /// The source location points to the condition expression of an if
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an if expression AST node. Next, navigate
-    /// to the condition expression.
-    /// The Decl is determined contextually.
-    node_offset_if_cond: i32,
-    /// The source location points to a binary expression, such as `a + b`, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_bin_op: i32,
-    /// The source location points to the LHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the LHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_lhs: i32,
-    /// The source location points to the RHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the RHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_rhs: i32,
-    /// The source location points to the operand of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the operand.
-    /// The Decl is determined contextually.
-    node_offset_switch_operand: i32,
-    /// The source location points to the else/`_` prong of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_special_prong: i32,
-    /// The source location points to all the ranges of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to any of the
-    /// range nodes. The error applies to all of them.
-    /// The Decl is determined contextually.
-    node_offset_switch_range: i32,
-    /// The source location points to the capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_capture: i32,
-    /// The source location points to the tag capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_tag_capture: i32,
-    /// The source location points to the align expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_align: i32,
-    /// The source location points to the addrspace expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_addrspace: i32,
-    /// The source location points to the linksection expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_section: i32,
-    /// The source location points to the calling convention of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_cc: i32,
-    /// The source location points to the return type of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the return type node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_ret_ty: i32,
-    node_offset_param: i32,
-    token_offset_param: i32,
-    /// The source location points to the type expression of an `anyframe->T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_anyframe_type: i32,
-    /// The source location points to the string literal of `extern "foo"`, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function prototype or variable declaration
-    /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
-    /// The Decl is determined contextually.
-    node_offset_lib_name: i32,
-    /// The source location points to the len expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the len expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_len: i32,
-    /// The source location points to the sentinel expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_sentinel: i32,
-    /// The source location points to the elem expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the elem expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_elem: i32,
-    /// The source location points to the operand of an unary expression.
-    /// The Decl is determined contextually.
-    node_offset_un_op: i32,
-    /// The source location points to the elem type of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_elem: i32,
-    /// The source location points to the sentinel of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_sentinel: i32,
-    /// The source location points to the align expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_align: i32,
-    /// The source location points to the addrspace expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_addrspace: i32,
-    /// The source location points to the bit-offset of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_bitoffset: i32,
-    /// The source location points to the host size of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_hostsize: i32,
-    /// The source location points to the tag type of an union or an enum.
-    /// The Decl is determined contextually.
-    node_offset_container_tag: i32,
-    /// The source location points to the default value of a field.
-    /// The Decl is determined contextually.
-    node_offset_field_default: i32,
-    /// The source location points to the type of an array or struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_init_ty: i32,
-    /// The source location points to the LHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_ptr: i32,
-    /// The source location points to the RHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_operand: i32,
-    /// The source location points to a for loop input.
-    /// The Decl is determined contextually.
-    for_input: struct {
-        /// Points to the for loop AST node.
-        for_node_offset: i32,
-        /// Picks one of the inputs from the condition.
-        input_index: u32,
-    },
-    /// The source location points to one of the captures of a for loop, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to one of the input nodes of a for loop.
-    /// Next, navigate to the corresponding capture.
-    /// The Decl is determined contextually.
-    for_capture_from_input: i32,
-    /// The source location points to the argument node of a function call.
-    call_arg: struct {
-        decl: Decl.Index,
-        /// Points to the function call AST node.
-        call_node_offset: i32,
-        /// The index of the argument the source location points to.
-        arg_index: u32,
-    },
-    fn_proto_param: struct {
-        decl: Decl.Index,
-        /// Points to the function prototype AST node.
-        fn_proto_node_offset: i32,
-        /// The index of the parameter the source location points to.
-        param_index: u32,
-    },
-    array_cat_lhs: ArrayCat,
-    array_cat_rhs: ArrayCat,
-
-    const ArrayCat = struct {
-        /// Points to the array concat AST node.
-        array_cat_offset: i32,
-        /// The index of the element the source location points to.
-        elem_index: u32,
-    };
-
-    pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
-
-    noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
-        var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
-        result.node_offset.trace.addAddr(@returnAddress(), "init");
-        return result;
-    }
-
-    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
-        return .{ .node_offset = .{ .x = node_offset } };
-    }
-
-    /// Upgrade to a `SrcLoc` based on the `Decl` provided.
-    pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl, mod: *Module) SrcLoc {
-        return switch (lazy) {
-            .unneeded,
-            .entire_file,
-            .byte_abs,
-            .token_abs,
-            .node_abs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = 0,
-                .lazy = lazy,
-            },
-
-            .byte_offset,
-            .token_offset,
-            .node_offset,
-            .node_offset_main_token,
-            .node_offset_initializer,
-            .node_offset_var_decl_ty,
-            .node_offset_var_decl_align,
-            .node_offset_var_decl_section,
-            .node_offset_var_decl_addrspace,
-            .node_offset_var_decl_init,
-            .node_offset_builtin_call_arg0,
-            .node_offset_builtin_call_arg1,
-            .node_offset_builtin_call_arg2,
-            .node_offset_builtin_call_arg3,
-            .node_offset_builtin_call_arg4,
-            .node_offset_builtin_call_arg5,
-            .node_offset_ptrcast_operand,
-            .node_offset_array_access_index,
-            .node_offset_slice_ptr,
-            .node_offset_slice_start,
-            .node_offset_slice_end,
-            .node_offset_slice_sentinel,
-            .node_offset_call_func,
-            .node_offset_field_name,
-            .node_offset_field_name_init,
-            .node_offset_deref_ptr,
-            .node_offset_asm_source,
-            .node_offset_asm_ret_ty,
-            .node_offset_if_cond,
-            .node_offset_bin_op,
-            .node_offset_bin_lhs,
-            .node_offset_bin_rhs,
-            .node_offset_switch_operand,
-            .node_offset_switch_special_prong,
-            .node_offset_switch_range,
-            .node_offset_switch_prong_capture,
-            .node_offset_switch_prong_tag_capture,
-            .node_offset_fn_type_align,
-            .node_offset_fn_type_addrspace,
-            .node_offset_fn_type_section,
-            .node_offset_fn_type_cc,
-            .node_offset_fn_type_ret_ty,
-            .node_offset_param,
-            .token_offset_param,
-            .node_offset_anyframe_type,
-            .node_offset_lib_name,
-            .node_offset_array_type_len,
-            .node_offset_array_type_sentinel,
-            .node_offset_array_type_elem,
-            .node_offset_un_op,
-            .node_offset_ptr_elem,
-            .node_offset_ptr_sentinel,
-            .node_offset_ptr_align,
-            .node_offset_ptr_addrspace,
-            .node_offset_ptr_bitoffset,
-            .node_offset_ptr_hostsize,
-            .node_offset_container_tag,
-            .node_offset_field_default,
-            .node_offset_init_ty,
-            .node_offset_store_ptr,
-            .node_offset_store_operand,
-            .for_input,
-            .for_capture_from_input,
-            .array_cat_lhs,
-            .array_cat_rhs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = decl.src_node,
-                .lazy = lazy,
-            },
-            inline .call_arg,
-            .fn_proto_param,
-            => |x| .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = mod.declPtr(x.decl).src_node,
-                .lazy = lazy,
-            },
-        };
+        return tree.nodeToSpan(param);
     }
 };
 
@@ -2563,6 +2014,12 @@ pub fn deinit(zcu: *Zcu) void {
 
     zcu.global_error_set.deinit(gpa);
 
+    zcu.potentially_outdated.deinit(gpa);
+    zcu.outdated.deinit(gpa);
+    zcu.outdated_ready.deinit(gpa);
+    zcu.outdated_file_root.deinit(gpa);
+    zcu.retryable_failures.deinit(gpa);
+
     zcu.test_functions.deinit(gpa);
 
     for (zcu.global_assembly.values()) |s| {
@@ -2581,11 +2038,6 @@ pub fn deinit(zcu: *Zcu) void {
     }
 
     zcu.intern_pool.deinit(gpa);
-    zcu.tmp_hack_arena.deinit();
-
-    zcu.capture_scope_parents.deinit(gpa);
-    zcu.runtime_capture_scopes.deinit(gpa);
-    zcu.comptime_capture_scopes.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -2624,9 +2076,8 @@ pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namesp
 pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
     const decl = mod.declPtr(decl_index);
     const namespace = mod.namespacePtr(decl.src_namespace);
-    if (namespace.parent != .none)
-        return false;
-    return decl_index == namespace.getDeclIndex(mod);
+    if (namespace.parent != .none) return false;
+    return decl_index == namespace.decl_index;
 }
 
 fn freeExportList(gpa: Allocator, export_list: *ArrayListUnmanaged(*Export)) void {
@@ -2662,7 +2113,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const stat = try source_file.stat();
 
     const want_local_cache = file.mod == mod.main_mod;
-    const digest = hash: {
+    const bin_digest = hash: {
         var path_hash: Cache.HashHelper = .{};
         path_hash.addBytes(build_options.version);
         path_hash.add(builtin.zig_backend);
@@ -2671,7 +2122,19 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             path_hash.addBytes(file.mod.root.sub_path);
         }
         path_hash.addBytes(file.sub_file_path);
-        break :hash path_hash.final();
+        var bin: Cache.BinDigest = undefined;
+        path_hash.hasher.final(&bin);
+        break :hash bin;
+    };
+    file.path_digest = bin_digest;
+    const hex_digest = hex: {
+        var hex: Cache.HexDigest = undefined;
+        _ = std.fmt.bufPrint(
+            &hex,
+            "{s}",
+            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+        ) catch unreachable;
+        break :hex hex;
     };
     const cache_directory = if (want_local_cache) mod.local_zir_cache else mod.global_zir_cache;
     const zir_dir = cache_directory.handle;
@@ -2681,7 +2144,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         .never_loaded, .retryable_failure => lock: {
             // First, load the cached ZIR code, if any.
             log.debug("AstGen checking cache: {s} (local={}, digest={s})", .{
-                file.sub_file_path, want_local_cache, &digest,
+                file.sub_file_path, want_local_cache, &hex_digest,
             });
 
             break :lock .shared;
@@ -2708,13 +2171,14 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     // version. Likewise if we're working on AstGen and another process asks for
     // the cached file, they'll get it.
     const cache_file = while (true) {
-        break zir_dir.createFile(&digest, .{
+        break zir_dir.createFile(&hex_digest, .{
             .read = true,
             .truncate = false,
             .lock = lock,
         }) catch |err| switch (err) {
             error.NotDir => unreachable, // no dir components
             error.InvalidUtf8 => unreachable, // it's a hex encoded name
+            error.InvalidWtf8 => unreachable, // it's a hex encoded name
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
@@ -2870,31 +2334,31 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs = [_]std.os.iovec_const{
+    var iovecs = [_]std.posix.iovec_const{
         .{
-            .iov_base = @as([*]const u8, @ptrCast(&header)),
-            .iov_len = @sizeOf(Zir.Header),
+            .base = @as([*]const u8, @ptrCast(&header)),
+            .len = @sizeOf(Zir.Header),
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
-            .iov_len = file.zir.instructions.len,
+            .base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
+            .len = file.zir.instructions.len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = file.zir.instructions.len * 8,
+            .base = data_ptr,
+            .len = file.zir.instructions.len * 8,
         },
         .{
-            .iov_base = file.zir.string_bytes.ptr,
-            .iov_len = file.zir.string_bytes.len,
+            .base = file.zir.string_bytes.ptr,
+            .len = file.zir.string_bytes.len,
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
-            .iov_len = file.zir.extra.len * 4,
+            .base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
+            .len = file.zir.extra.len * 4,
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
         log.warn("unable to write cached ZIR code for {}{s} to {}{s}: {s}", .{
-            file.mod.root, file.sub_file_path, cache_directory, &digest, @errorName(err),
+            file.mod.root, file.sub_file_path, cache_directory, &hex_digest, @errorName(err),
         });
     };
 
@@ -2909,27 +2373,20 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     }
 
     if (file.prev_zir) |prev_zir| {
-        // Iterate over all Namespace objects contained within this File, looking at the
-        // previous and new ZIR together and update the references to point
-        // to the new one. For example, Decl name, Decl zir_decl_index, and Namespace
-        // decl_table keys need to get updated to point to the new memory, even if the
-        // underlying source code is unchanged.
-        // We do not need to hold any locks at this time because all the Decl and Namespace
-        // objects being touched are specific to this File, and the only other concurrent
-        // tasks are touching other File objects.
         try updateZirRefs(mod, file, prev_zir.*);
-        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
-        // and semantic analysis will deal with them properly.
         // No need to keep previous ZIR.
         prev_zir.deinit(gpa);
         gpa.destroy(prev_zir);
         file.prev_zir = null;
-    } else if (file.root_decl.unwrap()) |root_decl| {
-        // This is an update, but it is the first time the File has succeeded
-        // ZIR. We must mark it outdated since we have already tried to
-        // semantically analyze it.
-        try file.outdated_decls.resize(gpa, 1);
-        file.outdated_decls.items[0] = root_decl;
+    }
+
+    if (file.root_decl.unwrap()) |root_decl| {
+        // The root of this file must be re-analyzed, since the file has changed.
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        log.debug("outdated root Decl: {}", .{root_decl});
+        try mod.outdated_file_root.put(gpa, root_decl, {});
     }
 }
 
@@ -2965,22 +2422,22 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     else
         @as([*]u8, @ptrCast(zir.instructions.items(.data).ptr));
 
-    var iovecs = [_]std.os.iovec{
+    var iovecs = [_]std.posix.iovec{
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .iov_len = header.instructions_len,
+            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
+            .len = header.instructions_len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = header.instructions_len * 8,
+            .base = data_ptr,
+            .len = header.instructions_len * 8,
         },
         .{
-            .iov_base = zir.string_bytes.ptr,
-            .iov_len = header.string_bytes_len,
+            .base = zir.string_bytes.ptr,
+            .len = header.string_bytes_len,
         },
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .iov_len = header.extra_len * 4,
+            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
+            .len = header.extra_len * 4,
         },
     };
     const amt_read = try cache_file.readvAll(&iovecs);
@@ -3003,94 +2460,342 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     return zir;
 }
 
-/// Patch ups:
-/// * Struct.zir_index
-/// * Decl.zir_index
-/// * Fn.zir_body_inst
-/// * Decl.zir_decl_index
-fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
-    const gpa = mod.gpa;
+/// This is called from the AstGen thread pool, so must acquire
+/// the Compilation mutex when acting on shared state.
+fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
+    const gpa = zcu.gpa;
     const new_zir = file.zir;
 
-    // The root decl will be null if the previous ZIR had AST errors.
-    const root_decl = file.root_decl.unwrap() orelse return;
-
-    // Maps from old ZIR to new ZIR, struct_decl, enum_decl, etc. Any instruction which
-    // creates a namespace, gets mapped from old to new here.
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
-    // Maps from old ZIR to new ZIR, the extra data index for the sub-decl item.
-    // e.g. the thing that Decl.zir_decl_index points to.
-    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
-    defer extra_map.deinit(gpa);
 
-    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map, &extra_map);
+    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map);
 
-    // Walk the Decl graph, updating ZIR indexes, strings, and populating
-    // the deleted and outdated lists.
+    const old_tag = old_zir.instructions.items(.tag);
+    const old_data = old_zir.instructions.items(.data);
 
-    var decl_stack: ArrayListUnmanaged(Decl.Index) = .{};
-    defer decl_stack.deinit(gpa);
+    // TODO: this should be done after all AstGen workers complete, to avoid
+    // iterating over this full set for every updated file.
+    for (zcu.intern_pool.tracked_insts.keys(), 0..) |*ti, idx_raw| {
+        const ti_idx: InternPool.TrackedInst.Index = @enumFromInt(idx_raw);
+        if (!std.mem.eql(u8, &ti.path_digest, &file.path_digest)) continue;
+        const old_inst = ti.inst;
+        ti.inst = inst_map.get(ti.inst) orelse {
+            // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            log.debug("tracking failed for %{d}", .{old_inst});
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
+            continue;
+        };
 
-    try decl_stack.append(gpa, root_decl);
+        if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
+            if (new_zir.getAssociatedSrcHash(ti.inst)) |new_hash| {
+                if (std.zig.srcHashEql(old_hash, new_hash)) {
+                    break :hash_changed;
+                }
+                log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
+                    old_inst,
+                    ti.inst,
+                    std.fmt.fmtSliceHexLower(&old_hash),
+                    std.fmt.fmtSliceHexLower(&new_hash),
+                });
+            }
+            // The source hash associated with this instruction changed - invalidate relevant dependencies.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
+        }
 
-    file.deleted_decls.clearRetainingCapacity();
-    file.outdated_decls.clearRetainingCapacity();
+        // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
+        const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
+            .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+                .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
+                else => false,
+            },
+            else => false,
+        };
+        if (!has_namespace) continue;
 
-    // The root decl is always outdated; otherwise we would not have had
-    // to re-generate ZIR for the File.
-    try file.outdated_decls.append(gpa, root_decl);
-
-    const ip = &mod.intern_pool;
-
-    while (decl_stack.popOrNull()) |decl_index| {
-        const decl = mod.declPtr(decl_index);
-        // Anonymous decls and the root decl have this set to 0. We still need
-        // to walk them but we do not need to modify this value.
-        // Anonymous decls should not be marked outdated. They will be re-generated
-        // if their owner decl is marked outdated.
-        if (decl.zir_decl_index.unwrap()) |old_zir_decl_index| {
-            const new_zir_decl_index = extra_map.get(old_zir_decl_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            };
-            const old_hash = decl.contentsHashZir(old_zir);
-            decl.zir_decl_index = new_zir_decl_index.toOptional();
-            const new_hash = decl.contentsHashZir(new_zir);
-            if (!std.zig.srcHashEql(old_hash, new_hash)) {
-                try file.outdated_decls.append(gpa, decl_index);
+        var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        defer old_names.deinit(zcu.gpa);
+        {
+            var it = old_zir.declIterator(old_inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
+                );
+                try old_names.put(zcu.gpa, name_ip, {});
             }
         }
-
-        if (!decl.owns_tv) continue;
-
-        if (decl.getOwnedStruct(mod)) |struct_type| {
-            struct_type.setZirIndex(ip, inst_map.get(struct_type.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            });
-        }
-
-        if (decl.getOwnedUnion(mod)) |union_type| {
-            union_type.setZirIndex(ip, inst_map.get(union_type.zir_index) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            });
-        }
-
-        if (decl.getOwnedFunction(mod)) |func| {
-            func.zirBodyInst(ip).* = inst_map.get(func.zir_body_inst) orelse {
-                try file.deleted_decls.append(gpa, decl_index);
-                continue;
-            };
-        }
-
-        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
-            for (namespace.decls.keys()) |sub_decl| {
-                try decl_stack.append(gpa, sub_decl);
+        var any_change = false;
+        {
+            var it = new_zir.declIterator(ti.inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
+                );
+                if (!old_names.swapRemove(name_ip)) continue;
+                // Name added
+                any_change = true;
+                zcu.comp.mutex.lock();
+                defer zcu.comp.mutex.unlock();
+                try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                    .namespace = ti_idx,
+                    .name = name_ip,
+                } });
             }
+        }
+        // The only elements remaining in `old_names` now are any names which were removed.
+        for (old_names.keys()) |name_ip| {
+            any_change = true;
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                .namespace = ti_idx,
+                .name = name_ip,
+            } });
+        }
+
+        if (any_change) {
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace = ti_idx });
         }
     }
+}
+
+pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    log.debug("outdated dependee: {}", .{dependee});
+    var it = zcu.intern_pool.dependencyIterator(dependee);
+    while (it.next()) |depender| {
+        if (zcu.outdated.contains(depender)) {
+            // We do not need to increment the PO dep count, as if the outdated
+            // dependee is a Decl, we had already marked this as PO.
+            continue;
+        }
+        const opt_po_entry = zcu.potentially_outdated.fetchSwapRemove(depender);
+        try zcu.outdated.putNoClobber(
+            zcu.gpa,
+            depender,
+            // We do not need to increment this count for the same reason as above.
+            if (opt_po_entry) |e| e.value else 0,
+        );
+        log.debug("outdated: {}", .{depender});
+        if (opt_po_entry == null) {
+            // This is a new entry with no PO dependencies.
+            try zcu.outdated_ready.put(zcu.gpa, depender, {});
+        }
+        // If this is a Decl and was not previously PO, we must recursively
+        // mark dependencies on its tyval as PO.
+        if (opt_po_entry == null) {
+            try zcu.markTransitiveDependersPotentiallyOutdated(depender);
+        }
+    }
+}
+
+fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    var it = zcu.intern_pool.dependencyIterator(dependee);
+    while (it.next()) |depender| {
+        if (zcu.outdated.getPtr(depender)) |po_dep_count| {
+            // This depender is already outdated, but it now has one
+            // less PO dependency!
+            po_dep_count.* -= 1;
+            if (po_dep_count.* == 0) {
+                try zcu.outdated_ready.put(zcu.gpa, depender, {});
+            }
+            continue;
+        }
+        // This depender is definitely at least PO, because this Decl was just analyzed
+        // due to being outdated.
+        const ptr = zcu.potentially_outdated.getPtr(depender).?;
+        if (ptr.* > 1) {
+            ptr.* -= 1;
+            continue;
+        }
+
+        // This dependency is no longer PO, i.e. is known to be up-to-date.
+        assert(zcu.potentially_outdated.swapRemove(depender));
+        // If this is a Decl, we must recursively mark dependencies on its tyval
+        // as no longer PO.
+        switch (depender.unwrap()) {
+            .decl => |decl_index| try zcu.markPoDependeeUpToDate(.{ .decl_val = decl_index }),
+            .func => |func_index| try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index }),
+        }
+    }
+}
+
+/// Given a Depender which is newly outdated or PO, mark all Dependers which may
+/// in turn be PO, due to a dependency on the original Depender's tyval or IES.
+fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: InternPool.Depender) !void {
+    var it = zcu.intern_pool.dependencyIterator(switch (maybe_outdated.unwrap()) {
+        .decl => |decl_index| .{ .decl_val = decl_index }, // TODO: also `decl_ref` deps when introduced
+        .func => |func_index| .{ .func_ies = func_index },
+    });
+
+    while (it.next()) |po| {
+        if (zcu.outdated.getPtr(po)) |po_dep_count| {
+            // This dependency is already outdated, but it now has one more PO
+            // dependency.
+            if (po_dep_count.* == 0) {
+                _ = zcu.outdated_ready.swapRemove(po);
+            }
+            po_dep_count.* += 1;
+            continue;
+        }
+        if (zcu.potentially_outdated.getPtr(po)) |n| {
+            // There is now one more PO dependency.
+            n.* += 1;
+            continue;
+        }
+        try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
+        // This Depender was not already PO, so we must recursively mark its dependers as also PO.
+        try zcu.markTransitiveDependersPotentiallyOutdated(po);
+    }
+}
+
+pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
+    if (!zcu.comp.debug_incremental) return null;
+
+    if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
+        log.debug("findOutdatedToAnalyze: no outdated depender", .{});
+        return null;
+    }
+
+    // Our goal is to find an outdated Depender which itself has no outdated or
+    // PO dependencies. Most of the time, such a Depender will exist - we track
+    // them in the `outdated_ready` set for efficiency. However, this is not
+    // necessarily the case, since the Decl dependency graph may contain loops
+    // via mutually recursive definitions:
+    //   pub const A = struct { b: *B };
+    //   pub const B = struct { b: *A };
+    // In this case, we must defer to more complex logic below.
+
+    if (zcu.outdated_ready.count() > 0) {
+        log.debug("findOutdatedToAnalyze: trivial '{s} {d}'", .{
+            @tagName(zcu.outdated_ready.keys()[0].unwrap()),
+            switch (zcu.outdated_ready.keys()[0].unwrap()) {
+                inline else => |x| @intFromEnum(x),
+            },
+        });
+        return zcu.outdated_ready.keys()[0];
+    }
+
+    // Next, we will see if there is any outdated file root which was not in
+    // `outdated`. This set will be small (number of files changed in this
+    // update), so it's alright for us to just iterate here.
+    for (zcu.outdated_file_root.keys()) |file_decl| {
+        const decl_depender = InternPool.Depender.wrap(.{ .decl = file_decl });
+        if (zcu.outdated.contains(decl_depender)) {
+            // Since we didn't hit this in the first loop, this Decl must have
+            // pending dependencies, so is ineligible.
+            continue;
+        }
+        if (zcu.potentially_outdated.contains(decl_depender)) {
+            // This Decl's struct may or may not need to be recreated depending
+            // on whether it is outdated. If we analyzed it now, we would have
+            // to assume it was outdated and recreate it!
+            continue;
+        }
+        log.debug("findOutdatedToAnalyze: outdated file root decl '{d}'", .{file_decl});
+        return decl_depender;
+    }
+
+    // There is no single Depender which is ready for re-analysis. Instead, we
+    // must assume that some Decl with PO dependencies is outdated - e.g. in the
+    // above example we arbitrarily pick one of A or B. We should select a Decl,
+    // since a Decl is definitely responsible for the loop in the dependency
+    // graph (since you can't depend on a runtime function analysis!).
+
+    // The choice of this Decl could have a big impact on how much total
+    // analysis we perform, since if analysis concludes its tyval is unchanged,
+    // then other PO Dependers may be resolved as up-to-date. To hopefully avoid
+    // doing too much work, let's find a Decl which the most things depend on -
+    // the idea is that this will resolve a lot of loops (but this is only a
+    // heuristic).
+
+    log.debug("findOutdatedToAnalyze: no trivial ready, using heuristic; {d} outdated, {d} PO", .{
+        zcu.outdated.count(),
+        zcu.potentially_outdated.count(),
+    });
+
+    var chosen_decl_idx: ?Decl.Index = null;
+    var chosen_decl_dependers: u32 = undefined;
+
+    for (zcu.outdated.keys()) |depender| {
+        const decl_index = switch (depender.unwrap()) {
+            .decl => |d| d,
+            .func => continue,
+        };
+
+        var n: u32 = 0;
+        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+        while (it.next()) |_| n += 1;
+
+        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
+            chosen_decl_idx = decl_index;
+            chosen_decl_dependers = n;
+        }
+    }
+
+    for (zcu.potentially_outdated.keys()) |depender| {
+        const decl_index = switch (depender.unwrap()) {
+            .decl => |d| d,
+            .func => continue,
+        };
+
+        var n: u32 = 0;
+        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+        while (it.next()) |_| n += 1;
+
+        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
+            chosen_decl_idx = decl_index;
+            chosen_decl_dependers = n;
+        }
+    }
+
+    log.debug("findOutdatedToAnalyze: heuristic returned Decl {d} ({d} dependers)", .{
+        chosen_decl_idx.?,
+        chosen_decl_dependers,
+    });
+
+    return InternPool.Depender.wrap(.{ .decl = chosen_decl_idx.? });
+}
+
+/// During an incremental update, before semantic analysis, call this to flush all values from
+/// `retryable_failures` and mark them as outdated so they get re-analyzed.
+pub fn flushRetryableFailures(zcu: *Zcu) !void {
+    const gpa = zcu.gpa;
+    for (zcu.retryable_failures.items) |depender| {
+        if (zcu.outdated.contains(depender)) continue;
+        if (zcu.potentially_outdated.fetchSwapRemove(depender)) |kv| {
+            // This Depender was already PO, but we now consider it outdated.
+            // Any transitive dependencies are already marked PO.
+            try zcu.outdated.put(gpa, depender, kv.value);
+            continue;
+        }
+        // This Depender was not marked PO, but is now outdated. Mark it as
+        // such, then recursively mark transitive dependencies as PO.
+        try zcu.outdated.put(gpa, depender, 0);
+        try zcu.markTransitiveDependersPotentiallyOutdated(depender);
+    }
+    zcu.retryable_failures.clearRetainingCapacity();
 }
 
 pub fn mapOldZirToNew(
@@ -3098,9 +2803,9 @@ pub fn mapOldZirToNew(
     old_zir: Zir,
     new_zir: Zir,
     inst_map: *std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
-    extra_map: *std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex),
 ) Allocator.Error!void {
-    // Contain ZIR indexes of declaration instructions.
+    // Contain ZIR indexes of namespace declaration instructions, e.g. struct_decl, union_decl, etc.
+    // Not `declaration`, as this does not create a namespace.
     const MatchedZirDecl = struct {
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
@@ -3108,53 +2813,128 @@ pub fn mapOldZirToNew(
     var match_stack: ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    // Main struct inst is always the same
+    // Main struct inst is always matched
     try match_stack.append(gpa, .{
         .old_inst = .main_struct_inst,
         .new_inst = .main_struct_inst,
     });
 
+    // Used as temporary buffers for namespace declaration instructions
     var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
     defer old_decls.deinit();
     var new_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
     defer new_decls.deinit();
 
     while (match_stack.popOrNull()) |match_item| {
+        // Match the namespace declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
-        // Maps name to extra index of decl sub item.
-        var decl_map: std.StringHashMapUnmanaged(Zir.ExtraIndex) = .{};
-        defer decl_map.deinit(gpa);
+        // Maps decl name to `declaration` instruction.
+        var named_decls: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        defer named_decls.deinit(gpa);
+        // Maps test name to `declaration` instruction.
+        var named_tests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .{};
+        defer named_tests.deinit(gpa);
+        // All unnamed tests, in order, for a best-effort match.
+        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        defer unnamed_tests.deinit(gpa);
+        // All comptime declarations, in order, for a best-effort match.
+        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        defer comptime_decls.deinit(gpa);
+        // All usingnamespace declarations, in order, for a best-effort match.
+        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+        defer usingnamespace_decls.deinit(gpa);
 
         {
             var old_decl_it = old_zir.declIterator(match_item.old_inst);
-            while (old_decl_it.next()) |old_decl| {
-                try decl_map.put(gpa, old_decl.name, old_decl.sub_index);
+            while (old_decl_it.next()) |old_decl_inst| {
+                const old_decl, _ = old_zir.getDeclaration(old_decl_inst);
+                switch (old_decl.name) {
+                    .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
+                    .@"usingnamespace" => try usingnamespace_decls.append(gpa, old_decl_inst),
+                    .unnamed_test, .decltest => try unnamed_tests.append(gpa, old_decl_inst),
+                    _ => {
+                        const name_nts = old_decl.name.toString(old_zir).?;
+                        const name = old_zir.nullTerminatedString(name_nts);
+                        if (old_decl.name.isNamedTest(old_zir)) {
+                            try named_tests.put(gpa, name, old_decl_inst);
+                        } else {
+                            try named_decls.put(gpa, name, old_decl_inst);
+                        }
+                    },
+                }
             }
         }
 
-        var new_decl_it = new_zir.declIterator(match_item.new_inst);
-        while (new_decl_it.next()) |new_decl| {
-            const old_extra_index = decl_map.get(new_decl.name) orelse continue;
-            const new_extra_index = new_decl.sub_index;
-            try extra_map.put(gpa, old_extra_index, new_extra_index);
+        var unnamed_test_idx: u32 = 0;
+        var comptime_decl_idx: u32 = 0;
+        var usingnamespace_decl_idx: u32 = 0;
 
-            try old_zir.findDecls(&old_decls, old_extra_index);
-            try new_zir.findDecls(&new_decls, new_extra_index);
-            var i: usize = 0;
-            while (true) : (i += 1) {
-                if (i >= old_decls.items.len) break;
-                if (i >= new_decls.items.len) break;
-                try match_stack.append(gpa, .{
-                    .old_inst = old_decls.items[i],
-                    .new_inst = new_decls.items[i],
-                });
+        var new_decl_it = new_zir.declIterator(match_item.new_inst);
+        while (new_decl_it.next()) |new_decl_inst| {
+            const new_decl, _ = new_zir.getDeclaration(new_decl_inst);
+            // Attempt to match this to a declaration in the old ZIR:
+            // * For named declarations (`const`/`var`/`fn`), we match based on name.
+            // * For named tests (`test "foo"`), we also match based on name.
+            // * For unnamed tests and decltests, we match based on order.
+            // * For comptime blocks, we match based on order.
+            // * For usingnamespace decls, we match based on order.
+            // If we cannot match this declaration, we can't match anything nested inside of it either, so we just `continue`.
+            const old_decl_inst = switch (new_decl.name) {
+                .@"comptime" => inst: {
+                    if (comptime_decl_idx == comptime_decls.items.len) continue;
+                    defer comptime_decl_idx += 1;
+                    break :inst comptime_decls.items[comptime_decl_idx];
+                },
+                .@"usingnamespace" => inst: {
+                    if (usingnamespace_decl_idx == usingnamespace_decls.items.len) continue;
+                    defer usingnamespace_decl_idx += 1;
+                    break :inst usingnamespace_decls.items[usingnamespace_decl_idx];
+                },
+                .unnamed_test, .decltest => inst: {
+                    if (unnamed_test_idx == unnamed_tests.items.len) continue;
+                    defer unnamed_test_idx += 1;
+                    break :inst unnamed_tests.items[unnamed_test_idx];
+                },
+                _ => inst: {
+                    const name_nts = new_decl.name.toString(old_zir).?;
+                    const name = new_zir.nullTerminatedString(name_nts);
+                    if (new_decl.name.isNamedTest(new_zir)) {
+                        break :inst named_tests.get(name) orelse continue;
+                    } else {
+                        break :inst named_decls.get(name) orelse continue;
+                    }
+                },
+            };
+
+            // Match the `declaration` instruction
+            try inst_map.put(gpa, old_decl_inst, new_decl_inst);
+
+            // Find namespace declarations within this declaration
+            try old_zir.findDecls(&old_decls, old_decl_inst);
+            try new_zir.findDecls(&new_decls, new_decl_inst);
+
+            // We don't have any smart way of matching up these namespace declarations, so we always
+            // correlate them based on source order.
+            const n = @min(old_decls.items.len, new_decls.items.len);
+            try match_stack.ensureUnusedCapacity(gpa, n);
+            for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+                match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
             }
         }
     }
 }
 
-/// This ensures that the Decl will have a Type and Value populated.
+/// Like `ensureDeclAnalyzed`, but the Decl is a file's root Decl.
+pub fn ensureFileAnalyzed(zcu: *Zcu, file: *File) SemaError!void {
+    if (file.root_decl.unwrap()) |existing_root| {
+        return zcu.ensureDeclAnalyzed(existing_root);
+    } else {
+        return zcu.semaFile(file);
+    }
+}
+
+/// This ensures that the Decl will have an up-to-date Type and Value populated.
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
 /// is called.
@@ -3164,40 +2944,72 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
 
     const decl = mod.declPtr(decl_index);
 
-    const subsequent_analysis = switch (decl.analysis) {
+    log.debug("ensureDeclAnalyzed '{d}' (name '{}')", .{
+        @intFromEnum(decl_index),
+        decl.name.fmt(&mod.intern_pool),
+    });
+
+    // Determine whether or not this Decl is outdated, i.e. requires re-analysis
+    // even if `complete`. If a Decl is PO, we pessismistically assume that it
+    // *does* require re-analysis, to ensure that the Decl is definitely
+    // up-to-date when this function returns.
+
+    // If analysis occurs in a poor order, this could result in over-analysis.
+    // We do our best to avoid this by the other dependency logic in this file
+    // which tries to limit re-analysis to Decls whose previously listed
+    // dependencies are all up-to-date.
+
+    const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
+    const decl_was_outdated = mod.outdated.swapRemove(decl_as_depender) or
+        mod.potentially_outdated.swapRemove(decl_as_depender);
+
+    if (decl_was_outdated) {
+        _ = mod.outdated_ready.swapRemove(decl_as_depender);
+    }
+
+    const was_outdated = mod.outdated_file_root.swapRemove(decl_index) or decl_was_outdated;
+
+    switch (decl.analysis) {
         .in_progress => unreachable,
 
-        .file_failure,
+        .file_failure => return error.AnalysisFail,
+
         .sema_failure,
-        .sema_failure_retryable,
-        .liveness_failure,
-        .codegen_failure,
         .dependency_failure,
-        .codegen_failure_retryable,
-        => return error.AnalysisFail,
+        .codegen_failure,
+        => if (!was_outdated) return error.AnalysisFail,
 
-        .complete => return,
+        .complete => if (!was_outdated) return,
 
-        .outdated => blk: {
-            if (build_options.only_c) unreachable;
-            // The exports this Decl performs will be re-discovered, so we remove them here
-            // prior to re-analysis.
-            try mod.deleteDeclExports(decl_index);
+        .unreferenced => {},
+    }
 
-            break :blk true;
-        },
-
-        .unreferenced => false,
-    };
+    if (was_outdated) {
+        // The exports this Decl performs will be re-discovered, so we remove them here
+        // prior to re-analysis.
+        if (build_options.only_c) unreachable;
+        try mod.deleteDeclExports(decl_index);
+    }
 
     var decl_prog_node = mod.sema_prog_node.start("", 0);
     decl_prog_node.activate();
     defer decl_prog_node.end();
 
-    const type_changed = blk: {
+    const sema_result: SemaDeclResult = blk: {
         if (decl.zir_decl_index == .none and !mod.declIsRoot(decl_index)) {
             // Anonymous decl. We don't semantically analyze these.
-            break :blk false; // tv unchanged
+            break :blk .{
+                .invalidate_decl_val = false,
+                .invalidate_decl_ref = false,
+            };
+        }
+
+        if (mod.declIsRoot(decl_index)) {
+            const changed = try mod.semaFileUpdate(decl.getFileScope(mod), decl_was_outdated);
+            break :blk .{
+                .invalidate_decl_val = changed,
+                .invalidate_decl_ref = changed,
+            };
         }
 
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
@@ -3213,8 +3025,9 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             else => |e| {
-                decl.analysis = .sema_failure_retryable;
+                decl.analysis = .sema_failure;
                 try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+                try mod.retryable_failures.append(mod.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
                 mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     mod.gpa,
                     decl.srcLoc(mod),
@@ -3226,137 +3039,208 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         };
     };
 
-    if (subsequent_analysis) {
-        _ = type_changed;
-        @panic("TODO re-implement incremental compilation");
+    // TODO: we do not yet have separate dependencies for decl values vs types.
+    if (decl_was_outdated) {
+        if (sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref) {
+            log.debug("Decl tv invalidated ('{d}')", .{@intFromEnum(decl_index)});
+            // This dependency was marked as PO, meaning dependees were waiting
+            // on its analysis result, and it has turned out to be outdated.
+            // Update dependees accordingly.
+            try mod.markDependeeOutdated(.{ .decl_val = decl_index });
+        } else {
+            log.debug("Decl tv up-to-date ('{d}')", .{@intFromEnum(decl_index)});
+            // This dependency was previously PO, but turned out to be up-to-date.
+            // We do not need to queue successive analysis.
+            try mod.markPoDependeeUpToDate(.{ .decl_val = decl_index });
+        }
     }
 }
 
-pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError!void {
+pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.Index) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const func = zcu.funcInfo(func_index);
+
+    // We only care about the uncoerced function.
+    // We need to do this for the "orphaned function" check below to be valid.
+    const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
+
+    const func = zcu.funcInfo(maybe_coerced_func_index);
     const decl_index = func.owner_decl;
     const decl = zcu.declPtr(decl_index);
+
+    log.debug("ensureFuncBodyAnalyzed '{d}' (instance of '{}')", .{
+        @intFromEnum(func_index),
+        decl.name.fmt(ip),
+    });
+
+    // First, our owner decl must be up-to-date. This will always be the case
+    // during the first update, but may not on successive updates if we happen
+    // to get analyzed before our parent decl.
+    try zcu.ensureDeclAnalyzed(decl_index);
+
+    // On an update, it's possible this function changed such that our owner
+    // decl now refers to a different function, making this one orphaned. If
+    // that's the case, we should remove this function from the binary.
+    if (decl.val.ip_index != func_index) {
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
+        ip.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+        ip.remove(func_index);
+        @panic("TODO: remove orphaned function from binary");
+    }
+
+    // We'll want to remember what the IES used to be before the update for
+    // dependency invalidation purposes.
+    const old_resolved_ies = if (func.analysis(ip).inferred_error_set)
+        func.resolvedErrorSet(ip).*
+    else
+        .none;
 
     switch (decl.analysis) {
         .unreferenced => unreachable,
         .in_progress => unreachable,
-        .outdated => unreachable,
+
+        .codegen_failure => unreachable, // functions do not perform constant value generation
 
         .file_failure,
         .sema_failure,
-        .liveness_failure,
-        .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete, .codegen_failure_retryable => {
-            switch (func.analysis(ip).state) {
-                .sema_failure, .dependency_failure => return error.AnalysisFail,
-                .none, .queued => {},
-                .in_progress => unreachable,
-                .inline_only => unreachable, // don't queue work for this
-                .success => return,
+        .complete => {},
+    }
+
+    const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
+    const was_outdated = zcu.outdated.swapRemove(func_as_depender) or
+        zcu.potentially_outdated.swapRemove(func_as_depender);
+
+    if (was_outdated) {
+        _ = zcu.outdated_ready.swapRemove(func_as_depender);
+    }
+
+    switch (func.analysis(ip).state) {
+        .success => if (!was_outdated) return,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        => if (!was_outdated) return error.AnalysisFail,
+        .none, .queued => {},
+        .in_progress => unreachable,
+        .inline_only => unreachable, // don't queue work for this
+    }
+
+    log.debug("analyze and generate fn body '{d}'; reason='{s}'", .{
+        @intFromEnum(func_index),
+        if (was_outdated) "outdated" else "never analyzed",
+    });
+
+    var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+    defer tmp_arena.deinit();
+    const sema_arena = tmp_arena.allocator();
+
+    var air = zcu.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
+        error.AnalysisFail => {
+            if (func.analysis(ip).state == .in_progress) {
+                // If this decl caused the compile error, the analysis field would
+                // be changed to indicate it was this Decl's fault. Because this
+                // did not happen, we infer here that it was a dependency failure.
+                func.analysis(ip).state = .dependency_failure;
             }
-
-            const gpa = zcu.gpa;
-
-            var tmp_arena = std.heap.ArenaAllocator.init(gpa);
-            defer tmp_arena.deinit();
-            const sema_arena = tmp_arena.allocator();
-
-            var air = zcu.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    if (func.analysis(ip).state == .in_progress) {
-                        // If this decl caused the compile error, the analysis field would
-                        // be changed to indicate it was this Decl's fault. Because this
-                        // did not happen, we infer here that it was a dependency failure.
-                        func.analysis(ip).state = .dependency_failure;
-                    }
-                    return error.AnalysisFail;
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            defer air.deinit(gpa);
-
-            const comp = zcu.comp;
-
-            const dump_air = builtin.mode == .Debug and comp.verbose_air;
-            const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
-
-            if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
-                return;
-            }
-
-            var liveness = try Liveness.analyze(gpa, air, ip);
-            defer liveness.deinit(gpa);
-
-            if (dump_air) {
-                const fqn = try decl.getFullyQualifiedName(zcu);
-                std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
-                @import("print_air.zig").dump(zcu, air, liveness);
-                std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
-            }
-
-            if (std.debug.runtime_safety) {
-                var verify = Liveness.Verify{
-                    .gpa = gpa,
-                    .air = air,
-                    .liveness = liveness,
-                    .intern_pool = ip,
-                };
-                defer verify.deinit();
-
-                verify.verify() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => {
-                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        zcu.failed_decls.putAssumeCapacityNoClobber(
-                            decl_index,
-                            try Module.ErrorMsg.create(
-                                gpa,
-                                decl.srcLoc(zcu),
-                                "invalid liveness: {s}",
-                                .{@errorName(err)},
-                            ),
-                        );
-                        decl.analysis = .liveness_failure;
-                        return error.AnalysisFail;
-                    },
-                };
-            }
-
-            if (comp.bin_file) |lf| {
-                lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                    },
-                    else => {
-                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
-                            gpa,
-                            decl.srcLoc(zcu),
-                            "unable to codegen: {s}",
-                            .{@errorName(err)},
-                        ));
-                        decl.analysis = .codegen_failure_retryable;
-                    },
-                };
-            } else if (zcu.llvm_object) |llvm_object| {
-                if (build_options.only_c) unreachable;
-                llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                    },
-                };
-            }
+            return error.AnalysisFail;
         },
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer air.deinit(gpa);
+
+    const invalidate_ies_deps = i: {
+        if (!was_outdated) break :i false;
+        if (!func.analysis(ip).inferred_error_set) break :i true;
+        const new_resolved_ies = func.resolvedErrorSet(ip).*;
+        break :i new_resolved_ies != old_resolved_ies;
+    };
+    if (invalidate_ies_deps) {
+        log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
+    } else if (was_outdated) {
+        log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index });
+    }
+
+    const comp = zcu.comp;
+
+    const dump_air = build_options.enable_debug_extensions and comp.verbose_air;
+    const dump_llvm_ir = build_options.enable_debug_extensions and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
+
+    if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
+        return;
+    }
+
+    var liveness = try Liveness.analyze(gpa, air, ip);
+    defer liveness.deinit(gpa);
+
+    if (dump_air) {
+        const fqn = try decl.fullyQualifiedName(zcu);
+        std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
+        @import("print_air.zig").dump(zcu, air, liveness);
+        std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
+    }
+
+    if (std.debug.runtime_safety) {
+        var verify = Liveness.Verify{
+            .gpa = gpa,
+            .air = air,
+            .liveness = liveness,
+            .intern_pool = ip,
+        };
+        defer verify.deinit();
+
+        verify.verify() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_decls.putAssumeCapacityNoClobber(
+                    decl_index,
+                    try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(zcu),
+                        "invalid liveness: {s}",
+                        .{@errorName(err)},
+                    ),
+                );
+                func.analysis(ip).state = .codegen_failure;
+                return;
+            },
+        };
+    }
+
+    if (comp.bin_file) |lf| {
+        lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                func.analysis(ip).state = .codegen_failure;
+            },
+            else => {
+                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(zcu),
+                    "unable to codegen: {s}",
+                    .{@errorName(err)},
+                ));
+                func.analysis(ip).state = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+            },
+        };
+    } else if (zcu.llvm_object) |llvm_object| {
+        if (build_options.only_c) unreachable;
+        llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                func.analysis(ip).state = .codegen_failure;
+            },
+        };
     }
 }
 
@@ -3376,18 +3260,14 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     switch (decl.analysis) {
         .unreferenced => unreachable,
         .in_progress => unreachable,
-        .outdated => unreachable,
 
         .file_failure,
         .sema_failure,
-        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
-        .codegen_failure_retryable,
-        // The function analysis failed, but we've already emitted an error for
-        // that. The callee doesn't need the function to be analyzed right now,
-        // so its analysis can safely continue.
+        // Analysis of the function Decl itself failed, but we've already
+        // emitted an error for that. The callee doesn't need the function to be
+        // analyzed right now, so its analysis can safely continue.
         => return,
 
         .complete => {},
@@ -3395,14 +3275,21 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
     assert(decl.has_tv);
 
+    const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
+    const is_outdated = mod.outdated.contains(func_as_depender) or
+        mod.potentially_outdated.contains(func_as_depender);
+
     switch (func.analysis(ip).state) {
         .none => {},
         .queued => return,
         // As above, we don't need to forward errors here.
-        .sema_failure, .dependency_failure => return,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        .success,
+        => if (!is_outdated) return,
         .in_progress => return,
         .inline_only => unreachable, // don't queue work for this
-        .success => return,
     }
 
     // Decl itself is safely analyzed, and body analysis is not yet queued
@@ -3419,16 +3306,144 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
-    return mod.semaFile(file);
+    if (file.root_decl == .none) {
+        return mod.semaFile(file);
+    }
 }
 
-/// Regardless of the file status, will create a `Decl` so that we
-/// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *File) SemaError!void {
+fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespace.Index, file: *File) Allocator.Error!InternPool.Index {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    assert(extended.opcode == .struct_decl);
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+    assert(!small.has_captures_len);
+    assert(!small.has_backing_int);
+    assert(small.layout == .auto);
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+    extra_index += decls_len;
+
+    const tracked_inst = try ip.trackZir(gpa, file, .main_struct_inst);
+    const wip_ty = switch (try ip.getStructType(gpa, .{
+        .layout = .auto,
+        .fields_len = fields_len,
+        .known_non_opv = small.known_non_opv,
+        .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
+        .is_tuple = small.is_tuple,
+        .any_comptime_fields = small.any_comptime_fields,
+        .any_default_inits = small.any_default_inits,
+        .inits_resolved = false,
+        .any_aligned_fields = small.any_aligned_fields,
+        .has_namespace = true,
+        .key = .{ .declared = .{
+            .zir_index = tracked_inst,
+            .captures = &.{},
+        } },
+    })) {
+        .existing => unreachable, // we wouldn't be analysing the file root if this type existed
+        .wip => |wip| wip,
+    };
+    errdefer wip_ty.cancel(ip);
+
+    if (zcu.comp.debug_incremental) {
+        try ip.addDependency(
+            gpa,
+            InternPool.Depender.wrap(.{ .decl = decl_index }),
+            .{ .src_hash = tracked_inst },
+        );
+    }
+
+    const decl = zcu.declPtr(decl_index);
+    decl.val = Value.fromInterned(wip_ty.index);
+    decl.has_tv = true;
+    decl.owns_tv = true;
+    decl.analysis = .complete;
+
+    try zcu.scanNamespace(namespace_index, decls, decl);
+
+    return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
+}
+
+/// Re-analyze the root Decl of a file on an incremental update.
+/// If `type_outdated`, the struct type itself is considered outdated and is
+/// reconstructed at a new InternPool index. Otherwise, the namespace is just
+/// re-analyzed. Returns whether the decl's tyval was invalidated.
+fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
+    const decl = zcu.declPtr(file.root_decl.unwrap().?);
+
+    log.debug("semaFileUpdate mod={s} sub_file_path={s} type_outdated={}", .{
+        file.mod.fully_qualified_name,
+        file.sub_file_path,
+        type_outdated,
+    });
+
+    if (file.status != .success_zir) {
+        if (decl.analysis == .file_failure) {
+            return false;
+        } else {
+            decl.analysis = .file_failure;
+            return true;
+        }
+    }
+
+    if (decl.analysis == .file_failure) {
+        // No struct type currently exists. Create one!
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
+        return true;
+    }
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    if (type_outdated) {
+        // Invalidate the existing type, reusing the decl and namespace.
+        zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = file.root_decl.unwrap().? }));
+        zcu.intern_pool.remove(decl.val.toIntern());
+        decl.val = undefined;
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
+        return true;
+    }
+
+    // Only the struct's namespace is outdated.
+    // Preserve the type - just scan the namespace again.
+
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    extra_index += @intFromBool(small.has_fields_len);
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+
+    if (!type_outdated) {
+        try zcu.scanNamespace(decl.src_namespace, decls, decl);
+    }
+
+    return false;
+}
+
+/// Regardless of the file status, will create a `Decl` if none exists so that we can track
+/// dependencies and re-analyze when the file becomes outdated.
+fn semaFile(mod: *Module, file: *File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (file.root_decl != .none) return;
+    assert(file.root_decl == .none);
 
     const gpa = mod.gpa;
     log.debug("semaFile mod={s} sub_file_path={s}", .{
@@ -3440,31 +3455,26 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     // InternPool index.
     const new_namespace_index = try mod.createNamespace(.{
         .parent = .none,
-        .ty = undefined,
+        .decl_index = undefined,
         .file_scope = file,
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
-    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0, .none);
+    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0);
     const new_decl = mod.declPtr(new_decl_index);
     errdefer @panic("TODO error handling");
 
     file.root_decl = new_decl_index.toOptional();
+    mod.namespacePtr(new_namespace_index).decl_index = new_decl_index;
 
     new_decl.name = try file.fullyQualifiedName(mod);
     new_decl.name_fully_qualified = true;
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
-    new_decl.has_align = false;
-    new_decl.has_linksection_or_addrspace = false;
-    new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
-    new_decl.generation = mod.generation;
 
     if (file.status != .success_zir) {
         new_decl.analysis = .file_failure;
@@ -3472,51 +3482,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     }
     assert(file.zir_loaded);
 
-    var sema_arena = std.heap.ArenaAllocator.init(gpa);
-    defer sema_arena.deinit();
-    const sema_arena_allocator = sema_arena.allocator();
+    const struct_ty = try mod.getFileRootStruct(new_decl_index, new_namespace_index, file);
+    errdefer mod.intern_pool.remove(struct_ty);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = sema_arena_allocator,
-        .code = file.zir,
-        .owner_decl = new_decl,
-        .owner_decl_index = new_decl_index,
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
-    };
-    defer sema.deinit();
-
-    const struct_ty = sema.getStructType(
-        new_decl_index,
-        new_namespace_index,
-        .main_struct_inst,
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    // TODO: figure out InternPool removals for incremental compilation
-    //errdefer ip.remove(struct_ty);
-    for (comptime_mutable_decls.items) |decl_index| {
-        const decl = mod.declPtr(decl_index);
-        _ = try decl.internValue(mod);
-    }
-
-    new_namespace.ty = Type.fromInterned(struct_ty);
-    new_decl.val = Value.fromInterned(struct_ty);
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
-    new_decl.analysis = .complete;
-
-    const comp = mod.comp;
-    switch (comp.cache_use) {
+    switch (mod.comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
             const source = file.getSource(gpa) catch |err| {
                 try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
@@ -3541,10 +3510,14 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     }
 }
 
-/// Returns `true` if the Decl type changed.
-/// Returns `true` if this is the first time analyzing the Decl.
-/// Returns `false` otherwise.
-fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
+const SemaDeclResult = packed struct {
+    /// Whether the value of a `decl_val` of this Decl changed.
+    invalidate_decl_val: bool,
+    /// Whether the type of a `decl_ref` of this Decl changed.
+    invalidate_decl_ref: bool,
+};
+
+fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3555,50 +3528,87 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         return error.AnalysisFail;
     }
 
+    assert(!mod.declIsRoot(decl_index));
+
+    if (decl.zir_decl_index == .none and decl.owns_tv) {
+        // We are re-analyzing an anonymous owner Decl (for a function or a namespace type).
+        return mod.semaAnonOwnerDecl(decl_index);
+    }
+
+    log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
+    log.debug("decl name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish decl name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
+
+    const old_has_tv = decl.has_tv;
+    // The following values are ignored if `!old_has_tv`
+    const old_ty = if (old_has_tv) decl.typeOf(mod) else undefined;
+    const old_val = decl.val;
+    const old_align = decl.alignment;
+    const old_linksection = decl.@"linksection";
+    const old_addrspace = decl.@"addrspace";
+    const old_is_inline = if (decl.getOwnedFunction(mod)) |prev_func|
+        prev_func.analysis(ip).state == .inline_only
+    else
+        false;
+
+    const decl_inst = decl.zir_decl_index.unwrap().?.resolve(ip);
+
     const gpa = mod.gpa;
     const zir = decl.getFileScope(mod).zir;
-    const zir_datas = zir.instructions.items(.data);
 
-    const builtin_type_target_index: InternPool.Index = blk: {
+    const builtin_type_target_index: InternPool.Index = ip_index: {
         const std_mod = mod.std_mod;
-        if (decl.getFileScope(mod).mod != std_mod) break :blk .none;
+        if (decl.getFileScope(mod).mod != std_mod) break :ip_index .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
         const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
         const std_namespace = std_decl.getInnerNamespace(mod).?;
-        const builtin_str = try ip.getOrPutString(gpa, "builtin");
-        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .mod = mod }) orelse break :blk .none);
-        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
-        if (decl.src_namespace != builtin_namespace) break :blk .none;
+        const builtin_str = try ip.getOrPutString(gpa, "builtin", .no_embedded_nulls);
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :ip_index .none);
+        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :ip_index .none;
+        if (decl.src_namespace != builtin_namespace) break :ip_index .none;
         // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
-        for ([_]struct { []const u8, InternPool.Index }{
-            .{ "AtomicOrder", .atomic_order_type },
-            .{ "AtomicRmwOp", .atomic_rmw_op_type },
-            .{ "CallingConvention", .calling_convention_type },
-            .{ "AddressSpace", .address_space_type },
-            .{ "FloatMode", .float_mode_type },
-            .{ "ReduceOp", .reduce_op_type },
-            .{ "CallModifier", .call_modifier_type },
-            .{ "PrefetchOptions", .prefetch_options_type },
-            .{ "ExportOptions", .export_options_type },
-            .{ "ExternOptions", .extern_options_type },
-            .{ "Type", .type_info_type },
-        }) |pair| {
-            const decl_name = ip.stringToSlice(decl.name);
-            if (std.mem.eql(u8, decl_name, pair[0])) {
-                break :blk pair[1];
-            }
+        for ([_][]const u8{
+            "AtomicOrder",
+            "AtomicRmwOp",
+            "CallingConvention",
+            "AddressSpace",
+            "FloatMode",
+            "ReduceOp",
+            "CallModifier",
+            "PrefetchOptions",
+            "ExportOptions",
+            "ExternOptions",
+            "Type",
+        }, [_]InternPool.Index{
+            .atomic_order_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .address_space_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_modifier_type,
+            .prefetch_options_type,
+            .export_options_type,
+            .extern_options_type,
+            .type_info_type,
+        }) |type_name, type_ip| {
+            if (decl.name.eqlSlice(type_name, ip)) break :ip_index type_ip;
         }
-        break :blk .none;
+        break :ip_index .none;
     };
+
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
 
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
+    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
         .mod = mod,
@@ -3612,209 +3622,216 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
         .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
 
-    assert(!mod.declIsRoot(decl_index));
+    // Every Decl (other than file root Decls, which do not have a ZIR index) has a dependency on its own source.
+    try sema.declareDependency(.{ .src_hash = try ip.trackZir(
+        sema.gpa,
+        decl.getFileScope(mod),
+        decl_inst,
+    ) });
 
     var block_scope: Sema.Block = .{
         .parent = null,
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
     };
     defer block_scope.instructions.deinit(gpa);
 
-    const zir_block_index = decl.zirBlockIndex(mod);
-    const inst_data = zir_datas[@intFromEnum(zir_block_index)].pl_node;
-    const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
-    const body = zir.extra[extra.end..][0..extra.data.body_len];
-    const result_ref = (try sema.analyzeBodyBreak(&block_scope, @ptrCast(body))).?.operand;
+    const decl_bodies = decl.zirBodies(mod);
+
+    const result_ref = try sema.resolveInlineBody(&block_scope, decl_bodies.value_body, decl_inst);
     // We'll do some other bits with the Sema. Clear the type target index just
     // in case they analyze any type.
     sema.builtin_type_target_index = .none;
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
-    }
     const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = 0 };
     const section_src: LazySrcLoc = .{ .node_offset_var_decl_section = 0 };
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValueAllowVariables(&block_scope, init_src, result_ref, .{
-        .needed_comptime_reason = "global variable initializer must be comptime-known",
-    });
+    const decl_val = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_ty = decl_val.typeOf(mod);
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(decl_tv.ty);
+    try sema.resolveTypeLayout(decl_ty);
 
     if (decl.kind == .@"usingnamespace") {
-        if (!decl_tv.ty.eql(Type.type, mod)) {
+        if (!decl_ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
-                decl_tv.ty.fmt(mod),
+                decl_ty.fmt(mod),
             });
         }
-        const ty = decl_tv.val.toType();
+        const ty = decl_val.toType();
         if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
         decl.has_tv = true;
         decl.owns_tv = false;
         decl.analysis = .complete;
-        decl.generation = mod.generation;
 
-        return true;
+        // TODO: usingnamespace cannot currently participate in incremental compilation
+        return .{
+            .invalidate_decl_val = true,
+            .invalidate_decl_ref = true,
+        };
     }
 
-    switch (ip.indexToKey(decl_tv.val.toIntern())) {
-        .func => |func| {
-            const owns_tv = func.owner_decl == decl_index;
-            if (owns_tv) {
-                var prev_type_has_bits = false;
-                var prev_is_inline = false;
-                var type_changed = true;
-
-                if (decl.has_tv) {
-                    prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
-                    type_changed = !decl.ty.eql(decl_tv.ty, mod);
-                    if (decl.getOwnedFunction(mod)) |prev_func| {
-                        prev_is_inline = prev_func.analysis(ip).state == .inline_only;
-                    }
-                }
-
-                decl.ty = decl_tv.ty;
-                decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-                // linksection, align, and addrspace were already set by Sema
-                decl.has_tv = true;
-                decl.owns_tv = owns_tv;
-                decl.analysis = .complete;
-                decl.generation = mod.generation;
-
-                const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
-                if (decl.is_exported) {
-                    const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
-                    if (is_inline) {
-                        return sema.fail(&block_scope, export_src, "export of inline function", .{});
-                    }
-                    // The scope needs to have the decl in it.
-                    try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
-                }
-                return type_changed or is_inline != prev_is_inline;
-            }
-        },
-        else => {},
-    }
-    var type_changed = true;
-    if (decl.has_tv) {
-        type_changed = !decl.ty.eql(decl_tv.ty, mod);
-    }
-
-    decl.owns_tv = false;
-    var queue_linker_work = false;
-    var is_extern = false;
-    switch (decl_tv.val.toIntern()) {
+    var queue_linker_work = true;
+    var is_func = false;
+    var is_inline = false;
+    switch (decl_val.toIntern()) {
         .generic_poison => unreachable,
         .unreachable_value => unreachable,
-        else => switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => |variable| if (variable.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
+        else => switch (ip.indexToKey(decl_val.toIntern())) {
+            .variable => |variable| {
+                decl.owns_tv = variable.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
             },
 
-            .extern_func => |extern_fn| if (extern_fn.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-                is_extern = true;
+            .extern_func => |extern_func| {
+                decl.owns_tv = extern_func.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
+                is_func = decl.owns_tv;
             },
 
-            .func => {},
-
-            else => {
-                queue_linker_work = true;
+            .func => |func| {
+                decl.owns_tv = func.owner_decl == decl_index;
+                queue_linker_work = false;
+                is_inline = decl.owns_tv and decl_ty.fnCallingConvention(mod) == .Inline;
+                is_func = decl.owns_tv;
             },
+
+            else => {},
         },
     }
 
-    decl.ty = decl_tv.ty;
-    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-    decl.alignment = blk: {
-        const align_ref = decl.zirAlignRef(mod);
-        if (align_ref == .none) break :blk .none;
-        break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
-    };
-    decl.@"linksection" = blk: {
-        const linksection_ref = decl.zirLinksectionRef(mod);
-        if (linksection_ref == .none) break :blk .none;
-        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        });
-        if (mem.indexOfScalar(u8, bytes, 0) != null) {
-            return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
-        } else if (bytes.len == 0) {
-            return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
-        }
-        const section = try ip.getOrPutString(gpa, bytes);
-        break :blk section.toOptional();
-    };
-    decl.@"addrspace" = blk: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => .variable,
-            .extern_func, .func => .function,
-            else => .constant,
+    decl.val = decl_val;
+    // Function linksection, align, and addrspace were already set by Sema
+    if (!is_func) {
+        decl.alignment = blk: {
+            const align_body = decl_bodies.align_body orelse break :blk .none;
+            const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
+            break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
         };
+        decl.@"linksection" = blk: {
+            const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
+            const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
+            const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
+                .needed_comptime_reason = "linksection must be comptime-known",
+            });
+            if (mem.indexOfScalar(u8, bytes, 0) != null) {
+                return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
+            } else if (bytes.len == 0) {
+                return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
+            }
+            break :blk try ip.getOrPutStringOpt(gpa, bytes, .no_embedded_nulls);
+        };
+        decl.@"addrspace" = blk: {
+            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
+                .variable => .variable,
+                .extern_func, .func => .function,
+                else => .constant,
+            };
 
-        const target = sema.mod.getTarget();
-        break :blk switch (decl.zirAddrspaceRef(mod)) {
-            .none => switch (addrspace_ctx) {
+            const target = sema.mod.getTarget();
+
+            const addrspace_body = decl_bodies.addrspace_body orelse break :blk switch (addrspace_ctx) {
                 .function => target_util.defaultAddressSpace(target, .function),
                 .variable => target_util.defaultAddressSpace(target, .global_mutable),
                 .constant => target_util.defaultAddressSpace(target, .global_constant),
                 else => unreachable,
-            },
-            else => |addrspace_ref| try sema.analyzeAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx),
+            };
+            const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
+            break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
         };
-    };
+    }
     decl.has_tv = true;
     decl.analysis = .complete;
-    decl.generation = mod.generation;
 
-    const has_runtime_bits = is_extern or
-        (queue_linker_work and try sema.typeHasRuntimeBits(decl.ty));
+    const result: SemaDeclResult = if (old_has_tv) .{
+        .invalidate_decl_val = !decl_ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl_ty, mod) or
+            is_inline != old_is_inline,
+        .invalidate_decl_ref = !decl_ty.eql(old_ty, mod) or
+            decl.alignment != old_align or
+            decl.@"linksection" != old_linksection or
+            decl.@"addrspace" != old_addrspace or
+            is_inline != old_is_inline,
+    } else .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_ty));
     if (has_runtime_bits) {
-
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl.ty);
+        try sema.resolveTypeFully(decl_ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
-        if (type_changed and mod.emit_h != null) {
+        if (result.invalidate_decl_ref and mod.emit_h != null) {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
         }
     }
 
     if (decl.is_exported) {
         const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
+        if (is_inline) return sema.fail(&block_scope, export_src, "export of inline function", .{});
         // The scope needs to have the decl in it.
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }
 
-    return type_changed;
+    return result;
+}
+
+fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
+    const decl = zcu.declPtr(decl_index);
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
+
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
+        .Fn => @panic("TODO: update fn instance"),
+        .Type => {},
+        else => unreachable,
+    }
+
+    // We are the owner Decl of a type, and we were marked as outdated. That means the *structure*
+    // of this type changed; not just its namespace. Therefore, we need a new InternPool index.
+    //
+    // However, as soon as we make that, the context that created us will require re-analysis anyway
+    // (as it depends on this Decl's value), meaning the `struct_decl` (or equivalent) instruction
+    // will be analyzed again. Since Sema already needs to be able to reconstruct types like this,
+    // why should we bother implementing it here too when the Sema logic will be hit right after?
+    //
+    // So instead, let's just mark this Decl as failed - so that any remaining Decls which genuinely
+    // reference it (via `@This`) end up silently erroring too - and we'll let Sema make a new type
+    // with a new Decl.
+    //
+    // Yes, this does mean that any type owner Decl has a constant value for its entire lifetime.
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.remove(decl.val.toIntern());
+    decl.analysis = .dependency_failure;
+    return .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 }
 
 pub const ImportFileResult = struct {
@@ -4057,6 +4074,7 @@ fn newEmbedFile(
     src_loc: SrcLoc,
 ) !InternPool.Index {
     const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
 
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -4071,11 +4089,11 @@ fn newEmbedFile(
         .mtime = actual_stat.mtime,
     };
     const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
-    const ip = &mod.intern_pool;
 
-    const ptr = try ip.string_bytes.addManyAsSlice(gpa, size);
-    const actual_read = try file.readAll(ptr);
+    const bytes = try ip.string_bytes.addManyAsSlice(gpa, try std.math.add(usize, size, 1));
+    const actual_read = try file.readAll(bytes[0..size]);
     if (actual_read != size) return error.UnexpectedEndOfFile;
+    bytes[size] = 0;
 
     const comp = mod.comp;
     switch (comp.cache_use) {
@@ -4084,7 +4102,7 @@ fn newEmbedFile(
             errdefer gpa.free(copied_resolved_path);
             whole.cache_manifest_mutex.lock();
             defer whole.cache_manifest_mutex.unlock();
-            try man.addFilePostContents(copied_resolved_path, ptr, stat);
+            try man.addFilePostContents(copied_resolved_path, bytes[0..size], stat);
         },
         .incremental => {},
     }
@@ -4094,7 +4112,10 @@ fn newEmbedFile(
         .sentinel = .zero_u8,
         .child = .u8_type,
     } });
-    const array_val = try ip.getTrailingAggregate(gpa, array_ty, size);
+    const array_val = try ip.get(gpa, .{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, bytes.len, .maybe_embedded_nulls) },
+    } });
 
     const ptr_ty = (try mod.ptrType(.{
         .child = array_ty,
@@ -4104,18 +4125,18 @@ fn newEmbedFile(
             .address_space = .generic,
         },
     })).toIntern();
-
     const ptr_val = try ip.get(gpa, .{ .ptr = .{
         .ty = ptr_ty,
-        .addr = .{ .anon_decl = .{
+        .base_addr = .{ .anon_decl = .{
             .val = array_val,
             .orig_ty = ptr_ty,
         } },
+        .byte_offset = 0,
     } });
 
     result.* = new_file;
     new_file.* = .{
-        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
+        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path, .no_embedded_nulls),
         .owner = pkg,
         .stat = stat,
         .val = ptr_val,
@@ -4125,239 +4146,269 @@ fn newEmbedFile(
 }
 
 pub fn scanNamespace(
-    mod: *Module,
+    zcu: *Zcu,
     namespace_index: Namespace.Index,
-    extra_start: usize,
-    decls_len: u32,
+    decls: []const Zir.Inst.Index,
     parent_decl: *Decl,
-) Allocator.Error!usize {
+) Allocator.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = mod.gpa;
-    const namespace = mod.namespacePtr(namespace_index);
-    const zir = namespace.file_scope.zir;
+    const gpa = zcu.gpa;
+    const namespace = zcu.namespacePtr(namespace_index);
 
-    try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
-    try namespace.decls.ensureTotalCapacity(gpa, decls_len);
+    // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
+    // than their name. We'll build an efficient mapping now, then discard the current `decls`.
+    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index) = .{};
+    defer existing_by_inst.deinit(gpa);
 
-    const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-    var extra_index = extra_start + bit_bags_count;
-    var bit_bag_index: usize = extra_start;
-    var cur_bit_bag: u32 = undefined;
-    var decl_i: u32 = 0;
+    try existing_by_inst.ensureTotalCapacity(gpa, @intCast(namespace.decls.count()));
+
+    for (namespace.decls.keys()) |decl_index| {
+        const decl = zcu.declPtr(decl_index);
+        existing_by_inst.putAssumeCapacityNoClobber(decl.zir_decl_index.unwrap().?, decl_index);
+    }
+
+    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+    defer seen_decls.deinit(gpa);
+
+    try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
+
+    namespace.decls.clearRetainingCapacity();
+    try namespace.decls.ensureTotalCapacity(gpa, decls.len);
+
+    namespace.usingnamespace_set.clearRetainingCapacity();
+
     var scan_decl_iter: ScanDeclIter = .{
-        .module = mod,
+        .zcu = zcu,
         .namespace_index = namespace_index,
         .parent_decl = parent_decl,
+        .seen_decls = &seen_decls,
+        .existing_by_inst = &existing_by_inst,
+        .pass = .named,
     };
-    while (decl_i < decls_len) : (decl_i += 1) {
-        if (decl_i % 8 == 0) {
-            cur_bit_bag = zir.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const flags = @as(u4, @truncate(cur_bit_bag));
-        cur_bit_bag >>= 4;
-
-        const decl_sub_index = extra_index;
-        extra_index += 8; // src_hash(4) + line(1) + name(1) + value(1) + doc_comment(1)
-        extra_index += @as(u1, @truncate(flags >> 2)); // Align
-        extra_index += @as(u2, @as(u1, @truncate(flags >> 3))) * 2; // Link section or address space, consists of 2 Refs
-
-        try scanDecl(&scan_decl_iter, decl_sub_index, flags);
+    for (decls) |decl_inst| {
+        try scanDecl(&scan_decl_iter, decl_inst);
     }
-    return extra_index;
+    scan_decl_iter.pass = .unnamed;
+    for (decls) |decl_inst| {
+        try scanDecl(&scan_decl_iter, decl_inst);
+    }
+
+    if (seen_decls.count() != namespace.decls.count()) {
+        // Do a pass over the namespace contents and remove any decls from the last update
+        // which were removed in this one.
+        var i: usize = 0;
+        while (i < namespace.decls.count()) {
+            const decl_index = namespace.decls.keys()[i];
+            const decl = zcu.declPtr(decl_index);
+            if (!seen_decls.contains(decl.name)) {
+                // We must preserve namespace ordering for @typeInfo.
+                namespace.decls.orderedRemoveAt(i);
+                i -= 1;
+            }
+        }
+    }
 }
 
 const ScanDeclIter = struct {
-    module: *Module,
+    zcu: *Zcu,
     namespace_index: Namespace.Index,
     parent_decl: *Decl,
+    seen_decls: *std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
+    existing_by_inst: *const std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index),
+    /// Decl scanning is run in two passes, so that we can detect when a generated
+    /// name would clash with an explicit name and use a different one.
+    pass: enum { named, unnamed },
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
     unnamed_test_index: usize = 0,
+
+    fn avoidNameConflict(iter: *ScanDeclIter, comptime fmt: []const u8, args: anytype) !InternPool.NullTerminatedString {
+        const zcu = iter.zcu;
+        const gpa = zcu.gpa;
+        const ip = &zcu.intern_pool;
+        var name = try ip.getOrPutStringFmt(gpa, fmt, args, .no_embedded_nulls);
+        var gop = try iter.seen_decls.getOrPut(gpa, name);
+        var next_suffix: u32 = 0;
+        while (gop.found_existing) {
+            name = try ip.getOrPutStringFmt(gpa, "{}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
+            gop = try iter.seen_decls.getOrPut(gpa, name);
+            next_suffix += 1;
+        }
+        return name;
+    }
 };
 
-fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Error!void {
+fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = iter.module;
+    const zcu = iter.zcu;
     const namespace_index = iter.namespace_index;
-    const namespace = mod.namespacePtr(namespace_index);
-    const gpa = mod.gpa;
+    const namespace = zcu.namespacePtr(namespace_index);
+    const gpa = zcu.gpa;
     const zir = namespace.file_scope.zir;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
 
-    // zig fmt: off
-    const is_pub                       = (flags & 0b0001) != 0;
-    const export_bit                   = (flags & 0b0010) != 0;
-    const has_align                    = (flags & 0b0100) != 0;
-    const has_linksection_or_addrspace = (flags & 0b1000) != 0;
-    // zig fmt: on
+    const pl_node = zir.instructions.items(.data)[@intFromEnum(decl_inst)].pl_node;
+    const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+    const declaration = extra.data;
 
-    const line_off = zir.extra[decl_sub_index + 4];
-    const line = iter.parent_decl.relativeToLine(line_off);
-    const decl_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[decl_sub_index + 5]);
-    const decl_doccomment_index = zir.extra[decl_sub_index + 7];
-    const decl_zir_index = zir.extra[decl_sub_index + 6];
-    const decl_block_inst_data = zir.instructions.items(.data)[decl_zir_index].pl_node;
-    const decl_node = iter.parent_decl.relativeToNodeIndex(decl_block_inst_data.src_node);
+    const line = iter.parent_decl.src_line + declaration.line_offset;
+    const decl_node = iter.parent_decl.relativeToNodeIndex(pl_node.src_node);
 
     // Every Decl needs a name.
-    var is_named_test = false;
-    var kind: Decl.Kind = .named;
-    const decl_name: InternPool.NullTerminatedString = switch (decl_name_index) {
-        .empty => name: {
-            if (export_bit) {
-                const i = iter.usingnamespace_index;
-                iter.usingnamespace_index += 1;
-                kind = .@"usingnamespace";
-                break :name try ip.getOrPutStringFmt(gpa, "usingnamespace_{d}", .{i});
-            } else {
-                const i = iter.comptime_index;
-                iter.comptime_index += 1;
-                kind = .@"comptime";
-                break :name try ip.getOrPutStringFmt(gpa, "comptime_{d}", .{i});
-            }
+    const decl_name: InternPool.NullTerminatedString, const kind: Decl.Kind, const is_named_test: bool = switch (declaration.name) {
+        .@"comptime" => info: {
+            if (iter.pass != .unnamed) return;
+            const i = iter.comptime_index;
+            iter.comptime_index += 1;
+            break :info .{
+                try iter.avoidNameConflict("comptime_{d}", .{i}),
+                .@"comptime",
+                false,
+            };
         },
-        .unnamed_test_decl => name: {
+        .@"usingnamespace" => info: {
+            // TODO: this isn't right! These should be considered unnamed. Name conflicts can happen here.
+            // The problem is, we need to preserve the decl ordering for `@typeInfo`.
+            // I'm not bothering to fix this now, since some upcoming changes will change this code significantly anyway.
+            if (iter.pass != .named) return;
+            const i = iter.usingnamespace_index;
+            iter.usingnamespace_index += 1;
+            break :info .{
+                try iter.avoidNameConflict("usingnamespace_{d}", .{i}),
+                .@"usingnamespace",
+                false,
+            };
+        },
+        .unnamed_test => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
-            kind = .@"test";
-            break :name try ip.getOrPutStringFmt(gpa, "test_{d}", .{i});
+            break :info .{
+                try iter.avoidNameConflict("test_{d}", .{i}),
+                .@"test",
+                false,
+            };
         },
-        .decltest => name: {
-            is_named_test = true;
-            const test_name = zir.nullTerminatedString(@enumFromInt(decl_doccomment_index));
-            kind = .@"test";
-            break :name try ip.getOrPutStringFmt(gpa, "decltest.{s}", .{test_name});
+        .decltest => info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
+            assert(declaration.flags.has_doc_comment);
+            const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
+            break :info .{
+                try iter.avoidNameConflict("decltest.{s}", .{name}),
+                .@"test",
+                true,
+            };
         },
-        _ => name: {
-            const raw_name = zir.nullTerminatedString(decl_name_index);
-            if (raw_name.len == 0) {
-                is_named_test = true;
-                const test_name = zir.nullTerminatedString(@enumFromInt(@intFromEnum(decl_name_index) + 1));
-                kind = .@"test";
-                break :name try ip.getOrPutStringFmt(gpa, "test.{s}", .{test_name});
-            } else {
-                break :name try ip.getOrPutString(gpa, raw_name);
-            }
+        _ => if (declaration.name.isNamedTest(zir)) info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
+            break :info .{
+                try iter.avoidNameConflict("test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
+                .@"test",
+                true,
+            };
+        } else info: {
+            if (iter.pass != .named) return;
+            const name = try ip.getOrPutString(
+                gpa,
+                zir.nullTerminatedString(declaration.name.toString(zir).?),
+                .no_embedded_nulls,
+            );
+            try iter.seen_decls.putNoClobber(gpa, name, {});
+            break :info .{
+                name,
+                .named,
+                false,
+            };
         },
     };
 
-    const is_exported = export_bit and decl_name_index != .empty;
-    if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
+    switch (kind) {
+        .@"usingnamespace" => try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1),
+        .@"test" => try zcu.test_functions.ensureUnusedCapacity(gpa, 1),
+        else => {},
+    }
+
+    const tracked_inst = try ip.trackZir(gpa, iter.parent_decl.getFileScope(zcu), decl_inst);
 
     // We create a Decl for it regardless of analysis status.
-    const gop = try namespace.decls.getOrPutContextAdapted(
-        gpa,
-        decl_name,
-        DeclAdapter{ .mod = mod },
-        Namespace.DeclContext{ .module = mod },
-    );
-    const comp = mod.comp;
-    if (!gop.found_existing) {
-        const new_decl_index = try mod.allocateNewDecl(namespace_index, decl_node, iter.parent_decl.src_scope);
-        const new_decl = mod.declPtr(new_decl_index);
+
+    const prev_exported, const decl_index = if (iter.existing_by_inst.get(tracked_inst)) |decl_index| decl_index: {
+        // We need only update this existing Decl.
+        const decl = zcu.declPtr(decl_index);
+        const was_exported = decl.is_exported;
+        assert(decl.kind == kind); // ZIR tracking should preserve this
+        decl.name = decl_name;
+        decl.src_node = decl_node;
+        decl.src_line = line;
+        decl.is_pub = declaration.flags.is_pub;
+        decl.is_exported = declaration.flags.is_export;
+        break :decl_index .{ was_exported, decl_index };
+    } else decl_index: {
+        // Create and set up a new Decl.
+        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
+        const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
-        if (kind == .@"usingnamespace") {
-            namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, is_pub);
-        }
         new_decl.src_line = line;
-        gop.key_ptr.* = new_decl_index;
-        // Exported decls, comptime decls, usingnamespace decls, and
-        // test decls if in test mode, get analyzed.
-        const decl_mod = namespace.file_scope.mod;
-        const want_analysis = is_exported or switch (decl_name_index) {
-            .empty => true, // comptime or usingnamespace decl
-            .unnamed_test_decl => blk: {
-                // test decl with no name. Skip the part where we check against
-                // the test name filter.
-                if (!comp.config.is_test) break :blk false;
-                if (decl_mod != mod.main_mod) break :blk false;
-                try mod.test_functions.put(gpa, new_decl_index, {});
-                break :blk true;
-            },
-            else => blk: {
-                if (!is_named_test) break :blk false;
-                if (!comp.config.is_test) break :blk false;
-                if (decl_mod != mod.main_mod) break :blk false;
-                if (comp.test_filter) |test_filter| {
-                    if (mem.indexOf(u8, ip.stringToSlice(decl_name), test_filter) == null) {
-                        break :blk false;
-                    }
-                }
-                try mod.test_functions.put(gpa, new_decl_index, {});
-                break :blk true;
-            },
-        };
-        if (want_analysis) {
-            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{s}' decl_index={d}", .{
-                namespace.file_scope.sub_file_path, ip.stringToSlice(decl_name), new_decl_index,
-            });
-            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl_index });
-        }
-        new_decl.is_pub = is_pub;
-        new_decl.is_exported = is_exported;
-        new_decl.has_align = has_align;
-        new_decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-        new_decl.zir_decl_index = @enumFromInt(decl_sub_index);
-        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
-        return;
-    }
-    const decl_index = gop.key_ptr.*;
-    const decl = mod.declPtr(decl_index);
-    if (kind == .@"test") {
-        const src_loc = SrcLoc{
-            .file_scope = decl.getFileScope(mod),
-            .parent_decl_node = decl.src_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        const msg = try ErrorMsg.create(gpa, src_loc, "duplicate test name: {}", .{
-            decl_name.fmt(&mod.intern_pool),
-        });
-        errdefer msg.destroy(gpa);
-        try mod.failed_decls.putNoClobber(gpa, decl_index, msg);
-        const other_src_loc = SrcLoc{
-            .file_scope = namespace.file_scope,
-            .parent_decl_node = decl_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        try mod.errNoteNonLazy(other_src_loc, msg, "other test here", .{});
-    }
-    // Update the AST node of the decl; even if its contents are unchanged, it may
-    // have been re-ordered.
-    decl.src_node = decl_node;
-    decl.src_line = line;
+        new_decl.is_pub = declaration.flags.is_pub;
+        new_decl.is_exported = declaration.flags.is_export;
+        new_decl.zir_decl_index = tracked_inst.toOptional();
+        break :decl_index .{ false, new_decl_index };
+    };
 
-    decl.is_pub = is_pub;
-    decl.is_exported = is_exported;
-    decl.kind = kind;
-    decl.has_align = has_align;
-    decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
-    decl.zir_decl_index = @enumFromInt(decl_sub_index);
-    if (decl.getOwnedFunction(mod) != null) {
+    const decl = zcu.declPtr(decl_index);
+
+    namespace.decls.putAssumeCapacityNoClobberContext(decl_index, {}, .{ .zcu = zcu });
+
+    const comp = zcu.comp;
+    const decl_mod = namespace.file_scope.mod;
+    const want_analysis = declaration.flags.is_export or switch (kind) {
+        .anon => unreachable,
+        .@"comptime" => true,
+        .@"usingnamespace" => a: {
+            namespace.usingnamespace_set.putAssumeCapacityNoClobber(decl_index, declaration.flags.is_pub);
+            break :a true;
+        },
+        .named => false,
+        .@"test" => a: {
+            if (!comp.config.is_test) break :a false;
+            if (decl_mod != zcu.main_mod) break :a false;
+            if (is_named_test and comp.test_filters.len > 0) {
+                const decl_fqn = try namespace.fullyQualifiedName(zcu, decl_name);
+                const decl_fqn_slice = decl_fqn.toSlice(ip);
+                for (comp.test_filters) |test_filter| {
+                    if (mem.indexOf(u8, decl_fqn_slice, test_filter)) |_| break;
+                } else break :a false;
+            }
+            zcu.test_functions.putAssumeCapacity(decl_index, {}); // may clobber on incremental update
+            break :a true;
+        },
+    };
+
+    if (want_analysis) {
+        // We will not queue analysis if the decl has been analyzed on a previous update and
+        // `is_export` is unchanged. In this case, the incremental update mechanism will handle
+        // re-analysis for us if necessary.
+        if (prev_exported != declaration.flags.is_export or decl.analysis == .unreferenced) {
+            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
+                namespace.file_scope.sub_file_path, decl_name.fmt(ip), decl_index,
+            });
+            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+        }
+    }
+
+    if (decl.getOwnedFunction(zcu) != null) {
+        // TODO this logic is insufficient; namespaces we don't re-scan may still require
+        // updated line numbers. Look into this!
         // TODO Look into detecting when this would be unnecessary by storing enough state
         // in `Decl` to notice that the line number did not change.
         comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-    }
-}
-
-/// This function is exclusively called for anonymous decls.
-/// All resources referenced by anonymous decls are owned by InternPool
-/// so there is no cleanup to do here.
-pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-
-    ip.destroyDecl(gpa, decl_index);
-
-    if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
     }
 }
 
@@ -4370,12 +4421,8 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    // The Decl starts off with alive=false and the codegen backend will set alive=true
-    // if the Decl is referenced by an instruction or another constant. Otherwise,
-    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
-    // to the linker.
-    if (mod.declPtr(decl_index).ty.isFnOrHasRuntimeBits(mod)) {
-        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
+    if (mod.declPtr(decl_index).typeOf(mod).isFnOrHasRuntimeBits(mod)) {
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -4448,15 +4495,22 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
+    log.debug("func name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
+
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+
+    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
 
     // In the case of a generic function instance, this is the type of the
     // instance, which has comptime parameters elided. In other words, it is
     // the runtime-known parameters only, not to be confused with the
     // generic_owner function type, which potentially has more parameters,
     // including comptime parameters.
-    const fn_ty = decl.ty;
+    const fn_ty = decl.typeOf(mod);
     const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
@@ -4472,9 +4526,14 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
-        .comptime_mutable_decls = &comptime_mutable_decls,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
+
+    // Every runtime function has a dependency on the source of the Decl it originates from.
+    // It also depends on the value of its owner Decl.
+    try sema.declareDependency(.{ .src_hash = decl.zir_decl_index.unwrap().? });
+    try sema.declareDependency(.{ .decl_val = decl_index });
 
     if (func.analysis(ip).inferred_error_set) {
         const ies = try arena.create(Sema.InferredErrorSet);
@@ -4495,14 +4554,13 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
     };
     defer inner_block.instructions.deinit(gpa);
 
-    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).*);
+    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).resolve(ip));
 
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.
@@ -4572,7 +4630,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
     inner_block.error_return_trace_index = error_return_trace_index;
 
-    sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+    sema.analyzeFnBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
@@ -4602,11 +4660,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
             else => |e| return e,
         };
-    }
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
     }
 
     // Copy the block into place and mark that as the main block.
@@ -4696,7 +4749,6 @@ pub fn allocateNewDecl(
     mod: *Module,
     namespace: Namespace.Index,
     src_node: Ast.Node.Index,
-    src_scope: CaptureScope.Index,
 ) !Decl.Index {
     const ip = &mod.intern_pool;
     const gpa = mod.gpa;
@@ -4707,20 +4759,14 @@ pub fn allocateNewDecl(
         .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
-        .ty = undefined,
         .val = undefined,
         .alignment = undefined,
         .@"linksection" = .none,
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .zir_decl_index = .none,
-        .src_scope = src_scope,
-        .generation = 0,
         .is_pub = false,
         .is_exported = false,
-        .has_linksection_or_addrspace = false,
-        .has_align = false,
-        .alive = false,
         .kind = .anon,
     });
 
@@ -4755,47 +4801,22 @@ pub fn errorSetBits(mod: *Module) u16 {
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
-pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
-    const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, block.wip_capture_scope, typed_value);
-}
-
-pub fn createAnonymousDeclFromDecl(
-    mod: *Module,
-    src_decl: *Decl,
-    namespace: Namespace.Index,
-    src_scope: CaptureScope.Index,
-    tv: TypedValue,
-) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
-    errdefer mod.destroyDecl(new_decl_index);
-    const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
-        src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
-    });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, tv, name);
-    return new_decl_index;
-}
-
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    typed_value: TypedValue,
+    val: Value,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
-    assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
-
     const new_decl = mod.declPtr(new_decl_index);
 
     new_decl.name = name;
     new_decl.src_line = src_line;
-    new_decl.ty = typed_value.ty;
-    new_decl.val = typed_value.val;
+    new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
 }
 
 pub fn errNoteNonLazy(
@@ -5303,10 +5324,10 @@ pub fn populateTestFunctions(
     const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
-    const test_functions_str = try ip.getOrPutString(gpa, "test_functions");
+    const test_functions_str = try ip.getOrPutString(gpa, "test_functions", .no_embedded_nulls);
     const decl_index = builtin_namespace.decls.getKeyAdapted(
         test_functions_str,
-        DeclAdapter{ .mod = mod },
+        DeclAdapter{ .zcu = mod },
     ).?;
     {
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
@@ -5320,68 +5341,58 @@ pub fn populateTestFunctions(
         try mod.ensureDeclAnalyzed(decl_index);
     }
     const decl = mod.declPtr(decl_index);
-    const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
-    const null_usize = try mod.intern(.{ .opt = .{
-        .ty = try mod.intern(.{ .opt_type = .usize_type }),
-        .val = .none,
-    } });
+    const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_decl_index = d: {
+    const array_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
         defer gpa.free(test_fn_vals);
 
-        // Add a dependency on each test name and function pointer.
-        var array_decl_dependencies = std.ArrayListUnmanaged(Decl.Index){};
-        defer array_decl_dependencies.deinit(gpa);
-        try array_decl_dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
-
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            // TODO: write something like getCoercedInts to avoid needing to dupe
-            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(test_decl.name));
-            defer gpa.free(test_decl_name);
-            const test_name_decl_index = n: {
-                const test_name_decl_ty = try mod.arrayType(.{
-                    .len = test_decl_name.len,
+            const test_decl_name = try test_decl.fullyQualifiedName(mod);
+            const test_decl_name_len = test_decl_name.length(ip);
+            const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = n: {
+                const test_name_ty = try mod.arrayType(.{
+                    .len = test_decl_name_len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
-                    .ty = test_name_decl_ty,
-                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                        .ty = test_name_decl_ty.toIntern(),
-                        .storage = .{ .bytes = test_decl_name },
-                    } }))),
-                });
-                break :n test_name_decl_index;
+                const test_name_val = try mod.intern(.{ .aggregate = .{
+                    .ty = test_name_ty.toIntern(),
+                    .storage = .{ .bytes = test_decl_name.toString() },
+                } });
+                break :n .{
+                    .orig_ty = (try mod.singleConstPtrType(test_name_ty)).toIntern(),
+                    .val = test_name_val,
+                };
             };
-            array_decl_dependencies.appendAssumeCapacity(test_decl_index);
-            array_decl_dependencies.appendAssumeCapacity(test_name_decl_index);
-            try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
                 // name
-                try mod.intern(.{ .ptr = .{
+                try mod.intern(.{ .slice = .{
                     .ty = .slice_const_u8_type,
-                    .addr = .{ .decl = test_name_decl_index },
+                    .ptr = try mod.intern(.{ .ptr = .{
+                        .ty = .manyptr_const_u8_type,
+                        .base_addr = .{ .anon_decl = test_name_anon_decl },
+                        .byte_offset = 0,
+                    } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
-                        .storage = .{ .u64 = test_decl_name.len },
+                        .storage = .{ .u64 = test_decl_name_len },
                     } }),
                 } }),
                 // func
                 try mod.intern(.{ .ptr = .{
                     .ty = try mod.intern(.{ .ptr_type = .{
-                        .child = test_decl.ty.toIntern(),
+                        .child = test_decl.typeOf(mod).toIntern(),
                         .flags = .{
                             .is_const = true,
                         },
                     } }),
-                    .addr = .{ .decl = test_decl_index },
+                    .base_addr = .{ .decl = test_decl_index },
+                    .byte_offset = 0,
                 } }),
-                // async_frame_size
-                null_usize,
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
                 .ty = test_fn_ty.toIntern(),
@@ -5389,22 +5400,20 @@ pub fn populateTestFunctions(
             } });
         }
 
-        const array_decl_ty = try mod.arrayType(.{
+        const array_ty = try mod.arrayType(.{
             .len = test_fn_vals.len,
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
-            .ty = array_decl_ty,
-            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                .ty = array_decl_ty.toIntern(),
-                .storage = .{ .elems = test_fn_vals },
-            } }))),
-        });
-
-        break :d array_decl_index;
+        const array_val = try mod.intern(.{ .aggregate = .{
+            .ty = array_ty.toIntern(),
+            .storage = .{ .elems = test_fn_vals },
+        } });
+        break :array .{
+            .orig_ty = (try mod.singleConstPtrType(array_ty)).toIntern(),
+            .val = array_val,
+        };
     };
-    try mod.linkerUpdateDecl(array_decl_index);
 
     {
         const new_ty = try mod.ptrType(.{
@@ -5415,16 +5424,19 @@ pub fn populateTestFunctions(
             },
         });
         const new_val = decl.val;
-        const new_init = try mod.intern(.{ .ptr = .{
+        const new_init = try mod.intern(.{ .slice = .{
             .ty = new_ty.toIntern(),
-            .addr = .{ .decl = array_decl_index },
+            .ptr = try mod.intern(.{ .ptr = .{
+                .ty = new_ty.slicePtrFieldType(mod).toIntern(),
+                .base_addr = .{ .anon_decl = array_anon_decl },
+                .byte_offset = 0,
+            } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
         ip.mutateVarInit(decl.val.toIntern(), new_init);
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
-        decl.ty = new_ty;
         decl.val = new_val;
         decl.has_tv = true;
     }
@@ -5451,7 +5463,8 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                decl.analysis = .codegen_failure_retryable;
+                decl.analysis = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
@@ -5496,53 +5509,6 @@ fn reportRetryableFileError(
         }
     }
     gop.value_ptr.* = err_msg;
-}
-
-pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
-    switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| try mod.markDeclIndexAlive(variable.decl),
-        .extern_func => |extern_func| try mod.markDeclIndexAlive(extern_func.decl),
-        .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
-        .error_union => |error_union| switch (error_union.val) {
-            .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
-        },
-        .ptr => |ptr| {
-            switch (ptr.addr) {
-                .decl => |decl| try mod.markDeclIndexAlive(decl),
-                .anon_decl => {},
-                .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
-                .int, .comptime_field => {},
-                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
-                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
-            }
-            if (ptr.len != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(ptr.len));
-        },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
-        .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
-        .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
-        },
-        else => {},
-    }
-}
-
-pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    _ = try decl.internValue(mod);
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-    try mod.markReferencedDeclsAlive(decl.val);
-}
-
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
@@ -5728,9 +5694,11 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
+    assert(x != 0 or ty.isAllowzeroPtr(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
+        .base_addr = .int,
+        .byte_offset = x,
     } });
     return Value.fromInterned(i);
 }
@@ -5753,7 +5721,7 @@ pub fn enumValue(mod: *Module, ty: Type, tag_int: InternPool.Index) Allocator.Er
 pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.Error!Value {
     const ip = &mod.intern_pool;
     const gpa = mod.gpa;
-    const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+    const enum_type = ip.loadEnumType(ty.toIntern());
 
     if (enum_type.values.len == 0) {
         // Auto-numbered fields.
@@ -5907,7 +5875,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits() orelse 0) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
             return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(mod)) + @intFromBool(sign);
@@ -6043,48 +6011,34 @@ pub fn atomicPtrAlignment(
     return .none;
 }
 
-pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {
-    return mod.declPtr(opaque_type.decl).srcLoc(mod);
-}
-
-pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) !InternPool.NullTerminatedString {
-    return mod.declPtr(opaque_type.decl).getFullyQualifiedName(mod);
-}
-
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
     return mod.declPtr(decl_index).getFileScope(mod);
-}
-
-pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.Index {
-    return mod.namespacePtr(namespace_index).getDeclIndex(mod);
 }
 
 /// Returns null in the following cases:
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.Key.StructType {
-    if (ty.ip_index == .none) return null;
-    return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .struct_type => |t| t,
-        else => null,
-    };
-}
-
-pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.Key.StructType {
-    if (ty.ip_index == .none) return null;
-    return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .struct_type => |t| if (t.layout == .Packed) t else null,
-        else => null,
-    };
-}
-
-/// This asserts that the union's enum tag type has been resolved.
-pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.UnionType {
+pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
-        .union_type => |k| ip.loadUnionType(k),
+        .struct_type => ip.loadStructType(ty.ip_index),
+        else => null,
+    };
+}
+
+pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
+    const s = mod.typeToStruct(ty) orelse return null;
+    if (s.layout != .@"packed") return null;
+    return s;
+}
+
+pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.LoadedUnionType {
+    if (ty.ip_index == .none) return null;
+    const ip = &mod.intern_pool;
+    return switch (ip.indexToKey(ty.ip_index)) {
+        .union_type => ip.loadUnionType(ty.ip_index),
         else => null,
     };
 }
@@ -6157,7 +6111,7 @@ pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
 
-    const param_body = file.zir.getParamBody(func.zir_body_inst);
+    const param_body = file.zir.getParamBody(func.zir_body_inst.resolve(&mod.intern_pool));
     const param = param_body[index];
 
     return switch (tags[@intFromEnum(param)]) {
@@ -6186,18 +6140,18 @@ pub const UnionLayout = struct {
     padding: u32,
 };
 
-pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
+pub fn getUnionLayout(mod: *Module, loaded_union: InternPool.LoadedUnionType) UnionLayout {
     const ip = &mod.intern_pool;
-    assert(u.haveLayout(ip));
+    assert(loaded_union.haveLayout(ip));
     var most_aligned_field: u32 = undefined;
     var most_aligned_field_size: u64 = undefined;
     var biggest_field: u32 = undefined;
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
-    for (u.field_types.get(ip), 0..) |field_ty, i| {
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-        const explicit_align = u.fieldAlign(ip, @intCast(i));
+        const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -6205,16 +6159,16 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
-            biggest_field = @intCast(i);
+            biggest_field = @intCast(field_index);
         }
         if (field_align.compare(.gte, payload_align)) {
             payload_align = field_align;
-            most_aligned_field = @intCast(i);
+            most_aligned_field = @intCast(field_index);
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6229,10 +6183,10 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         };
     }
 
-    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
-    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
-        .abi_size = u.size,
+        .abi_size = loaded_union.size(ip).*,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6241,24 +6195,24 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = u.padding,
+        .padding = loaded_union.padding(ip).*,
     };
 }
 
-pub fn unionAbiSize(mod: *Module, u: InternPool.UnionType) u64 {
-    return mod.getUnionLayout(u).abi_size;
+pub fn unionAbiSize(mod: *Module, loaded_union: InternPool.LoadedUnionType) u64 {
+    return mod.getUnionLayout(loaded_union).abi_size;
 }
 
 /// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
+pub fn unionAbiAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType) Alignment {
     const ip = &mod.intern_pool;
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
-    for (u.field_types.get(ip), 0..) |field_ty, field_index| {
+    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod);
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
-        const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
+        const field_align = mod.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
         max_align = max_align.max(field_align);
     }
     return max_align;
@@ -6267,21 +6221,20 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
 /// Returns the field alignment, assuming the union is not packed.
 /// Keep implementation in sync with `Sema.unionFieldAlignment`.
 /// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_index: u32) Alignment {
+pub fn unionFieldNormalAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
     const ip = &mod.intern_pool;
-    const field_align = u.fieldAlign(ip, field_index);
+    const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
+    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, u: InternPool.UnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
-    assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
-    const enum_type = ip.indexToKey(u.enum_tag_ty).enum_type;
-    return enum_type.tagValueIndex(ip, enum_tag.toIntern());
+    assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
+    return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
 /// Returns the field alignment of a non-packed struct in byte units.
@@ -6293,18 +6246,18 @@ pub fn structFieldAlignment(
     field_ty: Type,
     layout: std.builtin.Type.ContainerLayout,
 ) Alignment {
-    assert(layout != .Packed);
+    assert(layout != .@"packed");
     if (explicit_alignment != .none) return explicit_alignment;
     switch (layout) {
-        .Packed => unreachable,
-        .Auto => {
+        .@"packed" => unreachable,
+        .auto => {
             if (mod.getTarget().ofmt == .c) {
                 return structFieldAlignmentExtern(mod, field_ty);
             } else {
                 return field_ty.abiAlignment(mod);
             }
         },
-        .Extern => return structFieldAlignmentExtern(mod, field_ty),
+        .@"extern" => return structFieldAlignmentExtern(mod, field_ty),
     }
 }
 
@@ -6328,11 +6281,11 @@ pub fn structFieldAlignmentExtern(mod: *Module, field_ty: Type) Alignment {
 /// projects.
 pub fn structPackedFieldBitOffset(
     mod: *Module,
-    struct_type: InternPool.Key.StructType,
+    struct_type: InternPool.LoadedStructType,
     field_index: u32,
 ) u16 {
     const ip = &mod.intern_pool;
-    assert(struct_type.layout == .Packed);
+    assert(struct_type.layout == .@"packed");
     assert(struct_type.haveLayout(ip));
     var bit_sum: u64 = 0;
     for (0..struct_type.field_types.len) |i| {

@@ -230,6 +230,8 @@ pub const Inst = struct {
         v_d,
         /// VEX-Encoded ___ QuadWord
         v_q,
+        /// VEX-Encoded ___ Integer Data
+        v_i128,
         /// VEX-Encoded Packed ___
         vp_,
         /// VEX-Encoded Packed ___ Byte
@@ -242,8 +244,6 @@ pub const Inst = struct {
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
         vp_dq,
-        /// VEX-Encoded Packed ___ Integer Data
-        vp_i128,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values
@@ -305,6 +305,8 @@ pub const Inst = struct {
         cdq,
         /// Convert doubleword to quadword
         cdqe,
+        /// Flush cache line
+        clflush,
         /// Conditional move
         cmov,
         /// Logical compare
@@ -323,6 +325,8 @@ pub const Inst = struct {
         cwd,
         /// Convert word to doubleword
         cwde,
+        /// Decrement by 1
+        dec,
         /// Unsigned division
         /// Signed division
         /// Divide packed single-precision floating-point values
@@ -330,7 +334,9 @@ pub const Inst = struct {
         /// Divide packed double-precision floating-point values
         /// Divide scalar double-precision floating-point values
         div,
-        ///
+        /// Increment by 1
+        inc,
+        /// Call to interrupt procedure
         int3,
         /// Conditional jump
         j,
@@ -648,10 +654,19 @@ pub const Inst = struct {
         /// Variable blend scalar double-precision floating-point values
         blendv,
         /// Extract packed floating-point values
+        /// Extract packed integer values
         extract,
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
         insert,
+        /// Packed move with sign extend
+        movsxb,
+        movsxd,
+        movsxw,
+        /// Packed move with zero extend
+        movzxb,
+        movzxd,
+        movzxw,
         /// Round packed single-precision floating-point values
         /// Round scalar single-precision floating-point value
         /// Round packed double-precision floating-point values
@@ -682,6 +697,7 @@ pub const Inst = struct {
         sha256rnds2,
 
         /// Load with broadcast floating-point data
+        /// Load integer and broadcast
         broadcast,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
@@ -756,8 +772,11 @@ pub const Inst = struct {
         /// Uses `imm` payload.
         rel,
         /// Register, memory operands.
-        /// Uses `rx` payload.
+        /// Uses `rx` payload with extra data of type `Memory`.
         rm,
+        /// Register, memory, register operands.
+        /// Uses `rrx` payload with extra data of type `Memory`.
+        rmr,
         /// Register, memory, immediate (word) operands.
         /// Uses `rix` payload with extra data of type `Memory`.
         rmi,
@@ -770,6 +789,9 @@ pub const Inst = struct {
         /// Register, register, memory.
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrm,
+        /// Register, register, memory, register.
+        /// Uses `rrrx` payload with extra data of type `Memory`.
+        rrmr,
         /// Register, register, memory, immediate (byte) operands.
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrmi,
@@ -947,6 +969,14 @@ pub const Inst = struct {
             r2: Register,
             payload: u32,
         },
+        /// Register, register, register, followed by Custom payload found in extra.
+        rrrx: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            r2: Register,
+            r3: Register,
+            payload: u32,
+        },
         /// Register, byte immediate, followed by Custom payload found in extra.
         rix: struct {
             fixes: Fixes = ._,
@@ -982,9 +1012,9 @@ pub const Inst = struct {
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
+    // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
-        if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+        if (!std.debug.runtime_safety) {
             assert(@sizeOf(Data) == 8);
         }
     }

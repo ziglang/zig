@@ -1,0 +1,172 @@
+.{
+    .name = "standalone_test_cases",
+    .version = "0.0.0",
+    .dependencies = .{
+        .simple = .{
+            .path = "simple",
+        },
+        .test_runner_path = .{
+            .path = "test_runner_path",
+        },
+        .test_runner_module_imports = .{
+            .path = "test_runner_module_imports",
+        },
+        // https://github.com/ziglang/zig/issues/17483
+        //.issue_13970 = .{
+        //    .path = "issue_13970",
+        //},
+        .shared_library = .{
+            .path = "shared_library",
+        },
+        .mix_o_files = .{
+            .path = "mix_o_files",
+        },
+        .mix_c_files = .{
+            .path = "mix_c_files",
+        },
+        .global_linkage = .{
+            .path = "global_linkage",
+        },
+        .static_c_lib = .{
+            .path = "static_c_lib",
+        },
+        .issue_339 = .{
+            .path = "issue_339",
+        },
+        .issue_8550 = .{
+            .path = "issue_8550",
+        },
+        .issue_794 = .{
+            .path = "issue_794",
+        },
+        .issue_5825 = .{
+            .path = "issue_5825",
+        },
+        .pkg_import = .{
+            .path = "pkg_import",
+        },
+        .use_alias = .{
+            .path = "use_alias",
+        },
+        .install_raw_hex = .{
+            .path = "install_raw_hex",
+        },
+        // https://github.com/ziglang/zig/issues/17484
+        //.emit_asm_and_bin = .{
+        //    .path = "emit_asm_and_bin",
+        //},
+        // https://github.com/ziglang/zig/issues/17484
+        //.issue_12588 = .{
+        //    .path = "issue_12588",
+        //},
+        .child_process = .{
+            .path = "child_process",
+        },
+        .embed_generated_file = .{
+            .path = "embed_generated_file",
+        },
+        .@"extern" = .{
+            .path = "extern",
+        },
+        .dep_diamond = .{
+            .path = "dep_diamond",
+        },
+        .dep_triangle = .{
+            .path = "dep_triangle",
+        },
+        .dep_recursive = .{
+            .path = "dep_recursive",
+        },
+        .dep_mutually_recursive = .{
+            .path = "dep_mutually_recursive",
+        },
+        .dep_shared_builtin = .{
+            .path = "dep_shared_builtin",
+        },
+        .dirname = .{
+            .path = "dirname",
+        },
+        .empty_env = .{
+            .path = "empty_env",
+        },
+        .issue_11595 = .{
+            .path = "issue_11595",
+        },
+        .load_dynamic_library = .{
+            .path = "load_dynamic_library",
+        },
+        .windows_resources = .{
+            .path = "windows_resources",
+        },
+        .windows_entry_points = .{
+            .path = "windows_entry_points",
+        },
+        .windows_spawn = .{
+            .path = "windows_spawn",
+        },
+        .windows_argv = .{
+            .path = "windows_argv",
+        },
+        .windows_bat_args = .{
+            .path = "windows_bat_args",
+        },
+        .self_exe_symlink = .{
+            .path = "self_exe_symlink",
+        },
+        .c_compiler = .{
+            .path = "c_compiler",
+        },
+        .pie = .{
+            .path = "pie",
+        },
+        .issue_12706 = .{
+            .path = "issue_12706",
+        },
+        // TODO This test is disabled for doing naughty things in the build script.
+        // The logic needs to get moved to a child process instead of build.zig.
+        //.sigpipe = .{
+        //    .path = "sigpipe",
+        //},
+        // TODO restore this test
+        //.options = .{
+        //    .path = "options",
+        //},
+        .strip_empty_loop = .{
+            .path = "strip_empty_loop",
+        },
+        .strip_struct_init = .{
+            .path = "strip_struct_init",
+        },
+        .cmakedefine = .{
+            .path = "cmakedefine",
+        },
+        .zerolength_check = .{
+            .path = "zerolength_check",
+        },
+        .stack_iterator = .{
+            .path = "stack_iterator",
+        },
+        .coff_dwarf = .{
+            .path = "coff_dwarf",
+        },
+        .compiler_rt_panic = .{
+            .path = "compiler_rt_panic",
+        },
+        .ios = .{
+            .path = "ios",
+        },
+        .depend_on_main_mod = .{
+            .path = "depend_on_main_mod",
+        },
+        .install_headers = .{
+            .path = "install_headers",
+        },
+        .dependencyFromBuildZig = .{
+            .path = "dependencyFromBuildZig",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

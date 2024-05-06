@@ -9,23 +9,26 @@ const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const hash_map = @This();
 
-/// An ArrayHashMap with default hash and equal functions.
-/// See AutoContext for a description of the hash and equal implementations.
+/// An `ArrayHashMap` with default hash and equal functions.
+///
+/// See `AutoContext` for a description of the hash and equal implementations.
 pub fn AutoArrayHashMap(comptime K: type, comptime V: type) type {
     return ArrayHashMap(K, V, AutoContext(K), !autoEqlIsCheap(K));
 }
 
-/// An ArrayHashMapUnmanaged with default hash and equal functions.
-/// See AutoContext for a description of the hash and equal implementations.
+/// An `ArrayHashMapUnmanaged` with default hash and equal functions.
+///
+/// See `AutoContext` for a description of the hash and equal implementations.
 pub fn AutoArrayHashMapUnmanaged(comptime K: type, comptime V: type) type {
     return ArrayHashMapUnmanaged(K, V, AutoContext(K), !autoEqlIsCheap(K));
 }
 
-/// Builtin hashmap for strings as keys.
+/// An `ArrayHashMap` with strings as keys.
 pub fn StringArrayHashMap(comptime V: type) type {
     return ArrayHashMap([]const u8, V, StringContext, true);
 }
 
+/// An `ArrayHashMapUnmanaged` with strings as keys.
 pub fn StringArrayHashMapUnmanaged(comptime V: type) type {
     return ArrayHashMapUnmanaged([]const u8, V, StringContext, true);
 }
@@ -50,29 +53,33 @@ pub fn hashString(s: []const u8) u32 {
     return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
 }
 
-/// Insertion order is preserved.
-/// Deletions perform a "swap removal" on the entries list.
+/// A hash table of keys and values, each stored sequentially.
+///
+/// Insertion order is preserved. In general, this data structure supports the same
+/// operations as `std.ArrayList`.
+///
+/// Deletion operations:
+/// * `swapRemove` - O(1)
+/// * `orderedRemove` - O(N)
+///
 /// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
-/// For a hash map that can be initialized directly that does not store an Allocator
-/// field, see `ArrayHashMapUnmanaged`.
-/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
-/// functions. It does not store each item's hash in the table. Setting `store_hash`
-/// to `true` incurs slightly more memory cost by storing each key's hash in the table
-/// but only has to call `eql` for hash collisions.
-/// If typical operations (except iteration over entries) need to be faster, prefer
-/// the alternative `std.HashMap`.
-/// Context must be a struct type with two member functions:
-///   hash(self, K) u32
-///   eql(self, K, K, usize) bool
-/// Adapted variants of many functions are provided.  These variants
-/// take a pseudo key instead of a key.  Their context must have the functions:
-///   hash(self, PseudoKey) u32
-///   eql(self, PseudoKey, K, usize) bool
+///
+/// See `ArrayHashMapUnmanaged` for a variant of this data structure that accepts an
+/// `Allocator` as a parameter when needed rather than storing it.
 pub fn ArrayHashMap(
     comptime K: type,
     comptime V: type,
+    /// A namespace that provides these two functions:
+    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn eql(self, K, K) bool`
+    ///
     comptime Context: type,
+    /// When `false`, this data structure is biased towards cheap `eql`
+    /// functions and avoids storing each key's hash in the table. Setting
+    /// `store_hash` to `true` incurs more memory cost but limits `eql` to
+    /// being called only once per insertion/deletion (provided there are no
+    /// hash collisions).
     comptime store_hash: bool,
 ) type {
     return struct {
@@ -135,6 +142,23 @@ pub fn ArrayHashMap(
         pub fn deinit(self: *Self) void {
             self.unmanaged.deinit(self.allocator);
             self.* = undefined;
+        }
+
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockPointers` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.unmanaged.lockPointers();
+        }
+
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.unmanaged.unlockPointers();
         }
 
         /// Clears the map but retains the backing allocation for future use.
@@ -403,6 +427,7 @@ pub fn ArrayHashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
             self.unmanaged = .{};
             return result;
@@ -454,34 +479,40 @@ pub fn ArrayHashMap(
     };
 }
 
-/// General purpose hash table.
-/// Insertion order is preserved.
-/// Deletions perform a "swap removal" on the entries list.
+/// A hash table of keys and values, each stored sequentially.
+///
+/// Insertion order is preserved. In general, this data structure supports the same
+/// operations as `std.ArrayListUnmanaged`.
+///
+/// Deletion operations:
+/// * `swapRemove` - O(1)
+/// * `orderedRemove` - O(N)
+///
 /// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
-/// This type does not store an Allocator field - the Allocator must be passed in
+///
+/// This type does not store an `Allocator` field - the `Allocator` must be passed in
 /// with each function call that requires it. See `ArrayHashMap` for a type that stores
-/// an Allocator field for convenience.
+/// an `Allocator` field for convenience.
+///
 /// Can be initialized directly using the default field values.
+///
 /// This type is designed to have low overhead for small numbers of entries. When
 /// `store_hash` is `false` and the number of entries in the map is less than 9,
 /// the overhead cost of using `ArrayHashMapUnmanaged` rather than `std.ArrayList` is
 /// only a single pointer-sized integer.
-/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
-/// functions. It does not store each item's hash in the table. Setting `store_hash`
-/// to `true` incurs slightly more memory cost by storing each key's hash in the table
-/// but guarantees only one call to `eql` per insertion/deletion.
-/// Context must be a struct type with two member functions:
-///   hash(self, K) u32
-///   eql(self, K, K) bool
-/// Adapted variants of many functions are provided.  These variants
-/// take a pseudo key instead of a key.  Their context must have the functions:
-///   hash(self, PseudoKey) u32
-///   eql(self, PseudoKey, K) bool
 pub fn ArrayHashMapUnmanaged(
     comptime K: type,
     comptime V: type,
+    /// A namespace that provides these two functions:
+    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn eql(self, K, K) bool`
     comptime Context: type,
+    /// When `false`, this data structure is biased towards cheap `eql`
+    /// functions and avoids storing each key's hash in the table. Setting
+    /// `store_hash` to `true` incurs more memory cost but limits `eql` to
+    /// being called only once per insertion/deletion (provided there are no
+    /// hash collisions).
     comptime store_hash: bool,
 ) type {
     return struct {
@@ -495,9 +526,8 @@ pub fn ArrayHashMapUnmanaged(
         /// by how many total indexes there are.
         index_header: ?*IndexHeader = null,
 
-        comptime {
-            std.hash_map.verifyContext(Context, K, K, u32, true);
-        }
+        /// Used to detect memory safety violations.
+        pointer_stability: std.debug.SafetyLock = .{},
 
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
@@ -589,6 +619,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Note that this does not free keys or values.  You must take care of that
         /// before calling this function, if it is needed.
         pub fn deinit(self: *Self, allocator: Allocator) void {
+            self.pointer_stability.assertUnlocked();
             self.entries.deinit(allocator);
             if (self.index_header) |header| {
                 header.free(allocator);
@@ -596,8 +627,28 @@ pub fn ArrayHashMapUnmanaged(
             self.* = undefined;
         }
 
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockPointers` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lock();
+        }
+
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlock();
+        }
+
         /// Clears the map but retains the backing allocation for future use.
         pub fn clearRetainingCapacity(self: *Self) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             self.entries.len = 0;
             if (self.index_header) |header| {
                 switch (header.capacityIndexType()) {
@@ -610,6 +661,9 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Clears the map and releases the backing allocation
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             self.entries.shrinkAndFree(allocator, 0);
             if (self.index_header) |header| {
                 header.free(allocator);
@@ -795,6 +849,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.ensureTotalCapacityContext(allocator, new_capacity, undefined);
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_capacity: usize, ctx: Context) !void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             if (new_capacity <= linear_scan_max) {
                 try self.entries.ensureTotalCapacity(allocator, new_capacity);
                 return;
@@ -1079,6 +1136,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.fetchSwapRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn fetchSwapRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) ?KV {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             return self.fetchRemoveByKey(key, key_ctx, if (store_hash) {} else ctx, .swap);
         }
 
@@ -1100,6 +1160,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.fetchOrderedRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn fetchOrderedRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) ?KV {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             return self.fetchRemoveByKey(key, key_ctx, if (store_hash) {} else ctx, .ordered);
         }
 
@@ -1121,6 +1184,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.swapRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn swapRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) bool {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             return self.removeByKey(key, key_ctx, if (store_hash) {} else ctx, .swap);
         }
 
@@ -1142,6 +1208,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.orderedRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn orderedRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) bool {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             return self.removeByKey(key, key_ctx, if (store_hash) {} else ctx, .ordered);
         }
 
@@ -1154,6 +1223,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.swapRemoveAtContext(index, undefined);
         }
         pub fn swapRemoveAtContext(self: *Self, index: usize, ctx: Context) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             self.removeByIndex(index, if (store_hash) {} else ctx, .swap);
         }
 
@@ -1167,6 +1239,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.orderedRemoveAtContext(index, undefined);
         }
         pub fn orderedRemoveAtContext(self: *Self, index: usize, ctx: Context) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             self.removeByIndex(index, if (store_hash) {} else ctx, .ordered);
         }
 
@@ -1196,6 +1271,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
             self.* = .{};
             return result;
@@ -1271,6 +1347,9 @@ pub fn ArrayHashMapUnmanaged(
             sort_ctx: anytype,
             ctx: Context,
         ) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             switch (mode) {
                 .stable => self.entries.sort(sort_ctx),
                 .unstable => self.entries.sortUnstable(sort_ctx),
@@ -1288,6 +1367,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.shrinkRetainingCapacityContext(new_len, undefined);
         }
         pub fn shrinkRetainingCapacityContext(self: *Self, new_len: usize, ctx: Context) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             // Remove index entries from the new length onwards.
             // Explicitly choose to ONLY remove index entries and not the underlying array list
             // entries as we're going to remove them in the subsequent shrink call.
@@ -1307,6 +1389,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.shrinkAndFreeContext(allocator, new_len, undefined);
         }
         pub fn shrinkAndFreeContext(self: *Self, allocator: Allocator, new_len: usize, ctx: Context) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             // Remove index entries from the new length onwards.
             // Explicitly choose to ONLY remove index entries and not the underlying array list
             // entries as we're going to remove them in the subsequent shrink call.
@@ -1325,6 +1410,9 @@ pub fn ArrayHashMapUnmanaged(
             return self.popContext(undefined);
         }
         pub fn popContext(self: *Self, ctx: Context) KV {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             const item = self.entries.get(self.entries.len - 1);
             if (self.index_header) |header|
                 self.removeFromIndexByIndex(self.entries.len - 1, if (store_hash) {} else ctx, header);
@@ -1346,9 +1434,13 @@ pub fn ArrayHashMapUnmanaged(
             return if (self.entries.len == 0) null else self.popContext(ctx);
         }
 
-        // ------------------ No pub fns below this point ------------------
-
-        fn fetchRemoveByKey(self: *Self, key: anytype, key_ctx: anytype, ctx: ByIndexContext, comptime removal_type: RemovalType) ?KV {
+        fn fetchRemoveByKey(
+            self: *Self,
+            key: anytype,
+            key_ctx: anytype,
+            ctx: ByIndexContext,
+            comptime removal_type: RemovalType,
+        ) ?KV {
             const header = self.index_header orelse {
                 // Linear scan.
                 const key_hash = if (store_hash) key_ctx.hash(key) else {};
@@ -1377,7 +1469,15 @@ pub fn ArrayHashMapUnmanaged(
                 .u32 => self.fetchRemoveByKeyGeneric(key, key_ctx, ctx, header, u32, removal_type),
             };
         }
-        fn fetchRemoveByKeyGeneric(self: *Self, key: anytype, key_ctx: anytype, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, comptime removal_type: RemovalType) ?KV {
+        fn fetchRemoveByKeyGeneric(
+            self: *Self,
+            key: anytype,
+            key_ctx: anytype,
+            ctx: ByIndexContext,
+            header: *IndexHeader,
+            comptime I: type,
+            comptime removal_type: RemovalType,
+        ) ?KV {
             const indexes = header.indexes(I);
             const entry_index = self.removeFromIndexByKey(key, key_ctx, header, I, indexes) orelse return null;
             const slice = self.entries.slice();
@@ -1389,7 +1489,13 @@ pub fn ArrayHashMapUnmanaged(
             return removed_entry;
         }
 
-        fn removeByKey(self: *Self, key: anytype, key_ctx: anytype, ctx: ByIndexContext, comptime removal_type: RemovalType) bool {
+        fn removeByKey(
+            self: *Self,
+            key: anytype,
+            key_ctx: anytype,
+            ctx: ByIndexContext,
+            comptime removal_type: RemovalType,
+        ) bool {
             const header = self.index_header orelse {
                 // Linear scan.
                 const key_hash = if (store_hash) key_ctx.hash(key) else {};
@@ -1737,27 +1843,16 @@ pub fn ArrayHashMapUnmanaged(
             }
         }
 
-        inline fn checkedHash(ctx: anytype, key: anytype) u32 {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32, true);
+        fn checkedHash(ctx: anytype, key: anytype) u32 {
             // If you get a compile error on the next line, it means that your
             // generic hash function doesn't accept your key.
-            const hash = ctx.hash(key);
-            if (@TypeOf(hash) != u32) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type!\n" ++
-                    @typeName(u32) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
-            return hash;
+            return ctx.hash(key);
         }
-        inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
+
+        fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
             // If you get a compile error on the next line, it means that your
             // generic eql function doesn't accept (self, adapt key, K, index).
-            const eql = ctx.eql(a, b, b_index);
-            if (@TypeOf(eql) != bool) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
-                    @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));
-            }
-            return eql;
+            return ctx.eql(a, b, b_index);
         }
 
         fn dumpState(self: Self, comptime keyFmt: []const u8, comptime valueFmt: []const u8) void {

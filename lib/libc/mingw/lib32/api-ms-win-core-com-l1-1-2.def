@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-com-l1-1-2
+
+EXPORTS
+
+CLSIDFromProgIDEx@8
+CoFileTimeNow@4

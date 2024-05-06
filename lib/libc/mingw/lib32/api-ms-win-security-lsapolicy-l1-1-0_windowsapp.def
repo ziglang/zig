@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-security-lsapolicy-l1-1-0
+
+EXPORTS
+
+LsaClose@4
+LsaFreeMemory@4
+LsaLookupNames2@24
+LsaLookupSids@20
+LsaOpenPolicy@16

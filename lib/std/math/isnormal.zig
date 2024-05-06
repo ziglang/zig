@@ -19,7 +19,7 @@ pub fn isNormal(x: anytype) bool {
     return value & remove_sign >= (increment_exp << 1);
 }
 
-test "math.isNormal" {
+test isNormal {
     // TODO add `c_longdouble' when math.inf(T) supports it
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));

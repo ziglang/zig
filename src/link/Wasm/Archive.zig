@@ -1,14 +1,3 @@
-const Archive = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
-const log = std.log.scoped(.archive);
-const mem = std.mem;
-
-const Allocator = mem.Allocator;
-const Object = @import("Object.zig");
-
 file: fs.File,
 name: []const u8,
 
@@ -151,10 +140,7 @@ fn parseTableOfContents(archive: *Archive, allocator: Allocator, reader: anytype
     const sym_tab = try allocator.alloc(u8, sym_tab_size - 4 - (4 * num_symbols));
     defer allocator.free(sym_tab);
 
-    reader.readNoEof(sym_tab) catch {
-        log.err("incomplete symbol table: expected symbol table of length 0x{x}", .{sym_tab.len});
-        return error.MalformedArchive;
-    };
+    reader.readNoEof(sym_tab) catch return error.IncompleteSymbolTable;
 
     var i: usize = 0;
     var pos: usize = 0;
@@ -178,12 +164,10 @@ fn parseTableOfContents(archive: *Archive, allocator: Allocator, reader: anytype
 fn parseNameTable(archive: *Archive, allocator: Allocator, reader: anytype) !void {
     const header: ar_hdr = try reader.readStruct(ar_hdr);
     if (!mem.eql(u8, &header.ar_fmag, ARFMAG)) {
-        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, header.ar_fmag });
-        return error.MalformedArchive;
+        return error.InvalidHeaderDelimiter;
     }
     if (!mem.eql(u8, header.ar_name[0..2], "//")) {
-        log.err("invalid archive. Long name table missing", .{});
-        return error.MalformedArchive;
+        return error.MissingTableName;
     }
     const table_size = try header.size();
     const long_file_names = try allocator.alloc(u8, table_size);
@@ -194,7 +178,8 @@ fn parseNameTable(archive: *Archive, allocator: Allocator, reader: anytype) !voi
 
 /// From a given file offset, starts reading for a file header.
 /// When found, parses the object file into an `Object` and returns it.
-pub fn parseObject(archive: Archive, allocator: Allocator, file_offset: u32) !Object {
+pub fn parseObject(archive: Archive, wasm_file: *const Wasm, file_offset: u32) !Object {
+    const gpa = wasm_file.base.comp.gpa;
     try archive.file.seekTo(file_offset);
     const reader = archive.file.reader();
     const header = try reader.readStruct(ar_hdr);
@@ -202,22 +187,33 @@ pub fn parseObject(archive: Archive, allocator: Allocator, file_offset: u32) !Ob
     try archive.file.seekTo(0);
 
     if (!mem.eql(u8, &header.ar_fmag, ARFMAG)) {
-        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, header.ar_fmag });
-        return error.MalformedArchive;
+        return error.InvalidHeaderDelimiter;
     }
 
     const object_name = try archive.parseName(header);
     const name = name: {
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const path = try std.os.realpath(archive.name, &buffer);
-        break :name try std.fmt.allocPrint(allocator, "{s}({s})", .{ path, object_name });
+        const path = try std.posix.realpath(archive.name, &buffer);
+        break :name try std.fmt.allocPrint(gpa, "{s}({s})", .{ path, object_name });
     };
-    defer allocator.free(name);
+    defer gpa.free(name);
 
     const object_file = try std.fs.cwd().openFile(archive.name, .{});
     errdefer object_file.close();
 
     const object_file_size = try header.size();
     try object_file.seekTo(current_offset);
-    return Object.create(allocator, object_file, name, object_file_size);
+    return Object.create(wasm_file, object_file, name, object_file_size);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const fs = std.fs;
+const log = std.log.scoped(.archive);
+const mem = std.mem;
+
+const Allocator = mem.Allocator;
+const Object = @import("Object.zig");
+const Wasm = @import("../Wasm.zig");
+
+const Archive = @This();

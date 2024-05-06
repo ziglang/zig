@@ -178,11 +178,27 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 }
 
 fn isOddInteger(x: f64) bool {
+    if (@abs(x) >= 1 << 53) {
+        // From https://golang.org/src/math/pow.go
+        // 1 << 53 is the largest exact integer in the float64 format.
+        // Any number outside this range will be truncated before the decimal point and therefore will always be
+        // an even integer.
+        // Without this check and if x overflows i64 the @intFromFloat(r.ipart) conversion below will panic
+        return false;
+    }
     const r = math.modf(x);
     return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
 }
 
-test "math.pow" {
+test isOddInteger {
+    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
+    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(1 << 53) == false);
+    try expect(isOddInteger(12.0) == false);
+    try expect(isOddInteger(15.0) == true);
+}
+
+test pow {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
@@ -200,7 +216,7 @@ test "math.pow" {
     try expect(math.approxEqAbs(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
 }
 
-test "math.pow.special" {
+test "special" {
     const epsilon = 0.000001;
 
     try expect(pow(f32, 4, 0.0) == 1.0);
@@ -242,7 +258,7 @@ test "math.pow.special" {
     try expect(math.isNan(pow(f32, -12.4, 78.5)));
 }
 
-test "math.pow.overflow" {
+test "overflow" {
     try expect(math.isPositiveInf(pow(f64, 2, 1 << 32)));
     try expect(pow(f64, 2, -(1 << 32)) == 0);
     try expect(math.isNegativeInf(pow(f64, -2, (1 << 32) + 1)));

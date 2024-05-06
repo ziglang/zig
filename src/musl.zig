@@ -4,6 +4,7 @@ const mem = std.mem;
 const path = std.fs.path;
 const assert = std.debug.assert;
 const Module = @import("Package/Module.zig");
+const archName = std.zig.target.muslArchName;
 
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
@@ -206,7 +207,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             const strip = comp.compilerRtStrip();
             const config = try Compilation.Config.resolve(.{
                 .output_mode = .Lib,
-                .link_mode = .Dynamic,
+                .link_mode = .dynamic,
                 .resolved_target = comp.root_mod.resolved_target,
                 .is_test = false,
                 .have_zcu = false,
@@ -249,6 +250,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .cc_argv = cc_argv,
                 .parent = null,
                 .builtin_mod = null,
+                .builtin_modules = null, // there is only one module in this compilation
             });
 
             const sub_compilation = try Compilation.create(comp.gpa, arena, .{
@@ -292,30 +294,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             comp.crt_files.putAssumeCapacityNoClobber(basename, try sub_compilation.toCrtFile());
         },
     }
-}
-
-fn archName(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    switch (arch) {
-        .aarch64, .aarch64_be => return "aarch64",
-        .arm, .armeb, .thumb, .thumbeb => return "arm",
-        .x86 => return "i386",
-        .mips, .mipsel => return "mips",
-        .mips64el, .mips64 => return "mips64",
-        .powerpc => return "powerpc",
-        .powerpc64, .powerpc64le => return "powerpc64",
-        .riscv64 => return "riscv64",
-        .s390x => return "s390x",
-        .wasm32, .wasm64 => return "wasm",
-        .x86_64 => return "x86_64",
-        else => unreachable,
-    }
-}
-
-pub fn archNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
-    return switch (arch) {
-        .x86 => return "x86",
-        else => archName(arch),
-    };
 }
 
 // Return true if musl has arch-specific crti/crtn sources.
@@ -405,7 +383,7 @@ fn addCcArgs(
     const arch_name = archName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{
-        archNameHeaders(target.cpu.arch), os_name,
+        std.zig.target.muslArchNameHeaders(target.cpu.arch), os_name,
     });
     const o_arg = if (want_O3) "-O3" else "-Os";
 
