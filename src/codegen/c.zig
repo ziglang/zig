@@ -116,7 +116,7 @@ const ValueRenderLocation = enum {
 
 const BuiltinInfo = enum { none, bits };
 
-const reserved_idents = std.ComptimeStringMap(void, .{
+const reserved_idents = std.StaticStringMap(void).initComptime(.{
     // C language
     .{ "alignas", {
         @setEvalBranchQuota(4000);
@@ -646,8 +646,7 @@ pub const DeclGen = struct {
     fn renderAnonDeclValue(
         dg: *DeclGen,
         writer: anytype,
-        ptr_val: Value,
-        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const zcu = dg.zcu;
@@ -657,16 +656,16 @@ pub const DeclGen = struct {
         const decl_ty = decl_val.typeOf(zcu);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ptr_ty = ptr_val.typeOf(zcu);
+        const ptr_ty = Type.fromInterned(anon_decl.orig_ty);
         if (ptr_ty.isPtrAtRuntime(zcu) and !decl_ty.isFnOrHasRuntimeBits(zcu)) {
             return dg.writeCValue(writer, .{ .undef = ptr_ty });
         }
 
         // Chase function values in order to be able to reference the original function.
         if (decl_val.getFunction(zcu)) |func|
-            return dg.renderDeclValue(writer, ptr_val, func.owner_decl, location);
+            return dg.renderDeclValue(writer, func.owner_decl, location);
         if (decl_val.getExternFunc(zcu)) |extern_func|
-            return dg.renderDeclValue(writer, ptr_val, extern_func.decl, location);
+            return dg.renderDeclValue(writer, extern_func.decl, location);
 
         assert(decl_val.getVariable(zcu) == null);
 
@@ -712,7 +711,6 @@ pub const DeclGen = struct {
     fn renderDeclValue(
         dg: *DeclGen,
         writer: anytype,
-        val: Value,
         decl_index: InternPool.DeclIndex,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
@@ -722,17 +720,17 @@ pub const DeclGen = struct {
         assert(decl.has_tv);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ty = val.typeOf(zcu);
         const decl_ty = decl.typeOf(zcu);
-        if (ty.isPtrAtRuntime(zcu) and !decl_ty.isFnOrHasRuntimeBits(zcu)) {
-            return dg.writeCValue(writer, .{ .undef = ty });
+        const ptr_ty = try decl.declPtrType(zcu);
+        if (!decl_ty.isFnOrHasRuntimeBits(zcu)) {
+            return dg.writeCValue(writer, .{ .undef = ptr_ty });
         }
 
         // Chase function values in order to be able to reference the original function.
         if (decl.val.getFunction(zcu)) |func| if (func.owner_decl != decl_index)
-            return dg.renderDeclValue(writer, val, func.owner_decl, location);
+            return dg.renderDeclValue(writer, func.owner_decl, location);
         if (decl.val.getExternFunc(zcu)) |extern_func| if (extern_func.decl != decl_index)
-            return dg.renderDeclValue(writer, val, extern_func.decl, location);
+            return dg.renderDeclValue(writer, extern_func.decl, location);
 
         if (decl.val.getVariable(zcu)) |variable| try dg.renderFwdDecl(decl_index, variable, .tentative);
 
@@ -740,7 +738,7 @@ pub const DeclGen = struct {
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
         // somewhere and we should let the C compiler tell us about it.
-        const ctype = try dg.ctypeFromType(ty, .complete);
+        const ctype = try dg.ctypeFromType(ptr_ty, .complete);
         const elem_ctype = ctype.info(ctype_pool).pointer.elem_ctype;
         const decl_ctype = try dg.ctypeFromType(decl_ty, .complete);
         const need_cast = !elem_ctype.eql(decl_ctype) and
@@ -755,125 +753,108 @@ pub const DeclGen = struct {
         if (need_cast) try writer.writeByte(')');
     }
 
-    /// Renders a "parent" pointer by recursing to the root decl/variable
-    /// that its contents are defined with respect to.
-    fn renderParentPtr(
+    fn renderPointer(
         dg: *DeclGen,
         writer: anytype,
-        ptr_val: InternPool.Index,
+        derivation: Value.PointerDeriveStep,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const zcu = dg.zcu;
-        const ip = &zcu.intern_pool;
-        const ptr_ty = Type.fromInterned(ip.typeOf(ptr_val));
-        const ptr_ctype = try dg.ctypeFromType(ptr_ty, .complete);
-        const ptr_child_ctype = ptr_ctype.info(&dg.ctype_pool).pointer.elem_ctype;
-        const ptr = ip.indexToKey(ptr_val).ptr;
-        switch (ptr.addr) {
-            .decl => |d| try dg.renderDeclValue(writer, Value.fromInterned(ptr_val), d, location),
-            .anon_decl => |anon_decl| try dg.renderAnonDeclValue(writer, Value.fromInterned(ptr_val), anon_decl, location),
+        switch (derivation) {
+            .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
+                const ptr_ctype = try dg.ctypeFromType(int.ptr_ty, .complete);
+                const addr_val = try zcu.intValue(Type.usize, int.addr);
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_ctype);
-                try writer.print("){x}", .{try dg.fmtIntLiteral(Value.fromInterned(int), .Other)});
+                try writer.print("){x}", .{try dg.fmtIntLiteral(addr_val, .Other)});
             },
-            .eu_payload, .opt_payload => |base| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(base));
-                const base_ty = ptr_base_ty.childType(zcu);
-                // Ensure complete type definition is visible before accessing fields.
-                _ = try dg.ctypeFromType(base_ty, .complete);
-                const payload_ty = switch (ptr.addr) {
-                    .eu_payload => base_ty.errorUnionPayload(zcu),
-                    .opt_payload => base_ty.optionalChild(zcu),
-                    else => unreachable,
-                };
-                const payload_ctype = try dg.ctypeFromType(payload_ty, .forward);
-                if (!ptr_child_ctype.eql(payload_ctype)) {
-                    try writer.writeByte('(');
-                    try dg.renderCType(writer, ptr_ctype);
-                    try writer.writeByte(')');
-                }
+
+            .decl_ptr => |decl| try dg.renderDeclValue(writer, decl, location),
+            .anon_decl_ptr => |ad| try dg.renderAnonDeclValue(writer, ad, location),
+
+            inline .eu_payload_ptr, .opt_payload_ptr => |info| {
                 try writer.writeAll("&(");
-                try dg.renderParentPtr(writer, base, location);
+                try dg.renderPointer(writer, info.parent.*, location);
                 try writer.writeAll(")->payload");
             },
-            .elem => |elem| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(elem.base));
-                const elem_ty = ptr_base_ty.elemType2(zcu);
-                const elem_ctype = try dg.ctypeFromType(elem_ty, .forward);
-                if (!ptr_child_ctype.eql(elem_ctype)) {
-                    try writer.writeByte('(');
-                    try dg.renderCType(writer, ptr_ctype);
-                    try writer.writeByte(')');
-                }
-                try writer.writeAll("&(");
-                if (ip.indexToKey(ptr_base_ty.toIntern()).ptr_type.flags.size == .One)
-                    try writer.writeByte('*');
-                try dg.renderParentPtr(writer, elem.base, location);
-                try writer.print(")[{d}]", .{elem.index});
-            },
-            .field => |field| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(field.base));
-                const base_ty = ptr_base_ty.childType(zcu);
+
+            .field_ptr => |field| {
+                const parent_ptr_ty = try field.parent.ptrType(zcu);
+
                 // Ensure complete type definition is available before accessing fields.
-                _ = try dg.ctypeFromType(base_ty, .complete);
-                switch (fieldLocation(ptr_base_ty, ptr_ty, @as(u32, @intCast(field.index)), zcu)) {
+                _ = try dg.ctypeFromType(parent_ptr_ty.childType(zcu), .complete);
+
+                switch (fieldLocation(parent_ptr_ty, field.result_ptr_ty, field.field_idx, zcu)) {
                     .begin => {
-                        const ptr_base_ctype = try dg.ctypeFromType(ptr_base_ty, .complete);
-                        if (!ptr_ctype.eql(ptr_base_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
-                        try dg.renderParentPtr(writer, field.base, location);
+                        const ptr_ctype = try dg.ctypeFromType(field.result_ptr_ty, .complete);
+                        try writer.writeByte('(');
+                        try dg.renderCType(writer, ptr_ctype);
+                        try writer.writeByte(')');
+                        try dg.renderPointer(writer, field.parent.*, location);
                     },
                     .field => |name| {
-                        const field_ty = switch (ip.indexToKey(base_ty.toIntern())) {
-                            .anon_struct_type,
-                            .struct_type,
-                            .union_type,
-                            => base_ty.structFieldType(@as(usize, @intCast(field.index)), zcu),
-                            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                                .One, .Many, .C => unreachable,
-                                .Slice => switch (field.index) {
-                                    Value.slice_ptr_index => base_ty.slicePtrFieldType(zcu),
-                                    Value.slice_len_index => Type.usize,
-                                    else => unreachable,
-                                },
-                            },
-                            else => unreachable,
-                        };
-                        const field_ctype = try dg.ctypeFromType(field_ty, .forward);
-                        if (!ptr_child_ctype.eql(field_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
                         try writer.writeAll("&(");
-                        try dg.renderParentPtr(writer, field.base, location);
+                        try dg.renderPointer(writer, field.parent.*, location);
                         try writer.writeAll(")->");
                         try dg.writeCValue(writer, name);
                     },
                     .byte_offset => |byte_offset| {
-                        const u8_ptr_ty = try zcu.adjustPtrTypeChild(ptr_ty, Type.u8);
-                        const u8_ptr_ctype = try dg.ctypeFromType(u8_ptr_ty, .complete);
-
-                        if (!ptr_ctype.eql(u8_ptr_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
-                        try writer.writeAll("((");
-                        try dg.renderCType(writer, u8_ptr_ctype);
+                        const ptr_ctype = try dg.ctypeFromType(field.result_ptr_ty, .complete);
+                        try writer.writeByte('(');
+                        try dg.renderCType(writer, ptr_ctype);
                         try writer.writeByte(')');
-                        try dg.renderParentPtr(writer, field.base, location);
-                        try writer.print(" + {})", .{
-                            try dg.fmtIntLiteral(try zcu.intValue(Type.usize, byte_offset), .Other),
-                        });
+                        const offset_val = try zcu.intValue(Type.usize, byte_offset);
+                        try writer.writeAll("((char *)");
+                        try dg.renderPointer(writer, field.parent.*, location);
+                        try writer.print(" + {})", .{try dg.fmtIntLiteral(offset_val, .Other)});
                     },
                 }
             },
-            .comptime_field, .comptime_alloc => unreachable,
+
+            .elem_ptr => |elem| if (!(try elem.parent.ptrType(zcu)).childType(zcu).hasRuntimeBits(zcu)) {
+                // Element type is zero-bit, so lowers to `void`. The index is irrelevant; just cast the pointer.
+                const ptr_ctype = try dg.ctypeFromType(elem.result_ptr_ty, .complete);
+                try writer.writeByte('(');
+                try dg.renderCType(writer, ptr_ctype);
+                try writer.writeByte(')');
+                try dg.renderPointer(writer, elem.parent.*, location);
+            } else {
+                const index_val = try zcu.intValue(Type.usize, elem.elem_idx);
+                // We want to do pointer arithmetic on a pointer to the element type.
+                // We might have a pointer-to-array. In this case, we must cast first.
+                const result_ctype = try dg.ctypeFromType(elem.result_ptr_ty, .complete);
+                const parent_ctype = try dg.ctypeFromType(try elem.parent.ptrType(zcu), .complete);
+                if (result_ctype.eql(parent_ctype)) {
+                    // The pointer already has an appropriate type - just do the arithmetic.
+                    try writer.writeByte('(');
+                    try dg.renderPointer(writer, elem.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(index_val, .Other)});
+                } else {
+                    // We probably have an array pointer `T (*)[n]`. Cast to an element pointer,
+                    // and *then* apply the index.
+                    try writer.writeAll("((");
+                    try dg.renderCType(writer, result_ctype);
+                    try writer.writeByte(')');
+                    try dg.renderPointer(writer, elem.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(index_val, .Other)});
+                }
+            },
+
+            .offset_and_cast => |oac| {
+                const ptr_ctype = try dg.ctypeFromType(oac.new_ptr_ty, .complete);
+                try writer.writeByte('(');
+                try dg.renderCType(writer, ptr_ctype);
+                try writer.writeByte(')');
+                if (oac.byte_offset == 0) {
+                    try dg.renderPointer(writer, oac.parent.*, location);
+                } else {
+                    const offset_val = try zcu.intValue(Type.usize, oac.byte_offset);
+                    try writer.writeAll("((char *)");
+                    try dg.renderPointer(writer, oac.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(offset_val, .Other)});
+                }
+            },
         }
     }
 
@@ -1103,20 +1084,11 @@ pub const DeclGen = struct {
                 }
                 try writer.writeByte('}');
             },
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |d| try dg.renderDeclValue(writer, val, d, location),
-                .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, val, decl_val, location),
-                .int => |int| {
-                    try writer.writeAll("((");
-                    try dg.renderCType(writer, ctype);
-                    try writer.print("){x})", .{try dg.fmtIntLiteral(Value.fromInterned(int), location)});
-                },
-                .eu_payload,
-                .opt_payload,
-                .elem,
-                .field,
-                => try dg.renderParentPtr(writer, val.toIntern(), location),
-                .comptime_field, .comptime_alloc => unreachable,
+            .ptr => {
+                var arena = std.heap.ArenaAllocator.init(zcu.gpa);
+                defer arena.deinit();
+                const derivation = try val.pointerDerivation(arena.allocator(), zcu);
+                try dg.renderPointer(writer, derivation, location);
             },
             .opt => |opt| switch (ctype.info(ctype_pool)) {
                 .basic => if (ctype.isBool()) try writer.writeAll(switch (opt.val) {
@@ -3204,6 +3176,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
     const zcu = f.object.dg.zcu;
     const ip = &zcu.intern_pool;
     const air_tags = f.air.instructions.items(.tag);
+    const air_datas = f.air.instructions.items(.data);
 
     for (body) |inst| {
         if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip))
@@ -3231,23 +3204,23 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .sub => try airBinOp(f, inst, "-", "sub", .none),
             .mul => try airBinOp(f, inst, "*", "mul", .none),
 
-            .neg => try airFloatNeg(f, inst),
+            .neg => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "neg", .none),
             .div_float => try airBinBuiltinCall(f, inst, "div", .none),
 
             .div_trunc, .div_exact => try airBinOp(f, inst, "/", "div_trunc", .none),
             .rem => blk: {
-                const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const lhs_scalar_ty = f.typeOf(bin_op.lhs).scalarType(zcu);
                 // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
                 // so we only check one.
                 break :blk if (lhs_scalar_ty.isInt(zcu))
                     try airBinOp(f, inst, "%", "rem", .none)
                 else
-                    try airBinFloatOp(f, inst, "fmod");
+                    try airBinBuiltinCall(f, inst, "fmod", .none);
             },
             .div_floor => try airBinBuiltinCall(f, inst, "div_floor", .none),
             .mod       => try airBinBuiltinCall(f, inst, "mod", .none),
-            .abs       => try airAbs(f, inst),
+            .abs       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "abs", .none),
 
             .add_wrap => try airBinBuiltinCall(f, inst, "addw", .bits),
             .sub_wrap => try airBinBuiltinCall(f, inst, "subw", .bits),
@@ -3258,19 +3231,19 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .mul_sat => try airBinBuiltinCall(f, inst, "muls", .bits),
             .shl_sat => try airBinBuiltinCall(f, inst, "shls", .bits),
 
-            .sqrt        => try airUnFloatOp(f, inst, "sqrt"),
-            .sin         => try airUnFloatOp(f, inst, "sin"),
-            .cos         => try airUnFloatOp(f, inst, "cos"),
-            .tan         => try airUnFloatOp(f, inst, "tan"),
-            .exp         => try airUnFloatOp(f, inst, "exp"),
-            .exp2        => try airUnFloatOp(f, inst, "exp2"),
-            .log         => try airUnFloatOp(f, inst, "log"),
-            .log2        => try airUnFloatOp(f, inst, "log2"),
-            .log10       => try airUnFloatOp(f, inst, "log10"),
-            .floor       => try airUnFloatOp(f, inst, "floor"),
-            .ceil        => try airUnFloatOp(f, inst, "ceil"),
-            .round       => try airUnFloatOp(f, inst, "round"),
-            .trunc_float => try airUnFloatOp(f, inst, "trunc"),
+            .sqrt        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "sqrt", .none),
+            .sin         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "sin", .none),
+            .cos         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "cos", .none),
+            .tan         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "tan", .none),
+            .exp         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "exp", .none),
+            .exp2        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "exp2", .none),
+            .log         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log", .none),
+            .log2        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log2", .none),
+            .log10       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "log10", .none),
+            .floor       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "floor", .none),
+            .ceil        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "ceil", .none),
+            .round       => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "round", .none),
+            .trunc_float => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].un_op, "trunc", .none),
 
             .mul_add => try airMulAdd(f, inst),
 
@@ -3279,21 +3252,21 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .mul_with_overflow => try airOverflow(f, inst, "mul", .bits),
             .shl_with_overflow => try airOverflow(f, inst, "shl", .bits),
 
-            .min => try airMinMax(f, inst, '<', "fmin"),
-            .max => try airMinMax(f, inst, '>', "fmax"),
+            .min => try airMinMax(f, inst, '<', "min"),
+            .max => try airMinMax(f, inst, '>', "max"),
 
             .slice => try airSlice(f, inst),
 
-            .cmp_gt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gt),
-            .cmp_gte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .gte),
-            .cmp_lt  => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lt),
-            .cmp_lte => try airCmpOp(f, inst, f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op, .lte),
+            .cmp_gt  => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .gt),
+            .cmp_gte => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .gte),
+            .cmp_lt  => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .lt),
+            .cmp_lte => try airCmpOp(f, inst, air_datas[@intFromEnum(inst)].bin_op, .lte),
 
             .cmp_eq  => try airEquality(f, inst, .eq),
             .cmp_neq => try airEquality(f, inst, .neq),
 
             .cmp_vector => blk: {
-                const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const extra = f.air.extraData(Air.VectorCmp, ty_pl.payload).data;
                 break :blk try airCmpOp(f, inst, extra, extra.compareOperator());
             },
@@ -3352,11 +3325,11 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .memcpy           => try airMemcpy(f, inst),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
-            .clz              => try airUnBuiltinCall(f, inst, "clz", .bits),
-            .ctz              => try airUnBuiltinCall(f, inst, "ctz", .bits),
-            .popcount         => try airUnBuiltinCall(f, inst, "popcount", .bits),
-            .byte_swap        => try airUnBuiltinCall(f, inst, "byte_swap", .bits),
-            .bit_reverse      => try airUnBuiltinCall(f, inst, "bit_reverse", .bits),
+            .clz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "clz", .bits),
+            .ctz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "ctz", .bits),
+            .popcount         => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "popcount", .bits),
+            .byte_swap        => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "byte_swap", .bits),
+            .bit_reverse      => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "bit_reverse", .bits),
             .tag_name         => try airTagName(f, inst),
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
@@ -4169,7 +4142,7 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand_ty = f.typeOf(ty_op.operand);
     const scalar_ty = operand_ty.scalarType(zcu);
-    if (scalar_ty.toIntern() != .bool_type) return try airUnBuiltinCall(f, inst, "not", .bits);
+    if (scalar_ty.toIntern() != .bool_type) return try airUnBuiltinCall(f, inst, ty_op.operand, "not", .bits);
 
     const op = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -4419,10 +4392,8 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(zcu);
 
-    if (inst_scalar_ty.isInt(zcu) and inst_scalar_ty.bitSize(zcu) > 64)
-        return try airBinBuiltinCall(f, inst, operation[1..], .none);
-    if (inst_scalar_ty.isRuntimeFloat())
-        return try airBinFloatOp(f, inst, operation);
+    if ((inst_scalar_ty.isInt(zcu) and inst_scalar_ty.bitSize(zcu) > 64) or inst_scalar_ty.isRuntimeFloat())
+        return try airBinBuiltinCall(f, inst, operation, .none);
 
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
@@ -4576,10 +4547,10 @@ fn airCall(
                 break :fn_decl switch (zcu.intern_pool.indexToKey(callee_val.toIntern())) {
                     .extern_func => |extern_func| extern_func.decl,
                     .func => |func| func.owner_decl,
-                    .ptr => |ptr| switch (ptr.addr) {
+                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                         .decl => |decl| decl,
                         else => break :known,
-                    },
+                    } else break :known,
                     else => break :known,
                 };
             };
@@ -5170,10 +5141,10 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
         'I' => !target.cpu.arch.isArmOrThumb(),
         else => switch (value) {
             .constant => |val| switch (f.object.dg.zcu.intern_pool.indexToKey(val.toIntern())) {
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => false,
                     else => true,
-                },
+                } else true,
                 else => true,
             },
             else => false,
@@ -6327,17 +6298,17 @@ fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airUnBuiltinCall(
     f: *Function,
     inst: Air.Inst.Index,
+    operand_ref: Air.Inst.Ref,
     operation: []const u8,
     info: BuiltinInfo,
 ) !CValue {
     const zcu = f.object.dg.zcu;
-    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
-    const operand = try f.resolveInst(ty_op.operand);
-    try reap(f, inst, &.{ty_op.operand});
+    const operand = try f.resolveInst(operand_ref);
+    try reap(f, inst, &.{operand_ref});
     const inst_ty = f.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType(zcu);
-    const operand_ty = f.typeOf(ty_op.operand);
+    const operand_ty = f.typeOf(operand_ref);
     const scalar_ty = operand_ty.scalarType(zcu);
 
     const inst_scalar_ctype = try f.ctypeFromType(inst_scalar_ty, .complete);
@@ -6850,11 +6821,27 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     const src_ty = f.typeOf(bin_op.rhs);
     const writer = f.object.writer();
 
+    if (dest_ty.ptrSize(zcu) != .One) {
+        try writer.writeAll("if (");
+        try writeArrayLen(f, writer, dest_ptr, dest_ty);
+        try writer.writeAll(" != 0) ");
+    }
     try writer.writeAll("memcpy(");
     try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
     try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
+    try writeArrayLen(f, writer, dest_ptr, dest_ty);
+    try writer.writeAll(" * sizeof(");
+    try f.renderType(writer, dest_ty.elemType2(zcu));
+    try writer.writeAll("));\n");
+
+    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
+    return .none;
+}
+
+fn writeArrayLen(f: *Function, writer: ArrayListWriter, dest_ptr: CValue, dest_ty: Type) !void {
+    const zcu = f.object.dg.zcu;
     switch (dest_ty.ptrSize(zcu)) {
         .One => try writer.print("{}", .{
             try f.fmtIntLiteral(try zcu.intValue(Type.usize, dest_ty.childType(zcu).arrayLen(zcu))),
@@ -6862,12 +6849,6 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
         .Many, .C => unreachable,
         .Slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
     }
-    try writer.writeAll(" * sizeof(");
-    try f.renderType(writer, dest_ty.elemType2(zcu));
-    try writer.writeAll("));\n");
-
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-    return .none;
 }
 
 fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -7050,7 +7031,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const use_operator = scalar_ty.bitSize(zcu) <= 64;
     const op: union(enum) {
         const Func = struct { operation: []const u8, info: BuiltinInfo = .none };
-        float_op: Func,
         builtin: Func,
         infix: []const u8,
         ternary: []const u8,
@@ -7059,30 +7039,22 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
         .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " < " } else .{
-                .builtin = .{ .operation = "min" },
-            },
-            .Float => .{ .float_op = .{ .operation = "fmin" } },
+            .Int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
+            .Float => .{ .builtin = .{ .operation = "min" } },
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " > " } else .{
-                .builtin = .{ .operation = "max" },
-            },
-            .Float => .{ .float_op = .{ .operation = "fmax" } },
+            .Int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
+            .Float => .{ .builtin = .{ .operation = "max" } },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " += " } else .{
-                .builtin = .{ .operation = "addw", .info = .bits },
-            },
+            .Int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
             .Float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " *= " } else .{
-                .builtin = .{ .operation = "mulw", .info = .bits },
-            },
+            .Int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
             .Float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
         },
@@ -7146,17 +7118,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorize.start(f, inst, writer, operand_ty);
     try f.writeCValue(writer, accum, .Other);
     switch (op) {
-        .float_op => |func| {
-            try writer.writeAll(" = zig_float_fn_");
-            try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-            try writer.print("_{s}(", .{func.operation});
-            try f.writeCValue(writer, accum, .FunctionArgument);
-            try writer.writeAll(", ");
-            try f.writeCValue(writer, operand, .Other);
-            try v.elem(f, writer);
-            try f.object.dg.renderBuiltinInfo(writer, scalar_ty, func.info);
-            try writer.writeByte(')');
-        },
         .builtin => |func| {
             try writer.print(" = zig_{s}_", .{func.operation});
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
@@ -7437,110 +7398,6 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airFloatNeg(f: *Function, inst: Air.Inst.Index) !CValue {
-    const zcu = f.object.dg.zcu;
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
-
-    const operand_ty = f.typeOf(un_op);
-    const scalar_ty = operand_ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, operand_ty);
-    const v = try Vectorize.start(f, inst, writer, operand_ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_neg_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-    try writer.writeByte('(');
-    try f.writeCValue(writer, operand, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
-fn airAbs(f: *Function, inst: Air.Inst.Index) !CValue {
-    const zcu = f.object.dg.zcu;
-    const ty_op = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const operand = try f.resolveInst(ty_op.operand);
-    const ty = f.typeOf(ty_op.operand);
-    const scalar_ty = ty.scalarType(zcu);
-
-    switch (scalar_ty.zigTypeTag(zcu)) {
-        .Int => if (ty.zigTypeTag(zcu) == .Vector) {
-            return f.fail("TODO implement airAbs for '{}'", .{ty.fmt(zcu)});
-        } else {
-            return airUnBuiltinCall(f, inst, "abs", .none);
-        },
-        .Float => return unFloatOp(f, inst, operand, ty, "fabs"),
-        else => unreachable,
-    }
-}
-
-fn unFloatOp(f: *Function, inst: Air.Inst.Index, operand: CValue, ty: Type, operation: []const u8) !CValue {
-    const zcu = f.object.dg.zcu;
-    const scalar_ty = ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, ty);
-    const v = try Vectorize.start(f, inst, writer, ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
-    try writer.print("_{s}(", .{operation});
-    try f.writeCValue(writer, operand, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
-fn airUnFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
-
-    const inst_ty = f.typeOfIndex(inst);
-    return unFloatOp(f, inst, operand, inst_ty, operation);
-}
-
-fn airBinFloatOp(f: *Function, inst: Air.Inst.Index, operation: []const u8) !CValue {
-    const zcu = f.object.dg.zcu;
-    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-    const lhs = try f.resolveInst(bin_op.lhs);
-    const rhs = try f.resolveInst(bin_op.rhs);
-    try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
-
-    const inst_ty = f.typeOfIndex(inst);
-    const inst_scalar_ty = inst_ty.scalarType(zcu);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
-    const v = try Vectorize.start(f, inst, writer, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
-    try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.print("_{s}(", .{operation});
-    try f.writeCValue(writer, lhs, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, rhs, .FunctionArgument);
-    try v.elem(f, writer);
-    try writer.writeAll(");\n");
-    try v.end(f, inst, writer);
-
-    return local;
-}
-
 fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const zcu = f.object.dg.zcu;
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -7559,9 +7416,9 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     const v = try Vectorize.start(f, inst, writer, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = zig_float_fn_");
+    try writer.writeAll(" = zig_fma_");
     try f.object.dg.renderTypeForBuiltinFnName(writer, inst_scalar_ty);
-    try writer.writeAll("_fma(");
+    try writer.writeByte('(');
     try f.writeCValue(writer, mulend1, .FunctionArgument);
     try v.elem(f, writer);
     try writer.writeAll(", ");

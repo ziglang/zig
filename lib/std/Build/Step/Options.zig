@@ -464,7 +464,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 });
             };
 
-            b.cache_root.handle.writeFile(tmp_sub_path, self.contents.items) catch |err| {
+            b.cache_root.handle.writeFile(.{ .sub_path = tmp_sub_path, .data = self.contents.items }) catch |err| {
                 return step.fail("unable to write options to '{}{s}': {s}", .{
                     b.cache_root, tmp_sub_path, @errorName(err),
                 });
@@ -516,6 +516,10 @@ test Options {
         .zig_exe = "test",
         .env_map = std.process.EnvMap.init(arena.allocator()),
         .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
+        .host = .{
+            .query = .{},
+            .result = try std.zig.system.resolveTargetQuery(.{}),
+        },
     };
 
     var builder = try std.Build.create(
@@ -524,11 +528,6 @@ test Options {
         .{ .path = "test", .handle = std.fs.cwd() },
         &.{},
     );
-
-    builder.host = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
 
     const options = builder.addOptions();
 

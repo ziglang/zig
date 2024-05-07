@@ -412,22 +412,28 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = true,
+        //},
 
-        .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
-            .link_libc = true,
-        },
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //    .use_llvm = true,
+        //},
 
         // https://github.com/ziglang/zig/issues/3340
         //.{
@@ -817,12 +823,12 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
         defer dir.close();
-        dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
-        dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt1.zig", .data = unformatted_code }) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt2.zig", .data = unformatted_code }) catch @panic("unhandled");
         dir.makeDir("subdir") catch @panic("unhandled");
         var subdir = dir.openDir("subdir", .{}) catch @panic("unhandled");
         defer subdir.close();
-        subdir.writeFile("fmt3.zig", unformatted_code) catch @panic("unhandled");
+        subdir.writeFile(.{ .sub_path = "fmt3.zig", .data = unformatted_code }) catch @panic("unhandled");
 
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.graph.zig_exe, "fmt", "fmt1.zig" });

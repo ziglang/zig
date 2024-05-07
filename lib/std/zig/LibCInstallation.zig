@@ -182,18 +182,18 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         });
         return self;
     } else if (is_windows) {
-        var sdk = std.zig.WindowsSdk.find(args.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(args.allocator) catch |err| switch (err) {
             error.NotFound => return error.WindowsSdkNotFound,
             error.PathTooLong => return error.WindowsSdkNotFound,
             error.OutOfMemory => return error.OutOfMemory,
         };
         defer sdk.free(args.allocator);
 
-        try self.findNativeMsvcIncludeDir(args, &sdk);
-        try self.findNativeMsvcLibDir(args, &sdk);
-        try self.findNativeKernel32LibDir(args, &sdk);
-        try self.findNativeIncludeDirWindows(args, &sdk);
-        try self.findNativeCrtDirWindows(args, &sdk);
+        try self.findNativeMsvcIncludeDir(args, sdk);
+        try self.findNativeMsvcLibDir(args, sdk);
+        try self.findNativeKernel32LibDir(args, sdk);
+        try self.findNativeIncludeDirWindows(args, sdk);
+        try self.findNativeCrtDirWindows(args, sdk);
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(args);
         try self.findNativeGccDirHaiku(args);
@@ -358,19 +358,19 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
 fn findNativeIncludeDirWindows(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ search.path, search.version });
+        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -397,12 +397,12 @@ fn findNativeIncludeDirWindows(
 fn findNativeCrtDirWindows(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
@@ -415,9 +415,9 @@ fn findNativeCrtDirWindows(
         else => return error.UnsupportedArchitecture,
     };
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ search.path, search.version, arch_sub_dir });
+        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -464,12 +464,12 @@ fn findNativeGccDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindE
 fn findNativeKernel32LibDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
@@ -482,10 +482,10 @@ fn findNativeKernel32LibDir(
         else => return error.UnsupportedArchitecture,
     };
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
         const stream = result_buf.writer();
-        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ search.path, search.version, arch_sub_dir });
+        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -511,7 +511,7 @@ fn findNativeKernel32LibDir(
 fn findNativeMsvcIncludeDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
@@ -543,7 +543,7 @@ fn findNativeMsvcIncludeDir(
 fn findNativeMsvcLibDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
     const msvc_lib_dir = sdk.msvc_lib_dir orelse return error.LibCRuntimeNotFound;
@@ -654,28 +654,20 @@ fn printVerboseInvocation(
     }
 }
 
-const Search = struct {
-    path: []const u8,
-    version: []const u8,
-};
-
-fn fillSearch(search_buf: *[2]Search, sdk: *std.zig.WindowsSdk) []Search {
-    var search_end: usize = 0;
+fn fillInstallations(
+    installs: *[2]std.zig.WindowsSdk.Installation,
+    sdk: std.zig.WindowsSdk,
+) []std.zig.WindowsSdk.Installation {
+    var installs_len: usize = 0;
     if (sdk.windows10sdk) |windows10sdk| {
-        search_buf[search_end] = .{
-            .path = windows10sdk.path,
-            .version = windows10sdk.version,
-        };
-        search_end += 1;
+        installs[installs_len] = windows10sdk;
+        installs_len += 1;
     }
     if (sdk.windows81sdk) |windows81sdk| {
-        search_buf[search_end] = .{
-            .path = windows81sdk.path,
-            .version = windows81sdk.version,
-        };
-        search_end += 1;
+        installs[installs_len] = windows81sdk;
+        installs_len += 1;
     }
-    return search_buf[0..search_end];
+    return installs[0..installs_len];
 }
 
 const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";

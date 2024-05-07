@@ -1025,7 +1025,7 @@ test "modify nested packed struct aligned field" {
         pretty_print: packed struct {
             enabled: bool = false,
             num_spaces: u4 = 4,
-            space_char: enum { space, tab } = .space,
+            space_char: enum(u1) { space, tab } = .space,
             indent: u8 = 0,
         } = .{},
         baz: bool = false,

@@ -1532,7 +1532,7 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = packed union {
-        tag: enum { a, b },
+        tag: enum(u8) { a, b },
         val: u8,
 
         fn doTest() !void {
@@ -1850,9 +1850,8 @@ test "reinterpret packed union" {
 
             {
                 // Union initialization
-                var u: U = .{
-                    .qux = 0xe2a,
-                };
+                var u: U = .{ .baz = 0 }; // ensure all bits are defined
+                u.qux = 0xe2a;
                 try expectEqual(@as(u8, 0x2a), u.foo);
                 try expectEqual(@as(u12, 0xe2a), u.qux);
                 try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
@@ -2301,4 +2300,26 @@ test "matching captures causes union equivalence" {
     const b: S.SignedUnsigned(i8) = .{ .u = 10 };
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try expect(a.u == b.u);
+}
+
+test "signed enum tag with negative value" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Enum = enum(i8) {
+        a = -1,
+    };
+
+    const Union = union(Enum) {
+        a: i32,
+    };
+
+    var i: i32 = 0;
+    i = i;
+    const e = Union{ .a = i };
+
+    try expect(e.a == i);
 }

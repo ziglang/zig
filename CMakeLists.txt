@@ -36,7 +36,7 @@ project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 12)
+set(ZIG_VERSION_MINOR 13)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -109,6 +109,8 @@ endif()
 
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
+set(ZIG_TARGET_DYNAMIC_LINKER "" CACHE STRING
+  "Override the dynamic linker used by the Zig binary. Default is to auto-detect the dynamic linker.")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_AR_WORKAROUND off CACHE BOOL "append 'ar' subcommand to CMAKE_AR")
 
@@ -220,7 +222,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/c/linux.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/child_process.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/coff.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/comptime_string_map.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/static_string_map.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto/blake3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto/siphash.zig"
@@ -897,11 +899,15 @@ if(ZIG_STATIC AND NOT MSVC)
 else()
   set(ZIG_STATIC_ARG "")
 endif()
-
 if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
   set(ZIG_PIE_ARG "-Dpie")
 else()
   set(ZIG_PIE_ARG "")
+endif()
+if("${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
+  set(ZIG_DYNAMIC_LINKER_ARG "")
+else()
+  set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
 endif()
 
 # -Dno-langref is currently hardcoded because building the langref takes too damn long
@@ -918,6 +924,7 @@ set(ZIG_BUILD_ARGS
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
+  ${ZIG_DYNAMIC_LINKER_ARG}
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
 )
 

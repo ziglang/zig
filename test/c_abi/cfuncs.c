@@ -269,6 +269,33 @@ void c_struct_f32_f32f32(struct Struct_f32_f32f32 s) {
     assert_or_panic(s.b.d == 3.0f);
 }
 
+struct Struct_u32_Union_u32_u32u32 {
+    uint32_t a;
+    union {
+        struct {
+            uint32_t d, e;
+        } c;
+    } b;
+};
+
+struct Struct_u32_Union_u32_u32u32 zig_ret_struct_u32_union_u32_u32u32(void);
+
+void zig_struct_u32_union_u32_u32u32(struct Struct_u32_Union_u32_u32u32);
+
+struct Struct_u32_Union_u32_u32u32 c_ret_struct_u32_union_u32_u32u32(void) {
+    struct Struct_u32_Union_u32_u32u32 s;
+    s.a = 1;
+    s.b.c.d = 2;
+    s.b.c.e = 3;
+    return s;
+}
+
+void c_struct_u32_union_u32_u32u32(struct Struct_u32_Union_u32_u32u32 s) {
+    assert_or_panic(s.a == 1);
+    assert_or_panic(s.b.c.d == 2);
+    assert_or_panic(s.b.c.e == 3);
+}
+
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -2664,6 +2691,16 @@ void run_c_tests(void) {
     }
 #endif
 
+#if !defined(__powerpc__)
+    {
+        struct Struct_u32_Union_u32_u32u32 s = zig_ret_struct_u32_union_u32_u32u32();
+        assert_or_panic(s.a == 1);
+        assert_or_panic(s.b.c.d == 2);
+        assert_or_panic(s.b.c.e == 3);
+        zig_struct_u32_union_u32_u32u32(s);
+    }
+#endif
+
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
@@ -2678,7 +2715,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
+#if !defined __arm__ && !defined __aarch64__ && \
     !defined __mips__ && !defined __powerpc__ && !defined ZIG_RISCV64
     {
         struct MedStructInts s = {1, 2, 3};

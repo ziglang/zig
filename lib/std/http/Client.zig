@@ -253,7 +253,7 @@ pub const Connection = struct {
         if (conn.read_end != conn.read_start) return;
 
         var iovecs = [1]std.posix.iovec{
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
         if (nread == 0) return error.EndOfStream;
@@ -289,8 +289,8 @@ pub const Connection = struct {
         }
 
         var iovecs = [2]std.posix.iovec{
-            .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = buffer.ptr, .len = buffer.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
 
@@ -1570,7 +1570,7 @@ pub const RequestOptions = struct {
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+    const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },

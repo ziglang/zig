@@ -1468,7 +1468,6 @@ pub const Pool = struct {
             .bool_false,
             .empty_struct,
             .generic_poison,
-            .var_args_param_type,
             .none,
             => unreachable,
 
@@ -1858,7 +1857,7 @@ pub const Pool = struct {
                                     loaded_tag.names.get(ip)[field_index].toSlice(ip),
                                 );
                                 const field_alignas = AlignAs.fromAlignment(.{
-                                    .@"align" = loaded_union.fieldAlign(ip, @intCast(field_index)),
+                                    .@"align" = loaded_union.fieldAlign(ip, field_index),
                                     .abi = field_type.abiAlignment(zcu),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{

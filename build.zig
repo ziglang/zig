@@ -9,7 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 13, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -32,22 +32,7 @@ pub fn build(b: *std.Build) !void {
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
-    const docgen_exe = b.addExecutable(.{
-        .name = "docgen",
-        .root_source_file = b.path("tools/docgen.zig"),
-        .target = b.host,
-        .optimize = .Debug,
-        .single_threaded = single_threaded,
-    });
-
-    const docgen_cmd = b.addRunArtifact(docgen_exe);
-    docgen_cmd.addArgs(&.{ "--zig", b.graph.zig_exe });
-    if (b.zig_lib_dir) |p| {
-        docgen_cmd.addArg("--zig-lib-dir");
-        docgen_cmd.addDirectoryArg(p);
-    }
-    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
-    const langref_file = docgen_cmd.addOutputFileArg("langref.html");
+    const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
@@ -1256,3 +1241,57 @@ const llvm_libs = [_][]const u8{
     "LLVMSupport",
     "LLVMDemangle",
 };
+
+fn generateLangRef(b: *std.Build) std.Build.LazyPath {
+    const doctest_exe = b.addExecutable(.{
+        .name = "doctest",
+        .root_source_file = b.path("tools/doctest.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
+        std.debug.panic("unable to open 'doc/langref' directory: {s}", .{@errorName(err)});
+    };
+    defer dir.close();
+
+    var wf = b.addWriteFiles();
+
+    var it = dir.iterateAssumeFirstIteration();
+    while (it.next() catch @panic("failed to read dir")) |entry| {
+        if (std.mem.startsWith(u8, entry.name, ".") or entry.kind != .file)
+            continue;
+
+        const out_basename = b.fmt("{s}.out", .{std.fs.path.stem(entry.name)});
+        const cmd = b.addRunArtifact(doctest_exe);
+        cmd.addArgs(&.{
+            "--zig",        b.graph.zig_exe,
+            // TODO: enhance doctest to use "--listen=-" rather than operating
+            // in a temporary directory
+            "--cache-root", b.cache_root.path orelse ".",
+        });
+        if (b.zig_lib_dir) |p| {
+            cmd.addArg("--zig-lib-dir");
+            cmd.addDirectoryArg(p);
+        }
+        cmd.addArgs(&.{"-i"});
+        cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
+
+        cmd.addArgs(&.{"-o"});
+        _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
+    }
+
+    const docgen_exe = b.addExecutable(.{
+        .name = "docgen",
+        .root_source_file = b.path("tools/docgen.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    const docgen_cmd = b.addRunArtifact(docgen_exe);
+    docgen_cmd.addArgs(&.{"--code-dir"});
+    docgen_cmd.addDirectoryArg(wf.getDirectory());
+
+    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
+    return docgen_cmd.addOutputFileArg("langref.html");
+}

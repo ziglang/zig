@@ -952,7 +952,7 @@ const Writer = struct {
             const ty = Type.fromInterned(mod.intern_pool.indexToKey(ip_index).typeOf());
             try s.print("<{}, {}>", .{
                 ty.fmt(mod),
-                Value.fromInterned(ip_index).fmtValue(mod),
+                Value.fromInterned(ip_index).fmtValue(mod, null),
             });
         } else {
             return w.writeInstIndex(s, operand.toIndex().?, dies);

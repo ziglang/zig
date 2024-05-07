@@ -993,7 +993,7 @@ const TestManifest = struct {
     config_map: std.StringHashMap([]const u8),
     trailing_bytes: []const u8 = "",
 
-    const valid_keys = std.ComptimeStringMap(void, .{
+    const valid_keys = std.StaticStringMap(void).initComptime(.{
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
@@ -1641,7 +1641,7 @@ fn runOneCase(
         var sync_node = update_node.start("write", 0);
         sync_node.activate();
         for (update.files.items) |file| {
-            try tmp.dir.writeFile(file.path, file.src);
+            try tmp.dir.writeFile(.{ .sub_path = file.path, .data = file.src });
         }
         sync_node.end();
 

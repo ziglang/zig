@@ -209,7 +209,7 @@ test "symlink with relative paths" {
     cwd.deleteFile("symlinked") catch {};
 
     // First, try relative paths in cwd
-    try cwd.writeFile("file.txt", "nonsense");
+    try cwd.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
 
     if (native_os == .windows) {
         std.os.windows.CreateSymbolicLink(
@@ -268,7 +268,7 @@ test "link with relative paths" {
     cwd.deleteFile("example.txt") catch {};
     cwd.deleteFile("new.txt") catch {};
 
-    try cwd.writeFile("example.txt", "example");
+    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
     try posix.link("example.txt", "new.txt", 0);
 
     const efd = try cwd.openFile("example.txt", .{});
@@ -312,7 +312,7 @@ test "linkat with different directories" {
     cwd.deleteFile("example.txt") catch {};
     tmp.dir.deleteFile("new.txt") catch {};
 
-    try cwd.writeFile("example.txt", "example");
+    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
     try posix.linkat(cwd.fd, "example.txt", tmp.dir.fd, "new.txt", 0);
 
     const efd = try cwd.openFile("example.txt", .{});
@@ -348,7 +348,7 @@ test "fstatat" {
 
     // create dummy file
     const contents = "nonsense";
-    try tmp.dir.writeFile("file.txt", contents);
+    try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = contents });
 
     // fetch file's info on the opened fd directly
     const file = try tmp.dir.openFile("file.txt", .{});
@@ -366,7 +366,7 @@ test "readlinkat" {
     defer tmp.cleanup();
 
     // create file
-    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
 
     // create a symbolic link
     if (native_os == .windows) {
@@ -939,7 +939,7 @@ test "writev longer than IOV_MAX" {
     var file = try tmp.dir.createFile("pwritev", .{});
     defer file.close();
 
-    const iovecs = [_]posix.iovec_const{.{ .iov_base = "a", .iov_len = 1 }} ** (posix.IOV_MAX + 1);
+    const iovecs = [_]posix.iovec_const{.{ .base = "a", .len = 1 }} ** (posix.IOV_MAX + 1);
     const amt = try file.writev(&iovecs);
     try testing.expectEqual(@as(usize, posix.IOV_MAX), amt);
 }

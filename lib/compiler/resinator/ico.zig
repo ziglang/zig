@@ -232,7 +232,7 @@ test "icon data size too small" {
     try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, fbs.reader(), data.len));
 }
 
-pub const ImageFormat = enum {
+pub const ImageFormat = enum(u2) {
     dib,
     png,
     riff,
@@ -272,7 +272,7 @@ pub const BitmapHeader = extern struct {
     }
 
     /// https://en.wikipedia.org/wiki/BMP_file_format#DIB_header_(bitmap_information_header)
-    pub const Version = enum {
+    pub const Version = enum(u3) {
         unknown,
         @"win2.0", // Windows 2.0 or later
         @"nt3.1", // Windows NT, 3.1x or later

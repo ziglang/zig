@@ -203,7 +203,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+                return step.fail("unable to read cmake input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
             try render_cmake(step, contents, &output, self.values, src_path);
         },
         .blank => {
@@ -242,7 +246,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     };
 
-    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output.items }) catch |err| {
         return step.fail("unable to write file '{}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(err),
         });

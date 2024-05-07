@@ -1054,3 +1054,26 @@ test "errorCast from error sets to error unions" {
     const err_union: Set1!void = @errorCast(error.A);
     try expectError(error.A, err_union);
 }
+
+test "result location initialization of error union with OPV payload" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: u0,
+    };
+
+    const a: anyerror!S = .{ .x = 0 };
+    comptime assert((a catch unreachable).x == 0);
+
+    comptime {
+        var b: anyerror!S = .{ .x = 0 };
+        _ = &b;
+        assert((b catch unreachable).x == 0);
+    }
+
+    var c: anyerror!S = .{ .x = 0 };
+    _ = &c;
+    try expectEqual(0, (c catch return error.TestFailed).x);
+}
