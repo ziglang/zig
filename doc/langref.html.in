@@ -4804,17 +4804,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       Informs the optimizer that {#syntax#}operand{#endsyntax#} will likely be {#syntax#}expected{#endsyntax#}, which influences branch compilation to prefer generating the true branch first.
       </p>
-      {#code_begin|obj|expect_if#}
-export fn a(x: u32) void {
-    if (@expect(x == 0, false)) {
-        // condition check falls through at code generation
-        return;
-    } else {
-        // condition is branched to at code generation
-        return;
-    }
-}
-      {#code_end#}
+      {#code|expect_if.zig#}
       {#header_close#}
 
       {#header_open|@fence#}
