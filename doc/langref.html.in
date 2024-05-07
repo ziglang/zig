@@ -6192,10 +6192,15 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
               the right choice, at least for your main allocator.</li>
           <li>
               Is the maximum number of bytes that you will need bounded by a number known at
-              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} or
-              {#syntax#}std.heap.ThreadSafeFixedBufferAllocator{#endsyntax#} depending on whether you need
-              thread-safety or not.
+              {#link|comptime#}? In this case, use {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}. 
           </li>
+	            If you need thread-safety, use {#syntax#}std.heap.ThreadSafeAllocator{#endsyntax#}.
+              For the thread-safe version of {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#} 
+	            use the method {#syntax}threadSafeAllocator{#endsyntax} on it.
+              Note that it is not safe to use both the original FixedBufferAllocator and 
+	            its thread-safe version at the same time. If you need both, create two instances.
+          </li>
+	        <li>
           <li>
               Is your program a command line application which runs from start to end without any fundamental
               cyclical pattern (such as a video game main loop, or a web server request handler),
