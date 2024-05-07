@@ -1933,7 +1933,7 @@ pub const Object = struct {
                 defer gpa.free(dir_path);
                 if (std.fs.path.isAbsolute(dir_path))
                     break :dir_path try o.builder.metadataString(dir_path);
-                var abs_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                var abs_buffer: [std.fs.max_path_bytes]u8 = undefined;
                 const abs_path = std.fs.realpath(dir_path, &abs_buffer) catch
                     break :dir_path try o.builder.metadataString(dir_path);
                 break :dir_path try o.builder.metadataString(abs_path);

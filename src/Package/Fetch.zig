@@ -1269,7 +1269,7 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
                 };
             },
             .sym_link => {
-                var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buf: [fs.max_path_bytes]u8 = undefined;
                 const link_name = try dir.readLink(entry.path, &buf);
                 // TODO: if this would create a symlink to outside
                 // the destination directory, fail with an error instead.
@@ -1661,7 +1661,7 @@ pub fn depDigest(
     switch (dep.location) {
         .url => return null,
         .path => |rel_path| {
-            var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+            var buf: [fs.max_path_bytes]u8 = undefined;
             var fba = std.heap.FixedBufferAllocator.init(&buf);
             const new_root = pkg_root.resolvePosix(fba.allocator(), rel_path) catch
                 return null;

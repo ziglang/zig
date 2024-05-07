@@ -3992,7 +3992,7 @@ test "ring mapped buffers recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(0);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times
@@ -4078,7 +4078,7 @@ test "ring mapped buffers multishot recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(0);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times

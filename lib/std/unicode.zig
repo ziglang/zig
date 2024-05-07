@@ -1335,7 +1335,7 @@ test utf8ToUtf16LeAllocZ {
         try testing.expectError(error.InvalidUtf8, result);
     }
     {
-        const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "This string has been designed to test the vectorized implementat" ++
+        const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "This string has been designed to test the vectorized implementat" ++
             "ion by beginning with one hundred twenty-seven ASCII characters¡");
         defer testing.allocator.free(utf16);
         try testing.expectEqualSlices(u8, &.{

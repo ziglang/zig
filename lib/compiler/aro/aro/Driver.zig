@@ -792,7 +792,7 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void 
     var argv = std.ArrayList([]const u8).init(d.comp.gpa);
     defer argv.deinit();
 
-    var linker_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var linker_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const linker_path = try tc.getLinkerPath(&linker_path_buf);
     try argv.append(linker_path);
 
@@ -803,7 +803,7 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void 
             return d.fatal("unable to dump linker args: {s}", .{errorDescription(er)});
         };
     }
-    var child = std.ChildProcess.init(argv.items, d.comp.gpa);
+    var child = std.process.Child.init(argv.items, d.comp.gpa);
     // TODO handle better
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = .Inherit;

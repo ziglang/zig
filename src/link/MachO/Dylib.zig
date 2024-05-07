@@ -829,7 +829,7 @@ pub const Id = struct {
         var out: u32 = 0;
         var values: [3][]const u8 = undefined;
 
-        var split = mem.split(u8, string, ".");
+        var split = mem.splitScalar(u8, string, '.');
         var count: u4 = 0;
         while (split.next()) |value| {
             if (count > 2) {

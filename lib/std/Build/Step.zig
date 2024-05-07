@@ -275,7 +275,7 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    const result = std.ChildProcess.run(.{
+    const result = std.process.Child.run(.{
         .allocator = arena,
         .argv = argv,
     }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
@@ -313,7 +313,7 @@ pub fn evalZigProcess(
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    var child = std.ChildProcess.init(argv, arena);
+    var child = std.process.Child.init(argv, arena);
     child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
@@ -480,7 +480,7 @@ pub inline fn handleChildProcUnsupported(
 
 pub fn handleChildProcessTerm(
     s: *Step,
-    term: std.ChildProcess.Term,
+    term: std.process.Child.Term,
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
 ) error{ MakeFailed, OutOfMemory }!void {

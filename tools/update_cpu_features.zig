@@ -1090,7 +1090,7 @@ fn processOneTarget(job: Job) anyerror!void {
         }),
     };
 
-    const child_result = try std.ChildProcess.run(.{
+    const child_result = try std.process.Child.run(.{
         .allocator = arena,
         .argv = &child_args,
         .max_output_bytes = 400 * 1024 * 1024,

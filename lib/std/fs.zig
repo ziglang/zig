@@ -417,20 +417,20 @@ pub fn deleteTreeAbsolute(absolute_path: []const u8) !void {
 /// On Windows, `pathname` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
-pub fn readLinkAbsolute(pathname: []const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsolute(pathname));
     return posix.readlink(pathname, buffer);
 }
 
 /// Windows-only. Same as `readlinkW`, except the path parameter is null-terminated, WTF16
 /// encoded.
-pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteWindowsW(pathname_w));
     return posix.readlinkW(pathname_w, buffer);
 }
 
 /// Same as `readLink`, except the path parameter is null-terminated.
-pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[MAX_PATH_BYTES]u8) ![]u8 {
+pub fn readLinkAbsoluteZ(pathname_c: [*:0]const u8, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteZ(pathname_c));
     return posix.readlinkZ(pathname_c, buffer);
 }
@@ -504,9 +504,9 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         const prefixed_path_w = try windows.wToPrefixedFileW(null, image_path_name);
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
-    // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
+    // Use of max_path_bytes here is valid as the resulting path is immediately
     // opened with no modification.
-    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    var buf: [max_path_bytes]u8 = undefined;
     const self_exe_path = try selfExePath(&buf);
     buf[self_exe_path.len] = 0;
     return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
@@ -554,14 +554,14 @@ pub const SelfExePathError = error{
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExePathAlloc(allocator: Allocator) ![]u8 {
-    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // Use of max_path_bytes here is justified as, at least on one tested Linux
     // system, readlink will completely fail to return a result larger than
     // PATH_MAX even if given a sufficiently large buffer. This makes it
     // fundamentally impossible to get the selfExePath of a program running in
     // a very deeply nested directory chain in this way.
     // TODO(#4812): Investigate other systems and whether it is possible to get
     // this path by trying larger and larger buffers until one succeeds.
-    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    var buf: [max_path_bytes]u8 = undefined;
     return allocator.dupe(u8, try selfExePath(&buf));
 }
 
@@ -581,12 +581,12 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
     if (is_darwin) {
         // Note that _NSGetExecutablePath() will return "a path" to
         // the executable not a "real path" to the executable.
-        var symlink_path_buf: [MAX_PATH_BYTES:0]u8 = undefined;
-        var u32_len: u32 = MAX_PATH_BYTES + 1; // include the sentinel
+        var symlink_path_buf: [max_path_bytes:0]u8 = undefined;
+        var u32_len: u32 = max_path_bytes + 1; // include the sentinel
         const rc = std.c._NSGetExecutablePath(&symlink_path_buf, &u32_len);
         if (rc != 0) return error.NameTooLong;
 
-        var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+        var real_path_buf: [max_path_bytes]u8 = undefined;
         const real_path = std.posix.realpathZ(&symlink_path_buf, &real_path_buf) catch |err| switch (err) {
             error.InvalidWtf8 => unreachable, // Windows-only
             error.NetworkNotFound => unreachable, // Windows-only
@@ -634,7 +634,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             const argv0 = mem.span(std.os.argv[0]);
             if (mem.indexOf(u8, argv0, "/") != null) {
                 // argv[0] is a path (relative or absolute): use realpath(3) directly
-                var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                var real_path_buf: [max_path_bytes]u8 = undefined;
                 const real_path = posix.realpathZ(std.os.argv[0], &real_path_buf) catch |err| switch (err) {
                     error.InvalidWtf8 => unreachable, // Windows-only
                     error.NetworkNotFound => unreachable, // Windows-only
@@ -650,13 +650,13 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 const PATH = posix.getenvZ("PATH") orelse return error.FileNotFound;
                 var path_it = mem.tokenizeScalar(u8, PATH, path.delimiter);
                 while (path_it.next()) |a_path| {
-                    var resolved_path_buf: [MAX_PATH_BYTES - 1:0]u8 = undefined;
+                    var resolved_path_buf: [max_path_bytes - 1:0]u8 = undefined;
                     const resolved_path = std.fmt.bufPrintZ(&resolved_path_buf, "{s}/{s}", .{
                         a_path,
                         std.os.argv[0],
                     }) catch continue;
 
-                    var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
+                    var real_path_buf: [max_path_bytes]u8 = undefined;
                     if (posix.realpathZ(resolved_path, &real_path_buf)) |real_path| {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
@@ -689,14 +689,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
 /// `selfExeDirPath` except allocates the result on the heap.
 /// Caller owns returned memory.
 pub fn selfExeDirPathAlloc(allocator: Allocator) ![]u8 {
-    // Use of MAX_PATH_BYTES here is justified as, at least on one tested Linux
+    // Use of max_path_bytes here is justified as, at least on one tested Linux
     // system, readlink will completely fail to return a result larger than
     // PATH_MAX even if given a sufficiently large buffer. This makes it
     // fundamentally impossible to get the selfExeDirPath of a program running
     // in a very deeply nested directory chain in this way.
     // TODO(#4812): Investigate other systems and whether it is possible to get
     // this path by trying larger and larger buffers until one succeeds.
-    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    var buf: [max_path_bytes]u8 = undefined;
     return allocator.dupe(u8, try selfExeDirPath(&buf));
 }
 
@@ -716,13 +716,13 @@ pub fn selfExeDirPath(out_buffer: []u8) SelfExePathError![]const u8 {
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// See also `Dir.realpath`.
 pub fn realpathAlloc(allocator: Allocator, pathname: []const u8) ![]u8 {
-    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+    // Use of max_path_bytes here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.
     // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
     // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
     // paths. musl supports passing NULL but restricts the output to PATH_MAX
     // anyway.
-    var buf: [MAX_PATH_BYTES]u8 = undefined;
+    var buf: [max_path_bytes]u8 = undefined;
     return allocator.dupe(u8, try posix.realpath(pathname, &buf));
 }
 
