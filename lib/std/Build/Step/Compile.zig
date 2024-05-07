@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const panic = std.debug.panic;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
+const CityHash64 = std.hash.CityHash64;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
@@ -1226,45 +1227,102 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .c_source_file => |c_source_file| l: {
                         if (!my_responsibility) break :l;
 
+                        const c_source_file_path = c_source_file.file.getPath2(module.owner, step);
+
+                        const c_source_file_compdb_entry_path: ?[]u8 = if (b.enable_compdb)
+                            try generateCSourceFileCompdbEntryPath(b, c_source_file_path)
+                        else
+                            null;
+                        if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                            try b.compdb_entry_paths_set.?.put(compdb_entry_path, {});
+                        }
+
                         if (c_source_file.flags.len == 0) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
+                                if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                    try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                                }
                                 try zig_args.append("--");
-                                prev_has_cflags = false;
+
+                                prev_has_cflags = if (c_source_file_compdb_entry_path) |_|
+                                    true
+                                else
+                                    false;
+                            } else if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                try zig_args.append("-cflags");
+                                try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                                try zig_args.append("--");
+
+                                prev_has_cflags = true;
                             }
                         } else {
                             try zig_args.append("-cflags");
+                            if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                            }
                             for (c_source_file.flags) |arg| {
                                 try zig_args.append(arg);
                             }
                             try zig_args.append("--");
+
                             prev_has_cflags = true;
                         }
-                        try zig_args.append(c_source_file.file.getPath2(module.owner, step));
+
+                        try zig_args.append(c_source_file_path);
+
                         total_linker_objects += 1;
                     },
 
                     .c_source_files => |c_source_files| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_files.flags.len == 0) {
-                            if (prev_has_cflags) {
-                                try zig_args.append("-cflags");
-                                try zig_args.append("--");
-                                prev_has_cflags = false;
-                            }
-                        } else {
-                            try zig_args.append("-cflags");
-                            for (c_source_files.flags) |flag| {
-                                try zig_args.append(flag);
-                            }
-                            try zig_args.append("--");
-                            prev_has_cflags = true;
-                        }
-
                         const root_path = c_source_files.root.getPath2(module.owner, step);
+
                         for (c_source_files.files) |file| {
-                            try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            const c_source_file_path = b.pathJoin(&.{ root_path, file });
+
+                            const c_source_file_compdb_entry_path: ?[]u8 = if (b.enable_compdb)
+                                try generateCSourceFileCompdbEntryPath(b, c_source_file_path)
+                            else
+                                null;
+                            if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                try b.compdb_entry_paths_set.?.put(compdb_entry_path, {});
+                            }
+
+                            if (c_source_files.flags.len == 0) {
+                                if (prev_has_cflags) {
+                                    try zig_args.append("-cflags");
+                                    if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                        try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                                    }
+                                    try zig_args.append("--");
+
+                                    prev_has_cflags = if (c_source_file_compdb_entry_path) |_|
+                                        true
+                                    else
+                                        false;
+                                } else if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                    try zig_args.append("-cflags");
+                                    try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                                    try zig_args.append("--");
+
+                                    prev_has_cflags = true;
+                                }
+                            } else {
+                                try zig_args.append("-cflags");
+                                if (c_source_file_compdb_entry_path) |compdb_entry_path| {
+                                    try zig_args.append(b.fmt("-MJ{s}", .{compdb_entry_path}));
+                                }
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
+                                }
+                                try zig_args.append("--");
+
+                                prev_has_cflags = true;
+                            }
+
+                            try zig_args.append(c_source_file_path);
                         }
 
                         total_linker_objects += c_source_files.files.len;
@@ -1792,6 +1850,21 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             self.name_only_filename.?,
         );
     }
+}
+
+fn generateCSourceFileCompdbEntryPath(
+    b: *std.Build,
+    c_source_file_path: []const u8,
+) ![]u8 {
+    const c_source_file_path_basename = fs.path.basename(c_source_file_path);
+    const c_source_file_path_basename_hash = std.Build.hex64(CityHash64.hash(c_source_file_path_basename));
+
+    return b.fmt("{s}{c}{s}-{s}", .{
+        b.compdb_entries_dir.?,
+        std.fs.path.sep,
+        c_source_file_path_basename,
+        c_source_file_path_basename_hash,
+    });
 }
 
 pub fn doAtomicSymLinks(

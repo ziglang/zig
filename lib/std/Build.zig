@@ -66,6 +66,8 @@ debug_pkg_config: bool = false,
 /// Set to 0 to disable stack collection.
 debug_stack_frames_count: u8 = 8,
 
+/// Experimental. Generate a compile_commands.json file.
+enable_compdb: bool = false,
 /// Experimental. Use system Darling installation to run cross compiled macOS build artifacts.
 enable_darling: bool = false,
 /// Use system QEMU installation to run cross compiled foreign architecture build artifacts.
@@ -97,6 +99,10 @@ initialized_deps: *InitializedDepMap,
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
+
+compdb_entries_dir: ?[]const u8 = null,
+
+compdb_entry_paths_set: ?*StringHashMap(void) = null,
 
 release_mode: ReleaseMode,
 
@@ -386,6 +392,7 @@ fn createChildOnly(
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
+        .enable_compdb = parent.enable_compdb,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
@@ -399,6 +406,8 @@ fn createChildOnly(
         .initialized_deps = parent.initialized_deps,
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
+        .compdb_entries_dir = parent.compdb_entries_dir,
+        .compdb_entry_paths_set = parent.compdb_entry_paths_set,
         .release_mode = parent.release_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
@@ -590,6 +599,55 @@ fn determineAndApplyInstallPrefix(b: *Build) !void {
     const digest = hash.final();
     const install_prefix = try b.cache_root.join(b.allocator, &.{ "i", &digest });
     b.resolveInstallPrefix(install_prefix, .{});
+}
+
+pub fn initCompdb(self: *Build) !void {
+    if (!self.enable_compdb) return;
+
+    self.compdb_entries_dir = self.makeTempPath();
+
+    const entry_paths_set = try self.allocator.create(StringHashMap(void));
+    entry_paths_set.* = StringHashMap(void).init(self.allocator);
+    self.compdb_entry_paths_set = entry_paths_set;
+}
+
+pub fn generateCompdb(self: *std.Build) !void {
+    if (!self.enable_compdb) return;
+
+    var entry_strings = ArrayList(u8).init(self.allocator);
+    defer entry_strings.deinit();
+
+    var entry_paths_set_key_it = self.compdb_entry_paths_set.?.keyIterator();
+    while (entry_paths_set_key_it.next()) |entry_path| {
+        // 8MiB max size should be more than enough for a single entry in 99.99999+% of cases.
+        // TODO: Maybe this shouldn't silently skip entries that are too large?
+        const entry_file_contents_0: []u8 = fs.cwd().readFileAlloc(self.allocator, entry_path.*, (1024 * 1024 * 8)) catch continue;
+        defer self.allocator.free(entry_file_contents_0);
+        var entry_file_contents_1: []const u8 = entry_file_contents_0;
+        entry_file_contents_1 = mem.trim(u8, entry_file_contents_1, " \n\r,");
+        if (entry_file_contents_1.len == 0) continue;
+        entry_file_contents_1 = self.fmt("{s},", .{entry_file_contents_1});
+
+        entry_strings.appendSlice(entry_file_contents_1) catch continue;
+    }
+
+    var entries_string: []const u8 = entry_strings.items;
+    if (entries_string.len != 0) {
+        entries_string = mem.trimRight(u8, entries_string, ",");
+    }
+    entries_string = self.fmt("[{s}]", .{entries_string});
+
+    try self.build_root.handle.writeFile(.{
+        .data = entries_string,
+        .sub_path = "compile_commands.json",
+    });
+}
+
+pub fn destroy(b: *Build) void {
+    if (b.compdb_entry_paths_set) |set| {
+        set.deinit();
+        b.allocator.destroy(set);
+    }
 }
 
 /// This function is intended to be called by lib/build_runner.zig, not a build.zig file.

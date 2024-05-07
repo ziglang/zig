@@ -397,6 +397,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
     test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
+    test_cases_options.addOption(bool, "enable_compdb", b.enable_compdb);
     test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
     test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
     test_cases_options.addOption(bool, "value_tracing", value_tracing);
