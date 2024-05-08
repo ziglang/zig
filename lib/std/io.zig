@@ -62,6 +62,9 @@ pub fn getStdErr() File {
 
 fn getStdInHandle() posix.fd_t {
     if (is_windows) {
+        if (@inComptime()) @compileError(
+            \\Unable to get windows stdin at compile time. This is not a bug, but simply not possible on windows.
+        );
         if (builtin.zig_backend == .stage2_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
