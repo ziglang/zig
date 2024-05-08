@@ -1827,7 +1827,7 @@ pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void
 /// The `dword` field is to be directly used in calls to `GetConsoleMode` and `SetConsoleMode`
 pub const ConsoleMode = packed union {
     /// The flags of a console's input buffer
-    input: packed struct {
+    input: packed struct(DWORD) {
         /// Whether to process backspace, carriage return, line feed, and ctrl+c
         ENABLE_PROCESSED_INPUT: bool,
 
@@ -1864,9 +1864,11 @@ pub const ConsoleMode = packed union {
 
         // Whether to enable the conversion of user-input into virtual terminal sequences
         ENABLE_VIRTUAL_TERMINAL_INPUT: bool,
+
+        padding: u22,
     },
     /// The flags of a console's screen buffer
-    screenbuf: packed struct {
+    screenbuf: packed struct(DWORD) {
         /// Whether to parse output for ASCII control sequences and take their corresponding actions
         ENABLE_PROCESSED_OUTPUT: bool,
 
@@ -1882,6 +1884,8 @@ pub const ConsoleMode = packed union {
 
         /// Whether to enable character attributes regardless of language or codepage
         ENABLE_LVB_GRID_WORLDWIDE: bool,
+
+        padding: u27,
     },
     /// The underlying integer behind the console mode flags
     dword: DWORD,
