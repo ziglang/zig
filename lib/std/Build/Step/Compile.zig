@@ -707,8 +707,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 
     var code: u8 = undefined;
+    const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = if (b.runAllowFail(&[_][]const u8{
-        "pkg-config",
+        pkg_config_exe,
         pkg_name,
         "--cflags",
         "--libs",
@@ -1852,7 +1853,8 @@ pub fn doAtomicSymLinks(
 }
 
 fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
-    const stdout = try compile.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+    const pkg_config_exe = compile.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
+    const stdout = try compile.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(compile.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
