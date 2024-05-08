@@ -58,10 +58,10 @@ pub fn main() !void {
     }
     const should_open_browser = force_open_browser orelse (listen_port == 0);
 
-    const address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
+    const address = std.net.Address.parseIp("::1", listen_port) catch unreachable;
     var http_server = try address.listen(.{});
     const port = http_server.listen_address.in.getPort();
-    const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
+    const url_with_newline = try std.fmt.allocPrint(arena, "http://localhost:{d}/\n", .{port});
     std.io.getStdOut().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
         openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
