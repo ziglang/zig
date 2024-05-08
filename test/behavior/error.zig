@@ -1077,3 +1077,13 @@ test "result location initialization of error union with OPV payload" {
     _ = &c;
     try expectEqual(0, (c catch return error.TestFailed).x);
 }
+
+test "return error union with i65" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    try expect(try add(1000, 234) == 1234);
+}
+
+fn add(x: i65, y: i65) anyerror!i65 {
+    return x + y;
+}
