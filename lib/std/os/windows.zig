@@ -1823,6 +1823,91 @@ pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void
     }
 }
 
+/// Flags used in the `GetConsoleMode` and `SetConsoleMode` API calls
+/// The `dword` field is to be directly used in calls to `GetConsoleMode` and `SetConsoleMode`
+pub const ConsoleMode = packed union {
+    /// The flags of a console's input buffer
+    input: packed struct {
+        /// Whether to process backspace, carriage return, line feed, and ctrl+c
+        ENABLE_PROCESSED_INPUT: bool,
+
+        /// Whether to line buffer input
+        /// If this is true, read operations only return upon encountering a carriage return
+        ENABLE_LINE_INPUT: bool,
+
+        /// Echoes input to the screen as it is read
+        /// `ENABLE_LINE_INPUT` must be enabled to use this flag
+        ENABLE_ECHO_INPUT: bool,
+
+        /// Whether window events should be reported via `ReadConsoleInput`
+        ENABLE_WINDOW_INPUT: bool,
+
+        /// Whether mouse events should be reported via `ReadConsoleInput`
+        ENABLE_MOUSE_INPUT: bool,
+
+        /// Whether 'insert-mode' should be enabled
+        /// If true, text entered will be be inserted at the current cursor location without overwriting other text
+        /// `ENABLE_EXTENDED_FLAGS` must be enabled to use this flag
+        ENABLE_INSERT_MODE: bool,
+
+        // Whether 'insert-mode' should be enabled
+        /// If true, the mouse can be used to select and edit text
+        /// `ENABLE_EXTENDED_FLAGS` must be enabled to use this flag
+        ENABLE_QUICK_EDIT_MODE: bool,
+
+        /// Whether to allow usage of `ENABLE_QUICK_EDIT_MODE`, `ENABLE_INSERT_MODE`, and `ENABLE_AUTO_POSITION`
+        ENABLE_EXTENDED_FLAGS: bool,
+
+        // Undocumented by the Windows API
+        // TODO: Document this
+        ENABLE_AUTO_POSITION: bool,
+
+        // Whether to enable the conversion of user-input into virtual terminal sequences
+        ENABLE_VIRTUAL_TERMINAL_INPUT: bool,
+    },
+    /// The flags of a console's screen buffer
+    screenbuf: packed struct {
+        /// Whether to parse output for ASCII control sequences and take their corresponding actions
+        ENABLE_PROCESSED_OUTPUT: bool,
+
+        /// Whether to scroll down the cursor upon reaching the end of the row
+        ENABLE_WRAP_AT_EOL_OUTPUT: bool,
+
+        /// Whether to parse virtual terminal sequences
+        /// `ENABLE_PROCESSED_OUTPUT` must be enabled to use this flag
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING: bool,
+
+        /// Whether to wait for a printable character before scrolling down at the end of a line
+        DISABLE_NEWLINE_AUTO_RETURN: bool,
+
+        /// Whether to enable character attributes regardless of language or codepage
+        ENABLE_LVB_GRID_WORLDWIDE: bool,
+    },
+    /// The underlying integer behind the console mode flags
+    dword: DWORD,
+};
+
+/// Retrieves the mode of a console's input buffer or screen buffer'
+pub fn GetConsoleMode(console_handle: HANDLE) !ConsoleMode {
+    var tmp: ConsoleMode = undefined;
+    return switch (kernel32.GetConsoleMode(console_handle, &tmp.dword)) {
+        0 => switch (kernel32.GetLastError()) {
+            .INVALID_HANDLE => error.InvalidHandle,
+            else => |err| unexpectedError(err),
+        },
+        else => tmp,
+    };
+}
+
+/// Sets the mode of a console's input buffer or screen buffer
+pub fn SetConsoleMode(console_handle: HANDLE, console_mode: ConsoleMode) !void {
+    if (kernel32.SetConsoleMode(console_handle, console_mode.dword) == 0)
+        return switch (kernel32.GetLastError()) {
+            .INVALID_HANDLE => error.InvalidHandle,
+            else => |err| unexpectedError(err),
+        };
+}
+
 pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     const success = kernel32.SetFileCompletionNotificationModes(handle, flags);
     if (success == FALSE) {
@@ -3926,8 +4011,6 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     srWindow: SMALL_RECT,
     dwMaximumWindowSize: COORD,
 };
-
-pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
