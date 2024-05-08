@@ -6,7 +6,7 @@ set -e
 ZIGDIR="$PWD"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.69+c8b808826"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.123+21e1b3b6f"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j3"
 ZIG="$PREFIX/bin/zig"
@@ -59,7 +59,6 @@ stage3/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
-  -Dskip-release-small \ # https://github.com/ziglang/zig/issues/19851
   --search-prefix "$PREFIX"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
