@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "switch on error union catch capture" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
