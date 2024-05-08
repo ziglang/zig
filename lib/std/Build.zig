@@ -1731,6 +1731,7 @@ pub fn runAllowFail(
     child.stderr_behavior = stderr_behavior;
     child.env_map = &self.graph.env_map;
 
+    try Step.handleVerbose2(self, null, child.env_map, argv);
     try child.spawn();
 
     const stdout = child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size) catch {
