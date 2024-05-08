@@ -248,10 +248,9 @@ pub fn isCygwinPty(file: File) bool {
 /// Test whether ANSI escape codes will be treated as such.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
-        var console_mode: windows.DWORD = 0;
-        if (windows.kernel32.GetConsoleMode(self.handle, &console_mode) != 0) {
-            if (console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
-        }
+        if (windows.GetConsoleMode(self.handle)) |flags| {
+            if (flags.screenbuf.ENABLE_VIRTUAL_TERMINAL_PROCESSING) return true;
+        } else |_| {}
 
         return self.isCygwinPty();
     }
