@@ -15,7 +15,7 @@ fn getNum(u: U) u32 {
                 return @intFromFloat(num);
             }
             return num;
-        }
+        },
     }
 }
 

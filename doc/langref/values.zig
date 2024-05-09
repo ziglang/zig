@@ -39,7 +39,9 @@ pub fn main() void {
     var number_or_error: anyerror!i32 = error.ArgNotFound;
 
     print("\nerror union 1\ntype: {}\nvalue: {!}\n", .{
-        @TypeOf(number_or_error), number_or_error, });
+        @TypeOf(number_or_error),
+        number_or_error,
+    });
 
     number_or_error = 1234;
 
