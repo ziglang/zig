@@ -20,10 +20,11 @@ typedef __bf16 __m512bh __attribute__((__vector_size__(64), __aligned__(64)));
 typedef __bf16 __bfloat16 __attribute__((deprecated("use __bf16 instead")));
 
 #define __DEFAULT_FN_ATTRS512 \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512bf16"), \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx512bf16,evex512"), \
                  __min_vector_width__(512)))
 #define __DEFAULT_FN_ATTRS                                                     \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512bf16")))
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bf16,no-evex512")))
 
 /// Convert One BF16 Data to One Single Float Data.
 ///

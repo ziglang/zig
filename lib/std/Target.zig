@@ -47,6 +47,7 @@ pub const Os = struct {
         tvos,
         watchos,
         driverkit,
+        xros,
         mesa3d,
         contiki,
         amdpal,
@@ -56,6 +57,7 @@ pub const Os = struct {
         emscripten,
         shadermodel,
         liteos,
+        serenity,
         opencl,
         glsl450,
         vulkan,
@@ -167,6 +169,7 @@ pub const Os = struct {
                 .vulkan,
                 .plan9,
                 .illumos,
+                .serenity,
                 .other,
                 => .none,
 
@@ -175,6 +178,7 @@ pub const Os = struct {
                 .ios,
                 .tvos,
                 .watchos,
+                .xros,
                 .netbsd,
                 .openbsd,
                 .dragonfly,
@@ -387,6 +391,7 @@ pub const Os = struct {
                 .vulkan,
                 .plan9,
                 .illumos,
+                .serenity,
                 .other,
                 => .{ .none = {} },
 
@@ -429,6 +434,7 @@ pub const Os = struct {
                         .max = .{ .major = 17, .minor = 1, .patch = 0 },
                     },
                 },
+                .xros => @panic("TODO what version is xros on right now?"),
                 .netbsd => .{
                     .semver = .{
                         .min = .{ .major = 8, .minor = 0, .patch = 0 },
@@ -525,11 +531,13 @@ pub const Os = struct {
             .ios,
             .tvos,
             .watchos,
+            .xros,
             .dragonfly,
             .openbsd,
             .haiku,
             .solaris,
             .illumos,
+            .serenity,
             => true,
 
             .linux,
@@ -683,11 +691,13 @@ pub const Abi = enum {
             .ios,
             .tvos,
             .watchos,
+            .xros,
             .driverkit,
             .shadermodel,
             .liteos, // TODO: audit this
             .solaris,
             .illumos,
+            .serenity,
             => .none,
         };
     }
@@ -1002,6 +1012,7 @@ pub const Cpu = struct {
         hsail64,
         spir,
         spir64,
+        spirv,
         spirv32,
         spirv64,
         kalimba,
@@ -1012,8 +1023,6 @@ pub const Cpu = struct {
         renderscript32,
         renderscript64,
         ve,
-        // Stage1 currently assumes that architectures above this comment
-        // map one-to-one with the ZigLLVM_ArchType enum.
         spu_2,
 
         pub inline fn isX86(arch: Arch) bool {
@@ -1178,6 +1187,7 @@ pub const Cpu = struct {
                 .s390x => .S390,
                 .ve => .NONE,
                 .spu_2 => .SPU_2,
+                .spirv => .NONE,
                 .spirv32 => .NONE,
                 .spirv64 => .NONE,
                 .loongarch32 => .NONE,
@@ -1243,6 +1253,7 @@ pub const Cpu = struct {
                 .s390x => .Unknown,
                 .ve => .Unknown,
                 .spu_2 => .Unknown,
+                .spirv => .Unknown,
                 .spirv32 => .Unknown,
                 .spirv64 => .Unknown,
                 .loongarch32 => .Unknown,
@@ -1294,6 +1305,7 @@ pub const Cpu = struct {
                 .ve,
                 .spu_2,
                 // GPU bitness is opaque. For now, assume little endian.
+                .spirv,
                 .spirv32,
                 .spirv64,
                 .dxil,
@@ -1418,6 +1430,7 @@ pub const Cpu = struct {
         }
 
         fn allCpusFromDecls(comptime cpus: type) []const *const Cpu.Model {
+            @setEvalBranchQuota(2000);
             const decls = @typeInfo(cpus).Struct.decls;
             var array: [decls.len]*const Cpu.Model = undefined;
             for (decls, 0..) |decl, i| {
@@ -1752,6 +1765,7 @@ pub const DynamicLinker = struct {
                 .nvptx64,
                 .spu_2,
                 .avr,
+                .spirv,
                 .spirv32,
                 .spirv64,
                 => none,
@@ -1793,6 +1807,7 @@ pub const DynamicLinker = struct {
             .tvos,
             .watchos,
             .macos,
+            .xros,
             => init("/usr/lib/dyld"),
 
             // Operating systems in this list have been verified as not having a standard
@@ -1807,6 +1822,7 @@ pub const DynamicLinker = struct {
             .vulkan,
             .other,
             .plan9,
+            .serenity,
             => none,
 
             // TODO revisit when multi-arch for Haiku is available
@@ -1845,96 +1861,6 @@ pub const DynamicLinker = struct {
 
 pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
     return DynamicLinker.standard(target.cpu, target.os.tag, target.abi);
-}
-
-pub fn maxIntAlignment(target: Target) u16 {
-    return switch (target.cpu.arch) {
-        .avr => 1,
-        .msp430 => 2,
-        .xcore => 4,
-
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .hexagon,
-        .mips,
-        .mipsel,
-        .powerpc,
-        .powerpcle,
-        .r600,
-        .amdgcn,
-        .riscv32,
-        .sparc,
-        .sparcel,
-        .s390x,
-        .lanai,
-        .wasm32,
-        .wasm64,
-        => 8,
-
-        .x86 => if (target.ofmt == .c) 16 else return switch (target.os.tag) {
-            .windows, .uefi => 8,
-            else => 4,
-        },
-
-        // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
-        // is a relevant number in three cases:
-        // 1. Different machine code instruction when loading into SIMD register.
-        // 2. The C ABI wants 16 for extern structs.
-        // 3. 16-byte cmpxchg needs 16-byte alignment.
-        // Same logic for powerpc64, mips64, sparc64.
-        .x86_64,
-        .powerpc64,
-        .powerpc64le,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => return switch (target.ofmt) {
-            .c => 16,
-            else => 8,
-        },
-
-        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
-        .riscv64,
-        .bpfel,
-        .bpfeb,
-        .nvptx,
-        .nvptx64,
-        => 16,
-
-        // Below this comment are unverified but based on the fact that C requires
-        // int128_t to be 16 bytes aligned, it's a safe default.
-        .spu_2,
-        .csky,
-        .arc,
-        .m68k,
-        .tce,
-        .tcele,
-        .le32,
-        .amdil,
-        .hsail,
-        .spir,
-        .kalimba,
-        .renderscript32,
-        .spirv32,
-        .shave,
-        .le64,
-        .amdil64,
-        .hsail64,
-        .spir64,
-        .renderscript64,
-        .ve,
-        .spirv64,
-        .dxil,
-        .loongarch32,
-        .loongarch64,
-        .xtensa,
-        => 16,
-    };
 }
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
@@ -2011,6 +1937,8 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         => 64,
 
         .sparc => if (std.Target.sparc.featureSetHas(cpu.features, .v9)) 64 else 32,
+
+        .spirv => @panic("TODO what should this value be?"),
     };
 }
 
@@ -2359,7 +2287,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             },
         },
 
-        .macos, .ios, .tvos, .watchos => switch (c_type) {
+        .macos, .ios, .tvos, .watchos, .xros => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2439,6 +2367,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .driverkit,
         .shadermodel,
         .liteos,
+        .serenity,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }
@@ -2546,6 +2475,8 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .spirv => @panic("TODO what should this value be?"),
         }),
     );
 }
@@ -2672,6 +2603,8 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
+
+            .spirv => @panic("TODO what should this value be?"),
         }),
     );
 }

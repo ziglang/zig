@@ -740,6 +740,6 @@ __catchThrownException(void (*cdfunc)(void),   // function which may fail
   return 0;
 }
 
-}  // extern "C"
+} // extern "C"
 
 }  // __cxxabiv1

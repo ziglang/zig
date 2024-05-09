@@ -9,9 +9,15 @@ set -e
 ZIGDIR="$PWD"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.467+0345d7866"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
 PREFIX="$HOME/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
+
+if [ ! -d "$PREFIX" ]; then
+  cd $HOME
+  curl -L -O "https://ziglang.org/deps/$CACHE_BASENAME.tar.xz"
+  tar xf "$CACHE_BASENAME.tar.xz"
+fi
 
 cd $ZIGDIR
 

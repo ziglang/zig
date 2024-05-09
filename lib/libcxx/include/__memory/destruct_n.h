@@ -20,43 +20,42 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-struct __destruct_n
-{
+struct __destruct_n {
 private:
-    size_t __size_;
+  size_t __size_;
 
-    template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void __process(_Tp* __p, false_type) _NOEXCEPT
-        {for (size_t __i = 0; __i < __size_; ++__i, ++__p) __p->~_Tp();}
+  template <class _Tp>
+  _LIBCPP_HIDE_FROM_ABI void __process(_Tp* __p, false_type) _NOEXCEPT {
+    for (size_t __i = 0; __i < __size_; ++__i, ++__p)
+      __p->~_Tp();
+  }
 
-    template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void __process(_Tp*, true_type) _NOEXCEPT
-        {}
+  template <class _Tp>
+  _LIBCPP_HIDE_FROM_ABI void __process(_Tp*, true_type) _NOEXCEPT {}
 
-    _LIBCPP_INLINE_VISIBILITY void __incr(false_type) _NOEXCEPT
-        {++__size_;}
-    _LIBCPP_INLINE_VISIBILITY void __incr(true_type) _NOEXCEPT
-        {}
+  _LIBCPP_HIDE_FROM_ABI void __incr(false_type) _NOEXCEPT { ++__size_; }
+  _LIBCPP_HIDE_FROM_ABI void __incr(true_type) _NOEXCEPT {}
 
-    _LIBCPP_INLINE_VISIBILITY void __set(size_t __s, false_type) _NOEXCEPT
-        {__size_ = __s;}
-    _LIBCPP_INLINE_VISIBILITY void __set(size_t, true_type) _NOEXCEPT
-        {}
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t __s, false_type) _NOEXCEPT { __size_ = __s; }
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t, true_type) _NOEXCEPT {}
+
 public:
-    _LIBCPP_INLINE_VISIBILITY explicit __destruct_n(size_t __s) _NOEXCEPT
-        : __size_(__s) {}
+  _LIBCPP_HIDE_FROM_ABI explicit __destruct_n(size_t __s) _NOEXCEPT : __size_(__s) {}
 
-    template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void __incr() _NOEXCEPT
-        {__incr(integral_constant<bool, is_trivially_destructible<_Tp>::value>());}
+  template <class _Tp>
+  _LIBCPP_HIDE_FROM_ABI void __incr() _NOEXCEPT {
+    __incr(integral_constant<bool, is_trivially_destructible<_Tp>::value>());
+  }
 
-    template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void __set(size_t __s, _Tp*) _NOEXCEPT
-        {__set(__s, integral_constant<bool, is_trivially_destructible<_Tp>::value>());}
+  template <class _Tp>
+  _LIBCPP_HIDE_FROM_ABI void __set(size_t __s, _Tp*) _NOEXCEPT {
+    __set(__s, integral_constant<bool, is_trivially_destructible<_Tp>::value>());
+  }
 
-    template <class _Tp>
-    _LIBCPP_INLINE_VISIBILITY void operator()(_Tp* __p) _NOEXCEPT
-        {__process(__p, integral_constant<bool, is_trivially_destructible<_Tp>::value>());}
+  template <class _Tp>
+  _LIBCPP_HIDE_FROM_ABI void operator()(_Tp* __p) _NOEXCEPT {
+    __process(__p, integral_constant<bool, is_trivially_destructible<_Tp>::value>());
+  }
 };
 
 _LIBCPP_END_NAMESPACE_STD

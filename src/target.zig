@@ -159,6 +159,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv,
         .spirv32,
         .spirv64,
         .kalimba,
