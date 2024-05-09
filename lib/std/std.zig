@@ -151,15 +151,9 @@ pub const Options = struct {
     /// it like any other error.
     keep_sigpipe: bool = false,
 
-    pub const stack_size_strategy: start.StackSizeStrategy = if (@hasDecl(options_override, "stack_size_strategy"))
-        options_override.stack_size_strategy
-    else
-        start.StackSizeStrategy.program_header;
+    stack_size_strategy: start.StackSizeStrategy = .program_header,
 
-    pub const stack_size: usize = if (@hasDecl(options_override, "stack_size"))
-        options_override.stack_size
-    else
-        8 * 1024 * 1024;
+    stack_size: usize = 8 * 1024 * 1024,
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.

@@ -354,8 +354,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
         _ = @import("start_windows_tls.zig");
     }
 
-    std.debug.
-    EnableSegfaultHandler();
+    std.debug.maybeEnableSegfaultHandler();
 
     std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
