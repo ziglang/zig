@@ -891,6 +891,10 @@ pub fn resolveLibSystem(
             },
         };
 
+        for (self.lib_dirs) |dir| {
+            if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
+        }
+
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return error.MissingLibSystem;
     }
