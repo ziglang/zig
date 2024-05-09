@@ -618,7 +618,7 @@ const DataLayoutBuilder = struct {
                         abi = size;
                         pref = size;
                     } else switch (self.target.os.tag) {
-                        .macos, .ios => {},
+                        .macos, .ios, .watchos, .tvos, .visionos => {},
                         .uefi, .windows => {
                             pref = size;
                             force_abi = size >= 32;
@@ -11578,7 +11578,7 @@ fn ccAbiPromoteInt(
         else => return null,
     };
     return switch (target.os.tag) {
-        .macos => switch (int_info.bits) {
+        .macos, .ios, .watchos, .tvos, .visionos => switch (int_info.bits) {
             0...16 => int_info.signedness,
             else => null,
         },
