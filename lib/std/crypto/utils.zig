@@ -267,18 +267,20 @@ test classify {
     var out: [32]u8 = undefined;
     std.crypto.hash.sha3.TurboShake128(null).hash(&secret, &out, .{});
 
-    // Output of the hash function can be considered public
+    // Output of the hash function is derived from secret data, so
+    // it will automatically be considered secret as well. But it can be
+    // declassified; the input itself will still be considered secret.
     declassify(&out);
 
-    // Comparing public data in non-constant time is acceptable
+    // Comparing public data in non-constant time is acceptable.
     debug.assert(!std.mem.eql(u8, &out, &[_]u8{0} ** out.len));
 
-    // Comparing secret data must be done in constant time.
-    // By default, the output is considered secret as well.
+    // Comparing secret data must be done in constant time. The result
+    // is going to be considered as secret as well.
     var res = std.crypto.utils.timingSafeEql([32]u8, out, secret);
 
     // If we want to make a conditional jump based on a secret,
-    // it has to be declassified first.
+    // it has to be declassified.
     declassify(&res);
     debug.assert(!res);
 
