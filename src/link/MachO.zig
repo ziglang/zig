@@ -3676,7 +3676,8 @@ pub inline fn getPageSize(self: MachO) u16 {
 
 pub fn requiresCodeSig(self: MachO) bool {
     if (self.entitlements) |_| return true;
-    if (self.options.adhoc_codesign) |cs| return cs;
+    // TODO: enable once we support this linker option
+    // if (self.options.adhoc_codesign) |cs| return cs;
     const target = self.getTarget();
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
