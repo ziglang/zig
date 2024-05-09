@@ -176,7 +176,6 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
 /// ensuring the confidentiality of secrets and preventing information leakage through side channels.
 pub fn classify(ptr: anytype) void {
     if (!std.debug.inValgrind()) return;
-
     markSecret(ptr, .classify);
 }
 
@@ -186,7 +185,6 @@ pub fn classify(ptr: anytype) void {
 /// relaxed handling without fear of information leakage through conditional jumps or lookups.
 pub fn declassify(ptr: anytype) void {
     if (!std.debug.inValgrind()) return;
-
     markSecret(ptr, .declassify);
 }
 
