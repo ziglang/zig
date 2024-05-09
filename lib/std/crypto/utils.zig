@@ -138,6 +138,62 @@ pub inline fn secureZero(comptime T: type, s: []T) void {
     @memset(@as([]volatile T, s), 0);
 }
 
+const valgrind_support = @import("builtin").valgrind_support;
+
+fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void {
+    if (@inComptime()) return;
+
+    const t = @typeInfo(@TypeOf(ptr));
+    if (t != .Pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
+    const p = t.Pointer;
+    if (p.is_allowzero) @compileError("A nullable pointer is always assumed to leak information via side channels");
+    const child = @typeInfo(p.child);
+
+    switch (child) {
+        .Void, .Null, .ComptimeInt, .ComptimeFloat => return,
+        .Pointer => {
+            if (child.Pointer.size == std.builtin.Type.Pointer.Size.Slice) {
+                @compileError("Found pointer to pointer. If the intent was to pass a slice, maybe remove the leading & in the function call");
+            }
+            @compileError("A pointer value is always assumed leak information via side channels");
+        },
+        else => {
+            const mem8: *const [@sizeOf(@TypeOf(ptr.*))]u8 = @constCast(@ptrCast(ptr));
+            if (action == .classify) {
+                std.valgrind.memcheck.makeMemUndefined(mem8);
+            } else {
+                std.valgrind.memcheck.makeMemDefined(mem8);
+            }
+        },
+    }
+}
+
+/// Mark a value as sensitive or secret, helping to detect potential side-channel vulnerabilities.
+///
+/// When Valgrind is enabled, this function allows for the detection of conditional jumps or lookups
+/// that depend on secrets or secret-derived data. Violations are reported by Valgrind as operations
+/// relying on uninitialized values.
+///
+/// If Valgrind is disabled, it has no effect.
+///
+/// Use this function to verify that cryptographic operations perform constant-time arithmetic on sensitive data,
+/// ensuring the confidentiality of secrets and preventing information leakage through side channels.
+pub fn classify(ptr: anytype) void {
+    if (valgrind_support) {
+        markSecret(ptr, .classify);
+    }
+}
+
+/// Mark a value as non-sensitive or public, indicating it's safe from side-channel attacks.
+///
+/// Signals that a value has been securely processed and is no longer confidential, allowing for
+/// relaxed handling without fear of information leakage through conditional jumps or lookups.
+pub fn declassify(ptr: anytype) void {
+    if (valgrind_support) {
+        markSecret(ptr, .declassify);
+    }
+}
+
 test timingSafeEql {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
@@ -203,4 +259,35 @@ test secureZero {
     secureZero(u8, b[0..]);
 
     try testing.expectEqualSlices(u8, a[0..], b[0..]);
+}
+
+test classify {
+    var secret: [32]u8 = undefined;
+    random.bytes(&secret);
+
+    // Input of the hash function is marked as secret
+    classify(&secret);
+
+    var out: [32]u8 = undefined;
+    crypto.hash.sha3.TurboShake128(null).hash(&secret, &out, .{});
+
+    // Output of the hash function can be considered public
+    declassify(&out);
+
+    // Comparing public data in non-constant time is acceptable
+    debug.assert(!std.mem.eql(u8, &out, &[_]u8{0} ** out.len));
+
+    // Comparing secret data must be done in constant time.
+    // By default, the output is considered secret as well.
+    var res = std.crypto.utils.timingSafeEql([32]u8, out, secret);
+
+    // If we want to make a conditional jump based on a secret,
+    // it has to be declassified first.
+    declassify(&res);
+    debug.assert(!res);
+
+    // Once a secret has been declassified, a comparison in
+    // non-constant time is fine.
+    declassify(&secret);
+    debug.assert(!std.mem.eql(u8, &out, &secret));
 }
