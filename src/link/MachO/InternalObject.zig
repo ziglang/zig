@@ -8,6 +8,7 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 objc_methnames: std.ArrayListUnmanaged(u8) = .{},
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
+num_rebase_relocs: u32 = 0,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(self: *InternalObject, allocator: Allocator) void {
@@ -114,7 +115,9 @@ fn addObjcSelrefsSection(
             .has_subtractor = false,
         },
     });
-    atom.relocs = .{ .pos = 0, .len = 1 };
+    try atom.addExtra(.{ .rel_index = 0, .rel_count = 1 }, macho_file);
+    atom.flags.relocs = true;
+    self.num_rebase_relocs += 1;
 
     return atom_index;
 }
@@ -181,9 +184,11 @@ pub fn getAtomData(self: *const InternalObject, atom: Atom, buffer: []u8) !void 
     @memcpy(buffer, data[off..][0..size]);
 }
 
-pub fn getAtomRelocs(self: *const InternalObject, atom: Atom) []const Relocation {
+pub fn getAtomRelocs(self: *const InternalObject, atom: Atom, macho_file: *MachO) []const Relocation {
+    if (!atom.flags.relocs) return &[0]Relocation{};
+    const extra = atom.getExtra(macho_file).?;
     const relocs = self.sections.items(.relocs)[atom.n_sect];
-    return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
+    return relocs.items[extra.rel_index..][0..extra.rel_count];
 }
 
 fn addString(self: *InternalObject, allocator: Allocator, name: [:0]const u8) error{OutOfMemory}!u32 {

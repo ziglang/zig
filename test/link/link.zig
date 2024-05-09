@@ -1,21 +1,3 @@
-pub fn build(b: *Build) void {
-    const test_step = b.step("test-link", "Run link tests");
-    b.default_step = test_step;
-
-    const has_macos_sdk = b.option(bool, "has_macos_sdk", "whether the host provides a macOS SDK in system path");
-    const has_ios_sdk = b.option(bool, "has_ios_sdk", "whether the host provides a iOS SDK in system path");
-    const has_symlinks_windows = b.option(bool, "has_symlinks_windows", "whether the host is windows and has symlinks enabled");
-
-    const build_opts: BuildOptions = .{
-        .has_macos_sdk = has_macos_sdk orelse false,
-        .has_ios_sdk = has_ios_sdk orelse false,
-        .has_symlinks_windows = has_symlinks_windows orelse false,
-    };
-
-    test_step.dependOn(@import("elf.zig").testAll(b, build_opts));
-    test_step.dependOn(@import("macho.zig").testAll(b, build_opts));
-}
-
 pub const BuildOptions = struct {
     has_macos_sdk: bool,
     has_ios_sdk: bool,
@@ -27,14 +9,23 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode = .Debug,
     use_llvm: bool = true,
     use_lld: bool = false,
+    strip: ?bool = null,
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
     const target = opts.target.result.zigTriple(b.allocator) catch @panic("OOM");
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
-    const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}", .{
-        prefix, target, optimize, use_llvm,
+    const use_lld = if (opts.use_lld) "lld" else "no-lld";
+    if (opts.strip) |strip| {
+        const s = if (strip) "strip" else "no-strip";
+        const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}-{s}", .{
+            prefix, target, optimize, use_llvm, use_lld, s,
+        }) catch @panic("OOM");
+        return b.step(name, "");
+    }
+    const name = std.fmt.allocPrint(b.allocator, "test-{s}-{s}-{s}-{s}-{s}", .{
+        prefix, target, optimize, use_llvm, use_lld,
     }) catch @panic("OOM");
     return b.step(name, "");
 }
@@ -87,7 +78,7 @@ fn addCompileStep(
                 break :rsf b.addWriteFiles().add("a.zig", bytes);
             },
             .pic = overlay.pic,
-            .strip = overlay.strip,
+            .strip = if (base.strip) |s| s else overlay.strip,
         },
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,

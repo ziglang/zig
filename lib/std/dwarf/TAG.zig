@@ -116,3 +116,6 @@ pub const upc_relaxed_type = 0x8767;
 // PGI (STMicroelectronics; extensions.  No documentation available.
 pub const PGI_kanji_type = 0xA000;
 pub const PGI_interface_block = 0xA020;
+
+// ZIG extensions.
+pub const ZIG_padding = 0xfdb1;

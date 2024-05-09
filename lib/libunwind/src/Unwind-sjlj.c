@@ -82,7 +82,8 @@ struct _Unwind_FunctionContext {
 static _LIBUNWIND_THREAD_LOCAL struct _Unwind_FunctionContext *stack = NULL;
 #endif
 
-static struct _Unwind_FunctionContext *__Unwind_SjLj_GetTopOfFunctionStack() {
+static struct _Unwind_FunctionContext *
+__Unwind_SjLj_GetTopOfFunctionStack(void) {
 #if defined(__APPLE__)
   return _pthread_getspecific_direct(__PTK_LIBC_DYLD_Unwind_SjLj_Key);
 #else
@@ -426,7 +427,7 @@ _LIBUNWIND_EXPORT uintptr_t _Unwind_GetGR(struct _Unwind_Context *context,
 /// Called by personality handler during phase 2 to alter register values.
 _LIBUNWIND_EXPORT void _Unwind_SetGR(struct _Unwind_Context *context, int index,
                                      uintptr_t new_value) {
-  _LIBUNWIND_TRACE_API("_Unwind_SetGR(context=%p, reg=%d, value=0x%" PRIuPTR
+  _LIBUNWIND_TRACE_API("_Unwind_SetGR(context=%p, reg=%d, value=0x%" PRIxPTR
                        ")",
                        (void *)context, index, new_value);
   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
@@ -437,7 +438,7 @@ _LIBUNWIND_EXPORT void _Unwind_SetGR(struct _Unwind_Context *context, int index,
 /// Called by personality handler during phase 2 to get instruction pointer.
 _LIBUNWIND_EXPORT uintptr_t _Unwind_GetIP(struct _Unwind_Context *context) {
   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
-  _LIBUNWIND_TRACE_API("_Unwind_GetIP(context=%p) => 0x%" PRIu32,
+  _LIBUNWIND_TRACE_API("_Unwind_GetIP(context=%p) => 0x%" PRIxPTR,
                        (void *)context, ufc->resumeLocation + 1);
   return ufc->resumeLocation + 1;
 }
@@ -450,7 +451,7 @@ _LIBUNWIND_EXPORT uintptr_t _Unwind_GetIPInfo(struct _Unwind_Context *context,
                                               int *ipBefore) {
   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
   *ipBefore = 0;
-  _LIBUNWIND_TRACE_API("_Unwind_GetIPInfo(context=%p, %p) => 0x%" PRIu32,
+  _LIBUNWIND_TRACE_API("_Unwind_GetIPInfo(context=%p, %p) => 0x%" PRIxPTR,
                        (void *)context, (void *)ipBefore,
                        ufc->resumeLocation + 1);
   return ufc->resumeLocation + 1;
@@ -460,7 +461,7 @@ _LIBUNWIND_EXPORT uintptr_t _Unwind_GetIPInfo(struct _Unwind_Context *context,
 /// Called by personality handler during phase 2 to alter instruction pointer.
 _LIBUNWIND_EXPORT void _Unwind_SetIP(struct _Unwind_Context *context,
                                      uintptr_t new_value) {
-  _LIBUNWIND_TRACE_API("_Unwind_SetIP(context=%p, value=0x%" PRIuPTR ")",
+  _LIBUNWIND_TRACE_API("_Unwind_SetIP(context=%p, value=0x%" PRIxPTR ")",
                        (void *)context, new_value);
   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
   ufc->resumeLocation = new_value - 1;

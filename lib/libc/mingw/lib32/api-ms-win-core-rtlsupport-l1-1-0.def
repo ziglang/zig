@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-rtlsupport-l1-1-0
+
+EXPORTS
+
+RtlCaptureContext@4
+RtlCaptureStackBackTrace@16
+RtlUnwind@16

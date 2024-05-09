@@ -21,7 +21,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     const reader = stream.reader();
 
     const db_header = try reader.readStructEndian(ApplDbHeader, .big);
-    assert(mem.eql(u8, "kych", &@as([4]u8, @bitCast(db_header.signature))));
+    assert(mem.eql(u8, &db_header.signature, "kych"));
 
     try stream.seekTo(db_header.schema_offset);
 
@@ -42,7 +42,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 
         const table_header = try reader.readStructEndian(TableHeader, .big);
 
-        if (@as(std.os.darwin.cssm.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
+        if (@as(std.c.cssm.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
             continue;
         }
 
@@ -73,7 +73,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 }
 
 const ApplDbHeader = extern struct {
-    signature: @Vector(4, u8),
+    signature: [4]u8,
     version: u32,
     header_size: u32,
     schema_offset: u32,

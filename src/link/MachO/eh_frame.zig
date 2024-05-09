@@ -416,7 +416,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
             {
                 const offset = fde.out_offset + 8;
                 const saddr = sect.addr + offset;
-                const taddr = fde.getAtom(macho_file).value;
+                const taddr = fde.getAtom(macho_file).getAddress(macho_file);
                 std.mem.writeInt(
                     i64,
                     buffer[offset..][0..8],
@@ -428,7 +428,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
             if (fde.getLsdaAtom(macho_file)) |atom| {
                 const offset = fde.out_offset + fde.lsda_ptr_offset;
                 const saddr = sect.addr + offset;
-                const taddr = atom.value + fde.lsda_offset;
+                const taddr = atom.getAddress(macho_file) + fde.lsda_offset;
                 switch (fde.getCie(macho_file).lsda_size.?) {
                     .p32 => std.mem.writeInt(
                         i32,
@@ -501,7 +501,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
             {
                 const offset = fde.out_offset + 8;
                 const saddr = sect.addr + offset;
-                const taddr = fde.getAtom(macho_file).value;
+                const taddr = fde.getAtom(macho_file).getAddress(macho_file);
                 std.mem.writeInt(
                     i64,
                     code[offset..][0..8],
@@ -513,7 +513,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
             if (fde.getLsdaAtom(macho_file)) |atom| {
                 const offset = fde.out_offset + fde.lsda_ptr_offset;
                 const saddr = sect.addr + offset;
-                const taddr = atom.value + fde.lsda_offset;
+                const taddr = atom.getAddress(macho_file) + fde.lsda_offset;
                 switch (fde.getCie(macho_file).lsda_size.?) {
                     .p32 => std.mem.writeInt(
                         i32,

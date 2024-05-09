@@ -26,7 +26,7 @@ test "parityti2" {
     try test__parityti2(@bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_fffffffe)));
     try test__parityti2(@bitCast(@as(u128, 0xffffffff_ffffffff_ffffffff_ffffffff)));
 
-    const RndGen = std.rand.DefaultPrng;
+    const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {

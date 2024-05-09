@@ -53,7 +53,7 @@ pub fn isLeapYear(year: Year) bool {
     return (0 == @mod(year, 400));
 }
 
-test "isLeapYear" {
+test isLeapYear {
     try testing.expectEqual(false, isLeapYear(2095));
     try testing.expectEqual(true, isLeapYear(2096));
     try testing.expectEqual(false, isLeapYear(2100));

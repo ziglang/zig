@@ -17,7 +17,7 @@ fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool
     return mem.alignForward(u64, cmd_size + name_len, @alignOf(u64));
 }
 
-pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
+pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 {
     var sizeofcmds: u64 = 0;
 
     // LC_SEGMENT_64
@@ -48,15 +48,16 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
     }
     // LC_ID_DYLIB
     if (macho_file.base.isDynLib()) {
-        sizeofcmds += blk: {
-            const emit = macho_file.base.emit;
-            const install_name = macho_file.install_name orelse emit.sub_path;
-            break :blk calcInstallNameLen(
-                @sizeOf(macho.dylib_command),
-                install_name,
-                assume_max_path_len,
-            );
-        };
+        const gpa = macho_file.base.comp.gpa;
+        const emit = macho_file.base.emit;
+        const install_name = macho_file.install_name orelse
+            try emit.directory.join(gpa, &.{emit.sub_path});
+        defer if (macho_file.install_name == null) gpa.free(install_name);
+        sizeofcmds += calcInstallNameLen(
+            @sizeOf(macho.dylib_command),
+            install_name,
+            assume_max_path_len,
+        );
     }
     // LC_RPATH
     {
@@ -148,12 +149,12 @@ pub fn calcLoadCommandsSizeObject(macho_file: *MachO) u32 {
     return @as(u32, @intCast(sizeofcmds));
 }
 
-pub fn calcMinHeaderPadSize(macho_file: *MachO) u32 {
-    var padding: u32 = calcLoadCommandsSize(macho_file, false) + (macho_file.headerpad_size orelse 0);
+pub fn calcMinHeaderPadSize(macho_file: *MachO) !u32 {
+    var padding: u32 = (try calcLoadCommandsSize(macho_file, false)) + (macho_file.headerpad_size orelse 0);
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
     if (macho_file.headerpad_max_install_names) {
-        const min_headerpad_size: u32 = calcLoadCommandsSize(macho_file, true);
+        const min_headerpad_size: u32 = try calcLoadCommandsSize(macho_file, true);
         log.debug("headerpad_max_install_names minimum headerpad size 0x{x}", .{
             min_headerpad_size + @sizeOf(macho.mach_header_64),
         });
@@ -221,7 +222,7 @@ pub fn writeDylibLC(ctx: WriteDylibLCCtx, writer: anytype) !void {
 pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     const comp = macho_file.base.comp;
     const gpa = comp.gpa;
-    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
     const emit = macho_file.base.emit;
     const install_name = macho_file.install_name orelse
         try emit.directory.join(gpa, &.{emit.sub_path});

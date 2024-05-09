@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Module = @import("Module.zig");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
@@ -260,7 +260,7 @@ const Writer = struct {
             .c_va_copy,
             => try w.writeTyOp(s, inst),
 
-            .block => try w.writeBlock(s, inst),
+            .block, .dbg_inline_block => try w.writeBlock(s, tag, inst),
 
             .loop => try w.writeLoop(s, inst),
 
@@ -292,7 +292,6 @@ const Writer = struct {
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
 
-            .dbg_inline_begin, .dbg_inline_end => try w.writeDbgInline(s, inst),
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
@@ -304,10 +303,10 @@ const Writer = struct {
             .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
             .prefetch => try w.writePrefetch(s, inst),
-            .atomic_store_unordered => try w.writeAtomicStore(s, inst, .Unordered),
-            .atomic_store_monotonic => try w.writeAtomicStore(s, inst, .Monotonic),
-            .atomic_store_release => try w.writeAtomicStore(s, inst, .Release),
-            .atomic_store_seq_cst => try w.writeAtomicStore(s, inst, .SeqCst),
+            .atomic_store_unordered => try w.writeAtomicStore(s, inst, .unordered),
+            .atomic_store_monotonic => try w.writeAtomicStore(s, inst, .monotonic),
+            .atomic_store_release => try w.writeAtomicStore(s, inst, .release),
+            .atomic_store_seq_cst => try w.writeAtomicStore(s, inst, .seq_cst),
             .atomic_rmw => try w.writeAtomicRmw(s, inst),
             .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
@@ -318,8 +317,6 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
-
-            .dbg_block_begin, .dbg_block_end => {},
 
             .work_item_id,
             .work_group_size,
@@ -369,17 +366,34 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, ty_op.operand);
     }
 
-    fn writeBlock(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeBlock(w: *Writer, s: anytype, tag: Air.Inst.Tag, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = w.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra.end..][0..extra.data.body_len]);
+        try w.writeType(s, ty_pl.ty.toType());
+        const body: []const Air.Inst.Index = @ptrCast(switch (tag) {
+            inline .block, .dbg_inline_block => |comptime_tag| body: {
+                const extra = w.air.extraData(switch (comptime_tag) {
+                    .block => Air.Block,
+                    .dbg_inline_block => Air.DbgInlineBlock,
+                    else => unreachable,
+                }, ty_pl.payload);
+                switch (comptime_tag) {
+                    .block => {},
+                    .dbg_inline_block => {
+                        try s.writeAll(", ");
+                        try w.writeInstRef(s, Air.internedToRef(extra.data.func), false);
+                    },
+                    else => unreachable,
+                }
+                break :body w.air.extra[extra.end..][0..extra.data.body_len];
+            },
+            else => unreachable,
+        });
+        if (w.skip_body) return s.writeAll(", ...");
         const liveness_block = if (w.liveness) |liveness|
             liveness.getBlock(inst)
         else
             Liveness.BlockSlices{ .deaths = &.{} };
 
-        try w.writeType(s, ty_pl.ty.toType());
-        if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
@@ -663,13 +677,6 @@ const Writer = struct {
         try s.print("{d}:{d}", .{ dbg_stmt.line + 1, dbg_stmt.column + 1 });
     }
 
-    fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_fn = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-        const func_index = ty_fn.func;
-        const owner_decl = w.module.funcOwnerDeclPtr(func_index);
-        try s.print("{}", .{owner_decl.name.fmt(&w.module.intern_pool)});
-    }
-
     fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
@@ -944,7 +951,7 @@ const Writer = struct {
             const ty = Type.fromInterned(mod.intern_pool.indexToKey(ip_index).typeOf());
             try s.print("<{}, {}>", .{
                 ty.fmt(mod),
-                Value.fromInterned(ip_index).fmtValue(ty, mod),
+                Value.fromInterned(ip_index).fmtValue(mod, null),
             });
         } else {
             return w.writeInstIndex(s, operand.toIndex().?, dies);

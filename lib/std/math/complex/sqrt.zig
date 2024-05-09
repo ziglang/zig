@@ -129,7 +129,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.csqrt32" {
+test sqrt32 {
     const a = Complex(f32).init(5, 3);
     const c = sqrt(a);
 
@@ -137,7 +137,7 @@ test "complex.csqrt32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 0.644574, epsilon));
 }
 
-test "complex.csqrt64" {
+test sqrt64 {
     const a = Complex(f64).init(5, 3);
     const c = sqrt(a);
 

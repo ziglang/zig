@@ -21,7 +21,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            if (ty.containerLayout(mod) == .Packed) return .byval;
+            if (ty.containerLayout(mod) == .@"packed") return .byval;
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
@@ -31,7 +31,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
             return .integer;
         },
         .Union => {
-            if (ty.containerLayout(mod) == .Packed) return .byval;
+            if (ty.containerLayout(mod) == .@"packed") return .byval;
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 

@@ -39,7 +39,16 @@ pub fn utf8ByteSequenceLength(first_byte: u8) !u3 {
 /// out: the out buffer to write to. Must have a len >= utf8CodepointSequenceLength(c).
 /// Errors: if c cannot be encoded in UTF-8.
 /// Returns: the number of bytes written to out.
-pub fn utf8Encode(c: u21, out: []u8) !u3 {
+pub fn utf8Encode(c: u21, out: []u8) error{ Utf8CannotEncodeSurrogateHalf, CodepointTooLarge }!u3 {
+    return utf8EncodeImpl(c, out, .cannot_encode_surrogate_half);
+}
+
+const Surrogates = enum {
+    cannot_encode_surrogate_half,
+    can_encode_surrogate_half,
+};
+
+fn utf8EncodeImpl(c: u21, out: []u8, comptime surrogates: Surrogates) !u3 {
     const length = try utf8CodepointSequenceLength(c);
     assert(out.len >= length);
     switch (length) {
@@ -53,7 +62,9 @@ pub fn utf8Encode(c: u21, out: []u8) !u3 {
             out[1] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
         },
         3 => {
-            if (0xd800 <= c and c <= 0xdfff) return error.Utf8CannotEncodeSurrogateHalf;
+            if (surrogates == .cannot_encode_surrogate_half and isSurrogateCodepoint(c)) {
+                return error.Utf8CannotEncodeSurrogateHalf;
+            }
             out[0] = @as(u8, @intCast(0b11100000 | (c >> 12)));
             out[1] = @as(u8, @intCast(0b10000000 | ((c >> 6) & 0b111111)));
             out[2] = @as(u8, @intCast(0b10000000 | (c & 0b111111)));
@@ -116,12 +127,22 @@ pub fn utf8Decode2(bytes: []const u8) Utf8Decode2Error!u21 {
     return value;
 }
 
-const Utf8Decode3Error = error{
-    Utf8ExpectedContinuation,
-    Utf8OverlongEncoding,
+const Utf8Decode3Error = Utf8Decode3AllowSurrogateHalfError || error{
     Utf8EncodesSurrogateHalf,
 };
 pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u21 {
+    const value = try utf8Decode3AllowSurrogateHalf(bytes);
+
+    if (0xd800 <= value and value <= 0xdfff) return error.Utf8EncodesSurrogateHalf;
+
+    return value;
+}
+
+const Utf8Decode3AllowSurrogateHalfError = error{
+    Utf8ExpectedContinuation,
+    Utf8OverlongEncoding,
+};
+pub fn utf8Decode3AllowSurrogateHalf(bytes: []const u8) Utf8Decode3AllowSurrogateHalfError!u21 {
     assert(bytes.len == 3);
     assert(bytes[0] & 0b11110000 == 0b11100000);
     var value: u21 = bytes[0] & 0b00001111;
@@ -135,7 +156,6 @@ pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u21 {
     value |= bytes[2] & 0b00111111;
 
     if (value < 0x800) return error.Utf8OverlongEncoding;
-    if (0xd800 <= value and value <= 0xdfff) return error.Utf8EncodesSurrogateHalf;
 
     return value;
 }
@@ -213,20 +233,25 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 
 /// Returns true if the input consists entirely of UTF-8 codepoints
 pub fn utf8ValidateSlice(input: []const u8) bool {
+    return utf8ValidateSliceImpl(input, .cannot_encode_surrogate_half);
+}
+
+fn utf8ValidateSliceImpl(input: []const u8, comptime surrogates: Surrogates) bool {
     var remaining = input;
 
-    const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
-    const Chunk = @Vector(chunk_len, u8);
+    if (std.simd.suggestVectorLength(u8)) |chunk_len| {
+        const Chunk = @Vector(chunk_len, u8);
 
-    // Fast path. Check for and skip ASCII characters at the start of the input.
-    while (remaining.len >= chunk_len) {
-        const chunk: Chunk = remaining[0..chunk_len].*;
-        const mask: Chunk = @splat(0x80);
-        if (@reduce(.Or, chunk & mask == mask)) {
-            // found a non ASCII byte
-            break;
+        // Fast path. Check for and skip ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII byte
+                break;
+            }
+            remaining = remaining[chunk_len..];
         }
-        remaining = remaining[chunk_len..];
     }
 
     // default lowest and highest continuation byte
@@ -240,9 +265,15 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
     const xx = 0xF1; // invalid: size 1
     const as = 0xF0; // ASCII: size 1
     const s1 = 0x02; // accept 0, size 2
-    const s2 = 0x13; // accept 1, size 3
+    const s2 = switch (surrogates) {
+        .cannot_encode_surrogate_half => 0x13, // accept 1, size 3
+        .can_encode_surrogate_half => 0x03, // accept 0, size 3
+    };
     const s3 = 0x03; // accept 0, size 3
-    const s4 = 0x23; // accept 2, size 3
+    const s4 = switch (surrogates) {
+        .cannot_encode_surrogate_half => 0x23, // accept 2, size 3
+        .can_encode_surrogate_half => 0x03, // accept 0, size 3
+    };
     const s5 = 0x34; // accept 3, size 4
     const s6 = 0x04; // accept 0, size 4
     const s7 = 0x44; // accept 4, size 4
@@ -458,7 +489,9 @@ pub const Utf16LeIterator = struct {
         };
     }
 
-    pub fn nextCodepoint(it: *Utf16LeIterator) !?u21 {
+    pub const NextCodepointError = error{ DanglingSurrogateHalf, ExpectedSecondSurrogateHalf, UnexpectedSecondSurrogateHalf };
+
+    pub fn nextCodepoint(it: *Utf16LeIterator) NextCodepointError!?u21 {
         assert(it.i <= it.bytes.len);
         if (it.i == it.bytes.len) return null;
         var code_units: [2]u16 = undefined;
@@ -569,9 +602,9 @@ fn testUtf8IteratorOnAscii() !void {
     const s = Utf8View.initComptime("abc");
 
     var it1 = s.iterator();
-    try testing.expect(std.mem.eql(u8, "a", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "b", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "c", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "a", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "b", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "c", it1.nextCodepointSlice().?));
     try testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
@@ -599,9 +632,9 @@ fn testUtf8ViewOk() !void {
     const s = Utf8View.initComptime("東京市");
 
     var it1 = s.iterator();
-    try testing.expect(std.mem.eql(u8, "東", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "京", it1.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "市", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "東", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "京", it1.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "市", it1.nextCodepointSlice().?));
     try testing.expect(it1.nextCodepointSlice() == null);
 
     var it2 = s.iterator();
@@ -739,20 +772,20 @@ fn testUtf8Peeking() !void {
     const s = Utf8View.initComptime("noël");
     var it = s.iterator();
 
-    try testing.expect(std.mem.eql(u8, "n", it.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "n", it.nextCodepointSlice().?));
 
-    try testing.expect(std.mem.eql(u8, "o", it.peek(1)));
-    try testing.expect(std.mem.eql(u8, "oë", it.peek(2)));
-    try testing.expect(std.mem.eql(u8, "oël", it.peek(3)));
-    try testing.expect(std.mem.eql(u8, "oël", it.peek(4)));
-    try testing.expect(std.mem.eql(u8, "oël", it.peek(10)));
+    try testing.expect(mem.eql(u8, "o", it.peek(1)));
+    try testing.expect(mem.eql(u8, "oë", it.peek(2)));
+    try testing.expect(mem.eql(u8, "oël", it.peek(3)));
+    try testing.expect(mem.eql(u8, "oël", it.peek(4)));
+    try testing.expect(mem.eql(u8, "oël", it.peek(10)));
 
-    try testing.expect(std.mem.eql(u8, "o", it.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "ë", it.nextCodepointSlice().?));
-    try testing.expect(std.mem.eql(u8, "l", it.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "o", it.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "ë", it.nextCodepointSlice().?));
+    try testing.expect(mem.eql(u8, "l", it.nextCodepointSlice().?));
     try testing.expect(it.nextCodepointSlice() == null);
 
-    try testing.expect(std.mem.eql(u8, &[_]u8{}, it.peek(1)));
+    try testing.expect(mem.eql(u8, &[_]u8{}, it.peek(1)));
 }
 
 fn testError(bytes: []const u8, expected_err: anyerror) !void {
@@ -770,143 +803,294 @@ fn testDecode(bytes: []const u8) !u21 {
     return utf8Decode(bytes);
 }
 
+/// Print the given `utf8` string, encoded as UTF-8 bytes.
+/// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+/// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+/// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
+fn formatUtf8(
+    utf8: []const u8,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    var buf: [300]u8 = undefined; // just an arbitrary size
+    var u8len: usize = 0;
+
+    // This implementation is based on this specification:
+    // https://encoding.spec.whatwg.org/#utf-8-decoder
+    var codepoint: u21 = 0;
+    var cont_bytes_seen: u3 = 0;
+    var cont_bytes_needed: u3 = 0;
+    var lower_boundary: u8 = 0x80;
+    var upper_boundary: u8 = 0xBF;
+
+    var i: usize = 0;
+    while (i < utf8.len) {
+        const byte = utf8[i];
+        if (cont_bytes_needed == 0) {
+            switch (byte) {
+                0x00...0x7F => {
+                    buf[u8len] = byte;
+                    u8len += 1;
+                },
+                0xC2...0xDF => {
+                    cont_bytes_needed = 1;
+                    codepoint = byte & 0b00011111;
+                },
+                0xE0...0xEF => {
+                    if (byte == 0xE0) lower_boundary = 0xA0;
+                    if (byte == 0xED) upper_boundary = 0x9F;
+                    cont_bytes_needed = 2;
+                    codepoint = byte & 0b00001111;
+                },
+                0xF0...0xF4 => {
+                    if (byte == 0xF0) lower_boundary = 0x90;
+                    if (byte == 0xF4) upper_boundary = 0x8F;
+                    cont_bytes_needed = 3;
+                    codepoint = byte & 0b00000111;
+                },
+                else => {
+                    u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+                },
+            }
+            // consume the byte
+            i += 1;
+        } else if (byte < lower_boundary or byte > upper_boundary) {
+            codepoint = 0;
+            cont_bytes_needed = 0;
+            cont_bytes_seen = 0;
+            lower_boundary = 0x80;
+            upper_boundary = 0xBF;
+            u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+            // do not consume the current byte, it should now be treated as a possible start byte
+        } else {
+            lower_boundary = 0x80;
+            upper_boundary = 0xBF;
+            codepoint <<= 6;
+            codepoint |= byte & 0b00111111;
+            cont_bytes_seen += 1;
+            // consume the byte
+            i += 1;
+
+            if (cont_bytes_seen == cont_bytes_needed) {
+                const codepoint_len = cont_bytes_seen + 1;
+                const codepoint_start_i = i - codepoint_len;
+                @memcpy(buf[u8len..][0..codepoint_len], utf8[codepoint_start_i..][0..codepoint_len]);
+                u8len += codepoint_len;
+
+                codepoint = 0;
+                cont_bytes_needed = 0;
+                cont_bytes_seen = 0;
+            }
+        }
+        // make sure there's always enough room for another maximum length UTF-8 codepoint
+        if (u8len + 4 > buf.len) {
+            try writer.writeAll(buf[0..u8len]);
+            u8len = 0;
+        }
+    }
+    if (cont_bytes_needed != 0) {
+        // we know there's enough room because we always flush
+        // if there's less than 4 bytes remaining in the buffer.
+        u8len += utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
+    }
+    try writer.writeAll(buf[0..u8len]);
+}
+
+/// Return a Formatter for a (potentially ill-formed) UTF-8 string.
+/// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+/// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+/// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
+pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter(formatUtf8) {
+    return .{ .data = utf8 };
+}
+
+test fmtUtf8 {
+    const expectFmt = testing.expectFmt;
+    try expectFmt("", "{}", .{fmtUtf8("")});
+    try expectFmt("foo", "{}", .{fmtUtf8("foo")});
+    try expectFmt("𐐷", "{}", .{fmtUtf8("𐐷")});
+
+    // Table 3-8. U+FFFD for Non-Shortest Form Sequences
+    try expectFmt("��������A", "{}", .{fmtUtf8("\xC0\xAF\xE0\x80\xBF\xF0\x81\x82A")});
+
+    // Table 3-9. U+FFFD for Ill-Formed Sequences for Surrogates
+    try expectFmt("��������A", "{}", .{fmtUtf8("\xED\xA0\x80\xED\xBF\xBF\xED\xAFA")});
+
+    // Table 3-10. U+FFFD for Other Ill-Formed Sequences
+    try expectFmt("�����A��B", "{}", .{fmtUtf8("\xF4\x91\x92\x93\xFFA\x80\xBFB")});
+
+    // Table 3-11. U+FFFD for Truncated Sequences
+    try expectFmt("����A", "{}", .{fmtUtf8("\xE1\x80\xE2\xF0\x91\x92\xF1\xBFA")});
+}
+
+fn utf16LeToUtf8ArrayListImpl(
+    result: *std.ArrayList(u8),
+    utf16le: []const u16,
+    comptime surrogates: Surrogates,
+) (switch (surrogates) {
+    .cannot_encode_surrogate_half => Utf16LeToUtf8AllocError,
+    .can_encode_surrogate_half => mem.Allocator.Error,
+})!void {
+    assert(result.unusedCapacitySlice().len >= utf16le.len);
+
+    var remaining = utf16le;
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
+        const Chunk = @Vector(chunk_len, u16);
+
+        // Fast path. Check for and encode ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(mem.nativeToLittle(u16, 0x7F));
+            if (@reduce(.Or, chunk | mask != mask)) {
+                // found a non ASCII code unit
+                break;
+            }
+            const ascii_chunk: @Vector(chunk_len, u8) = @truncate(mem.nativeToLittle(Chunk, chunk));
+            // We allocated enough space to encode every UTF-16 code unit
+            // as ASCII, so if the entire string is ASCII then we are
+            // guaranteed to have enough space allocated
+            result.addManyAsArrayAssumeCapacity(chunk_len).* = ascii_chunk;
+            remaining = remaining[chunk_len..];
+        }
+    }
+
+    switch (surrogates) {
+        .cannot_encode_surrogate_half => {
+            var it = Utf16LeIterator.init(remaining);
+            while (try it.nextCodepoint()) |codepoint| {
+                const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
+                assert((utf8Encode(codepoint, try result.addManyAsSlice(utf8_len)) catch unreachable) == utf8_len);
+            }
+        },
+        .can_encode_surrogate_half => {
+            var it = Wtf16LeIterator.init(remaining);
+            while (it.nextCodepoint()) |codepoint| {
+                const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
+                assert((wtf8Encode(codepoint, try result.addManyAsSlice(utf8_len)) catch unreachable) == utf8_len);
+            }
+        },
+    }
+}
+
+pub const Utf16LeToUtf8AllocError = mem.Allocator.Error || Utf16LeToUtf8Error;
+
+pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
+    try result.ensureUnusedCapacity(utf16le.len);
+    return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
+}
+
+/// Deprecated; renamed to utf16LeToUtf8Alloc
+pub const utf16leToUtf8Alloc = utf16LeToUtf8Alloc;
+
 /// Caller must free returned memory.
-pub fn utf16leToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) ![]u8 {
+pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![]u8 {
     // optimistically guess that it will all be ascii.
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
 
-    var remaining = utf16le;
-    if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
-        const Chunk = @Vector(chunk_len, u16);
-
-        // Fast path. Check for and encode ASCII characters at the start of the input.
-        while (remaining.len >= chunk_len) {
-            const chunk: Chunk = remaining[0..chunk_len].*;
-            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
-            if (@reduce(.Or, chunk | mask != mask)) {
-                // found a non ASCII code unit
-                break;
-            }
-            const chunk_byte_len = chunk_len * 2;
-            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
-            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
-            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
-            // We allocated enough space to encode every UTF-16 code unit
-            // as ASCII, so if the entire string is ASCII then we are
-            // guaranteed to have enough space allocated
-            result.appendSliceAssumeCapacity(&ascii_bytes);
-            remaining = remaining[chunk_len..];
-        }
-    }
-
-    var out_index: usize = result.items.len;
-    var it = Utf16LeIterator.init(remaining);
-    while (try it.nextCodepoint()) |codepoint| {
-        const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
-        try result.resize(result.items.len + utf8_len);
-        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
-        out_index += utf8_len;
-    }
-
+    try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
 
+/// Deprecated; renamed to utf16LeToUtf8AllocZ
+pub const utf16leToUtf8AllocZ = utf16LeToUtf8AllocZ;
+
 /// Caller must free returned memory.
-pub fn utf16leToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) ![:0]u8 {
+pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![:0]u8 {
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
 
-    var remaining = utf16le;
-    if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
-        const Chunk = @Vector(chunk_len, u16);
-
-        // Fast path. Check for and encode ASCII characters at the start of the input.
-        while (remaining.len >= chunk_len) {
-            const chunk: Chunk = remaining[0..chunk_len].*;
-            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
-            if (@reduce(.Or, chunk | mask != mask)) {
-                // found a non ASCII code unit
-                break;
-            }
-            const chunk_byte_len = chunk_len * 2;
-            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
-            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
-            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
-            // We allocated enough space to encode every UTF-16 code unit
-            // as ASCII, so if the entire string is ASCII then we are
-            // guaranteed to have enough space allocated
-            result.appendSliceAssumeCapacity(&ascii_bytes);
-            remaining = remaining[chunk_len..];
-        }
-    }
-
-    var out_index = result.items.len;
-    var it = Utf16LeIterator.init(remaining);
-    while (try it.nextCodepoint()) |codepoint| {
-        const utf8_len = utf8CodepointSequenceLength(codepoint) catch unreachable;
-        try result.resize(result.items.len + utf8_len);
-        assert((utf8Encode(codepoint, result.items[out_index..]) catch unreachable) == utf8_len);
-        out_index += utf8_len;
-    }
+    try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSliceSentinel(0);
 }
 
+pub const Utf16LeToUtf8Error = Utf16LeIterator.NextCodepointError;
+
 /// Asserts that the output buffer is big enough.
 /// Returns end byte index into utf8.
-pub fn utf16leToUtf8(utf8: []u8, utf16le: []const u16) !usize {
-    var end_index: usize = 0;
+fn utf16LeToUtf8Impl(utf8: []u8, utf16le: []const u16, comptime surrogates: Surrogates) (switch (surrogates) {
+    .cannot_encode_surrogate_half => Utf16LeToUtf8Error,
+    .can_encode_surrogate_half => error{},
+})!usize {
+    var dest_index: usize = 0;
 
     var remaining = utf16le;
-    if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
         while (remaining.len >= chunk_len) {
             const chunk: Chunk = remaining[0..chunk_len].*;
-            const mask: Chunk = @splat(std.mem.nativeToLittle(u16, 0x7F));
+            const mask: Chunk = @splat(mem.nativeToLittle(u16, 0x7F));
             if (@reduce(.Or, chunk | mask != mask)) {
                 // found a non ASCII code unit
                 break;
             }
-            const chunk_byte_len = chunk_len * 2;
-            const chunk_bytes: @Vector(chunk_byte_len, u8) = (std.mem.sliceAsBytes(remaining)[0..chunk_byte_len]).*;
-            const deinterlaced_bytes = std.simd.deinterlace(2, chunk_bytes);
-            const ascii_bytes: [chunk_len]u8 = deinterlaced_bytes[0];
-            @memcpy(utf8[end_index .. end_index + chunk_len], &ascii_bytes);
-            end_index += chunk_len;
+            const ascii_chunk: @Vector(chunk_len, u8) = @truncate(mem.nativeToLittle(Chunk, chunk));
+            utf8[dest_index..][0..chunk_len].* = ascii_chunk;
+            dest_index += chunk_len;
             remaining = remaining[chunk_len..];
         }
     }
 
-    var it = Utf16LeIterator.init(remaining);
-    while (try it.nextCodepoint()) |codepoint| {
-        end_index += try utf8Encode(codepoint, utf8[end_index..]);
+    switch (surrogates) {
+        .cannot_encode_surrogate_half => {
+            var it = Utf16LeIterator.init(remaining);
+            while (try it.nextCodepoint()) |codepoint| {
+                dest_index += utf8Encode(codepoint, utf8[dest_index..]) catch |err| switch (err) {
+                    // The maximum possible codepoint encoded by UTF-16 is U+10FFFF,
+                    // which is within the valid codepoint range.
+                    error.CodepointTooLarge => unreachable,
+                    // We know the codepoint was valid in UTF-16, meaning it is not
+                    // an unpaired surrogate codepoint.
+                    error.Utf8CannotEncodeSurrogateHalf => unreachable,
+                };
+            }
+        },
+        .can_encode_surrogate_half => {
+            var it = Wtf16LeIterator.init(remaining);
+            while (it.nextCodepoint()) |codepoint| {
+                dest_index += wtf8Encode(codepoint, utf8[dest_index..]) catch |err| switch (err) {
+                    // The maximum possible codepoint encoded by UTF-16 is U+10FFFF,
+                    // which is within the valid codepoint range.
+                    error.CodepointTooLarge => unreachable,
+                };
+            }
+        },
     }
-    return end_index;
+    return dest_index;
 }
 
-test "utf16leToUtf8" {
+/// Deprecated; renamed to utf16LeToUtf8
+pub const utf16leToUtf8 = utf16LeToUtf8;
+
+pub fn utf16LeToUtf8(utf8: []u8, utf16le: []const u16) Utf16LeToUtf8Error!usize {
+    return utf16LeToUtf8Impl(utf8, utf16le, .cannot_encode_surrogate_half);
+}
+
+test utf16LeToUtf8 {
     var utf16le: [2]u16 = undefined;
     const utf16le_as_bytes = mem.sliceAsBytes(utf16le[0..]);
 
     {
         mem.writeInt(u16, utf16le_as_bytes[0..2], 'A', .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 'a', .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "Aa"));
     }
 
     {
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0x80, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xffff, .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xc2\x80" ++ "\xef\xbf\xbf"));
     }
 
@@ -914,8 +1098,8 @@ test "utf16leToUtf8" {
         // the values just outside the surrogate half range
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd7ff, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xe000, .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xed\x9f\xbf" ++ "\xee\x80\x80"));
     }
 
@@ -923,8 +1107,8 @@ test "utf16leToUtf8" {
         // smallest surrogate pair
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0xd800, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf0\x90\x80\x80"));
     }
 
@@ -932,36 +1116,33 @@ test "utf16leToUtf8" {
         // largest surrogate pair
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdfff, .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xbf\xbf"));
     }
 
     {
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdbff, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdc00, .little);
-        const utf8 = try utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        defer std.testing.allocator.free(utf8);
+        const utf8 = try utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        defer testing.allocator.free(utf8);
         try testing.expect(mem.eql(u8, utf8, "\xf4\x8f\xb0\x80"));
     }
 
     {
         mem.writeInt(u16, utf16le_as_bytes[0..2], 0xdcdc, .little);
         mem.writeInt(u16, utf16le_as_bytes[2..4], 0xdcdc, .little);
-        const result = utf16leToUtf8Alloc(std.testing.allocator, &utf16le);
-        try std.testing.expectError(error.UnexpectedSecondSurrogateHalf, result);
+        const result = utf16LeToUtf8Alloc(testing.allocator, &utf16le);
+        try testing.expectError(error.UnexpectedSecondSurrogateHalf, result);
     }
 }
 
-pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u16 {
-    // optimistically guess that it will not require surrogate pairs
-    var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
-    errdefer result.deinit();
+fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, comptime surrogates: Surrogates) !void {
+    assert(result.unusedCapacitySlice().len >= utf8.len);
 
     var remaining = utf8;
-    // Need support for std.simd.interlace
-    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -972,41 +1153,66 @@ pub fn utf8ToUtf16LeWithNull(allocator: mem.Allocator, utf8: []const u8) ![:0]u1
                 // found a non ASCII code unit
                 break;
             }
-            const zeroes: Chunk = @splat(0);
-            const utf16_chunk: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
-            result.appendSliceAssumeCapacity(std.mem.bytesAsSlice(u16, &utf16_chunk));
+            const utf16_chunk = mem.nativeToLittle(@Vector(chunk_len, u16), chunk);
+            result.addManyAsArrayAssumeCapacity(chunk_len).* = utf16_chunk;
             remaining = remaining[chunk_len..];
         }
     }
 
-    const view = try Utf8View.init(remaining);
+    const view = switch (surrogates) {
+        .cannot_encode_surrogate_half => try Utf8View.init(remaining),
+        .can_encode_surrogate_half => try Wtf8View.init(remaining),
+    };
     var it = view.iterator();
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
-            const short = @as(u16, @intCast(codepoint));
-            try result.append(mem.nativeToLittle(u16, short));
+            try result.append(mem.nativeToLittle(u16, @intCast(codepoint)));
         } else {
             const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
             const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
-            var out: [2]u16 = undefined;
-            out[0] = mem.nativeToLittle(u16, high);
-            out[1] = mem.nativeToLittle(u16, low);
-            try result.appendSlice(out[0..]);
+            try result.appendSlice(&.{ mem.nativeToLittle(u16, high), mem.nativeToLittle(u16, low) });
         }
     }
+}
 
+pub fn utf8ToUtf16LeArrayList(result: *std.ArrayList(u16), utf8: []const u8) error{ InvalidUtf8, OutOfMemory }!void {
+    try result.ensureUnusedCapacity(utf8.len);
+    return utf8ToUtf16LeArrayListImpl(result, utf8, .cannot_encode_surrogate_half);
+}
+
+pub fn utf8ToUtf16LeAlloc(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![]u16 {
+    // optimistically guess that it will not require surrogate pairs
+    var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len);
+    errdefer result.deinit();
+
+    try utf8ToUtf16LeArrayListImpl(&result, utf8, .cannot_encode_surrogate_half);
+    return result.toOwnedSlice();
+}
+
+/// Deprecated; renamed to utf8ToUtf16LeAllocZ
+pub const utf8ToUtf16LeWithNull = utf8ToUtf16LeAllocZ;
+
+pub fn utf8ToUtf16LeAllocZ(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![:0]u16 {
+    // optimistically guess that it will not require surrogate pairs
+    var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
+    errdefer result.deinit();
+
+    try utf8ToUtf16LeArrayListImpl(&result, utf8, .cannot_encode_surrogate_half);
     return result.toOwnedSliceSentinel(0);
 }
 
 /// Returns index of next character. If exact fit, returned index equals output slice length.
 /// Assumes there is enough space for the output.
-pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
-    var dest_i: usize = 0;
+pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) error{InvalidUtf8}!usize {
+    return utf8ToUtf16LeImpl(utf16le, utf8, .cannot_encode_surrogate_half);
+}
+
+pub fn utf8ToUtf16LeImpl(utf16le: []u16, utf8: []const u8, comptime surrogates: Surrogates) !usize {
+    var dest_index: usize = 0;
 
     var remaining = utf8;
-    // Need support for std.simd.interlace
-    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -1017,80 +1223,201 @@ pub fn utf8ToUtf16Le(utf16le: []u16, utf8: []const u8) !usize {
                 // found a non ASCII code unit
                 break;
             }
-            const zeroes: Chunk = @splat(0);
-            const utf16_bytes: [chunk_len * 2]u8 align(@alignOf(u16)) = std.simd.interlace(.{ chunk, zeroes });
-            @memcpy(utf16le[dest_i..][0..chunk_len], std.mem.bytesAsSlice(u16, &utf16_bytes));
-            dest_i += chunk_len;
+            const utf16_chunk = mem.nativeToLittle(@Vector(chunk_len, u16), chunk);
+            utf16le[dest_index..][0..chunk_len].* = utf16_chunk;
+            dest_index += chunk_len;
             remaining = remaining[chunk_len..];
         }
     }
 
-    var src_i: usize = 0;
-    while (src_i < remaining.len) {
-        const n = utf8ByteSequenceLength(remaining[src_i]) catch return error.InvalidUtf8;
-        const next_src_i = src_i + n;
-        const codepoint = utf8Decode(remaining[src_i..next_src_i]) catch return error.InvalidUtf8;
+    const view = switch (surrogates) {
+        .cannot_encode_surrogate_half => try Utf8View.init(remaining),
+        .can_encode_surrogate_half => try Wtf8View.init(remaining),
+    };
+    var it = view.iterator();
+    while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
-            const short = @as(u16, @intCast(codepoint));
-            utf16le[dest_i] = mem.nativeToLittle(u16, short);
-            dest_i += 1;
+            utf16le[dest_index] = mem.nativeToLittle(u16, @intCast(codepoint));
+            dest_index += 1;
         } else {
             const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
             const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
-            utf16le[dest_i] = mem.nativeToLittle(u16, high);
-            utf16le[dest_i + 1] = mem.nativeToLittle(u16, low);
-            dest_i += 2;
+            utf16le[dest_index..][0..2].* = .{ mem.nativeToLittle(u16, high), mem.nativeToLittle(u16, low) };
+            dest_index += 2;
         }
-        src_i = next_src_i;
     }
-    return dest_i;
+    return dest_index;
 }
 
-test "utf8ToUtf16Le" {
-    var utf16le: [2]u16 = [_]u16{0} ** 2;
+test utf8ToUtf16Le {
+    var utf16le: [128]u16 = undefined;
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
-        try testing.expectEqual(@as(usize, 2), length);
-        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16le[0..]));
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16le[0..length]));
     }
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "\u{10FFFF}");
-        try testing.expectEqual(@as(usize, 2), length);
-        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16le[0..]));
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16le[0..length]));
     }
     {
         const result = utf8ToUtf16Le(utf16le[0..], "\xf4\x90\x80\x80");
         try testing.expectError(error.InvalidUtf8, result);
     }
+    {
+        const length = try utf8ToUtf16Le(utf16le[0..], "This string has been designed to test the vectorized implementat" ++
+            "ion by beginning with one hundred twenty-seven ASCII characters¡");
+        try testing.expectEqualSlices(u8, &.{
+            'T', 0, 'h', 0, 'i', 0, 's', 0, ' ', 0, 's', 0, 't', 0, 'r', 0, 'i', 0, 'n', 0, 'g', 0, ' ', 0, 'h', 0, 'a', 0, 's', 0, ' ',  0,
+            'b', 0, 'e', 0, 'e', 0, 'n', 0, ' ', 0, 'd', 0, 'e', 0, 's', 0, 'i', 0, 'g', 0, 'n', 0, 'e', 0, 'd', 0, ' ', 0, 't', 0, 'o',  0,
+            ' ', 0, 't', 0, 'e', 0, 's', 0, 't', 0, ' ', 0, 't', 0, 'h', 0, 'e', 0, ' ', 0, 'v', 0, 'e', 0, 'c', 0, 't', 0, 'o', 0, 'r',  0,
+            'i', 0, 'z', 0, 'e', 0, 'd', 0, ' ', 0, 'i', 0, 'm', 0, 'p', 0, 'l', 0, 'e', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 'a', 0, 't',  0,
+            'i', 0, 'o', 0, 'n', 0, ' ', 0, 'b', 0, 'y', 0, ' ', 0, 'b', 0, 'e', 0, 'g', 0, 'i', 0, 'n', 0, 'n', 0, 'i', 0, 'n', 0, 'g',  0,
+            ' ', 0, 'w', 0, 'i', 0, 't', 0, 'h', 0, ' ', 0, 'o', 0, 'n', 0, 'e', 0, ' ', 0, 'h', 0, 'u', 0, 'n', 0, 'd', 0, 'r', 0, 'e',  0,
+            'd', 0, ' ', 0, 't', 0, 'w', 0, 'e', 0, 'n', 0, 't', 0, 'y', 0, '-', 0, 's', 0, 'e', 0, 'v', 0, 'e', 0, 'n', 0, ' ', 0, 'A',  0,
+            'S', 0, 'C', 0, 'I', 0, 'I', 0, ' ', 0, 'c', 0, 'h', 0, 'a', 0, 'r', 0, 'a', 0, 'c', 0, 't', 0, 'e', 0, 'r', 0, 's', 0, '¡', 0,
+        }, mem.sliceAsBytes(utf16le[0..length]));
+    }
 }
 
-test "utf8ToUtf16LeWithNull" {
+test utf8ToUtf16LeArrayList {
     {
-        const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "𐐷");
-        defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
-        try testing.expect(utf16[2] == 0);
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+        try utf8ToUtf16LeArrayList(&list, "𐐷");
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(list.items));
     }
     {
-        const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "\u{10FFFF}");
-        defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
-        try testing.expect(utf16[2] == 0);
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+        try utf8ToUtf16LeArrayList(&list, "\u{10FFFF}");
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(list.items));
     }
     {
-        const result = utf8ToUtf16LeWithNull(testing.allocator, "\xf4\x90\x80\x80");
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+        const result = utf8ToUtf16LeArrayList(&list, "\xf4\x90\x80\x80");
         try testing.expectError(error.InvalidUtf8, result);
     }
 }
 
+test utf8ToUtf16LeAlloc {
+    {
+        const utf16 = try utf8ToUtf16LeAlloc(testing.allocator, "𐐷");
+        defer testing.allocator.free(utf16);
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16[0..]));
+    }
+    {
+        const utf16 = try utf8ToUtf16LeAlloc(testing.allocator, "\u{10FFFF}");
+        defer testing.allocator.free(utf16);
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16[0..]));
+    }
+    {
+        const result = utf8ToUtf16LeAlloc(testing.allocator, "\xf4\x90\x80\x80");
+        try testing.expectError(error.InvalidUtf8, result);
+    }
+}
+
+test utf8ToUtf16LeAllocZ {
+    {
+        const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "𐐷");
+        defer testing.allocator.free(utf16);
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16));
+        try testing.expect(utf16[2] == 0);
+    }
+    {
+        const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "\u{10FFFF}");
+        defer testing.allocator.free(utf16);
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16));
+        try testing.expect(utf16[2] == 0);
+    }
+    {
+        const result = utf8ToUtf16LeAllocZ(testing.allocator, "\xf4\x90\x80\x80");
+        try testing.expectError(error.InvalidUtf8, result);
+    }
+    {
+        const utf16 = try utf8ToUtf16LeWithNull(testing.allocator, "This string has been designed to test the vectorized implementat" ++
+            "ion by beginning with one hundred twenty-seven ASCII characters¡");
+        defer testing.allocator.free(utf16);
+        try testing.expectEqualSlices(u8, &.{
+            'T', 0, 'h', 0, 'i', 0, 's', 0, ' ', 0, 's', 0, 't', 0, 'r', 0, 'i', 0, 'n', 0, 'g', 0, ' ', 0, 'h', 0, 'a', 0, 's', 0, ' ',  0,
+            'b', 0, 'e', 0, 'e', 0, 'n', 0, ' ', 0, 'd', 0, 'e', 0, 's', 0, 'i', 0, 'g', 0, 'n', 0, 'e', 0, 'd', 0, ' ', 0, 't', 0, 'o',  0,
+            ' ', 0, 't', 0, 'e', 0, 's', 0, 't', 0, ' ', 0, 't', 0, 'h', 0, 'e', 0, ' ', 0, 'v', 0, 'e', 0, 'c', 0, 't', 0, 'o', 0, 'r',  0,
+            'i', 0, 'z', 0, 'e', 0, 'd', 0, ' ', 0, 'i', 0, 'm', 0, 'p', 0, 'l', 0, 'e', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 'a', 0, 't',  0,
+            'i', 0, 'o', 0, 'n', 0, ' ', 0, 'b', 0, 'y', 0, ' ', 0, 'b', 0, 'e', 0, 'g', 0, 'i', 0, 'n', 0, 'n', 0, 'i', 0, 'n', 0, 'g',  0,
+            ' ', 0, 'w', 0, 'i', 0, 't', 0, 'h', 0, ' ', 0, 'o', 0, 'n', 0, 'e', 0, ' ', 0, 'h', 0, 'u', 0, 'n', 0, 'd', 0, 'r', 0, 'e',  0,
+            'd', 0, ' ', 0, 't', 0, 'w', 0, 'e', 0, 'n', 0, 't', 0, 'y', 0, '-', 0, 's', 0, 'e', 0, 'v', 0, 'e', 0, 'n', 0, ' ', 0, 'A',  0,
+            'S', 0, 'C', 0, 'I', 0, 'I', 0, ' ', 0, 'c', 0, 'h', 0, 'a', 0, 'r', 0, 'a', 0, 'c', 0, 't', 0, 'e', 0, 'r', 0, 's', 0, '¡', 0,
+        }, mem.sliceAsBytes(utf16));
+    }
+}
+
+test "ArrayList functions on a re-used list" {
+    // utf8ToUtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf8ToUtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // utf16LeToUtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf16LeToUtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
+    }
+
+    // wtf8ToWtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf8ToWtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // wtf16LeToWtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf16LeToWtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
+    }
+}
+
 /// Converts a UTF-8 string literal into a UTF-16LE string literal.
-pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch unreachable:0]u16 {
+pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch |err| @compileError(err):0]u16 {
     return comptime blk: {
-        const len: usize = calcUtf16LeLen(utf8) catch |err| @compileError(err);
+        const len: usize = calcUtf16LeLen(utf8) catch unreachable;
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
-        break :blk &utf16le;
+        const final = utf16le;
+        break :blk &final;
     };
 }
 
@@ -1127,8 +1454,9 @@ test "calculate utf16 string length of given utf8 string in u16" {
     try comptime testCalcUtf16LeLen();
 }
 
-/// Print the given `utf16le` string
-fn formatUtf16le(
+/// Print the given `utf16le` string, encoded as UTF-8 bytes.
+/// Unpaired surrogates are replaced by the replacement character (U+FFFD).
+fn formatUtf16Le(
     utf16le: []const u16,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
@@ -1136,13 +1464,14 @@ fn formatUtf16le(
 ) !void {
     _ = fmt;
     _ = options;
-    var buf: [300]u8 = undefined; // just a random size I chose
+    var buf: [300]u8 = undefined; // just an arbitrary size
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
     while (it.nextCodepoint() catch replacement_character) |codepoint| {
         u8len += utf8Encode(codepoint, buf[u8len..]) catch
             utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
-        if (u8len + 3 >= buf.len) {
+        // make sure there's always enough room for another maximum length UTF-8 codepoint
+        if (u8len + 4 > buf.len) {
             try writer.writeAll(buf[0..u8len]);
             u8len = 0;
         }
@@ -1150,25 +1479,30 @@ fn formatUtf16le(
     try writer.writeAll(buf[0..u8len]);
 }
 
-/// Return a Formatter for a Utf16le string
-pub fn fmtUtf16le(utf16le: []const u16) std.fmt.Formatter(formatUtf16le) {
+/// Deprecated; renamed to fmtUtf16Le
+pub const fmtUtf16le = fmtUtf16Le;
+
+/// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
+/// which will be converted to UTF-8 during formatting.
+/// Unpaired surrogates are replaced by the replacement character (U+FFFD).
+pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
     return .{ .data = utf16le };
 }
 
-test "fmtUtf16le" {
-    const expectFmt = std.testing.expectFmt;
-    try expectFmt("", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral(""))});
-    try expectFmt("foo", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("foo"))});
-    try expectFmt("𐐷", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("𐐷"))});
-    try expectFmt("퟿", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xd7", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xd8", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xdb", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xdc", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\xff\xdf", native_endian)})});
-    try expectFmt("", "{}", .{fmtUtf16le(&[_]u16{std.mem.readInt(u16, "\x00\xe0", native_endian)})});
+test fmtUtf16Le {
+    const expectFmt = testing.expectFmt;
+    try expectFmt("", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral(""))});
+    try expectFmt("foo", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
+    try expectFmt("𐐷", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("𐐷"))});
+    try expectFmt("퟿", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xd7", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xd8", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdb", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xdc", native_endian)})});
+    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdf", native_endian)})});
+    try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
 }
 
-test "utf8ToUtf16LeStringLiteral" {
+test utf8ToUtf16LeStringLiteral {
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x41),
@@ -1247,4 +1581,534 @@ fn testUtf8ValidCodepoint() !void {
 test "utf8 valid codepoint" {
     try testUtf8ValidCodepoint();
     try comptime testUtf8ValidCodepoint();
+}
+
+/// Returns true if the codepoint is a surrogate (U+DC00 to U+DFFF)
+pub fn isSurrogateCodepoint(c: u21) bool {
+    return switch (c) {
+        0xD800...0xDFFF => true,
+        else => false,
+    };
+}
+
+/// Encodes the given codepoint into a WTF-8 byte sequence.
+/// c: the codepoint.
+/// out: the out buffer to write to. Must have a len >= utf8CodepointSequenceLength(c).
+/// Errors: if c cannot be encoded in WTF-8.
+/// Returns: the number of bytes written to out.
+pub fn wtf8Encode(c: u21, out: []u8) error{CodepointTooLarge}!u3 {
+    return utf8EncodeImpl(c, out, .can_encode_surrogate_half);
+}
+
+const Wtf8DecodeError = Utf8Decode2Error || Utf8Decode3AllowSurrogateHalfError || Utf8Decode4Error;
+
+pub fn wtf8Decode(bytes: []const u8) Wtf8DecodeError!u21 {
+    return switch (bytes.len) {
+        1 => @as(u21, bytes[0]),
+        2 => utf8Decode2(bytes),
+        3 => utf8Decode3AllowSurrogateHalf(bytes),
+        4 => utf8Decode4(bytes),
+        else => unreachable,
+    };
+}
+
+/// Returns true if the input consists entirely of WTF-8 codepoints
+/// (all the same restrictions as UTF-8, but allows surrogate codepoints
+/// U+D800 to U+DFFF).
+/// Does not check for well-formed WTF-8, meaning that this function
+/// does not check that all surrogate halves are unpaired.
+pub fn wtf8ValidateSlice(input: []const u8) bool {
+    return utf8ValidateSliceImpl(input, .can_encode_surrogate_half);
+}
+
+test "validate WTF-8 slice" {
+    try testValidateWtf8Slice();
+    try comptime testValidateWtf8Slice();
+
+    // We skip a variable (based on recommended vector size) chunks of
+    // ASCII characters. Let's make sure we're chunking correctly.
+    const str = [_]u8{'a'} ** 550 ++ "\xc0";
+    for (0..str.len - 3) |i| {
+        try testing.expect(!wtf8ValidateSlice(str[i..]));
+    }
+}
+fn testValidateWtf8Slice() !void {
+    // These are valid/invalid under both UTF-8 and WTF-8 rules.
+    try testing.expect(wtf8ValidateSlice("abc"));
+    try testing.expect(wtf8ValidateSlice("abc\xdf\xbf"));
+    try testing.expect(wtf8ValidateSlice(""));
+    try testing.expect(wtf8ValidateSlice("a"));
+    try testing.expect(wtf8ValidateSlice("abc"));
+    try testing.expect(wtf8ValidateSlice("Ж"));
+    try testing.expect(wtf8ValidateSlice("ЖЖ"));
+    try testing.expect(wtf8ValidateSlice("брэд-ЛГТМ"));
+    try testing.expect(wtf8ValidateSlice("☺☻☹"));
+    try testing.expect(wtf8ValidateSlice("a\u{fffdb}"));
+    try testing.expect(wtf8ValidateSlice("\xf4\x8f\xbf\xbf"));
+    try testing.expect(wtf8ValidateSlice("abc\xdf\xbf"));
+
+    try testing.expect(!wtf8ValidateSlice("abc\xc0"));
+    try testing.expect(!wtf8ValidateSlice("abc\xc0abc"));
+    try testing.expect(!wtf8ValidateSlice("aa\xe2"));
+    try testing.expect(!wtf8ValidateSlice("\x42\xfa"));
+    try testing.expect(!wtf8ValidateSlice("\x42\xfa\x43"));
+    try testing.expect(!wtf8ValidateSlice("abc\xc0"));
+    try testing.expect(!wtf8ValidateSlice("abc\xc0abc"));
+    try testing.expect(!wtf8ValidateSlice("\xf4\x90\x80\x80"));
+    try testing.expect(!wtf8ValidateSlice("\xf7\xbf\xbf\xbf"));
+    try testing.expect(!wtf8ValidateSlice("\xfb\xbf\xbf\xbf\xbf"));
+    try testing.expect(!wtf8ValidateSlice("\xc0\x80"));
+
+    // But surrogate codepoints are only valid in WTF-8.
+    try testing.expect(wtf8ValidateSlice("\xed\xa0\x80"));
+    try testing.expect(wtf8ValidateSlice("\xed\xbf\xbf"));
+}
+
+/// Wtf8View iterates the code points of a WTF-8 encoded string,
+/// including surrogate halves.
+///
+/// ```
+/// var wtf8 = (try std.unicode.Wtf8View.init("hi there")).iterator();
+/// while (wtf8.nextCodepointSlice()) |codepoint| {
+///   // note: codepoint could be a surrogate half which is invalid
+///   // UTF-8, avoid printing or otherwise sending/emitting this directly
+/// }
+/// ```
+pub const Wtf8View = struct {
+    bytes: []const u8,
+
+    pub fn init(s: []const u8) error{InvalidWtf8}!Wtf8View {
+        if (!wtf8ValidateSlice(s)) {
+            return error.InvalidWtf8;
+        }
+
+        return initUnchecked(s);
+    }
+
+    pub fn initUnchecked(s: []const u8) Wtf8View {
+        return Wtf8View{ .bytes = s };
+    }
+
+    pub inline fn initComptime(comptime s: []const u8) Wtf8View {
+        return comptime if (init(s)) |r| r else |err| switch (err) {
+            error.InvalidWtf8 => {
+                @compileError("invalid wtf8");
+            },
+        };
+    }
+
+    pub fn iterator(s: Wtf8View) Wtf8Iterator {
+        return Wtf8Iterator{
+            .bytes = s.bytes,
+            .i = 0,
+        };
+    }
+};
+
+/// Asserts that `bytes` is valid WTF-8
+pub const Wtf8Iterator = struct {
+    bytes: []const u8,
+    i: usize,
+
+    pub fn nextCodepointSlice(it: *Wtf8Iterator) ?[]const u8 {
+        if (it.i >= it.bytes.len) {
+            return null;
+        }
+
+        const cp_len = utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
+        it.i += cp_len;
+        return it.bytes[it.i - cp_len .. it.i];
+    }
+
+    pub fn nextCodepoint(it: *Wtf8Iterator) ?u21 {
+        const slice = it.nextCodepointSlice() orelse return null;
+        return wtf8Decode(slice) catch unreachable;
+    }
+
+    /// Look ahead at the next n codepoints without advancing the iterator.
+    /// If fewer than n codepoints are available, then return the remainder of the string.
+    pub fn peek(it: *Wtf8Iterator, n: usize) []const u8 {
+        const original_i = it.i;
+        defer it.i = original_i;
+
+        var end_ix = original_i;
+        var found: usize = 0;
+        while (found < n) : (found += 1) {
+            const next_codepoint = it.nextCodepointSlice() orelse return it.bytes[original_i..];
+            end_ix += next_codepoint.len;
+        }
+
+        return it.bytes[original_i..end_ix];
+    }
+};
+
+pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) mem.Allocator.Error!void {
+    try result.ensureUnusedCapacity(utf16le.len);
+    return utf16LeToUtf8ArrayListImpl(result, utf16le, .can_encode_surrogate_half);
+}
+
+/// Caller must free returned memory.
+pub fn wtf16LeToWtf8Alloc(allocator: mem.Allocator, wtf16le: []const u16) mem.Allocator.Error![]u8 {
+    // optimistically guess that it will all be ascii.
+    var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len);
+    errdefer result.deinit();
+
+    try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
+    return result.toOwnedSlice();
+}
+
+/// Caller must free returned memory.
+pub fn wtf16LeToWtf8AllocZ(allocator: mem.Allocator, wtf16le: []const u16) mem.Allocator.Error![:0]u8 {
+    // optimistically guess that it will all be ascii (and allocate space for the null terminator)
+    var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len + 1);
+    errdefer result.deinit();
+
+    try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
+    return result.toOwnedSliceSentinel(0);
+}
+
+pub fn wtf16LeToWtf8(wtf8: []u8, wtf16le: []const u16) usize {
+    return utf16LeToUtf8Impl(wtf8, wtf16le, .can_encode_surrogate_half) catch |err| switch (err) {};
+}
+
+pub fn wtf8ToWtf16LeArrayList(result: *std.ArrayList(u16), wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }!void {
+    try result.ensureUnusedCapacity(wtf8.len);
+    return utf8ToUtf16LeArrayListImpl(result, wtf8, .can_encode_surrogate_half);
+}
+
+pub fn wtf8ToWtf16LeAlloc(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![]u16 {
+    // optimistically guess that it will not require surrogate pairs
+    var result = try std.ArrayList(u16).initCapacity(allocator, wtf8.len);
+    errdefer result.deinit();
+
+    try utf8ToUtf16LeArrayListImpl(&result, wtf8, .can_encode_surrogate_half);
+    return result.toOwnedSlice();
+}
+
+pub fn wtf8ToWtf16LeAllocZ(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![:0]u16 {
+    // optimistically guess that it will not require surrogate pairs
+    var result = try std.ArrayList(u16).initCapacity(allocator, wtf8.len + 1);
+    errdefer result.deinit();
+
+    try utf8ToUtf16LeArrayListImpl(&result, wtf8, .can_encode_surrogate_half);
+    return result.toOwnedSliceSentinel(0);
+}
+
+/// Returns index of next character. If exact fit, returned index equals output slice length.
+/// Assumes there is enough space for the output.
+pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{InvalidWtf8}!usize {
+    return utf8ToUtf16LeImpl(wtf16le, wtf8, .can_encode_surrogate_half);
+}
+
+/// Surrogate codepoints (U+D800 to U+DFFF) are replaced by the Unicode replacement
+/// character (U+FFFD).
+/// All surrogate codepoints and the replacement character are encoded as three
+/// bytes, meaning the input and output slices will always be the same length.
+/// In-place conversion is supported when `utf8` and `wtf8` refer to the same slice.
+/// Note: If `wtf8` is entirely composed of well-formed UTF-8, then no conversion is necessary.
+///       `utf8ValidateSlice` can be used to check if lossy conversion is worthwhile.
+/// If `wtf8` is not valid WTF-8, then `error.InvalidWtf8` is returned.
+pub fn wtf8ToUtf8Lossy(utf8: []u8, wtf8: []const u8) error{InvalidWtf8}!void {
+    assert(utf8.len >= wtf8.len);
+
+    const in_place = utf8.ptr == wtf8.ptr;
+    const replacement_char_bytes = comptime blk: {
+        var buf: [3]u8 = undefined;
+        assert((utf8Encode(replacement_character, &buf) catch unreachable) == 3);
+        break :blk buf;
+    };
+
+    var dest_i: usize = 0;
+    const view = try Wtf8View.init(wtf8);
+    var it = view.iterator();
+    while (it.nextCodepointSlice()) |codepoint_slice| {
+        // All surrogate codepoints are encoded as 3 bytes
+        if (codepoint_slice.len == 3) {
+            const codepoint = wtf8Decode(codepoint_slice) catch unreachable;
+            if (isSurrogateCodepoint(codepoint)) {
+                @memcpy(utf8[dest_i..][0..replacement_char_bytes.len], &replacement_char_bytes);
+                dest_i += replacement_char_bytes.len;
+                continue;
+            }
+        }
+        if (!in_place) {
+            @memcpy(utf8[dest_i..][0..codepoint_slice.len], codepoint_slice);
+        }
+        dest_i += codepoint_slice.len;
+    }
+}
+
+pub fn wtf8ToUtf8LossyAlloc(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![]u8 {
+    const utf8 = try allocator.alloc(u8, wtf8.len);
+    errdefer allocator.free(utf8);
+
+    try wtf8ToUtf8Lossy(utf8, wtf8);
+
+    return utf8;
+}
+
+pub fn wtf8ToUtf8LossyAllocZ(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![:0]u8 {
+    const utf8 = try allocator.allocSentinel(u8, wtf8.len, 0);
+    errdefer allocator.free(utf8);
+
+    try wtf8ToUtf8Lossy(utf8, wtf8);
+
+    return utf8;
+}
+
+test wtf8ToUtf8Lossy {
+    var buf: [32]u8 = undefined;
+
+    const invalid_utf8 = "\xff";
+    try testing.expectError(error.InvalidWtf8, wtf8ToUtf8Lossy(&buf, invalid_utf8));
+
+    const ascii = "abcd";
+    try wtf8ToUtf8Lossy(&buf, ascii);
+    try testing.expectEqualStrings("abcd", buf[0..ascii.len]);
+
+    const high_surrogate_half = "ab\xed\xa0\xbdcd";
+    try wtf8ToUtf8Lossy(&buf, high_surrogate_half);
+    try testing.expectEqualStrings("ab\u{FFFD}cd", buf[0..high_surrogate_half.len]);
+
+    const low_surrogate_half = "ab\xed\xb2\xa9cd";
+    try wtf8ToUtf8Lossy(&buf, low_surrogate_half);
+    try testing.expectEqualStrings("ab\u{FFFD}cd", buf[0..low_surrogate_half.len]);
+
+    // If the WTF-8 is not well-formed, each surrogate half is converted into a separate
+    // replacement character instead of being interpreted as a surrogate pair.
+    const encoded_surrogate_pair = "ab\xed\xa0\xbd\xed\xb2\xa9cd";
+    try wtf8ToUtf8Lossy(&buf, encoded_surrogate_pair);
+    try testing.expectEqualStrings("ab\u{FFFD}\u{FFFD}cd", buf[0..encoded_surrogate_pair.len]);
+
+    // in place
+    @memcpy(buf[0..low_surrogate_half.len], low_surrogate_half);
+    const slice = buf[0..low_surrogate_half.len];
+    try wtf8ToUtf8Lossy(slice, slice);
+    try testing.expectEqualStrings("ab\u{FFFD}cd", slice);
+}
+
+test wtf8ToUtf8LossyAlloc {
+    const invalid_utf8 = "\xff";
+    try testing.expectError(error.InvalidWtf8, wtf8ToUtf8LossyAlloc(testing.allocator, invalid_utf8));
+
+    {
+        const ascii = "abcd";
+        const utf8 = try wtf8ToUtf8LossyAlloc(testing.allocator, ascii);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("abcd", utf8);
+    }
+
+    {
+        const surrogate_half = "ab\xed\xa0\xbdcd";
+        const utf8 = try wtf8ToUtf8LossyAlloc(testing.allocator, surrogate_half);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("ab\u{FFFD}cd", utf8);
+    }
+
+    {
+        // If the WTF-8 is not well-formed, each surrogate half is converted into a separate
+        // replacement character instead of being interpreted as a surrogate pair.
+        const encoded_surrogate_pair = "ab\xed\xa0\xbd\xed\xb2\xa9cd";
+        const utf8 = try wtf8ToUtf8LossyAlloc(testing.allocator, encoded_surrogate_pair);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("ab\u{FFFD}\u{FFFD}cd", utf8);
+    }
+}
+
+test wtf8ToUtf8LossyAllocZ {
+    const invalid_utf8 = "\xff";
+    try testing.expectError(error.InvalidWtf8, wtf8ToUtf8LossyAllocZ(testing.allocator, invalid_utf8));
+
+    {
+        const ascii = "abcd";
+        const utf8 = try wtf8ToUtf8LossyAllocZ(testing.allocator, ascii);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("abcd", utf8);
+    }
+
+    {
+        const surrogate_half = "ab\xed\xa0\xbdcd";
+        const utf8 = try wtf8ToUtf8LossyAllocZ(testing.allocator, surrogate_half);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("ab\u{FFFD}cd", utf8);
+    }
+
+    {
+        // If the WTF-8 is not well-formed, each surrogate half is converted into a separate
+        // replacement character instead of being interpreted as a surrogate pair.
+        const encoded_surrogate_pair = "ab\xed\xa0\xbd\xed\xb2\xa9cd";
+        const utf8 = try wtf8ToUtf8LossyAllocZ(testing.allocator, encoded_surrogate_pair);
+        defer testing.allocator.free(utf8);
+        try testing.expectEqualStrings("ab\u{FFFD}\u{FFFD}cd", utf8);
+    }
+}
+
+pub const Wtf16LeIterator = struct {
+    bytes: []const u8,
+    i: usize,
+
+    pub fn init(s: []const u16) Wtf16LeIterator {
+        return Wtf16LeIterator{
+            .bytes = mem.sliceAsBytes(s),
+            .i = 0,
+        };
+    }
+
+    /// If the next codepoint is encoded by a surrogate pair, returns the
+    /// codepoint that the surrogate pair represents.
+    /// If the next codepoint is an unpaired surrogate, returns the codepoint
+    /// of the unpaired surrogate.
+    pub fn nextCodepoint(it: *Wtf16LeIterator) ?u21 {
+        assert(it.i <= it.bytes.len);
+        if (it.i == it.bytes.len) return null;
+        var code_units: [2]u16 = undefined;
+        code_units[0] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
+        it.i += 2;
+        surrogate_pair: {
+            if (utf16IsHighSurrogate(code_units[0])) {
+                if (it.i >= it.bytes.len) break :surrogate_pair;
+                code_units[1] = mem.readInt(u16, it.bytes[it.i..][0..2], .little);
+                const codepoint = utf16DecodeSurrogatePair(&code_units) catch break :surrogate_pair;
+                it.i += 2;
+                return codepoint;
+            }
+        }
+        return code_units[0];
+    }
+};
+
+test "non-well-formed WTF-8 does not roundtrip" {
+    // This encodes the surrogate pair U+D83D U+DCA9.
+    // The well-formed version of this would be U+1F4A9 which is \xF0\x9F\x92\xA9.
+    const non_well_formed_wtf8 = "\xed\xa0\xbd\xed\xb2\xa9";
+
+    var wtf16_buf: [2]u16 = undefined;
+    const wtf16_len = try wtf8ToWtf16Le(&wtf16_buf, non_well_formed_wtf8);
+    const wtf16 = wtf16_buf[0..wtf16_len];
+
+    try testing.expectEqualSlices(u16, &[_]u16{
+        mem.nativeToLittle(u16, 0xD83D), // high surrogate
+        mem.nativeToLittle(u16, 0xDCA9), // low surrogate
+    }, wtf16);
+
+    var wtf8_buf: [4]u8 = undefined;
+    const wtf8_len = wtf16LeToWtf8(&wtf8_buf, wtf16);
+    const wtf8 = wtf8_buf[0..wtf8_len];
+
+    // Converting to WTF-16 and back results in well-formed WTF-8,
+    // but it does not match the input WTF-8
+    try testing.expectEqualSlices(u8, "\xf0\x9f\x92\xa9", wtf8);
+}
+
+fn testRoundtripWtf8(wtf8: []const u8) !void {
+    // Buffer
+    {
+        var wtf16_buf: [32]u16 = undefined;
+        const wtf16_len = try wtf8ToWtf16Le(&wtf16_buf, wtf8);
+        const wtf16 = wtf16_buf[0..wtf16_len];
+
+        var roundtripped_buf: [32]u8 = undefined;
+        const roundtripped_len = wtf16LeToWtf8(&roundtripped_buf, wtf16);
+        const roundtripped = roundtripped_buf[0..roundtripped_len];
+
+        try testing.expectEqualSlices(u8, wtf8, roundtripped);
+    }
+    // Alloc
+    {
+        const wtf16 = try wtf8ToWtf16LeAlloc(testing.allocator, wtf8);
+        defer testing.allocator.free(wtf16);
+
+        const roundtripped = try wtf16LeToWtf8Alloc(testing.allocator, wtf16);
+        defer testing.allocator.free(roundtripped);
+
+        try testing.expectEqualSlices(u8, wtf8, roundtripped);
+    }
+    // AllocZ
+    {
+        const wtf16 = try wtf8ToWtf16LeAllocZ(testing.allocator, wtf8);
+        defer testing.allocator.free(wtf16);
+
+        const roundtripped = try wtf16LeToWtf8AllocZ(testing.allocator, wtf16);
+        defer testing.allocator.free(roundtripped);
+
+        try testing.expectEqualSlices(u8, wtf8, roundtripped);
+    }
+}
+
+test "well-formed WTF-8 roundtrips" {
+    try testRoundtripWtf8("\xed\x9f\xbf"); // not a surrogate half
+    try testRoundtripWtf8("\xed\xa0\xbd"); // high surrogate
+    try testRoundtripWtf8("\xed\xb2\xa9"); // low surrogate
+    try testRoundtripWtf8("\xed\xa0\xbd \xed\xb2\xa9"); // <high surrogate><space><low surrogate>
+    try testRoundtripWtf8("\xed\xa0\x80\xed\xaf\xbf"); // <high surrogate><high surrogate>
+    try testRoundtripWtf8("\xed\xa0\x80\xee\x80\x80"); // <high surrogate><not surrogate>
+    try testRoundtripWtf8("\xed\x9f\xbf\xed\xb0\x80"); // <not surrogate><low surrogate>
+    try testRoundtripWtf8("a\xed\xb0\x80"); // <not surrogate><low surrogate>
+    try testRoundtripWtf8("\xf0\x9f\x92\xa9"); // U+1F4A9, encoded as a surrogate pair in WTF-16
+}
+
+fn testRoundtripWtf16(wtf16le: []const u16) !void {
+    // Buffer
+    {
+        var wtf8_buf: [32]u8 = undefined;
+        const wtf8_len = wtf16LeToWtf8(&wtf8_buf, wtf16le);
+        const wtf8 = wtf8_buf[0..wtf8_len];
+
+        var roundtripped_buf: [32]u16 = undefined;
+        const roundtripped_len = try wtf8ToWtf16Le(&roundtripped_buf, wtf8);
+        const roundtripped = roundtripped_buf[0..roundtripped_len];
+
+        try testing.expectEqualSlices(u16, wtf16le, roundtripped);
+    }
+    // Alloc
+    {
+        const wtf8 = try wtf16LeToWtf8Alloc(testing.allocator, wtf16le);
+        defer testing.allocator.free(wtf8);
+
+        const roundtripped = try wtf8ToWtf16LeAlloc(testing.allocator, wtf8);
+        defer testing.allocator.free(roundtripped);
+
+        try testing.expectEqualSlices(u16, wtf16le, roundtripped);
+    }
+    // AllocZ
+    {
+        const wtf8 = try wtf16LeToWtf8AllocZ(testing.allocator, wtf16le);
+        defer testing.allocator.free(wtf8);
+
+        const roundtripped = try wtf8ToWtf16LeAllocZ(testing.allocator, wtf8);
+        defer testing.allocator.free(roundtripped);
+
+        try testing.expectEqualSlices(u16, wtf16le, roundtripped);
+    }
+}
+
+test "well-formed WTF-16 roundtrips" {
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xD83D), // high surrogate
+        mem.nativeToLittle(u16, 0xDCA9), // low surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xD83D), // high surrogate
+        mem.nativeToLittle(u16, ' '), // not surrogate
+        mem.nativeToLittle(u16, 0xDCA9), // low surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xD800), // high surrogate
+        mem.nativeToLittle(u16, 0xDBFF), // high surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xD800), // high surrogate
+        mem.nativeToLittle(u16, 0xE000), // not surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xD7FF), // not surrogate
+        mem.nativeToLittle(u16, 0xDC00), // low surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0x61), // not surrogate
+        mem.nativeToLittle(u16, 0xDC00), // low surrogate
+    });
+    try testRoundtripWtf16(&[_]u16{
+        mem.nativeToLittle(u16, 0xDC00), // low surrogate
+    });
 }

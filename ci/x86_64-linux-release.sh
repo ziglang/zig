@@ -8,11 +8,11 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-6.1.0.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -25,8 +25,7 @@ rm -rf zig-out
 cc -o bootstrap bootstrap.c
 ./bootstrap
 ./zig2 build -Dno-lib
-# In order to run these behavior tests we need to move the `@cImport` ones to somewhere else.
-# ./zig-out/bin/zig test test/behavior.zig
+./zig-out/bin/zig test test/behavior.zig
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
@@ -38,8 +37,8 @@ cd build-release
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
@@ -62,6 +61,7 @@ ninja install
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
+  --exclude ../doc/ \
   --exclude ../build-debug \
   --exclude ../build-release
 
@@ -77,7 +77,7 @@ stage3-release/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
+  --zig-lib-dir "$PWD/../lib"
 
 # Look for HTML errors.
 # TODO: move this to a build.zig flag (-Denable-tidy)
@@ -106,8 +106,8 @@ rm -rf ../build-new
 mkdir ../build-new
 cd ../build-new
 
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
@@ -125,11 +125,11 @@ unset CXX
 
 ninja install
 
-stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig test ../test/behavior.zig
 stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
-stage4/bin/zig test ../test/behavior.zig -I../test
+  --zig-lib-dir "$PWD/../lib"
+stage4/bin/zig test ../test/behavior.zig

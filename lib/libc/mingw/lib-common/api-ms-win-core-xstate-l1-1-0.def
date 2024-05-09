@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-xstate-l1-1-0
+
+EXPORTS
+
+RtlCopyExtendedContext
+RtlGetEnabledExtendedFeatures
+RtlGetExtendedContextLength
+RtlGetExtendedFeaturesMask
+RtlInitializeExtendedContext
+RtlLocateExtendedFeature
+RtlLocateLegacyContext
+RtlSetExtendedFeaturesMask

@@ -1,3 +1,5 @@
+//! String formatting and parsing.
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
@@ -7,7 +9,6 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const errol = @import("fmt/errol.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 
@@ -755,33 +756,41 @@ pub fn formatIntValue(
     return formatInt(int_value, base, case, options, writer);
 }
 
+pub const format_float = @import("fmt/format_float.zig");
+pub const formatFloat = format_float.formatFloat;
+pub const FormatFloatError = format_float.FormatError;
+
 fn formatFloatValue(
     value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    // this buffer should be enough to display all decimal places of a decimal f64 number.
-    var buf: [512]u8 = undefined;
-    var buf_stream = std.io.fixedBufferStream(&buf);
+    var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
-            error.NoSpaceLeft => unreachable,
+        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
+            error.BufferTooSmall => "(float)",
         };
+        return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
-            error.NoSpaceLeft => unreachable,
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+            error.BufferTooSmall => "(float)",
         };
+        return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
+        var buf_stream = std.io.fixedBufferStream(&buf);
         formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
         };
+        return formatBuf(buf_stream.getWritten(), options, writer);
     } else {
         invalidFmtError(fmt, value);
     }
+}
 
-    return formatBuf(buf_stream.getWritten(), options, writer);
+test {
+    _ = &format_float;
 }
 
 pub const Case = enum { lower, upper };
@@ -884,8 +893,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 return formatBuf("0B", options, writer);
             }
             // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
-            var buf: [35]u8 = undefined;
-            var bufstream = io.fixedBufferStream(buf[0..]);
+            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -903,20 +911,30 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 else => unreachable,
             };
 
-            formatFloatDecimal(new_value, options, bufstream.writer()) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable, // 35 bytes should be enough
+            const s = switch (magnitude) {
+                0 => buf[0..formatIntBuf(&buf, value, 10, .lower, .{})],
+                else => formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+                    error.BufferTooSmall => unreachable,
+                },
             };
 
-            bufstream.writer().writeAll(if (suffix == ' ')
-                "B"
-            else switch (base) {
-                1000 => &[_]u8{ suffix, 'B' },
-                1024 => &[_]u8{ suffix, 'i', 'B' },
+            var i: usize = s.len;
+            if (suffix == ' ') {
+                buf[i] = 'B';
+                i += 1;
+            } else switch (base) {
+                1000 => {
+                    buf[i..][0..2].* = [_]u8{ suffix, 'B' };
+                    i += 2;
+                },
+                1024 => {
+                    buf[i..][0..3].* = [_]u8{ suffix, 'i', 'B' };
+                    i += 3;
+                },
                 else => unreachable,
-            }) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-            };
-            return formatBuf(bufstream.getWritten(), options, writer);
+            }
+
+            return formatBuf(buf[0..i], options, writer);
         }
     };
 }
@@ -1023,102 +1041,6 @@ pub fn formatBuf(
     } else {
         // Fast path, avoid counting the number of codepoints
         try writer.writeAll(buf);
-    }
-}
-
-/// Print a float in scientific notation to the specified precision. Null uses full precision.
-/// For floats with less than 64 bits, it should be the case that every full precision, printed
-/// value can be re-parsed back to the same type unambiguously.
-///
-/// Floats with more than 64 are currently rounded, see https://github.com/ziglang/zig/issues/1181
-pub fn formatFloatScientific(
-    value: anytype,
-    options: FormatOptions,
-    writer: anytype,
-) !void {
-    var x = @as(f64, @floatCast(value));
-
-    // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try writer.writeAll("-");
-        x = -x;
-    }
-
-    if (math.isNan(x)) {
-        return writer.writeAll("nan");
-    }
-    if (math.isPositiveInf(x)) {
-        return writer.writeAll("inf");
-    }
-    if (x == 0.0) {
-        try writer.writeAll("0");
-
-        if (options.precision) |precision| {
-            if (precision != 0) {
-                try writer.writeAll(".");
-                var i: usize = 0;
-                while (i < precision) : (i += 1) {
-                    try writer.writeAll("0");
-                }
-            }
-        } else {
-            try writer.writeAll(".0");
-        }
-
-        try writer.writeAll("e+00");
-        return;
-    }
-
-    var buffer: [32]u8 = undefined;
-    var float_decimal = errol.errol3(x, buffer[0..]);
-
-    if (options.precision) |precision| {
-        errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Scientific);
-
-        try writer.writeAll(float_decimal.digits[0..1]);
-
-        // {e0} case prints no `.`
-        if (precision != 0) {
-            try writer.writeAll(".");
-
-            var printed: usize = 0;
-            if (float_decimal.digits.len > 1) {
-                const num_digits = @min(float_decimal.digits.len, precision + 1);
-                try writer.writeAll(float_decimal.digits[1..num_digits]);
-                printed += num_digits - 1;
-            }
-
-            while (printed < precision) : (printed += 1) {
-                try writer.writeAll("0");
-            }
-        }
-    } else {
-        try writer.writeAll(float_decimal.digits[0..1]);
-        try writer.writeAll(".");
-        if (float_decimal.digits.len > 1) {
-            const num_digits = if (@TypeOf(value) == f32) @min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
-
-            try writer.writeAll(float_decimal.digits[1..num_digits]);
-        } else {
-            try writer.writeAll("0");
-        }
-    }
-
-    try writer.writeAll("e");
-    const exp = float_decimal.exp - 1;
-
-    if (exp >= 0) {
-        try writer.writeAll("+");
-        if (exp > -10 and exp < 10) {
-            try writer.writeAll("0");
-        }
-        try formatInt(exp, 10, .lower, FormatOptions{ .width = 0 }, writer);
-    } else {
-        try writer.writeAll("-");
-        if (exp > -10 and exp < 10) {
-            try writer.writeAll("0");
-        }
-        try formatInt(-exp, 10, .lower, FormatOptions{ .width = 0 }, writer);
     }
 }
 
@@ -1231,149 +1153,6 @@ pub fn formatFloatHexadecimal(
     try formatInt(exponent - exponent_bias, 10, .lower, .{}, writer);
 }
 
-/// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
-/// By default floats are printed at full precision (no rounding).
-///
-/// Floats with more than 64 bits are not yet supported, see https://github.com/ziglang/zig/issues/1181
-pub fn formatFloatDecimal(
-    value: anytype,
-    options: FormatOptions,
-    writer: anytype,
-) !void {
-    var x = @as(f64, value);
-
-    // Errol doesn't handle these special cases.
-    if (math.signbit(x)) {
-        try writer.writeAll("-");
-        x = -x;
-    }
-
-    if (math.isNan(x)) {
-        return writer.writeAll("nan");
-    }
-    if (math.isPositiveInf(x)) {
-        return writer.writeAll("inf");
-    }
-    if (x == 0.0) {
-        try writer.writeAll("0");
-
-        if (options.precision) |precision| {
-            if (precision != 0) {
-                try writer.writeAll(".");
-                var i: usize = 0;
-                while (i < precision) : (i += 1) {
-                    try writer.writeAll("0");
-                }
-            }
-        }
-
-        return;
-    }
-
-    // non-special case, use errol3
-    var buffer: [32]u8 = undefined;
-    var float_decimal = errol.errol3(x, buffer[0..]);
-
-    if (options.precision) |precision| {
-        errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
-
-        // exp < 0 means the leading is always 0 as errol result is normalized.
-        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
-
-        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
-
-        if (num_digits_whole > 0) {
-            // We may have to zero pad, for instance 1e4 requires zero padding.
-            try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
-
-            var i: usize = num_digits_whole_no_pad;
-            while (i < num_digits_whole) : (i += 1) {
-                try writer.writeAll("0");
-            }
-        } else {
-            try writer.writeAll("0");
-        }
-
-        // {.0} special case doesn't want a trailing '.'
-        if (precision == 0) {
-            return;
-        }
-
-        try writer.writeAll(".");
-
-        // Keep track of fractional count printed for case where we pre-pad then post-pad with 0's.
-        var printed: usize = 0;
-
-        // Zero-fill until we reach significant digits or run out of precision.
-        if (float_decimal.exp <= 0) {
-            const zero_digit_count = @as(usize, @intCast(-float_decimal.exp));
-            const zeros_to_print = @min(zero_digit_count, precision);
-
-            var i: usize = 0;
-            while (i < zeros_to_print) : (i += 1) {
-                try writer.writeAll("0");
-                printed += 1;
-            }
-
-            if (printed >= precision) {
-                return;
-            }
-        }
-
-        // Remaining fractional portion, zero-padding if insufficient.
-        assert(precision >= printed);
-        if (num_digits_whole_no_pad + precision - printed < float_decimal.digits.len) {
-            try writer.writeAll(float_decimal.digits[num_digits_whole_no_pad .. num_digits_whole_no_pad + precision - printed]);
-            return;
-        } else {
-            try writer.writeAll(float_decimal.digits[num_digits_whole_no_pad..]);
-            printed += float_decimal.digits.len - num_digits_whole_no_pad;
-
-            while (printed < precision) : (printed += 1) {
-                try writer.writeAll("0");
-            }
-        }
-    } else {
-        // exp < 0 means the leading is always 0 as errol result is normalized.
-        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
-
-        // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
-
-        if (num_digits_whole > 0) {
-            // We may have to zero pad, for instance 1e4 requires zero padding.
-            try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
-
-            var i: usize = num_digits_whole_no_pad;
-            while (i < num_digits_whole) : (i += 1) {
-                try writer.writeAll("0");
-            }
-        } else {
-            try writer.writeAll("0");
-        }
-
-        // Omit `.` if no fractional portion
-        if (float_decimal.exp >= 0 and num_digits_whole_no_pad == float_decimal.digits.len) {
-            return;
-        }
-
-        try writer.writeAll(".");
-
-        // Zero-fill until we reach significant digits or run out of precision.
-        if (float_decimal.exp < 0) {
-            const zero_digit_count = @as(usize, @intCast(-float_decimal.exp));
-
-            var i: usize = 0;
-            while (i < zero_digit_count) : (i += 1) {
-                try writer.writeAll("0");
-            }
-        }
-
-        try writer.writeAll(float_decimal.digits[num_digits_whole_no_pad..]);
-    }
-}
-
 pub fn formatInt(
     value: anytype,
     base: u8,
@@ -1449,7 +1228,7 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
 }
 
 // Converts values in the range [0, 100) to a string.
-fn digits2(value: usize) [2]u8 {
+pub fn digits2(value: usize) [2]u8 {
     return ("0001020304050607080910111213141516171819" ++
         "2021222324252627282930313233343536373839" ++
         "4041424344454647484950515253545556575859" ++
@@ -1527,7 +1306,7 @@ pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
     return .{ .data = data };
 }
 
-test "fmtDuration" {
+test fmtDuration {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1591,7 +1370,7 @@ pub fn fmtDurationSigned(ns: i64) Formatter(formatDurationSigned) {
     return .{ .data = ns };
 }
 
-test "fmtDurationSigned" {
+test fmtDurationSigned {
     var buf: [24]u8 = undefined;
     inline for (.{
         .{ .s = "0ns", .d = 0 },
@@ -1721,10 +1500,10 @@ pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
     return parseWithSign(T, buf, base, .pos);
 }
 
-test "parseInt" {
-    try std.testing.expect((try parseInt(i32, "-10", 10)) == -10);
-    try std.testing.expect((try parseInt(i32, "+10", 10)) == 10);
-    try std.testing.expect((try parseInt(u32, "+10", 10)) == 10);
+test parseInt {
+    try std.testing.expectEqual(-10, try parseInt(i32, "-10", 10));
+    try std.testing.expectEqual(10, try parseInt(i32, "+10", 10));
+    try std.testing.expectEqual(10, try parseInt(u32, "+10", 10));
     try std.testing.expectError(error.Overflow, parseInt(u32, "-10", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, " 10", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "10 ", 10));
@@ -1732,17 +1511,17 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10_", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x10_", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x_10", 10));
-    try std.testing.expect((try parseInt(u8, "255", 10)) == 255);
+    try std.testing.expectEqual(255, try parseInt(u8, "255", 10));
     try std.testing.expectError(error.Overflow, parseInt(u8, "256", 10));
 
     // +0 and -0 should work for unsigned
-    try std.testing.expect((try parseInt(u8, "-0", 10)) == 0);
-    try std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
+    try std.testing.expectEqual(0, try parseInt(u8, "-0", 10));
+    try std.testing.expectEqual(0, try parseInt(u8, "+0", 10));
 
     // ensure minInt is parsed correctly
-    try std.testing.expect((try parseInt(i1, "-1", 10)) == math.minInt(i1));
-    try std.testing.expect((try parseInt(i8, "-128", 10)) == math.minInt(i8));
-    try std.testing.expect((try parseInt(i43, "-4398046511104", 10)) == math.minInt(i43));
+    try std.testing.expectEqual(math.minInt(i1), try parseInt(i1, "-1", 10));
+    try std.testing.expectEqual(math.minInt(i8), try parseInt(i8, "-128", 10));
+    try std.testing.expectEqual(math.minInt(i43), try parseInt(i43, "-4398046511104", 10));
 
     // empty string or bare +- is invalid
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "", 10));
@@ -1753,22 +1532,22 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
 
     // autodectect the base
-    try std.testing.expect((try parseInt(i32, "111", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
-    try std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0B111", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0b1_11", 0)) == 7);
-    try std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0O111", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0o11_1", 0)) == 73);
-    try std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
-    try std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
-    try std.testing.expect((try parseInt(i32, "-0b11_1", 0)) == -7);
-    try std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
-    try std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
-    try std.testing.expect((try parseInt(i32, "-0X111", 0)) == -273);
-    try std.testing.expect((try parseInt(i32, "-0x1_11", 0)) == -273);
+    try std.testing.expectEqual(111, try parseInt(i32, "111", 0));
+    try std.testing.expectEqual(111, try parseInt(i32, "1_1_1", 0));
+    try std.testing.expectEqual(111, try parseInt(i32, "1_1_1", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0b111", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0B111", 0));
+    try std.testing.expectEqual(7, try parseInt(i32, "+0b1_11", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0o111", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0O111", 0));
+    try std.testing.expectEqual(73, try parseInt(i32, "+0o11_1", 0));
+    try std.testing.expectEqual(273, try parseInt(i32, "+0x111", 0));
+    try std.testing.expectEqual(-7, try parseInt(i32, "-0b111", 0));
+    try std.testing.expectEqual(-7, try parseInt(i32, "-0b11_1", 0));
+    try std.testing.expectEqual(-73, try parseInt(i32, "-0o111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0x111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0X111", 0));
+    try std.testing.expectEqual(-273, try parseInt(i32, "-0x1_11", 0));
 
     // bare binary/octal/decimal prefix is invalid
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
@@ -1863,32 +1642,32 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!
     return parseWithSign(T, buf, base, .pos);
 }
 
-test "parseUnsigned" {
-    try std.testing.expect((try parseUnsigned(u16, "050124", 10)) == 50124);
-    try std.testing.expect((try parseUnsigned(u16, "65535", 10)) == 65535);
-    try std.testing.expect((try parseUnsigned(u16, "65_535", 10)) == 65535);
+test parseUnsigned {
+    try std.testing.expectEqual(50124, try parseUnsigned(u16, "050124", 10));
+    try std.testing.expectEqual(65535, try parseUnsigned(u16, "65535", 10));
+    try std.testing.expectEqual(65535, try parseUnsigned(u16, "65_535", 10));
     try std.testing.expectError(error.Overflow, parseUnsigned(u16, "65536", 10));
 
-    try std.testing.expect((try parseUnsigned(u64, "0ffffffffffffffff", 16)) == 0xffffffffffffffff);
-    try std.testing.expect((try parseUnsigned(u64, "0f_fff_fff_fff_fff_fff", 16)) == 0xffffffffffffffff);
+    try std.testing.expectEqual(0xffffffffffffffff, try parseUnsigned(u64, "0ffffffffffffffff", 16));
+    try std.testing.expectEqual(0xffffffffffffffff, try parseUnsigned(u64, "0f_fff_fff_fff_fff_fff", 16));
     try std.testing.expectError(error.Overflow, parseUnsigned(u64, "10000000000000000", 16));
 
-    try std.testing.expect((try parseUnsigned(u32, "DeadBeef", 16)) == 0xDEADBEEF);
+    try std.testing.expectEqual(0xDEADBEEF, try parseUnsigned(u32, "DeadBeef", 16));
 
-    try std.testing.expect((try parseUnsigned(u7, "1", 10)) == 1);
-    try std.testing.expect((try parseUnsigned(u7, "1000", 2)) == 8);
+    try std.testing.expectEqual(1, try parseUnsigned(u7, "1", 10));
+    try std.testing.expectEqual(8, try parseUnsigned(u7, "1000", 2));
 
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u32, "f", 10));
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "109", 8));
 
-    try std.testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
+    try std.testing.expectEqual(1442151747, try parseUnsigned(u32, "NUMBER", 36));
 
     // these numbers should fit even though the base itself doesn't fit in the destination type
-    try std.testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
-    try std.testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
+    try std.testing.expectEqual(0, try parseUnsigned(u1, "0", 10));
+    try std.testing.expectEqual(1, try parseUnsigned(u1, "1", 10));
     try std.testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
-    try std.testing.expect((try parseUnsigned(u1, "001", 16)) == 1);
-    try std.testing.expect((try parseUnsigned(u2, "3", 16)) == 3);
+    try std.testing.expectEqual(1, try parseUnsigned(u1, "001", 16));
+    try std.testing.expectEqual(3, try parseUnsigned(u2, "3", 16));
     try std.testing.expectError(error.Overflow, parseUnsigned(u2, "4", 16));
 
     // parseUnsigned does not expect a sign
@@ -1937,16 +1716,16 @@ pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
     return math.mul(usize, number, multiplier);
 }
 
-test "parseIntSizeSuffix" {
-    try std.testing.expect(try parseIntSizeSuffix("2", 10) == 2);
-    try std.testing.expect(try parseIntSizeSuffix("2B", 10) == 2);
-    try std.testing.expect(try parseIntSizeSuffix("2kB", 10) == 2000);
-    try std.testing.expect(try parseIntSizeSuffix("2k", 10) == 2000);
-    try std.testing.expect(try parseIntSizeSuffix("2KiB", 10) == 2048);
-    try std.testing.expect(try parseIntSizeSuffix("2Ki", 10) == 2048);
-    try std.testing.expect(try parseIntSizeSuffix("aKiB", 16) == 10240);
-    try std.testing.expect(parseIntSizeSuffix("", 10) == error.InvalidCharacter);
-    try std.testing.expect(parseIntSizeSuffix("2iB", 10) == error.InvalidCharacter);
+test parseIntSizeSuffix {
+    try std.testing.expectEqual(2, try parseIntSizeSuffix("2", 10));
+    try std.testing.expectEqual(2, try parseIntSizeSuffix("2B", 10));
+    try std.testing.expectEqual(2000, try parseIntSizeSuffix("2kB", 10));
+    try std.testing.expectEqual(2000, try parseIntSizeSuffix("2k", 10));
+    try std.testing.expectEqual(2048, try parseIntSizeSuffix("2KiB", 10));
+    try std.testing.expectEqual(2048, try parseIntSizeSuffix("2Ki", 10));
+    try std.testing.expectEqual(10240, try parseIntSizeSuffix("aKiB", 16));
+    try std.testing.expectError(error.InvalidCharacter, parseIntSizeSuffix("", 10));
+    try std.testing.expectError(error.InvalidCharacter, parseIntSizeSuffix("2iB", 10));
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
@@ -1986,7 +1765,10 @@ pub const BufPrintError = error{
 /// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
-    try format(fbs.writer(), fmt, args);
+    format(fbs.writer().any(), fmt, args) catch |err| switch (err) {
+        error.NoSpaceLeft => return error.NoSpaceLeft,
+        else => unreachable,
+    };
     return fbs.getWritten();
 }
 
@@ -1998,7 +1780,7 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
-    format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
+    format(counting_writer.writer().any(), fmt, args) catch unreachable;
     return counting_writer.bytes_written;
 }
 
@@ -2017,7 +1799,7 @@ pub fn allocPrintZ(allocator: mem.Allocator, comptime fmt: []const u8, args: any
     return result[0 .. result.len - 1 :0];
 }
 
-test "bufPrintInt" {
+test bufPrintIntToSlice {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
 
@@ -2047,16 +1829,19 @@ pub inline fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [cou
         var buf: [count(fmt, args):0]u8 = undefined;
         _ = bufPrint(&buf, fmt, args) catch unreachable;
         buf[buf.len] = 0;
-        return &buf;
+        const final = buf;
+        return &final;
     }
 }
 
-test "comptimePrint" {
+test comptimePrint {
     @setEvalBranchQuota(2000);
     try std.testing.expectEqual(*const [3:0]u8, @TypeOf(comptimePrint("{}", .{100})));
     try std.testing.expectEqualSlices(u8, "100", comptimePrint("{}", .{100}));
     try std.testing.expectEqualStrings("30", comptimePrint("{d}", .{30.0}));
     try std.testing.expectEqualStrings("30.0", comptimePrint("{d:3.1}", .{30.0}));
+    try std.testing.expectEqualStrings("0.05", comptimePrint("{d}", .{0.05}));
+    try std.testing.expectEqualStrings("5e-2", comptimePrint("{e}", .{0.05}));
 }
 
 test "parse u64 digit too big" {
@@ -2069,7 +1854,7 @@ test "parse u64 digit too big" {
 
 test "parse unsigned comptime" {
     comptime {
-        try std.testing.expect((try parseUnsigned(usize, "2", 10)) == 2);
+        try std.testing.expectEqual(2, try parseUnsigned(usize, "2", 10));
     }
 }
 
@@ -2178,15 +1963,15 @@ test "buffer" {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
         try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
+        try std.testing.expectEqualStrings("1234", fbs.getWritten());
 
         fbs.reset();
         try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
+        try std.testing.expectEqualStrings("a", fbs.getWritten());
 
         fbs.reset();
         try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
-        try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
+        try std.testing.expectEqualStrings("1100", fbs.getWritten());
     }
 }
 
@@ -2255,6 +2040,24 @@ test "slice" {
         try expectFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 00001, 01000, 5fad3, 423a35c7 }", "int: {x:0>5}", .{int_slice[runtime_zero..]});
     }
+    {
+        const S1 = struct {
+            x: u8,
+        };
+        const struct_slice: []const S1 = &[_]S1{ S1{ .x = 8 }, S1{ .x = 42 } };
+        try expectFmt("slice: { fmt.test.slice.S1{ .x = 8 }, fmt.test.slice.S1{ .x = 42 } }", "slice: {any}", .{struct_slice});
+    }
+    {
+        const S2 = struct {
+            x: u8,
+
+            pub fn format(s: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+                try writer.print("S2({})", .{s.x});
+            }
+        };
+        const struct_slice: []const S2 = &[_]S2{ S2{ .x = 8 }, S2{ .x = 42 } };
+        try expectFmt("slice: { S2(8), S2(42) }", "slice: {any}", .{struct_slice});
+    }
 }
 
 test "escape non-printable" {
@@ -2299,6 +2102,8 @@ test "filesize" {
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
     try expectFmt("file size: 63MiB\n", "file size: {}\n", .{fmtIntSizeBin(63 * 1024 * 1024)});
+    try expectFmt("file size: 42B\n", "file size: {:.2}\n", .{fmtIntSizeDec(42)});
+    try expectFmt("file size:       42B\n", "file size: {:>9.2}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 66.06MB\n", "file size: {:.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
     try expectFmt("file size: 60.08MiB\n", "file size: {:.2}\n", .{fmtIntSizeBin(63 * 1000 * 1000)});
     try expectFmt("file size: =66.06MB=\n", "file size: {:=^9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
@@ -2339,7 +2144,7 @@ test "struct" {
     // Tuples
     try expectFmt("{ }", "{}", .{.{}});
     try expectFmt("{ -1 }", "{}", .{.{-1}});
-    try expectFmt("{ -1, 42, 2.5e+04 }", "{}", .{.{ -1, 42, 0.25e5 }});
+    try expectFmt("{ -1, 42, 2.5e4 }", "{}", .{.{ -1, 42, 0.25e5 }});
 }
 
 test "enum" {
@@ -2386,19 +2191,19 @@ test "non-exhaustive enum" {
 }
 
 test "float.scientific" {
-    try expectFmt("f32: 1.34000003e+00", "f32: {e}", .{@as(f32, 1.34)});
-    try expectFmt("f32: 1.23400001e+01", "f32: {e}", .{@as(f32, 12.34)});
-    try expectFmt("f64: -1.234e+11", "f64: {e}", .{@as(f64, -12.34e10)});
+    try expectFmt("f32: 1.34e0", "f32: {e}", .{@as(f32, 1.34)});
+    try expectFmt("f32: 1.234e1", "f32: {e}", .{@as(f32, 12.34)});
+    try expectFmt("f64: -1.234e11", "f64: {e}", .{@as(f64, -12.34e10)});
     try expectFmt("f64: 9.99996e-40", "f64: {e}", .{@as(f64, 9.999960e-40)});
 }
 
 test "float.scientific.precision" {
     try expectFmt("f64: 1.40971e-42", "f64: {e:.5}", .{@as(f64, 1.409706e-42)});
-    try expectFmt("f64: 1.00000e-09", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 814313563))))});
-    try expectFmt("f64: 7.81250e-03", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1006632960))))});
-    // libc rounds 1.000005e+05 to 1.00000e+05 but zig does 1.00001e+05.
+    try expectFmt("f64: 1.00000e-9", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 814313563))))});
+    try expectFmt("f64: 7.81250e-3", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1006632960))))});
+    // libc rounds 1.000005e5 to 1.00000e5 but zig does 1.00001e5.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
-    try expectFmt("f64: 1.00001e+05", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64: 1.00001e5", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
 }
 
 test "float.special" {
@@ -2467,7 +2272,7 @@ test "float.hexadecimal.precision" {
 }
 
 test "float.decimal" {
-    try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e+29)});
+    try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
     try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
     try expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
@@ -2567,10 +2372,10 @@ test "union" {
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    try std.testing.expect(mem.eql(u8, uu_result[0..18], "fmt.test.union.UU@"));
+    try std.testing.expectEqualStrings("fmt.test.union.UU@", uu_result[0..18]);
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expect(mem.eql(u8, eu_result[0..18], "fmt.test.union.EU@"));
+    try std.testing.expectEqualStrings("fmt.test.union.EU@", eu_result[0..18]);
 }
 
 test "struct.self-referential" {
@@ -2648,14 +2453,14 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
     return out[0 .. in_i / 2];
 }
 
-test "bytesToHex" {
+test bytesToHex {
     const input = "input slice";
     const encoded = bytesToHex(input, .lower);
     var decoded: [input.len]u8 = undefined;
     try std.testing.expectEqualSlices(u8, input, try hexToBytes(&decoded, &encoded));
 }
 
-test "hexToBytes" {
+test hexToBytes {
     var buf: [32]u8 = undefined;
     try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
     try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});
@@ -2671,7 +2476,7 @@ test "formatIntValue with comptime_int" {
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatIntValue(value, "", FormatOptions{}, fbs.writer());
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "123456789123456789"));
+    try std.testing.expectEqualStrings("123456789123456789", fbs.getWritten());
 }
 
 test "formatFloatValue with comptime_float" {
@@ -2680,10 +2485,10 @@ test "formatFloatValue with comptime_float" {
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatFloatValue(value, "", FormatOptions{}, fbs.writer());
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1.0e+00"));
+    try std.testing.expectEqualStrings(fbs.getWritten(), "1e0");
 
-    try expectFmt("1.0e+00", "{}", .{value});
-    try expectFmt("1.0e+00", "{}", .{1.0});
+    try expectFmt("1e0", "{}", .{value});
+    try expectFmt("1e0", "{}", .{1.0});
 }
 
 test "formatType max_depth" {
@@ -2737,19 +2542,19 @@ test "formatType max_depth" {
     var buf: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 0);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ ... }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ ... }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 1);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 2);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 }
 
 test "positional" {
@@ -2769,8 +2574,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
@@ -2822,16 +2625,16 @@ test "padding fill char utf" {
 
 test "decimal float padding" {
     const number: f32 = 3.1415;
-    try expectFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
-    try expectFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
-    try expectFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
+    try expectFmt("left-pad:   **3.142\n", "left-pad:   {d:*>7.3}\n", .{number});
+    try expectFmt("center-pad: *3.142*\n", "center-pad: {d:*^7.3}\n", .{number});
+    try expectFmt("right-pad:  3.142**\n", "right-pad:  {d:*<7.3}\n", .{number});
 }
 
 test "sci float padding" {
     const number: f32 = 3.1415;
-    try expectFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
-    try expectFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
-    try expectFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
+    try expectFmt("left-pad:   ****3.142e0\n", "left-pad:   {e:*>11.3}\n", .{number});
+    try expectFmt("center-pad: **3.142e0**\n", "center-pad: {e:*^11.3}\n", .{number});
+    try expectFmt("right-pad:  3.142e0****\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
 
 test "null" {
@@ -2862,8 +2665,8 @@ test "runtime width specifier" {
 test "runtime precision specifier" {
     const number: f32 = 3.1415;
     const precision: usize = 2;
-    try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
-    try expectFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
+    try expectFmt("3.14e0", "{:1.[1]}", .{ number, precision });
+    try expectFmt("3.14e0", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }
 
 test "recursive format function" {

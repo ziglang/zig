@@ -41,7 +41,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
             }
         }
     } else |err| switch (err) {
-        error.InvalidUtf8 => {},
+        error.InvalidWtf8 => unreachable,
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }
@@ -73,7 +73,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
             }
         }
     } else |err| switch (err) {
-        error.InvalidUtf8 => {},
+        error.InvalidWtf8 => unreachable,
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }
@@ -102,6 +102,13 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         try self.addIncludeDir("/usr/include");
         try self.addIncludeDir("/usr/local/include");
 
+        return self;
+    }
+
+    if (builtin.os.tag == .haiku) {
+        try self.addLibDir("/system/non-packaged/lib");
+        try self.addLibDir("/system/develop/lib");
+        try self.addLibDir("/system/lib");
         return self;
     }
 
@@ -137,21 +144,21 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
         // variables to search for headers and libraries.
         // We use os.getenv here since this part won't be executed on
         // windows, to get rid of unnecessary error handling.
-        if (std.os.getenv("C_INCLUDE_PATH")) |c_include_path| {
+        if (std.posix.getenv("C_INCLUDE_PATH")) |c_include_path| {
             var it = mem.tokenizeScalar(u8, c_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
-        if (std.os.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
+        if (std.posix.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
             var it = mem.tokenizeScalar(u8, cplus_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
-        if (std.os.getenv("LIBRARY_PATH")) |library_path| {
+        if (std.posix.getenv("LIBRARY_PATH")) |library_path| {
             var it = mem.tokenizeScalar(u8, library_path, ':');
             while (it.next()) |dir| {
                 try self.addLibDir(dir);

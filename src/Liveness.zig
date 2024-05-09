@@ -131,7 +131,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     };
 }
 
-pub fn analyze(gpa: Allocator, air: Air, intern_pool: *const InternPool) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -327,10 +327,6 @@ pub fn categorizeOperand(
         .trap,
         .breakpoint,
         .dbg_stmt,
-        .dbg_inline_begin,
-        .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .unreach,
         .ret_addr,
         .frame_addr,
@@ -606,9 +602,19 @@ pub fn categorizeOperand(
         .assembly => {
             return .complex;
         },
-        .block => {
-            const extra = air.extraData(Air.Block, air_datas[@intFromEnum(inst)].ty_pl.payload);
-            const body: []const Air.Inst.Index = @ptrCast(air.extra[extra.end..][0..extra.data.body_len]);
+        .block, .dbg_inline_block => |tag| {
+            const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
+            const body: []const Air.Inst.Index = @ptrCast(switch (tag) {
+                inline .block, .dbg_inline_block => |comptime_tag| body: {
+                    const extra = air.extraData(switch (comptime_tag) {
+                        .block => Air.Block,
+                        .dbg_inline_block => Air.DbgInlineBlock,
+                        else => unreachable,
+                    }, ty_pl.payload);
+                    break :body air.extra[extra.end..][0..extra.data.body_len];
+                },
+                else => unreachable,
+            });
 
             if (body.len == 1 and air_tags[@intFromEnum(body[0])] == .cond_br) {
                 // Peephole optimization for "panic-like" conditionals, which have
@@ -830,7 +836,7 @@ pub const BigTomb = struct {
 const Analysis = struct {
     gpa: Allocator,
     air: Air,
-    intern_pool: *const InternPool,
+    intern_pool: *InternPool,
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
@@ -965,10 +971,6 @@ fn analyzeInst(
         .ret_ptr,
         .breakpoint,
         .dbg_stmt,
-        .dbg_inline_begin,
-        .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .fence,
         .ret_addr,
         .frame_addr,
@@ -1239,7 +1241,15 @@ fn analyzeInst(
             return big.finish();
         },
 
-        .block => return analyzeInstBlock(a, pass, data, inst),
+        inline .block, .dbg_inline_block => |comptime_tag| {
+            const ty_pl = inst_datas[@intFromEnum(inst)].ty_pl;
+            const extra = a.air.extraData(switch (comptime_tag) {
+                .block => Air.Block,
+                .dbg_inline_block => Air.DbgInlineBlock,
+                else => unreachable,
+            }, ty_pl.payload);
+            return analyzeInstBlock(a, pass, data, inst, ty_pl.ty, @ptrCast(a.air.extra[extra.end..][0..extra.data.body_len]));
+        },
         .loop => return analyzeInstLoop(a, pass, data, inst),
 
         .@"try" => return analyzeInstCondBr(a, pass, data, inst, .@"try"),
@@ -1373,12 +1383,9 @@ fn analyzeInstBlock(
     comptime pass: LivenessPass,
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
+    ty: Air.Inst.Ref,
+    body: []const Air.Inst.Index,
 ) !void {
-    const inst_datas = a.air.instructions.items(.data);
-    const ty_pl = inst_datas[@intFromEnum(inst)].ty_pl;
-    const extra = a.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(a.air.extra[extra.end..][0..extra.data.body_len]);
-
     const gpa = a.gpa;
 
     // We actually want to do `analyzeOperands` *first*, since our result logically doesn't
@@ -1407,7 +1414,7 @@ fn analyzeInstBlock(
 
             // If the block is noreturn, block deaths not only aren't useful, they're impossible to
             // find: there could be more stuff alive after the block than before it!
-            if (!a.intern_pool.isNoReturn(ty_pl.ty.toType().ip_index)) {
+            if (!a.intern_pool.isNoReturn(ty.toType().toIntern())) {
                 // The block kills the difference in the live sets
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();

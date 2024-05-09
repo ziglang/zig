@@ -261,13 +261,13 @@ int main(int argc, char **argv) {
           "    uint8_t *new_m = *m;\n"
           "    uint32_t r = *p;\n"
           "    uint32_t new_p = r + n;\n"
-          "    if (new_p > UINT32_C(0x10000)) return UINT32_C(0xFFFFFFF);\n"
+          "    if (new_p > UINT32_C(0xFFFF)) return UINT32_C(0xFFFFFFFF);\n"
           "    uint32_t new_c = *c;\n"
           "    if (new_c < new_p) {\n"
           "        do new_c += new_c / 2 + 8; while (new_c < new_p);\n"
-          "        if (new_c > UINT32_C(0x10000)) new_c = UINT32_C(0x10000);\n"
+          "        if (new_c > UINT32_C(0xFFFF)) new_c = UINT32_C(0xFFFF);\n"
           "        new_m = realloc(new_m, new_c << 16);\n"
-          "        if (new_m == NULL) return UINT32_C(0xFFFFFFF);\n"
+          "        if (new_m == NULL) return UINT32_C(0xFFFFFFFF);\n"
           "        *m = new_m;\n"
           "        *c = new_c;\n"
           "    }\n"
@@ -484,7 +484,6 @@ int main(int argc, char **argv) {
 
     (void)InputStream_skipToSection(&in, WasmSectionId_elem);
     {
-        uint32_t table_i = 0;
         uint32_t len = InputStream_readLeb128_u32(&in);
         fputs("static void init_elem(void) {\n", out);
         for (uint32_t segment_i = 0; segment_i < len; segment_i += 1) {
@@ -518,7 +517,7 @@ int main(int argc, char **argv) {
         for (uint32_t func_i = 0; func_i < len; func_i += 1) {
             FuncGen_reset(&fg);
 
-            uint32_t code_len = InputStream_readLeb128_u32(&in);
+            InputStream_readLeb128_u32(&in);
             const struct FuncType *func_type = &types[funcs[func_i].type_idx];
             fputs("static ", out);
             switch (func_type->result->len) {

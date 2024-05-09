@@ -20,6 +20,9 @@
 #include <__format/format_error.h>
 #include <__format/formatter_output.h>
 #include <__format/parser_std_format_spec.h>
+#include <__iterator/concepts.h>
+#include <__iterator/iterator_traits.h>
+#include <__memory/pointer_traits.h>
 #include <__system_error/errc.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/unreachable.h>
@@ -49,7 +52,9 @@ namespace __formatter {
 // Generic
 //
 
-_LIBCPP_HIDE_FROM_ABI inline char* __insert_sign(char* __buf, bool __negative, __format_spec::__sign __sign) {
+template <contiguous_iterator _Iterator>
+  requires same_as<char, iter_value_t<_Iterator>>
+_LIBCPP_HIDE_FROM_ABI inline _Iterator __insert_sign(_Iterator __buf, bool __negative, __format_spec::__sign __sign) {
   if (__negative)
     *__buf++ = '-';
   else
@@ -85,9 +90,8 @@ _LIBCPP_HIDE_FROM_ABI inline char* __insert_sign(char* __buf, bool __negative, _
  * regardless whether the @c std::numpunct's type is @c char or @c wchar_t.
  */
 _LIBCPP_HIDE_FROM_ABI inline string __determine_grouping(ptrdiff_t __size, const string& __grouping) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(!__grouping.empty() && __size > __grouping[0],
-                               "The slow grouping formatting is used while there will be no "
-                               "separators written");
+  _LIBCPP_ASSERT_INTERNAL(!__grouping.empty() && __size > __grouping[0],
+                          "The slow grouping formatting is used while there will be no separators written");
   string __r;
   auto __end = __grouping.end() - 1;
   auto __ptr = __grouping.begin();
@@ -119,10 +123,10 @@ _LIBCPP_HIDE_FROM_ABI inline string __determine_grouping(ptrdiff_t __size, const
 //
 
 template <__fmt_char_type _CharT>
-_LIBCPP_HIDE_FROM_ABI auto __format_char(
-    integral auto __value,
-    output_iterator<const _CharT&> auto __out_it,
-    __format_spec::__parsed_specifications<_CharT> __specs) -> decltype(__out_it) {
+_LIBCPP_HIDE_FROM_ABI auto
+__format_char(integral auto __value,
+              output_iterator<const _CharT&> auto __out_it,
+              __format_spec::__parsed_specifications<_CharT> __specs) -> decltype(__out_it) {
   using _Tp = decltype(__value);
   if constexpr (!same_as<_CharT, _Tp>) {
     // cmp_less and cmp_greater can't be used for character types.
@@ -141,21 +145,23 @@ _LIBCPP_HIDE_FROM_ABI auto __format_char(
   }
 
   const auto __c = static_cast<_CharT>(__value);
-  return __formatter::__write(_VSTD::addressof(__c), _VSTD::addressof(__c) + 1, _VSTD::move(__out_it), __specs);
+  return __formatter::__write(std::addressof(__c), std::addressof(__c) + 1, std::move(__out_it), __specs);
 }
 
 //
 // Integer
 //
 
-/** Wrapper around @ref to_chars, returning the output pointer. */
-template <integral _Tp>
-_LIBCPP_HIDE_FROM_ABI char* __to_buffer(char* __first, char* __last, _Tp __value, int __base) {
+/** Wrapper around @ref to_chars, returning the output iterator. */
+template <contiguous_iterator _Iterator, integral _Tp>
+  requires same_as<char, iter_value_t<_Iterator>>
+_LIBCPP_HIDE_FROM_ABI _Iterator __to_buffer(_Iterator __first, _Iterator __last, _Tp __value, int __base) {
   // TODO FMT Evaluate code overhead due to not calling the internal function
   // directly. (Should be zero overhead.)
-  to_chars_result __r = _VSTD::to_chars(__first, __last, __value, __base);
-  _LIBCPP_ASSERT_UNCATEGORIZED(__r.ec == errc(0), "Internal buffer too small");
-  return __r.ptr;
+  to_chars_result __r = std::to_chars(std::to_address(__first), std::to_address(__last), __value, __base);
+  _LIBCPP_ASSERT_INTERNAL(__r.ec == errc(0), "Internal buffer too small");
+  auto __diff = __r.ptr - std::to_address(__first);
+  return __first + __diff;
 }
 
 /**
@@ -203,10 +209,16 @@ consteval size_t __buffer_size() noexcept
        + 1;                          // Reserve space for the sign.
 }
 
-template <class _OutIt, class _CharT>
-_LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, const char* __begin, const char* __first,
-                                                              const char* __last, string&& __grouping, _CharT __sep,
-                                                              __format_spec::__parsed_specifications<_CharT> __specs) {
+template <class _OutIt, contiguous_iterator _Iterator, class _CharT>
+  requires same_as<char, iter_value_t<_Iterator>>
+_LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(
+    _OutIt __out_it,
+    _Iterator __begin,
+    _Iterator __first,
+    _Iterator __last,
+    string&& __grouping,
+    _CharT __sep,
+    __format_spec::__parsed_specifications<_CharT> __specs) {
   int __size = (__first - __begin) +    // [sign][prefix]
                (__last - __first) +     // data
                (__grouping.size() - 1); // number of separator characters
@@ -214,28 +226,28 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
   __padding_size_result __padding = {0, 0};
   if (__specs.__alignment_ == __format_spec::__alignment::__zero_padding) {
     // Write [sign][prefix].
-    __out_it = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__begin, __first, std::move(__out_it));
 
     if (__specs.__width_ > __size) {
       // Write zero padding.
       __padding.__before_ = __specs.__width_ - __size;
-      __out_it            = __formatter::__fill(_VSTD::move(__out_it), __specs.__width_ - __size, _CharT('0'));
+      __out_it            = __formatter::__fill(std::move(__out_it), __specs.__width_ - __size, _CharT('0'));
     }
   } else {
     if (__specs.__width_ > __size) {
       // Determine padding and write padding.
       __padding = __formatter::__padding_size(__size, __specs.__width_, __specs.__alignment_);
 
-      __out_it = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+      __out_it = __formatter::__fill(std::move(__out_it), __padding.__before_, __specs.__fill_);
     }
     // Write [sign][prefix].
-    __out_it = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__begin, __first, std::move(__out_it));
   }
 
   auto __r = __grouping.rbegin();
   auto __e = __grouping.rend() - 1;
-  _LIBCPP_ASSERT_UNCATEGORIZED(__r != __e, "The slow grouping formatting is used while "
-                                           "there will be no separators written.");
+  _LIBCPP_ASSERT_INTERNAL(
+      __r != __e, "The slow grouping formatting is used while there will be no separators written.");
   // The output is divided in small groups of numbers to write:
   // - A group before the first separator.
   // - A separator and a group, repeated for the number of separators.
@@ -249,11 +261,11 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
   // hoisting the invariant is worth the effort.
   while (true) {
     if (__specs.__std_.__type_ == __format_spec::__type::__hexadecimal_upper_case) {
-      __last = __first + *__r;
-      __out_it = __formatter::__transform(__first, __last, _VSTD::move(__out_it), __hex_to_upper);
-      __first = __last;
+      __last   = __first + *__r;
+      __out_it = __formatter::__transform(__first, __last, std::move(__out_it), __hex_to_upper);
+      __first  = __last;
     } else {
-      __out_it = __formatter::__copy(__first, *__r, _VSTD::move(__out_it));
+      __out_it = __formatter::__copy(__first, *__r, std::move(__out_it));
       __first += *__r;
     }
 
@@ -264,27 +276,26 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __write_using_decimal_separators(_OutIt __out_it, c
     *__out_it++ = __sep;
   }
 
-  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+  return __formatter::__fill(std::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 
-
-
-template <unsigned_integral _Tp, class _CharT, class _FormatContext>
+template <unsigned_integral _Tp, contiguous_iterator _Iterator, class _CharT, class _FormatContext>
+  requires same_as<char, iter_value_t<_Iterator>>
 _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator __format_integer(
     _Tp __value,
     _FormatContext& __ctx,
     __format_spec::__parsed_specifications<_CharT> __specs,
     bool __negative,
-    char* __begin,
-    char* __end,
+    _Iterator __begin,
+    _Iterator __end,
     const char* __prefix,
     int __base) {
-  char* __first = __formatter::__insert_sign(__begin, __negative, __specs.__std_.__sign_);
+  _Iterator __first = __formatter::__insert_sign(__begin, __negative, __specs.__std_.__sign_);
   if (__specs.__std_.__alternate_form_ && __prefix)
     while (*__prefix)
       *__first++ = *__prefix++;
 
-  char* __last = __formatter::__to_buffer(__first, __end, __value, __base);
+  _Iterator __last = __formatter::__to_buffer(__first, __end, __value, __base);
 
 #  ifndef _LIBCPP_HAS_NO_LOCALIZATION
   if (__specs.__std_.__locale_specific_form_) {
@@ -315,12 +326,12 @@ _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator __format_integer(
     // The zero padding is done like:
     // - Write [sign][prefix]
     // - Write data right aligned with '0' as fill character.
-    __out_it             = __formatter::__copy(__begin, __first, _VSTD::move(__out_it));
-    __specs.__alignment_ = __format_spec::__alignment::__right;
+    __out_it                  = __formatter::__copy(__begin, __first, std::move(__out_it));
+    __specs.__alignment_      = __format_spec::__alignment::__right;
     __specs.__fill_.__data[0] = _CharT('0');
-    int32_t __size       = __first - __begin;
+    int32_t __size            = __first - __begin;
 
-    __specs.__width_ -= _VSTD::min(__size, __specs.__width_);
+    __specs.__width_ -= std::min(__size, __specs.__width_);
   }
 
   if (__specs.__std_.__type_ != __format_spec::__type::__hexadecimal_upper_case) [[likely]]
@@ -365,7 +376,7 @@ __format_integer(_Tp __value,
     return __formatter::__format_integer(__value, __ctx, __specs, __negative, __array.begin(), __array.end(), "0X", 16);
   }
   default:
-    _LIBCPP_ASSERT_UNCATEGORIZED(false, "The parse function should have validated the type");
+    _LIBCPP_ASSERT_INTERNAL(false, "The parse function should have validated the type");
     __libcpp_unreachable();
   }
 }

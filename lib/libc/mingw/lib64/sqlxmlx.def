@@ -6,7 +6,6 @@
 ;
 LIBRARY SQLXMLX.dll
 EXPORTS
-DllMain
 ExecuteToStream
 DllCanUnloadNow
 DllGetClassObject

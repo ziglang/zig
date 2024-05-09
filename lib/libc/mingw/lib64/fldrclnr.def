@@ -7,6 +7,5 @@
 LIBRARY FldrClnr.dll
 EXPORTS
 DllInstall
-DllMain
 DllRegisterServer
 Wizard_RunDLL

@@ -4,7 +4,7 @@ const Order = std.math.Order;
 
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Module = @import("Module.zig");
 const RangeSet = @This();
 const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;

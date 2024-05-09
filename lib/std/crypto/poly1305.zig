@@ -195,7 +195,7 @@ pub const Poly1305 = struct {
     }
 };
 
-test "poly1305 rfc7439 vector1" {
+test "rfc7439 vector1" {
     const expected_mac = "\xa8\x06\x1d\xc1\x30\x51\x36\xc6\xc2\x2b\x8b\xaf\x0c\x01\x27\xa9";
 
     const msg = "Cryptographic Forum Research Group";
@@ -208,7 +208,7 @@ test "poly1305 rfc7439 vector1" {
     try std.testing.expectEqualSlices(u8, expected_mac, &mac);
 }
 
-test "poly1305 requiring a final reduction" {
+test "requiring a final reduction" {
     const expected_mac = [_]u8{ 25, 13, 249, 42, 164, 57, 99, 60, 149, 181, 74, 74, 13, 63, 121, 6 };
     const msg = [_]u8{ 253, 193, 249, 146, 70, 6, 214, 226, 131, 213, 241, 116, 20, 24, 210, 224, 65, 151, 255, 104, 133 };
     const key = [_]u8{ 190, 63, 95, 57, 155, 103, 77, 170, 7, 98, 106, 44, 117, 186, 90, 185, 109, 118, 184, 24, 69, 41, 166, 243, 119, 132, 151, 61, 52, 43, 64, 250 };

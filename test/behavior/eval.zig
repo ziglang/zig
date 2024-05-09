@@ -489,7 +489,6 @@ test "comptime bitwise operators" {
 
 test "comptime shlWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const ct_shifted = @shlWithOverflow(~@as(u64, 0), 16)[0];
     var a = ~@as(u64, 0);
@@ -522,7 +521,7 @@ test "runtime 128 bit integer division" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     var a: u128 = 152313999999999991610955792383;
     var b: u128 = 10000000000000000000;
@@ -1212,7 +1211,7 @@ test "storing an array of type in a field" {
 
     const S = struct {
         fn doTheTest() void {
-            comptime var foobar = Foobar.foo();
+            const foobar = Foobar.foo();
             foo(foobar.str[0..10]);
         }
         const Foobar = struct {
@@ -1714,4 +1713,22 @@ test "const with specified type initialized with typed array is comptime-known" 
     comptime assert(x[0] == 1);
     comptime assert(x[1] == 2);
     comptime assert(x[2] == 3);
+}
+
+test "block with comptime-known result but possible runtime exit is comptime-known" {
+    var t: bool = true;
+    _ = &t;
+
+    const a: comptime_int = a: {
+        if (!t) return error.TestFailed;
+        break :a 123;
+    };
+
+    const b: comptime_int = b: {
+        if (t) break :b 456;
+        return error.TestFailed;
+    };
+
+    comptime assert(a == 123);
+    comptime assert(b == 456);
 }

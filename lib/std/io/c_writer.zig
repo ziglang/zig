@@ -2,7 +2,6 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const io = std.io;
 const testing = std.testing;
-const os = std.os;
 
 pub const CWriter = io.Writer(*std.c.FILE, std.fs.File.WriteError, cWriterWrite);
 
@@ -13,7 +12,7 @@ pub fn cWriter(c_file: *std.c.FILE) CWriter {
 fn cWriterWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!usize {
     const amt_written = std.c.fwrite(bytes.ptr, 1, bytes.len, c_file);
     if (amt_written >= 0) return amt_written;
-    switch (@as(os.E, @enumFromInt(std.c._errno().*))) {
+    switch (@as(std.c.E, @enumFromInt(std.c._errno().*))) {
         .SUCCESS => unreachable,
         .INVAL => unreachable,
         .FAULT => unreachable,
@@ -26,11 +25,11 @@ fn cWriterWrite(c_file: *std.c.FILE, bytes: []const u8) std.fs.File.WriteError!u
         .NOSPC => return error.NoSpaceLeft,
         .PERM => return error.AccessDenied,
         .PIPE => return error.BrokenPipe,
-        else => |err| return os.unexpectedErrno(err),
+        else => |err| return std.posix.unexpectedErrno(err),
     }
 }
 
-test "C Writer" {
+test cWriter {
     if (!builtin.link_libc or builtin.os.tag == .wasi) return error.SkipZigTest;
 
     const filename = "tmp_io_test_file.txt";

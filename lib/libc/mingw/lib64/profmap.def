@@ -6,7 +6,6 @@
 ;
 LIBRARY PROFMAP.dll
 EXPORTS
-DllMain
 InitializeProfileMappingApi
 RemapAndMoveUserA
 RemapAndMoveUserW

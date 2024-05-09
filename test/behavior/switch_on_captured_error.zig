@@ -5,6 +5,8 @@ const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
 test "switch on error union catch capture" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const Error = error{ A, B, C };
         fn doTheTest() !void {
@@ -257,6 +259,8 @@ test "switch on error union catch capture" {
 }
 
 test "switch on error union if else capture" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const Error = error{ A, B, C };
         fn doTheTest() !void {

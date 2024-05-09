@@ -155,7 +155,7 @@ namespace std {
 #include <__config>
 #include <version>
 
-#if _LIBCPP_STD_VER <= 20 && !defined(_LIPCPP_REMOVE_TRANSITIVE_INCLUDES)
+#if _LIBCPP_STD_VER <= 20 && !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES)
 #  include <type_traits>
 #endif
 

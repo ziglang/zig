@@ -17,7 +17,8 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class ..._Tp> struct __tuple_types {};
+template <class... _Tp>
+struct __tuple_types {};
 
 _LIBCPP_END_NAMESPACE_STD
 

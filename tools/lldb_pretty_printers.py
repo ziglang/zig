@@ -351,7 +351,10 @@ def InstRef_SummaryProvider(value, _=None):
     return value if any(value.unsigned == member.unsigned for member in value.type.enum_members) else (
         'InternPool.Index(%d)' % value.unsigned if value.unsigned < 0x80000000 else 'instructions[%d]' % (value.unsigned - 0x80000000))
 
-class Module_Decl__Module_Decl_Index_SynthProvider:
+def InstIndex_SummaryProvider(value, _=None):
+    return 'instructions[%d]' % value.unsigned
+
+class zig_DeclIndex_SynthProvider:
     def __init__(self, value, _=None): self.value = value
     def update(self):
         try:
@@ -422,7 +425,7 @@ def InternPool_Find(thread):
     for frame in thread:
         ip = frame.FindVariable('ip') or frame.FindVariable('intern_pool')
         if ip: return ip
-        mod = frame.FindVariable('mod') or frame.FindVariable('module')
+        mod = frame.FindVariable('zcu') or frame.FindVariable('mod') or frame.FindVariable('module')
         if mod:
             ip = mod.GetChildMemberWithName('intern_pool')
             if ip: return ip
@@ -614,7 +617,7 @@ type_tag_handlers = {
 
 def value_Value_str_lit(payload):
     for frame in payload.thread:
-        mod = frame.FindVariable('mod') or frame.FindVariable('module')
+        mod = frame.FindVariable('zcu') or frame.FindVariable('mod') or frame.FindVariable('module')
         if mod: break
     else: return
     return '"%s"' % zig_String_decode(mod.GetChildMemberWithName('string_literal_bytes').GetChildMemberWithName('items'), payload.GetChildMemberWithName('index').unsigned, payload.GetChildMemberWithName('len').unsigned)
@@ -705,11 +708,13 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
     add(debugger, category='zig.stage2', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
-    add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)
+    add(debugger, category='zig.stage2', type='zig.DeclIndex', synth=True)
     add(debugger, category='zig.stage2', type='Module.Namespace::Module.Namespace.Index', synth=True)
     add(debugger, category='zig.stage2', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Index', synth=True)

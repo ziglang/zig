@@ -1119,6 +1119,7 @@ test "@unionInit on union with tag but no fields" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
@@ -1531,7 +1532,7 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = packed union {
-        tag: enum { a, b },
+        tag: enum(u8) { a, b },
         val: u8,
 
         fn doTest() !void {
@@ -1643,7 +1644,6 @@ test "undefined-layout union field pointer has correct alignment" {
 }
 
 test "packed union field pointer has correct alignment" {
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1745,7 +1745,10 @@ fn littleToNativeEndian(comptime T: type, v: T) T {
 }
 
 test "reinterpret extern union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (true) {
+        // https://github.com/ziglang/zig/issues/19389
+        return error.SkipZigTest;
+    }
 
     const U = extern union {
         foo: u8,
@@ -1847,9 +1850,8 @@ test "reinterpret packed union" {
 
             {
                 // Union initialization
-                var u: U = .{
-                    .qux = 0xe2a,
-                };
+                var u: U = .{ .baz = 0 }; // ensure all bits are defined
+                u.qux = 0xe2a;
                 try expectEqual(@as(u8, 0x2a), u.foo);
                 try expectEqual(@as(u12, 0xe2a), u.qux);
                 try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
@@ -2059,7 +2061,6 @@ test "store of comptime reinterpreted memory to packed union" {
 
 test "union field is a pointer to an aligned version of itself" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = union {
         next: *align(1) @This(),
@@ -2181,6 +2182,7 @@ test "create union(enum) from other union(enum)" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const string = "hello world";
     const TempRef = struct {
@@ -2271,4 +2273,53 @@ test "create union(enum) from other union(enum)" {
         },
         else => {},
     }
+}
+
+test "matching captures causes union equivalence" {
+    const S = struct {
+        fn SignedUnsigned(comptime I: type) type {
+            const bits = @typeInfo(I).Int.bits;
+            return union {
+                u: @Type(.{ .Int = .{
+                    .signedness = .unsigned,
+                    .bits = bits,
+                } }),
+                i: @Type(.{ .Int = .{
+                    .signedness = .signed,
+                    .bits = bits,
+                } }),
+            };
+        }
+    };
+
+    comptime assert(S.SignedUnsigned(u8) == S.SignedUnsigned(i8));
+    comptime assert(S.SignedUnsigned(u16) == S.SignedUnsigned(i16));
+    comptime assert(S.SignedUnsigned(u8) != S.SignedUnsigned(u16));
+
+    const a: S.SignedUnsigned(u8) = .{ .u = 10 };
+    const b: S.SignedUnsigned(i8) = .{ .u = 10 };
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try expect(a.u == b.u);
+}
+
+test "signed enum tag with negative value" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Enum = enum(i8) {
+        a = -1,
+    };
+
+    const Union = union(Enum) {
+        a: i32,
+    };
+
+    var i: i32 = 0;
+    i = i;
+    const e = Union{ .a = i };
+
+    try expect(e.a == i);
 }

@@ -1,3 +1,4 @@
+#define _CRT_RAND_S
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -25,6 +26,7 @@
 int __cdecl mkstemp (char *template_name)
 {
     int i, j, fd, len, index;
+    unsigned int r;
 
     /* These are the (62) characters used in temporary filenames. */
     static const char letters[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -45,7 +47,9 @@ int __cdecl mkstemp (char *template_name)
      */
     for (i = 0; i >= 0; i++) {
         for(j = index; j < len; j++) {
-            template_name[j] = letters[rand () % 62];
+            if (rand_s(&r))
+                r = rand();
+            template_name[j] = letters[r % 62];
         }
         fd = _sopen(template_name,
                 _O_RDWR | _O_CREAT | _O_EXCL | _O_BINARY,

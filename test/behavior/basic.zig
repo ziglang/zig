@@ -693,31 +693,6 @@ test "string concatenation" {
     try expect(b[len] == 0);
 }
 
-fn manyptrConcat(comptime s: [*:0]const u8) [*:0]const u8 {
-    return "very " ++ s;
-}
-
-test "comptime manyptr concatenation" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const s = "epic";
-    const actual = manyptrConcat(s);
-    const expected = "very epic";
-
-    const len = mem.len(actual);
-    const len_with_null = len + 1;
-    {
-        var i: u32 = 0;
-        while (i < len_with_null) : (i += 1) {
-            try expect(actual[i] == expected[i]);
-        }
-    }
-    try expect(actual[len] == 0);
-    try expect(expected[len] == 0);
-}
-
 test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -756,8 +731,8 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     @export(var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
@@ -1037,33 +1012,6 @@ test "inline call of function with a switch inside the return statement" {
         }
     };
     try expect(S.foo(1) == 1);
-}
-
-test "namespace lookup ignores decl causing the lookup" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm) {
-        // regressed with LLVM 15
-        // https://github.com/ziglang/zig/issues/12681
-        return error.SkipZigTest;
-    }
-
-    const S = struct {
-        fn Mixin(comptime T: type) type {
-            return struct {
-                fn foo() void {
-                    const set = std.EnumSet(T.E).init(undefined);
-                    _ = set;
-                }
-            };
-        }
-
-        const E = enum { a, b };
-        usingnamespace Mixin(@This());
-    };
-    _ = S.foo();
 }
 
 test "ambiguous reference error ignores current declaration" {

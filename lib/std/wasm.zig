@@ -201,7 +201,7 @@ pub fn opcode(op: Opcode) u8 {
     return @intFromEnum(op);
 }
 
-test "Wasm - opcodes" {
+test "opcodes" {
     // Ensure our opcodes values remain intact as certain values are skipped due to them being reserved
     const i32_const = opcode(.i32_const);
     const end = opcode(.end);
@@ -518,7 +518,7 @@ pub fn simdOpcode(op: SimdOpcode) u32 {
     return @intFromEnum(op);
 }
 
-/// Simd opcodes that require a prefix `0xFE`.
+/// Atomic opcodes that require a prefix `0xFE`.
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
 pub const AtomicsOpcode = enum(u32) {
@@ -625,7 +625,7 @@ pub fn reftype(value: RefType) u8 {
     return @intFromEnum(value);
 }
 
-test "Wasm - valtypes" {
+test "valtypes" {
     const _i32 = valtype(.i32);
     const _i64 = valtype(.i64);
     const _f32 = valtype(.f32);

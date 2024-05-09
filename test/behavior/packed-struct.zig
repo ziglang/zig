@@ -660,7 +660,7 @@ test "nested packed struct field access test" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const Vec2 = packed struct {
         x: f32,
@@ -1025,7 +1025,7 @@ test "modify nested packed struct aligned field" {
         pretty_print: packed struct {
             enabled: bool = false,
             num_spaces: u4 = 4,
-            space_char: enum { space, tab } = .space,
+            space_char: enum(u1) { space, tab } = .space,
             indent: u8 = 0,
         } = .{},
         baz: bool = false,
@@ -1125,15 +1125,12 @@ test "pointer loaded correctly from packed struct" {
             }
         }
     };
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) {
-        // Careful enabling this test, fails randomly.
-        return error.SkipZigTest;
-    }
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // crashes MSVC
 
     var ram = try RAM.new();
     var cpu = try CPU.new(&ram);
@@ -1246,5 +1243,34 @@ test "bitcasting a packed struct at comptime and using the result" {
         };
 
         _ = Struct.bitcast(@as(u64, 0)).cannotReach();
+    }
+}
+
+test "2-byte packed struct argument in C calling convention" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = packed struct(u16) {
+        x: u15 = 0,
+        y: u1 = 0,
+
+        fn foo(s: @This()) callconv(.C) i32 {
+            return s.x;
+        }
+        fn bar(s: @This()) !void {
+            try expect(foo(s) == 1);
+        }
+    };
+    {
+        var s: S = .{};
+        s.x += 1;
+        try S.bar(s);
+    }
+    comptime {
+        var s: S = .{};
+        s.x += 1;
+        try S.bar(s);
     }
 }

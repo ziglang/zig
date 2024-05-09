@@ -58,7 +58,7 @@ pub const TestResults = struct {
     }
 };
 
-pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
+pub const MakeFn = *const fn (step: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
 pub const State = enum {
     precheck_unstarted,
@@ -201,8 +201,8 @@ pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkip
     }
 }
 
-pub fn dependOn(self: *Step, other: *Step) void {
-    self.dependencies.append(other) catch @panic("OOM");
+pub fn dependOn(step: *Step, other: *Step) void {
+    step.dependencies.append(other) catch @panic("OOM");
 }
 
 pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
@@ -231,7 +231,7 @@ fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
     if (step.id == T.base_id) {
-        return @fieldParentPtr(T, "step", step);
+        return @fieldParentPtr("step", step);
     }
     return null;
 }
@@ -314,7 +314,7 @@ pub fn evalZigProcess(
     try handleVerbose(s.owner, null, argv);
 
     var child = std.ChildProcess.init(argv, arena);
-    child.env_map = b.env_map;
+    child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -544,7 +544,7 @@ pub fn cacheHit(s: *Step, man: *std.Build.Cache.Manifest) !bool {
 
 fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyerror) anyerror {
     const i = man.failed_file_index orelse return err;
-    const pp = man.files.items[i].prefixed_path orelse return err;
+    const pp = man.files.keys()[i].prefixed_path;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }

@@ -15,9 +15,7 @@ pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return Complex(T).init(z.re, z.im);
 }
 
-const epsilon = 0.0001;
-
-test "complex.cproj" {
+test proj {
     const a = Complex(f32).init(5, 3);
     const c = proj(a);
 

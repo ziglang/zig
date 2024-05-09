@@ -11,4 +11,5 @@ fn concat() [16]f32 {
 // target=native
 //
 // :3:17: error: expected type '[4]f32', found '[16]f32'
-// :3:17: note: array of length 16 cannot cast into an array of length 4
+// :3:17: note: destination has length 4
+// :3:17: note: source has length 16

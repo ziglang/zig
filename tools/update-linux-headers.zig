@@ -275,7 +275,7 @@ pub fn main() !void {
             // worth it to make it generic
             const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(full_path, best_contents.bytes);
+            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = best_contents.bytes });
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
@@ -301,7 +301,7 @@ pub fn main() !void {
             const out_subpath = try std.fmt.allocPrint(arena, "{s}-linux-any", .{arch_name});
             const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(full_path, contents.bytes);
+            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = contents.bytes });
         }
     }
 

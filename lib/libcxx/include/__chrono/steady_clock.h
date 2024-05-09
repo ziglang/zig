@@ -20,20 +20,18 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-namespace chrono
-{
+namespace chrono {
 
 #ifndef _LIBCPP_HAS_NO_MONOTONIC_CLOCK
-class _LIBCPP_EXPORTED_FROM_ABI steady_clock
-{
+class _LIBCPP_EXPORTED_FROM_ABI steady_clock {
 public:
-    typedef nanoseconds                                   duration;
-    typedef duration::rep                                 rep;
-    typedef duration::period                              period;
-    typedef chrono::time_point<steady_clock, duration>    time_point;
-    static _LIBCPP_CONSTEXPR_SINCE_CXX14 const bool is_steady = true;
+  typedef nanoseconds duration;
+  typedef duration::rep rep;
+  typedef duration::period period;
+  typedef chrono::time_point<steady_clock, duration> time_point;
+  static _LIBCPP_CONSTEXPR_SINCE_CXX14 const bool is_steady = true;
 
-    static time_point now() _NOEXCEPT;
+  static time_point now() _NOEXCEPT;
 };
 #endif
 

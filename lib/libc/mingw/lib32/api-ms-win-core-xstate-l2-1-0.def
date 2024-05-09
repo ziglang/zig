@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-core-xstate-l2-1-0
+
+EXPORTS
+
+CopyContext@12
+GetEnabledXStateFeatures@0
+GetXStateFeaturesMask@8
+InitializeContext@16
+LocateXStateFeature@12
+SetXStateFeaturesMask@12

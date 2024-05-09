@@ -29,7 +29,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const struct_type = mod.typeToStruct(ty).?;
-            if (struct_type.layout == .Packed) {
+            if (struct_type.layout == .@"packed") {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
@@ -45,7 +45,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             }
             return classifyType(field_ty, mod);
         },
-        .Int, .Enum, .ErrorSet, .Vector => {
+        .Int, .Enum, .ErrorSet => {
             const int_bits = ty.intInfo(mod).bits;
             if (int_bits <= 64) return direct;
             if (int_bits <= 128) return .{ .direct, .direct };
@@ -58,6 +58,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             return memory;
         },
         .Bool => return direct,
+        .Vector => return direct,
         .Array => return memory,
         .Optional => {
             assert(ty.isPtrLikeOptional(mod));
@@ -69,13 +70,13 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) == .Packed) {
+            if (union_obj.getLayout(ip) == .@"packed") {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
             const layout = ty.unionGetLayout(mod);
             assert(layout.tag_size == 0);
-            if (union_obj.field_names.len > 1) return memory;
+            if (union_obj.field_types.len > 1) return memory;
             const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
             return classifyType(first_field_ty, mod);
         },
@@ -112,7 +113,7 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) != .Packed) {
+            if (union_obj.getLayout(ip) != .@"packed") {
                 const layout = mod.getUnionLayout(union_obj);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
                     return scalarType(ty.unionTagTypeSafety(mod).?, mod);

@@ -6,169 +6,6 @@ const Feature = @import("Module.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
-pub const ArchOsAbi = struct {
-    arch: std.Target.Cpu.Arch,
-    os: std.Target.Os.Tag,
-    abi: std.Target.Abi,
-    os_ver: ?std.SemanticVersion = null,
-
-    // Minimum glibc version that provides support for the arch/os when ABI is GNU.
-    glibc_min: ?std.SemanticVersion = null,
-};
-
-pub const available_libcs = [_]ArchOsAbi{
-    .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
-    .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
-    .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .linux, .abi = .musl },
-    .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
-    .{ .arch = .armeb, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
-    .{ .arch = .armeb, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .armeb, .os = .windows, .abi = .gnu },
-    .{ .arch = .arm, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .arm, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .arm, .os = .linux, .abi = .musleabi },
-    .{ .arch = .arm, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .thumb, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .thumb, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .thumb, .os = .linux, .abi = .musleabi },
-    .{ .arch = .thumb, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .arm, .os = .windows, .abi = .gnu },
-    .{ .arch = .csky, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .csky, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .x86, .os = .linux, .abi = .gnu },
-    .{ .arch = .x86, .os = .linux, .abi = .musl },
-    .{ .arch = .x86, .os = .windows, .abi = .gnu },
-    .{ .arch = .m68k, .os = .linux, .abi = .gnu },
-    .{ .arch = .m68k, .os = .linux, .abi = .musl },
-    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabi64 },
-    .{ .arch = .mips64el, .os = .linux, .abi = .gnuabin32 },
-    .{ .arch = .mips64el, .os = .linux, .abi = .musl },
-    .{ .arch = .mips64, .os = .linux, .abi = .gnuabi64 },
-    .{ .arch = .mips64, .os = .linux, .abi = .gnuabin32 },
-    .{ .arch = .mips64, .os = .linux, .abi = .musl },
-    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .mipsel, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .mipsel, .os = .linux, .abi = .musl },
-    .{ .arch = .mips, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .mips, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .mips, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc64le, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 19, .patch = 0 } },
-    .{ .arch = .powerpc64le, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc64, .os = .linux, .abi = .gnu },
-    .{ .arch = .powerpc64, .os = .linux, .abi = .musl },
-    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
-    .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
-    .{ .arch = .powerpc, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 } },
-    .{ .arch = .riscv64, .os = .linux, .abi = .musl },
-    .{ .arch = .s390x, .os = .linux, .abi = .gnu },
-    .{ .arch = .s390x, .os = .linux, .abi = .musl },
-    .{ .arch = .sparc, .os = .linux, .abi = .gnu },
-    .{ .arch = .sparc64, .os = .linux, .abi = .gnu },
-    .{ .arch = .wasm32, .os = .freestanding, .abi = .musl },
-    .{ .arch = .wasm32, .os = .wasi, .abi = .musl },
-    .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .linux, .abi = .gnux32 },
-    .{ .arch = .x86_64, .os = .linux, .abi = .musl },
-    .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
-    .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
-};
-
-pub fn libCGenericName(target: std.Target) [:0]const u8 {
-    switch (target.os.tag) {
-        .windows => return "mingw",
-        .macos, .ios, .tvos, .watchos => return "darwin",
-        else => {},
-    }
-    switch (target.abi) {
-        .gnu,
-        .gnuabin32,
-        .gnuabi64,
-        .gnueabi,
-        .gnueabihf,
-        .gnuf32,
-        .gnuf64,
-        .gnusf,
-        .gnux32,
-        .gnuilp32,
-        => return "glibc",
-        .musl,
-        .musleabi,
-        .musleabihf,
-        .muslx32,
-        .none,
-        => return "musl",
-        .code16,
-        .eabi,
-        .eabihf,
-        .android,
-        .msvc,
-        .itanium,
-        .cygnus,
-        .coreclr,
-        .simulator,
-        .macabi,
-        => unreachable,
-
-        .pixel,
-        .vertex,
-        .geometry,
-        .hull,
-        .domain,
-        .compute,
-        .library,
-        .raygeneration,
-        .intersection,
-        .anyhit,
-        .closesthit,
-        .miss,
-        .callable,
-        .mesh,
-        .amplification,
-        => unreachable,
-    }
-}
-
-pub fn osArchName(target: std.Target) [:0]const u8 {
-    return switch (target.os.tag) {
-        .linux => switch (target.cpu.arch) {
-            .arm, .armeb, .thumb, .thumbeb => "arm",
-            .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
-            .mips, .mipsel, .mips64, .mips64el => "mips",
-            .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
-            .riscv32, .riscv64 => "riscv",
-            .sparc, .sparcel, .sparc64 => "sparc",
-            .x86, .x86_64 => "x86",
-            else => @tagName(target.cpu.arch),
-        },
-        else => @tagName(target.cpu.arch),
-    };
-}
-
-pub fn canBuildLibC(target: std.Target) bool {
-    for (available_libcs) |libc| {
-        if (target.cpu.arch == libc.arch and target.os.tag == libc.os and target.abi == libc.abi) {
-            if (target.os.tag == .macos) {
-                const ver = target.os.version_range.semver;
-                return ver.min.order(libc.os_ver.?) != .lt;
-            }
-            // Ensure glibc (aka *-linux-gnu) version is supported
-            if (target.isGnuLibC()) {
-                const min_glibc_ver = libc.glibc_min orelse return true;
-                const target_glibc_ver = target.os.version_range.linux.glibc;
-                return target_glibc_ver.order(min_glibc_ver) != .lt;
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
         .freestanding, .other => true,
@@ -222,10 +59,15 @@ pub fn alwaysSingleThreaded(target: std.Target) bool {
 }
 
 pub fn defaultSingleThreaded(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => true,
-        else => false,
-    };
+    switch (target.cpu.arch) {
+        .wasm32, .wasm64 => return true,
+        else => {},
+    }
+    switch (target.os.tag) {
+        .haiku => return true,
+        else => {},
+    }
+    return false;
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
@@ -317,6 +159,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv,
         .spirv32,
         .spirv64,
         .kalimba,
@@ -464,6 +307,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lroot",
             "-lpthread",
             "-lc",
+            "-lnetwork",
         },
         else => switch (target.abi) {
             .android => &[_][]const u8{
@@ -687,7 +531,7 @@ pub fn backendSupportsFeature(
         .error_return_trace => use_llvm,
         .is_named_enum_value => use_llvm,
         .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => use_llvm,
+        .field_reordering => ofmt == .c or use_llvm,
         .safety_checked_instructions => use_llvm,
     };
 }

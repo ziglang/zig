@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-sysinfo-l1-2-4
+
+EXPORTS
+
+GetSystemTimeAdjustmentPrecise
+SetSystemTimeAdjustmentPrecise

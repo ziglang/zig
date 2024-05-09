@@ -15,7 +15,6 @@ ConnectToPrinterDlg
 ConnectToPrinterPropertyPage
 DllCanUnloadNow
 DllGetClassObject
-DllMain
 GetLegacyPrintUI
 PrintNotifyTray_Exit
 PrintNotifyTray_Init

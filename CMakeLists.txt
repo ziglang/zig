@@ -36,7 +36,7 @@ project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 12)
+set(ZIG_VERSION_MINOR 13)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -92,6 +92,12 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
+if(APPLE AND ZIG_STATIC)
+  set(ZIG_STATIC_CURSES on)
+else()
+  set(ZIG_STATIC_CURSES off)
+endif()
+set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache")
 
 if(ZIG_USE_CCACHE)
@@ -109,6 +115,8 @@ endif()
 
 set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for")
 set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
+set(ZIG_TARGET_DYNAMIC_LINKER "" CACHE STRING
+  "Override the dynamic linker used by the Zig binary. Default is to auto-detect the dynamic linker.")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_AR_WORKAROUND off CACHE BOOL "append 'ar' subcommand to CMAKE_AR")
 
@@ -132,9 +140,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 17)
-find_package(clang 17)
-find_package(lld 17)
+find_package(llvm 18)
+find_package(clang 18)
+find_package(lld 18)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -158,7 +166,7 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
-if(APPLE AND ZIG_STATIC)
+if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
       PATHS
@@ -220,7 +228,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/c/linux.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/child_process.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/coff.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/comptime_string_map.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/static_string_map.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto/blake3.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/crypto/siphash.zig"
@@ -233,14 +241,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/dwarf/OP.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/dwarf/TAG.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/elf.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/event.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/event/batch.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/event/loop.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fifo.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fmt.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/fmt/errol.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/fmt/errol/enum3.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/fmt/errol/lookup.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/fmt/format_float.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fmt/parse_float.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/AtomicFile.zig"
@@ -265,7 +268,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/io/limited_reader.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/Reader.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/io/seekable_stream.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/io/writer.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/io/Writer.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/json.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/json/stringify.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/leb128.zig"
@@ -291,10 +294,10 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/multi_array_list.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/os/linux/errno/generic.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux/x86_64.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/os/linux/io_uring.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/os/linux/IoUring.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/os/linux/io_uring_sqe.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/linux/x86_64.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/windows.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/os/windows/ntstatus.zig"
@@ -302,7 +305,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/Progress.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/pdb.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/process.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/rand.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Random.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sort.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/absv.zig"
@@ -508,55 +511,69 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/unicode.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Ast.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/AstGen.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/AstRlAnnotate.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/c_builtins.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/LibCInstallation.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Parse.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/Server.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/WindowsSdk.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/Zir.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/c_builtins.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/zig/render.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/string_literal.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/NativePaths.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/system/x86.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/zig/tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/Air.zig"
-    "${CMAKE_SOURCE_DIR}/src/AstGen.zig"
+    "${CMAKE_SOURCE_DIR}/src/Builtin.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation.zig"
     "${CMAKE_SOURCE_DIR}/src/Compilation/Config.zig"
+    "${CMAKE_SOURCE_DIR}/src/DarwinPosixSpawn.zig"
+    "${CMAKE_SOURCE_DIR}/src/InternPool.zig"
     "${CMAKE_SOURCE_DIR}/src/Liveness.zig"
+    "${CMAKE_SOURCE_DIR}/src/Liveness/Verify.zig"
     "${CMAKE_SOURCE_DIR}/src/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/Package.zig"
     "${CMAKE_SOURCE_DIR}/src/Package/Fetch.zig"
+    "${CMAKE_SOURCE_DIR}/src/Package/Fetch/git.zig"
+    "${CMAKE_SOURCE_DIR}/src/Package/Manifest.zig"
+    "${CMAKE_SOURCE_DIR}/src/Package/Module.zig"
     "${CMAKE_SOURCE_DIR}/src/RangeSet.zig"
     "${CMAKE_SOURCE_DIR}/src/Sema.zig"
-    "${CMAKE_SOURCE_DIR}/src/TypedValue.zig"
-    "${CMAKE_SOURCE_DIR}/src/Zir.zig"
+    "${CMAKE_SOURCE_DIR}/src/Sema/bitcast.zig"
+    "${CMAKE_SOURCE_DIR}/src/Sema/comptime_ptr_access.zig"
+    "${CMAKE_SOURCE_DIR}/src/Value.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/Mir.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/aarch64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/aarch64/abi.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/aarch64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/arm/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/arm/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/arm/Mir.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/arm/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/arm/abi.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/arm/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/riscv64/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/riscv64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/riscv64/Mir.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/riscv64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/riscv64/abi.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/riscv64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/sparc64/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/sparc64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/sparc64/Mir.zig"
-    "${CMAKE_SOURCE_DIR}/src/arch/sparc64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/sparc64/abi.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/sparc64/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/wasm/Mir.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/wasm/abi.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86/bits.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/CodeGen.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Disassembler.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Emit.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Encoding.zig"
+    "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Lower.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/Mir.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/abi.zig"
     "${CMAKE_SOURCE_DIR}/src/arch/x86_64/bits.zig"
@@ -567,12 +584,21 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/clang_options_data.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/c.zig"
-    "${CMAKE_SOURCE_DIR}/src/codegen/c/type.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/c/Type.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/llvm/BitcodeReader.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/llvm/Builder.zig"
     "${CMAKE_SOURCE_DIR}/src/codegen/llvm/bindings.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/llvm/bitcode_writer.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/llvm/ir.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/spirv.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/spirv/Assembler.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/spirv/Module.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/spirv/Section.zig"
+    "${CMAKE_SOURCE_DIR}/src/codegen/spirv/spec.zig"
+    "${CMAKE_SOURCE_DIR}/src/crash_report.zig"
     "${CMAKE_SOURCE_DIR}/src/glibc.zig"
     "${CMAKE_SOURCE_DIR}/src/introspect.zig"
-    "${CMAKE_SOURCE_DIR}/src/libc_installation.zig"
     "${CMAKE_SOURCE_DIR}/src/libcxx.zig"
     "${CMAKE_SOURCE_DIR}/src/libtsan.zig"
     "${CMAKE_SOURCE_DIR}/src/libunwind.zig"
@@ -582,7 +608,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Atom.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/ImportTable.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Coff/Relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/lld.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Dwarf.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Archive.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/Atom.zig"
@@ -595,7 +623,11 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Elf/eh_frame.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/file.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/gc.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/merge_section.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/relocatable.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/synthetic_sections.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/thunks.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Atom.zig"
@@ -610,9 +642,9 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/UnwindInfo.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/ZigObject.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dead_strip.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Rebase.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/Trie.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/MachO/dyld_info/bind.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/eh_frame.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/fat.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/file.zig"
@@ -622,33 +654,47 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/MachO/synthetic.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/thunks.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/uuid.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/NvPtx.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Plan9/aout.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/msdos-stub.bin"
+    "${CMAKE_SOURCE_DIR}/src/link/SpirV.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/SpirV/BinaryModule.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/SpirV/deduplicate.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/SpirV/lower_invocation_globals.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/SpirV/prune_unused.zig"
     "${CMAKE_SOURCE_DIR}/src/link/StringTable.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/Archive.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/Atom.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/Object.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/Symbol.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/ZigObject.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/file.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Wasm/types.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/aarch64.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/riscv.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/table_section.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/Tokenizer.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/parse.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/tapi/parse/test.zig"
     "${CMAKE_SOURCE_DIR}/src/link/tapi/yaml.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/tapi/yaml/test.zig"
     "${CMAKE_SOURCE_DIR}/src/main.zig"
     "${CMAKE_SOURCE_DIR}/src/mingw.zig"
     "${CMAKE_SOURCE_DIR}/src/musl.zig"
+    "${CMAKE_SOURCE_DIR}/src/mutable_value.zig"
     "${CMAKE_SOURCE_DIR}/src/print_air.zig"
     "${CMAKE_SOURCE_DIR}/src/print_env.zig"
     "${CMAKE_SOURCE_DIR}/src/print_targets.zig"
+    "${CMAKE_SOURCE_DIR}/src/print_value.zig"
     "${CMAKE_SOURCE_DIR}/src/print_zir.zig"
     "${CMAKE_SOURCE_DIR}/src/register_manager.zig"
     "${CMAKE_SOURCE_DIR}/src/target.zig"
     "${CMAKE_SOURCE_DIR}/src/tracy.zig"
     "${CMAKE_SOURCE_DIR}/src/translate_c.zig"
-    "${CMAKE_SOURCE_DIR}/src/translate_c/ast.zig"
     "${CMAKE_SOURCE_DIR}/src/type.zig"
-    "${CMAKE_SOURCE_DIR}/src/value.zig"
     "${CMAKE_SOURCE_DIR}/src/wasi_libc.zig"
-    "${CMAKE_SOURCE_DIR}/src/windows_sdk.zig"
-    "${CMAKE_SOURCE_DIR}/src/stubs/aro_builtins.zig"
-    "${CMAKE_SOURCE_DIR}/src/stubs/aro_names.zig"
 )
 
 if(MSVC)
@@ -681,7 +727,7 @@ if(MSVC)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
   endif()
 else()
-  set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Werror=type-limits -Wno-missing-braces -Wno-comment")
+  set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-type-limits -Wno-missing-braces -Wno-comment")
   set(EXE_LDFLAGS " ")
   if(MINGW)
     set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
@@ -823,18 +869,7 @@ set(BUILD_ZIG2_ARGS
   --dep "aro"
   --mod "root" "src/main.zig"
   --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro_options" "src/stubs/aro_options.zig"
-  --mod "Builtins/Builtin.def" "src/stubs/aro_builtins.zig"
-  --mod "Attribute/names.def" "src/stubs/aro_names.zig"
-  --mod "Diagnostics/messages.def" "src/stubs/aro_messages.zig"
-  --dep "build_options=aro_options"
-  --mod "aro_backend" "deps/aro/backend.zig"
-  --dep "Builtins/Builtin.def"
-  --dep "Attribute/names.def"
-  --dep "Diagnostics/messages.def"
-  --dep "build_options=aro_options"
-  --dep "backend=aro_backend"
-  --mod "aro" "deps/aro/aro.zig"
+  --mod "aro" "lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(
@@ -873,9 +908,9 @@ target_include_directories(zig2 PUBLIC "${CMAKE_SOURCE_DIR}/stage1")
 target_link_libraries(zig2 LINK_PUBLIC zigcpp)
 
 if(MSVC)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll.lib ws2_32.lib)
 elseif(MINGW)
-  target_link_libraries(zig2 LINK_PUBLIC ntdll)
+  target_link_libraries(zig2 LINK_PUBLIC ntdll ws2_32)
 endif()
 
 if(NOT MSVC)
@@ -912,16 +947,18 @@ if(ZIG_STATIC AND NOT MSVC)
 else()
   set(ZIG_STATIC_ARG "")
 endif()
-
 if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
   set(ZIG_PIE_ARG "-Dpie")
 else()
   set(ZIG_PIE_ARG "")
 endif()
+if("${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
+  set(ZIG_DYNAMIC_LINKER_ARG "")
+else()
+  set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
+endif()
 
 # -Dno-langref is currently hardcoded because building the langref takes too damn long
-# -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
-#   that prevents it from working.
 # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
@@ -931,11 +968,11 @@ set(ZIG_BUILD_ARGS
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
   "-Dno-langref"
-  "-Dno-autodocs"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
+  ${ZIG_DYNAMIC_LINKER_ARG}
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
 )
 

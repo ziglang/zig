@@ -29,7 +29,7 @@ const LiveMap = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
 
 fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
     const ip = self.intern_pool;
-    const tag = self.air.instructions.items(.tag);
+    const tags = self.air.instructions.items(.tag);
     const data = self.air.instructions.items(.data);
     for (body) |inst| {
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) {
@@ -37,7 +37,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             continue;
         }
 
-        switch (tag[@intFromEnum(inst)]) {
+        switch (tags[@intFromEnum(inst)]) {
             // no operands
             .arg,
             .alloc,
@@ -46,10 +46,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .ret_ptr,
             .breakpoint,
             .dbg_stmt,
-            .dbg_inline_begin,
-            .dbg_inline_end,
-            .dbg_block_begin,
-            .dbg_block_end,
             .fence,
             .ret_addr,
             .frame_addr,
@@ -433,11 +429,20 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 }
                 try self.verifyInst(inst);
             },
-            .block => {
+            .block, .dbg_inline_block => |tag| {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const block_ty = ty_pl.ty.toType();
-                const extra = self.air.extraData(Air.Block, ty_pl.payload);
-                const block_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+                const block_body: []const Air.Inst.Index = @ptrCast(switch (tag) {
+                    inline .block, .dbg_inline_block => |comptime_tag| body: {
+                        const extra = self.air.extraData(switch (comptime_tag) {
+                            .block => Air.Block,
+                            .dbg_inline_block => Air.DbgInlineBlock,
+                            else => unreachable,
+                        }, ty_pl.payload);
+                        break :body self.air.extra[extra.end..][0..extra.data.body_len];
+                    },
+                    else => unreachable,
+                });
                 const block_liveness = self.liveness.getBlock(inst);
 
                 var orig_live = try self.live.clone(self.gpa);

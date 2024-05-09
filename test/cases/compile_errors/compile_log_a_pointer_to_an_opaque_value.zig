@@ -9,4 +9,4 @@ export fn entry() void {
 // :2:5: error: found compile log statement
 //
 // Compile Log Output:
-// @as(*const anyopaque, (function 'entry'))
+// @as(*const anyopaque, @as(*const anyopaque, @ptrCast(tmp.entry)))

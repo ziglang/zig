@@ -5,9 +5,11 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const math = std.math;
-const os = std.os;
 const assert = std.debug.assert;
 const target = builtin.target;
+const native_os = builtin.os.tag;
+const posix = std.posix;
+const windows = std.os.windows;
 
 pub const Futex = @import("Thread/Futex.zig");
 pub const ResetEvent = @import("Thread/ResetEvent.zig");
@@ -18,23 +20,23 @@ pub const RwLock = @import("Thread/RwLock.zig");
 pub const Pool = @import("Thread/Pool.zig");
 pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
-pub const use_pthreads = target.os.tag != .windows and target.os.tag != .wasi and builtin.link_libc;
+pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
 const Thread = @This();
-const Impl = if (target.os.tag == .windows)
+const Impl = if (native_os == .windows)
     WindowsThreadImpl
 else if (use_pthreads)
     PosixThreadImpl
-else if (target.os.tag == .linux)
+else if (native_os == .linux)
     LinuxThreadImpl
-else if (target.os.tag == .wasi)
+else if (native_os == .wasi)
     WasiThreadImpl
 else
     UnsupportedImpl;
 
 impl: Impl,
 
-pub const max_name_len = switch (target.os.tag) {
+pub const max_name_len = switch (native_os) {
     .linux => 15,
     .windows => 31,
     .macos, .ios, .watchos, .tvos => 63,
@@ -50,7 +52,7 @@ pub const SetNameError = error{
     NameTooLong,
     Unsupported,
     Unexpected,
-} || os.PrctlError || os.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
+} || posix.PrctlError || posix.WriteError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
 pub fn setName(self: Thread, name: []const u8) SetNameError!void {
     if (name.len > max_name_len) return error.NameTooLong;
@@ -62,21 +64,21 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         break :blk name_buf[0..name.len :0];
     };
 
-    switch (target.os.tag) {
+    switch (native_os) {
         .linux => if (use_pthreads) {
             if (self.getHandle() == std.c.pthread_self()) {
                 // Set the name of the calling thread (no thread id required).
-                const err = try os.prctl(.SET_NAME, .{@intFromPtr(name_with_terminator.ptr)});
-                switch (@as(os.E, @enumFromInt(err))) {
+                const err = try posix.prctl(.SET_NAME, .{@intFromPtr(name_with_terminator.ptr)});
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return,
-                    else => |e| return os.unexpectedErrno(e),
+                    else => |e| return posix.unexpectedErrno(e),
                 }
             } else {
                 const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
                 switch (err) {
                     .SUCCESS => return,
                     .RANGE => unreachable,
-                    else => |e| return os.unexpectedErrno(e),
+                    else => |e| return posix.unexpectedErrno(e),
                 }
             }
         } else {
@@ -91,25 +93,25 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         },
         .windows => {
             var buf: [max_name_len]u16 = undefined;
-            const len = try std.unicode.utf8ToUtf16Le(&buf, name);
+            const len = try std.unicode.wtf8ToWtf16Le(&buf, name);
             const byte_len = math.cast(c_ushort, len * 2) orelse return error.NameTooLong;
 
             // Note: NT allocates its own copy, no use-after-free here.
-            const unicode_string = os.windows.UNICODE_STRING{
+            const unicode_string = windows.UNICODE_STRING{
                 .Length = byte_len,
                 .MaximumLength = byte_len,
                 .Buffer = &buf,
             };
 
-            switch (os.windows.ntdll.NtSetInformationThread(
+            switch (windows.ntdll.NtSetInformationThread(
                 self.getHandle(),
                 .ThreadNameInformation,
                 &unicode_string,
-                @sizeOf(os.windows.UNICODE_STRING),
+                @sizeOf(windows.UNICODE_STRING),
             )) {
                 .SUCCESS => return,
                 .NOT_IMPLEMENTED => return error.Unsupported,
-                else => |err| return os.windows.unexpectedStatus(err),
+                else => |err| return windows.unexpectedStatus(err),
             }
         },
         .macos, .ios, .watchos, .tvos => if (use_pthreads) {
@@ -119,7 +121,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const err = std.c.pthread_setname_np(name_with_terminator.ptr);
             switch (err) {
                 .SUCCESS => return,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
@@ -129,7 +131,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 .INVAL => unreachable,
                 .SRCH => unreachable,
                 .NOMEM => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         .freebsd, .openbsd => if (use_pthreads) {
@@ -148,7 +150,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 .FAULT => unreachable,
                 .NAMETOOLONG => unreachable, // already checked
                 .SRCH => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         else => {},
@@ -157,36 +159,31 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 }
 
 pub const GetNameError = error{
-    // For Windows, the name is converted from UTF16 to UTF8
-    CodepointTooLarge,
-    Utf8CannotEncodeSurrogateHalf,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-
     Unsupported,
     Unexpected,
-} || os.PrctlError || os.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
+} || posix.PrctlError || posix.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
     var buffer: [:0]u8 = buffer_ptr;
 
-    switch (target.os.tag) {
+    switch (native_os) {
         .linux => if (use_pthreads) {
             if (self.getHandle() == std.c.pthread_self()) {
                 // Get the name of the calling thread (no thread id required).
-                const err = try os.prctl(.GET_NAME, .{@intFromPtr(buffer.ptr)});
-                switch (@as(os.E, @enumFromInt(err))) {
+                const err = try posix.prctl(.GET_NAME, .{@intFromPtr(buffer.ptr)});
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
-                    else => |e| return os.unexpectedErrno(e),
+                    else => |e| return posix.unexpectedErrno(e),
                 }
             } else {
                 const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
                 switch (err) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
                     .RANGE => unreachable,
-                    else => |e| return os.unexpectedErrno(e),
+                    else => |e| return posix.unexpectedErrno(e),
                 }
             }
         } else {
@@ -201,10 +198,10 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
         .windows => {
-            const buf_capacity = @sizeOf(os.windows.UNICODE_STRING) + (@sizeOf(u16) * max_name_len);
-            var buf: [buf_capacity]u8 align(@alignOf(os.windows.UNICODE_STRING)) = undefined;
+            const buf_capacity = @sizeOf(windows.UNICODE_STRING) + (@sizeOf(u16) * max_name_len);
+            var buf: [buf_capacity]u8 align(@alignOf(windows.UNICODE_STRING)) = undefined;
 
-            switch (os.windows.ntdll.NtQueryInformationThread(
+            switch (windows.ntdll.NtQueryInformationThread(
                 self.getHandle(),
                 .ThreadNameInformation,
                 &buf,
@@ -212,12 +209,12 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 null,
             )) {
                 .SUCCESS => {
-                    const string = @as(*const os.windows.UNICODE_STRING, @ptrCast(&buf));
-                    const len = try std.unicode.utf16leToUtf8(buffer, string.Buffer[0 .. string.Length / 2]);
+                    const string = @as(*const windows.UNICODE_STRING, @ptrCast(&buf));
+                    const len = std.unicode.wtf16LeToWtf8(buffer, string.Buffer.?[0 .. string.Length / 2]);
                     return if (len > 0) buffer[0..len] else null;
                 },
                 .NOT_IMPLEMENTED => return error.Unsupported,
-                else => |err| return os.windows.unexpectedStatus(err),
+                else => |err| return windows.unexpectedStatus(err),
             }
         },
         .macos, .ios, .watchos, .tvos => if (use_pthreads) {
@@ -225,7 +222,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             switch (err) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .SRCH => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
@@ -234,7 +231,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .INVAL => unreachable,
                 .SRCH => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         .freebsd, .openbsd => if (use_pthreads) {
@@ -251,7 +248,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 .INVAL => unreachable,
                 .FAULT => unreachable,
                 .SRCH => unreachable,
-                else => |e| return os.unexpectedErrno(e),
+                else => |e| return posix.unexpectedErrno(e),
             }
         },
         else => {},
@@ -260,7 +257,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
 }
 
 /// Represents an ID per thread guaranteed to be unique only within a process.
-pub const Id = switch (target.os.tag) {
+pub const Id = switch (native_os) {
     .linux,
     .dragonfly,
     .netbsd,
@@ -270,7 +267,7 @@ pub const Id = switch (target.os.tag) {
     .wasi,
     => u32,
     .macos, .ios, .watchos, .tvos => u64,
-    .windows => os.windows.DWORD,
+    .windows => windows.DWORD,
     else => usize,
 };
 
@@ -373,13 +370,13 @@ pub const YieldError = error{
 
 /// Yields the current thread potentially allowing other threads to run.
 pub fn yield() YieldError!void {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         // The return value has to do with how many other threads there are; it is not
         // an error condition on Windows.
-        _ = os.windows.kernel32.SwitchToThread();
+        _ = windows.kernel32.SwitchToThread();
         return;
     }
-    switch (os.errno(os.system.sched_yield())) {
+    switch (posix.errno(posix.system.sched_yield())) {
         .SUCCESS => return,
         .NOSYS => return error.SystemCannotYield,
         else => return error.SystemCannotYield,
@@ -395,7 +392,7 @@ const Completion = std.atomic.Value(enum(u8) {
 
 /// Used by the Thread implementations to call the spawned function with the arguments.
 fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
-    WindowsThreadImpl => std.os.windows.DWORD,
+    WindowsThreadImpl => windows.DWORD,
     LinuxThreadImpl => u8,
     PosixThreadImpl => ?*anyopaque,
     else => unreachable,
@@ -475,13 +472,11 @@ const UnsupportedImpl = struct {
 
     fn unsupported(unused: anytype) noreturn {
         _ = unused;
-        @compileError("Unsupported operating system " ++ @tagName(target.os.tag));
+        @compileError("Unsupported operating system " ++ @tagName(native_os));
     }
 };
 
 const WindowsThreadImpl = struct {
-    const windows = os.windows;
-
     pub const ThreadHandle = windows.HANDLE;
 
     fn getCurrentId() windows.DWORD {
@@ -515,7 +510,7 @@ const WindowsThreadImpl = struct {
 
             fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.free(),
@@ -568,7 +563,7 @@ const WindowsThreadImpl = struct {
 
     fn detach(self: Impl) void {
         windows.CloseHandle(self.thread.thread_handle);
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.thread.free(),
             .detached => unreachable,
@@ -578,7 +573,7 @@ const WindowsThreadImpl = struct {
     fn join(self: Impl) void {
         windows.WaitForSingleObjectEx(self.thread.thread_handle, windows.INFINITE, false) catch unreachable;
         windows.CloseHandle(self.thread.thread_handle);
-        assert(self.thread.completion.load(.SeqCst) == .completed);
+        assert(self.thread.completion.load(.seq_cst) == .completed);
         self.thread.free();
     }
 };
@@ -589,7 +584,7 @@ const PosixThreadImpl = struct {
     pub const ThreadHandle = c.pthread_t;
 
     fn getCurrentId() Id {
-        switch (target.os.tag) {
+        switch (native_os) {
             .linux => {
                 return LinuxThreadImpl.getCurrentId();
             },
@@ -621,15 +616,15 @@ const PosixThreadImpl = struct {
     }
 
     fn getCpuCount() !usize {
-        switch (target.os.tag) {
+        switch (native_os) {
             .linux => {
                 return LinuxThreadImpl.getCpuCount();
             },
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
-                const mib = [_]c_int{ os.CTL.HW, os.system.HW.NCPUONLINE };
-                os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
+                const mib = [_]c_int{ std.c.CTL.HW, std.c.HW.NCPUONLINE };
+                posix.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
                 };
@@ -639,25 +634,25 @@ const PosixThreadImpl = struct {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
                 // cpu.
-                const rc = c.sysconf(os._SC.NPROCESSORS_ONLN);
-                return switch (os.errno(rc)) {
+                const rc = c.sysconf(std.c._SC.NPROCESSORS_ONLN);
+                return switch (posix.errno(rc)) {
                     .SUCCESS => @as(usize, @intCast(rc)),
-                    else => |err| os.unexpectedErrno(err),
+                    else => |err| posix.unexpectedErrno(err),
                 };
             },
             .haiku => {
-                var system_info: os.system.system_info = undefined;
-                const rc = os.system.get_system_info(&system_info); // always returns B_OK
-                return switch (os.errno(rc)) {
+                var system_info: std.c.system_info = undefined;
+                const rc = std.c.get_system_info(&system_info); // always returns B_OK
+                return switch (posix.errno(rc)) {
                     .SUCCESS => @as(usize, @intCast(system_info.cpu_count)),
-                    else => |err| os.unexpectedErrno(err),
+                    else => |err| posix.unexpectedErrno(err),
                 };
             },
             else => {
                 var count: c_int = undefined;
                 var count_len: usize = @sizeOf(c_int);
                 const name = if (comptime target.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
-                os.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
+                posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
                 };
@@ -704,7 +699,7 @@ const PosixThreadImpl = struct {
             .AGAIN => return error.SystemResources,
             .PERM => unreachable,
             .INVAL => unreachable,
-            else => |err| return os.unexpectedErrno(err),
+            else => |err| return posix.unexpectedErrno(err),
         }
     }
 
@@ -785,11 +780,11 @@ const WasiThreadImpl = struct {
     }
 
     fn getHandle(self: Impl) ThreadHandle {
-        return self.thread.tid.load(.SeqCst);
+        return self.thread.tid.load(.seq_cst);
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.state.swap(.detached, .SeqCst)) {
+        switch (self.thread.state.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -806,7 +801,7 @@ const WasiThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.tid.load(.SeqCst);
+            const tid = self.thread.tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
@@ -824,7 +819,7 @@ const WasiThreadImpl = struct {
                 \\ memory.atomic.wait32 0
                 \\ local.set %[ret]
                 : [ret] "=r" (-> u32),
-                : [ptr] "r" (&self.thread.tid.value),
+                : [ptr] "r" (&self.thread.tid.raw),
                   [expected] "r" (tid),
             );
             switch (result) {
@@ -836,15 +831,42 @@ const WasiThreadImpl = struct {
         }
     }
 
-    fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) !WasiThreadImpl {
-        if (config.allocator == null) return error.OutOfMemory; // an allocator is required to spawn a WASI-thread
+    fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) SpawnError!WasiThreadImpl {
+        if (config.allocator == null) {
+            @panic("an allocator is required to spawn a WASI thread");
+        }
 
         // Wrapping struct required to hold the user-provided function arguments.
         const Wrapper = struct {
             args: @TypeOf(args),
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
-                @call(.auto, f, w.args);
+                const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+                switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
+                    .NoReturn, .Void => {
+                        @call(.auto, f, w.args);
+                    },
+                    .Int => |info| {
+                        if (info.bits != 8) {
+                            @compileError(bad_fn_ret);
+                        }
+                        _ = @call(.auto, f, w.args); // WASI threads don't support exit status, ignore value
+                    },
+                    .ErrorUnion => |info| {
+                        if (info.payload != void) {
+                            @compileError(bad_fn_ret);
+                        }
+                        @call(.auto, f, w.args) catch |err| {
+                            std.debug.print("error: {s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    },
+                    else => {
+                        @compileError(bad_fn_ret);
+                    },
+                }
             }
         };
 
@@ -906,7 +928,7 @@ const WasiThreadImpl = struct {
         if (tid < 0) {
             return error.SystemResources;
         }
-        instance.thread.tid.store(tid, .SeqCst);
+        instance.thread.tid.store(tid, .seq_cst);
 
         return .{ .thread = &instance.thread };
     }
@@ -919,12 +941,12 @@ const WasiThreadImpl = struct {
         }
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
-        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .SeqCst);
+        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
 
         // Finished bootstrapping, call user's procedure.
         arg.call_back(arg.raw_ptr);
 
-        switch (arg.thread.state.swap(.completed, .SeqCst)) {
+        switch (arg.thread.state.swap(.completed, .seq_cst)) {
             .running => {
                 // reset the Thread ID
                 asm volatile (
@@ -932,7 +954,7 @@ const WasiThreadImpl = struct {
                     \\ i32.const 0
                     \\ i32.atomic.store 0
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
 
                 // Wake the main thread listening to this thread
@@ -942,7 +964,7 @@ const WasiThreadImpl = struct {
                     \\ memory.atomic.notify 0
                     \\ drop # no need to know the waiters
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
             },
             .completed => unreachable,
@@ -1018,7 +1040,7 @@ const WasiThreadImpl = struct {
 };
 
 const LinuxThreadImpl = struct {
-    const linux = os.linux;
+    const linux = std.os.linux;
 
     pub const ThreadHandle = i32;
 
@@ -1033,9 +1055,9 @@ const LinuxThreadImpl = struct {
     }
 
     fn getCpuCount() !usize {
-        const cpu_set = try os.sched_getaffinity(0);
+        const cpu_set = try posix.sched_getaffinity(0);
         // TODO: should not need this usize cast
-        return @as(usize, os.CPU_COUNT(cpu_set));
+        return @as(usize, posix.CPU_COUNT(cpu_set));
     }
 
     thread: *ThreadCompletion,
@@ -1196,7 +1218,7 @@ const LinuxThreadImpl = struct {
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.freeAndExit(),
@@ -1233,11 +1255,11 @@ const LinuxThreadImpl = struct {
         // map all memory needed without read/write permissions
         // to avoid committing the whole region right away
         // anonymous mapping ensures file descriptor limits are not exceeded
-        const mapped = os.mmap(
+        const mapped = posix.mmap(
             null,
             map_bytes,
-            os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            posix.PROT.NONE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         ) catch |err| switch (err) {
@@ -1249,24 +1271,24 @@ const LinuxThreadImpl = struct {
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);
-        errdefer os.munmap(mapped);
+        errdefer posix.munmap(mapped);
 
         // map everything but the guard page as read/write
-        os.mprotect(
+        posix.mprotect(
             @alignCast(mapped[guard_offset..]),
-            os.PROT.READ | os.PROT.WRITE,
+            posix.PROT.READ | posix.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,
             else => |e| return e,
         };
 
         // Prepare the TLS segment and prepare a user_desc struct when needed on x86
-        var tls_ptr = os.linux.tls.prepareTLS(mapped[tls_offset..]);
-        var user_desc: if (target.cpu.arch == .x86) os.linux.user_desc else void = undefined;
+        var tls_ptr = linux.tls.prepareTLS(mapped[tls_offset..]);
+        var user_desc: if (target.cpu.arch == .x86) linux.user_desc else void = undefined;
         if (target.cpu.arch == .x86) {
             defer tls_ptr = @intFromPtr(&user_desc);
             user_desc = .{
-                .entry_number = os.linux.tls.tls_image.gdt_entry_number,
+                .entry_number = linux.tls.tls_image.gdt_entry_number,
                 .base_addr = tls_ptr,
                 .limit = 0xfffff,
                 .flags = .{
@@ -1291,7 +1313,7 @@ const LinuxThreadImpl = struct {
             linux.CLONE.PARENT_SETTID | linux.CLONE.CHILD_CLEARTID |
             linux.CLONE.SIGHAND | linux.CLONE.SYSVSEM | linux.CLONE.SETTLS;
 
-        switch (linux.getErrno(linux.clone(
+        switch (linux.E.init(linux.clone(
             Instance.entryFn,
             @intFromPtr(&mapped[stack_offset]),
             flags,
@@ -1307,7 +1329,7 @@ const LinuxThreadImpl = struct {
             .NOSPC => unreachable,
             .PERM => unreachable,
             .USERS => unreachable,
-            else => |err| return os.unexpectedErrno(err),
+            else => |err| return posix.unexpectedErrno(err),
         }
     }
 
@@ -1316,7 +1338,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -1324,11 +1346,11 @@ const LinuxThreadImpl = struct {
     }
 
     fn join(self: Impl) void {
-        defer os.munmap(self.thread.mapped);
+        defer posix.munmap(self.thread.mapped);
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.child_tid.load(.SeqCst);
+            const tid = self.thread.child_tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
@@ -1339,7 +1361,7 @@ const LinuxThreadImpl = struct {
                 continue;
             }
 
-            switch (linux.getErrno(linux.futex_wait(
+            switch (linux.E.init(linux.futex_wait(
                 &self.thread.child_tid.raw,
                 linux.FUTEX.WAIT,
                 tid,
@@ -1388,7 +1410,7 @@ test "setName, getName" {
             // Wait for the main thread to have set the thread field in the context.
             ctx.start_wait_event.wait();
 
-            switch (target.os.tag) {
+            switch (native_os) {
                 .windows => testThreadName(&ctx.thread) catch |err| switch (err) {
                     error.Unsupported => return error.SkipZigTest,
                     else => return err,
@@ -1411,7 +1433,7 @@ test "setName, getName" {
     context.start_wait_event.set();
     context.test_done_event.wait();
 
-    switch (target.os.tag) {
+    switch (native_os) {
         .macos, .ios, .watchos, .tvos => {
             const res = thread.setName("foobar");
             try std.testing.expectError(error.Unsupported, res);
@@ -1442,7 +1464,7 @@ fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
     event.set();
 }
 
-test "Thread.join" {
+test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
@@ -1454,7 +1476,7 @@ test "Thread.join" {
     try std.testing.expectEqual(value, 1);
 }
 
-test "Thread.detach" {
+test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;

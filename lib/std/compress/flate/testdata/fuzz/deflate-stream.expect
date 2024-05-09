@@ -1,0 +1,22 @@
+[
+    { id: "brieflz",
+      name: "BriefLZ",
+      libraryUrl: "https://github.com/jibsen/brieflz",
+      license: "MIT",
+      revision: "bcaa6a1ee7ccf005512b5c23aa92b40cf75f9ed1",
+      codecs: [ { name: "brieflz" } ], },
+    { id: "brotli",
+      name: "Brotli",
+      libraryUrl: "https://github.com/google/brotli",
+      license: "Apache 2.0",
+      revision: "1dd66ef114fd244778d9dcb5da09c28b49a0df33",
+      codecs: [ { name: "brotli",
+		  levels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+		  streaming: true } ], },
+    { id: "bsc",
+      name: "bsc",
+      libraryUrl: "http://libbsc.com/",
+      license: "Apache 2.0",
+      revision: "b2b07421381b19b2fada8b291f3cdead10578abc",
+      codecs: [ { name: "bsc" } ] }
+]

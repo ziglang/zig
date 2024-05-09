@@ -11,7 +11,7 @@ static inline void foo() {
 // pub const struct_empty_struct = extern struct {};
 // pub fn foo() callconv(.C) void {
 //     const bar = struct {
-//         var static: struct_empty_struct = struct_empty_struct{};
+//         var static: struct_empty_struct = @import("std").mem.zeroes(struct_empty_struct);
 //     };
 //     _ = &bar;
 // }

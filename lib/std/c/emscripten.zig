@@ -3,7 +3,6 @@ const maxInt = std.math.maxInt;
 const emscripten = std.os.emscripten;
 
 pub const AF = emscripten.AF;
-pub const AT = emscripten.AT;
 pub const CLOCK = emscripten.CLOCK;
 pub const CPU_COUNT = emscripten.CPU_COUNT;
 pub const E = emscripten.E;
@@ -16,15 +15,9 @@ pub const IOV_MAX = emscripten.IOV_MAX;
 pub const IPPROTO = emscripten.IPPROTO;
 pub const LOCK = emscripten.LOCK;
 pub const MADV = emscripten.MADV;
-pub const MAP = struct {
-    pub usingnamespace emscripten.MAP;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
 pub const MSF = emscripten.MSF;
 pub const MSG = emscripten.MSG;
 pub const NAME_MAX = emscripten.NAME_MAX;
-pub const O = emscripten.O;
 pub const PATH_MAX = emscripten.PATH_MAX;
 pub const POLL = emscripten.POLL;
 pub const PROT = emscripten.PROT;
@@ -79,8 +72,6 @@ pub const sigset_t = emscripten.sigset_t;
 pub const sockaddr = emscripten.sockaddr;
 pub const socklen_t = emscripten.socklen_t;
 pub const stack_t = emscripten.stack_t;
-pub const tcflag_t = emscripten.tcflag_t;
-pub const termios = emscripten.termios;
 pub const time_t = emscripten.time_t;
 pub const timespec = emscripten.timespec;
 pub const timeval = emscripten.timeval;
@@ -156,26 +147,13 @@ pub const pwritev64 = std.c.pwritev;
 pub const setrlimit64 = std.c.setrlimit;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
 
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,
     __align: c_long,
 };
-
-pub const pthread_mutex_t = extern struct {
-    size: [__SIZEOF_PTHREAD_MUTEX_T]u8 align(4) = [_]u8{0} ** __SIZEOF_PTHREAD_MUTEX_T,
-};
-pub const pthread_cond_t = extern struct {
-    size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
-};
-pub const pthread_rwlock_t = extern struct {
-    size: [32]u8 align(4) = [_]u8{0} ** 32,
-};
-
-const __SIZEOF_PTHREAD_COND_T = 48;
-const __SIZEOF_PTHREAD_MUTEX_T = 24;
 
 pub const pthread_key_t = c_uint;
 pub const sem_t = extern struct {
@@ -194,9 +172,9 @@ pub const RTLD = struct {
 };
 
 pub const dirent = struct {
-    d_ino: c_uint,
-    d_off: c_uint,
-    d_reclen: c_ushort,
-    d_type: u8,
-    d_name: [256]u8,
+    ino: c_uint,
+    off: c_uint,
+    reclen: c_ushort,
+    type: u8,
+    name: [256]u8,
 };

@@ -6,6 +6,15 @@ const Handle = uefi.Handle;
 const Status = uefi.Status;
 const TableHeader = uefi.tables.TableHeader;
 const DevicePathProtocol = uefi.protocol.DevicePath;
+const AllocateType = uefi.tables.AllocateType;
+const MemoryType = uefi.tables.MemoryType;
+const MemoryDescriptor = uefi.tables.MemoryDescriptor;
+const TimerDelay = uefi.tables.TimerDelay;
+const EfiInterfaceType = uefi.tables.EfiInterfaceType;
+const LocateSearchType = uefi.tables.LocateSearchType;
+const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
+const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
+const EfiEventNotify = uefi.tables.EfiEventNotify;
 const cc = uefi.cc;
 
 /// Boot services are services provided by the system's firmware until the operating system takes
@@ -192,92 +201,4 @@ pub const BootServices = extern struct {
     pub const tpl_callback: usize = 8;
     pub const tpl_notify: usize = 16;
     pub const tpl_high_level: usize = 31;
-};
-
-pub const EfiEventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
-
-pub const TimerDelay = enum(u32) {
-    TimerCancel,
-    TimerPeriodic,
-    TimerRelative,
-};
-
-pub const MemoryType = enum(u32) {
-    ReservedMemoryType,
-    LoaderCode,
-    LoaderData,
-    BootServicesCode,
-    BootServicesData,
-    RuntimeServicesCode,
-    RuntimeServicesData,
-    ConventionalMemory,
-    UnusableMemory,
-    ACPIReclaimMemory,
-    ACPIMemoryNVS,
-    MemoryMappedIO,
-    MemoryMappedIOPortSpace,
-    PalCode,
-    PersistentMemory,
-    MaxMemoryType,
-    _,
-};
-
-pub const MemoryDescriptorAttribute = packed struct(u64) {
-    uc: bool,
-    wc: bool,
-    wt: bool,
-    wb: bool,
-    uce: bool,
-    _pad1: u7 = 0,
-    wp: bool,
-    rp: bool,
-    xp: bool,
-    nv: bool,
-    more_reliable: bool,
-    ro: bool,
-    sp: bool,
-    cpu_crypto: bool,
-    _pad2: u43 = 0,
-    memory_runtime: bool,
-};
-
-pub const MemoryDescriptor = extern struct {
-    type: MemoryType,
-    physical_start: u64,
-    virtual_start: u64,
-    number_of_pages: u64,
-    attribute: MemoryDescriptorAttribute,
-};
-
-pub const LocateSearchType = enum(u32) {
-    AllHandles,
-    ByRegisterNotify,
-    ByProtocol,
-};
-
-pub const OpenProtocolAttributes = packed struct(u32) {
-    by_handle_protocol: bool = false,
-    get_protocol: bool = false,
-    test_protocol: bool = false,
-    by_child_controller: bool = false,
-    by_driver: bool = false,
-    exclusive: bool = false,
-    reserved: u26 = 0,
-};
-
-pub const ProtocolInformationEntry = extern struct {
-    agent_handle: ?Handle,
-    controller_handle: ?Handle,
-    attributes: OpenProtocolAttributes,
-    open_count: u32,
-};
-
-pub const EfiInterfaceType = enum(u32) {
-    EfiNativeInterface,
-};
-
-pub const AllocateType = enum(u32) {
-    AllocateAnyPages,
-    AllocateMaxAddress,
-    AllocateAddress,
 };

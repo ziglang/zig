@@ -7,7 +7,6 @@ const path = fs.path;
 const assert = std.debug.assert;
 const Version = std.SemanticVersion;
 
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
@@ -21,7 +20,7 @@ pub const Lib = struct {
 
 pub const ABI = struct {
     all_versions: []const Version, // all defined versions (one abilist from v2.0.0 up to current)
-    all_targets: []const target_util.ArchOsAbi,
+    all_targets: []const std.zig.target.ArchOsAbi,
     /// The bytes from the file verbatim, starting from the u16 number
     /// of function inclusions.
     inclusions: []const u8,
@@ -103,7 +102,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
         const targets_len = contents[index];
         index += 1;
 
-        const targets = try arena.alloc(target_util.ArchOsAbi, targets_len);
+        const targets = try arena.alloc(std.zig.target.ArchOsAbi, targets_len);
         var i: u8 = 0;
         while (i < targets.len) : (i += 1) {
             const target_name = mem.sliceTo(contents[index..], 0);
@@ -512,7 +511,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append("-I");
     try args.append(try lib_path(comp, arena, lib_libc ++ "include" ++ s ++ "generic-glibc"));
 
-    const arch_name = target_util.osArchName(target);
+    const arch_name = target.osArchName();
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
         comp.zig_lib_directory.path.?, arch_name,
@@ -714,7 +713,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
     };
     defer o_directory.handle.close();
 
-    const abilists_contents = man.files.items[abilists_index].contents.?;
+    const abilists_contents = man.files.keys()[abilists_index].contents.?;
     const metadata = try loadMetaData(comp.gpa, abilists_contents);
     defer metadata.destroy(comp.gpa);
 
@@ -726,7 +725,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
             break i;
         }
     } else {
-        unreachable; // target_util.available_libcs prevents us from getting here
+        unreachable; // std.zig.target.available_libcs prevents us from getting here
     };
 
     const target_ver_index = for (metadata.all_versions, 0..) |ver, i| {
@@ -756,7 +755,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
                 try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
             }
         }
-        try o_directory.handle.writeFile(all_map_basename, map_contents.items);
+        try o_directory.handle.writeFile(.{ .sub_path = all_map_basename, .data = map_contents.items });
         map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
 
@@ -1041,7 +1040,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
 
         var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
         const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
-        try o_directory.handle.writeFile(asm_file_basename, stubs_asm.items);
+        try o_directory.handle.writeFile(.{ .sub_path = asm_file_basename, .data = stubs_asm.items });
 
         try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib, prog_node);
     }
@@ -1085,7 +1084,7 @@ fn buildSharedLib(
     const strip = comp.compilerRtStrip();
     const config = try Compilation.Config.resolve(.{
         .output_mode = .Lib,
-        .link_mode = .Dynamic,
+        .link_mode = .dynamic,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = false,
@@ -1119,6 +1118,7 @@ fn buildSharedLib(
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const c_source_files = [1]Compilation.CSourceFile{

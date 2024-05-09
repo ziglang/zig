@@ -232,7 +232,7 @@ pub const Md5 = struct {
 
 const htest = @import("test.zig");
 
-test "md5 single" {
+test "single" {
     try htest.assertEqualHash(Md5, "d41d8cd98f00b204e9800998ecf8427e", "");
     try htest.assertEqualHash(Md5, "0cc175b9c0f1b6a831c399e269772661", "a");
     try htest.assertEqualHash(Md5, "900150983cd24fb0d6963f7d28e17f72", "abc");
@@ -242,7 +242,7 @@ test "md5 single" {
     try htest.assertEqualHash(Md5, "57edf4a22be3c955ac49da2e2107b67a", "12345678901234567890123456789012345678901234567890123456789012345678901234567890");
 }
 
-test "md5 streaming" {
+test "streaming" {
     var h = Md5.init(.{});
     var out: [16]u8 = undefined;
 
@@ -263,7 +263,7 @@ test "md5 streaming" {
     try htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 }
 
-test "md5 aligned final" {
+test "aligned final" {
     var block = [_]u8{0} ** Md5.block_length;
     var out: [Md5.digest_length]u8 = undefined;
 

@@ -6,7 +6,6 @@
 ;
 LIBRARY htUI.dll
 EXPORTS
-DllMain
 HTUI_ColorAdjustment
 HTUI_ColorAdjustmentA
 HTUI_ColorAdjustmentW
