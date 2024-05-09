@@ -138,11 +138,7 @@ pub inline fn secureZero(comptime T: type, s: []T) void {
     @memset(@as([]volatile T, s), 0);
 }
 
-const valgrind_support = @import("builtin").valgrind_support;
-
 fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void {
-    if (@inComptime()) return;
-
     const t = @typeInfo(@TypeOf(ptr));
     if (t != .Pointer) @compileError("Pointer expected - Found: " ++ @typeName(@TypeOf(ptr)));
     const p = t.Pointer;
@@ -179,9 +175,9 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
 /// Use this function to verify that cryptographic operations perform constant-time arithmetic on sensitive data,
 /// ensuring the confidentiality of secrets and preventing information leakage through side channels.
 pub fn classify(ptr: anytype) void {
-    if (valgrind_support) {
-        markSecret(ptr, .classify);
-    }
+    if (!std.debug.inValgrind()) return;
+
+    markSecret(ptr, .classify);
 }
 
 /// Mark a value as non-sensitive or public, indicating it's safe from side-channel attacks.
@@ -189,9 +185,9 @@ pub fn classify(ptr: anytype) void {
 /// Signals that a value has been securely processed and is no longer confidential, allowing for
 /// relaxed handling without fear of information leakage through conditional jumps or lookups.
 pub fn declassify(ptr: anytype) void {
-    if (valgrind_support) {
-        markSecret(ptr, .declassify);
-    }
+    if (!std.debug.inValgrind()) return;
+
+    markSecret(ptr, .declassify);
 }
 
 test timingSafeEql {
@@ -269,7 +265,7 @@ test classify {
     classify(&secret);
 
     var out: [32]u8 = undefined;
-    crypto.hash.sha3.TurboShake128(null).hash(&secret, &out, .{});
+    std.crypto.hash.sha3.TurboShake128(null).hash(&secret, &out, .{});
 
     // Output of the hash function can be considered public
     declassify(&out);
