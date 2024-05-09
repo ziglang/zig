@@ -671,7 +671,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, var_name, node);
 }
 
-const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
+const builtin_typedef_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
     .{ "uint16_t", "u16" },
@@ -1080,6 +1080,8 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
+                // TODO: as of LLVM 18, the return value from `enum_const.getInitVal` here needs
+                // to be freed with a call to its free() method.
                 .value = try transCreateNodeAPInt(c, enum_const.getInitVal()),
             });
             if (toplevel)
@@ -2086,6 +2088,11 @@ fn finishBoolExpr(
             }
         },
         .Pointer => {
+            if (node.tag() == .string_literal) {
+                // @intFromPtr(node) != 0
+                const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+                return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+            }
             // node != null
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
@@ -3587,6 +3594,7 @@ fn transUnaryExprOrTypeTraitExpr(
     const node = switch (kind) {
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
+        .DataSizeOf,
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,
@@ -5793,7 +5801,12 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
     if (isBoolRes(node)) {
         return node;
     }
-
+    if (node.tag() == .string_literal) {
+        // @intFromPtr(node) != 0
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+        return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+    }
+    // node != 0
     return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
 }
 

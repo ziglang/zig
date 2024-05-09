@@ -2847,8 +2847,8 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
         return renderQuotedIdentifier(r, token_index, space, false);
     }
 
-    // Special case for _ which would incorrectly be rejected by isValidId below.
-    if (contents.len == 1 and contents[0] == '_') switch (quote) {
+    // Special case for _.
+    if (std.zig.isUnderscore(contents)) switch (quote) {
         .eagerly_unquote => return renderQuotedIdentifier(r, token_index, space, true),
         .eagerly_unquote_except_underscore,
         .preserve_when_shadowing,
@@ -2886,11 +2886,11 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
     // If we read the whole thing, we have to do further checks.
     const longest_keyword_or_primitive_len = comptime blk: {
         var longest = 0;
-        for (primitives.names.kvs) |kv| {
-            if (kv.key.len > longest) longest = kv.key.len;
+        for (primitives.names.keys()) |key| {
+            if (key.len > longest) longest = key.len;
         }
-        for (std.zig.Token.keywords.kvs) |kv| {
-            if (kv.key.len > longest) longest = kv.key.len;
+        for (std.zig.Token.keywords.keys()) |key| {
+            if (key.len > longest) longest = key.len;
         }
         break :blk longest;
     };

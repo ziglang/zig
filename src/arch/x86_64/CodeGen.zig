@@ -2247,7 +2247,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             var data_off: i32 = 0;
             const tag_names = enum_ty.enumFields(mod);
             for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
-                const tag_name_len = ip.stringToSlice(tag_names.get(ip)[tag_index]).len;
+                const tag_name_len = tag_names.get(ip)[tag_index].length(ip);
                 const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
                 const tag_mcv = try self.genTypedValue(tag_val);
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);
@@ -7920,17 +7920,14 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const mod = self.bin_file.comp.module.?;
     const ptr_field_ty = self.typeOfIndex(inst);
     const ptr_container_ty = self.typeOf(operand);
-    const ptr_container_ty_info = ptr_container_ty.ptrInfo(mod);
     const container_ty = ptr_container_ty.childType(mod);
 
-    const field_offset: i32 = if (mod.typeToPackedStruct(container_ty)) |struct_obj|
-        if (ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
-            @divExact(mod.structPackedFieldBitOffset(struct_obj, index) +
-                ptr_container_ty_info.packed_offset.bit_offset, 8)
-        else
-            0
-    else
-        @intCast(container_ty.structFieldOffset(index, mod));
+    const field_off: i32 = switch (container_ty.containerLayout(mod)) {
+        .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod)),
+        .@"packed" => @divExact(@as(i32, ptr_container_ty.ptrInfo(mod).packed_offset.bit_offset) +
+            (if (mod.typeToStruct(container_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, index) else 0) -
+            ptr_field_ty.ptrInfo(mod).packed_offset.bit_offset, 8),
+    };
 
     const src_mcv = try self.resolveInst(operand);
     const dst_mcv = if (switch (src_mcv) {
@@ -7938,7 +7935,7 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
         .register, .register_offset => self.reuseOperand(inst, operand, 0, src_mcv),
         else => false,
     }) src_mcv else try self.copyToRegisterWithInstTracking(inst, ptr_field_ty, src_mcv);
-    return dst_mcv.offset(field_offset);
+    return dst_mcv.offset(field_off);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -7958,11 +7955,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
-            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod) * 8),
-            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_type|
-                mod.structPackedFieldBitOffset(struct_type, index)
-            else
-                0,
+            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(extra.field_index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, extra.field_index) else 0,
         };
 
         switch (src_mcv) {
@@ -8239,7 +8233,12 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 
     const inst_ty = self.typeOfIndex(inst);
     const parent_ty = inst_ty.childType(mod);
-    const field_offset: i32 = @intCast(parent_ty.structFieldOffset(extra.field_index, mod));
+    const field_off: i32 = switch (parent_ty.containerLayout(mod)) {
+        .auto, .@"extern" => @intCast(parent_ty.structFieldOffset(extra.field_index, mod)),
+        .@"packed" => @divExact(@as(i32, inst_ty.ptrInfo(mod).packed_offset.bit_offset) +
+            (if (mod.typeToStruct(parent_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, extra.field_index) else 0) -
+            self.typeOf(extra.field_ptr).ptrInfo(mod).packed_offset.bit_offset, 8),
+    };
 
     const src_mcv = try self.resolveInst(extra.field_ptr);
     const dst_mcv = if (src_mcv.isRegisterOffset() and
@@ -8247,7 +8246,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
         src_mcv
     else
         try self.copyToRegisterWithInstTracking(inst, inst_ty, src_mcv);
-    const result = dst_mcv.offset(-field_offset);
+    const result = dst_mcv.offset(-field_off);
     return self.finishAir(inst, result, .{ extra.field_ptr, .none, .none });
 }
 
@@ -12250,10 +12249,10 @@ fn genCall(self: *Self, info: union(enum) {
             const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
             switch (switch (func_key) {
                 else => func_key,
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
-                },
+                } else func_key,
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
@@ -12315,8 +12314,8 @@ fn genCall(self: *Self, info: union(enum) {
                 },
                 .extern_func => |extern_func| {
                     const owner_decl = mod.declPtr(extern_func.decl);
-                    const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
-                    const decl_name = mod.intern_pool.stringToSlice(owner_decl.name);
+                    const lib_name = extern_func.lib_name.toSlice(&mod.intern_pool);
+                    const decl_name = owner_decl.name.toSlice(&mod.intern_pool);
                     try self.genExternSymbolRef(.call, lib_name, decl_name);
                 },
                 else => return self.fail("TODO implement calling bitcasted functions", .{}),
@@ -14317,9 +14316,9 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
         .mmx => {},
         .sse => switch (ty.zigTypeTag(mod)) {
             else => {
-                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
                 assert(std.mem.indexOfNone(abi.Class, classes, &.{
-                    .integer, .sse, .memory, .float, .float_combine,
+                    .integer, .sse, .sseup, .memory, .float, .float_combine,
                 }) == null);
                 const abi_size = ty.abiSize(mod);
                 if (abi_size < 4 or
@@ -15051,10 +15050,11 @@ fn genSetMem(
                 .general_purpose, .segment, .x87 => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
+            const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
             if (src_size > mem_size) {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
                     .size = src_size,
-                    .alignment = Alignment.fromNonzeroByteUnits(src_size),
+                    .alignment = src_align,
                 }));
                 const frame_mcv: MCValue = .{ .load_frame = .{ .index = frame_index } };
                 try (try self.moveStrategy(ty, src_alias.class(), true)).write(
@@ -15067,14 +15067,15 @@ fn genSetMem(
                 try self.genSetMem(base, disp, ty, frame_mcv, opts);
                 try self.freeValue(frame_mcv);
             } else try (try self.moveStrategy(ty, src_alias.class(), switch (base) {
-                .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                .none => src_align.check(@as(u32, @bitCast(disp))),
                 .reg => |reg| switch (reg) {
-                    .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                    .es, .cs, .ss, .ds => src_align.check(@as(u32, @bitCast(disp))),
                     else => false,
                 },
-                .frame => |frame_index| self.getFrameAddrAlignment(
-                    .{ .index = frame_index, .off = disp },
-                ).compare(.gte, ty.abiAlignment(mod)),
+                .frame => |frame_index| self.getFrameAddrAlignment(.{
+                    .index = frame_index,
+                    .off = disp,
+                }).compare(.gte, src_align),
                 .reloc => false,
             })).write(
                 self,
@@ -17876,8 +17877,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(mod),
+        lhs_ty.fmt(mod),                                    rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod, null),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }
@@ -17950,7 +17951,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
             .Struct => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
                 if (result_ty.containerLayout(mod) == .@"packed") {
-                    const struct_type = mod.typeToStruct(result_ty).?;
+                    const struct_obj = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },
                         .{ .immediate = 0 },
@@ -17971,7 +17972,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         }
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = mod.structPackedFieldBitOffset(struct_type, elem_i);
+                        const elem_off = mod.structPackedFieldBitOffset(struct_obj, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try self.resolveInst(elem);
@@ -18449,7 +18450,7 @@ fn airVaArg(self: *Self, inst: Air.Inst.Index) !void {
             const overflow_arg_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 8 } };
             const reg_save_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 16 } };
 
-            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, .arg), .none);
+            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, self.target.*, .arg), .none);
             switch (classes[0]) {
                 .integer => {
                     assert(classes.len == 1);
@@ -18799,7 +18800,7 @@ fn resolveCallingConventionValues(
                 var ret_tracking_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, self.target.*, .ret), .none),
                     .Win64 => &.{abi.classifyWindows(ret_ty, mod)},
                     else => unreachable,
                 };
@@ -18874,7 +18875,7 @@ fn resolveCallingConventionValues(
                 var arg_mcv_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .arg), .none),
                     .Win64 => &.{abi.classifyWindows(ty, mod)},
                     else => unreachable,
                 };
@@ -18959,7 +18960,7 @@ fn resolveCallingConventionValues(
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
                 const param_align: u31 =
-                    @intCast(@max(ty.abiAlignment(mod).toByteUnitsOptional().?, 8));
+                    @intCast(@max(ty.abiAlignment(mod).toByteUnits().?, 8));
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19003,7 +19004,7 @@ fn resolveCallingConventionValues(
                     continue;
                 }
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
+                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnits().?);
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19089,14 +19090,14 @@ fn memSize(self: *Self, ty: Type) Memory.Size {
 
 fn splitType(self: *Self, ty: Type) ![2]Type {
     const mod = self.bin_file.comp.module.?;
-    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
     var parts: [2]Type = undefined;
     if (classes.len == 2) for (&parts, classes, 0..) |*part, class, part_i| {
         part.* = switch (class) {
             .integer => switch (part_i) {
                 0 => Type.u64,
                 1 => part: {
-                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnitsOptional().?;
+                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnits().?;
                     const elem_ty = try mod.intType(.unsigned, @intCast(elem_size * 8));
                     break :part switch (@divExact(ty.abiSize(mod) - 8, elem_size)) {
                         1 => elem_ty,

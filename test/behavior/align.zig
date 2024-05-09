@@ -114,50 +114,11 @@ test "alignment and size of structs with 128-bit fields" {
             .u129_size = 24,
         },
 
-        .x86 => if (builtin.object_format == .c) .{
-            .a_align = 16,
-            .a_size = 16,
-
-            .b_align = 16,
-            .b_size = 32,
-
-            .u128_align = 16,
-            .u128_size = 16,
-            .u129_align = 16,
-            .u129_size = 32,
-        } else switch (builtin.os.tag) {
-            .windows => .{
-                .a_align = 8,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-            else => .{
-                .a_align = 4,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 4,
-                .u128_size = 16,
-                .u129_align = 4,
-                .u129_size = 20,
-            },
-        },
-
         .mips64,
         .mips64el,
         .powerpc64,
         .powerpc64le,
         .sparc64,
-        .x86_64,
         => switch (builtin.object_format) {
             .c => .{
                 .a_align = 16,
@@ -185,6 +146,34 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
+        .x86_64 => switch (builtin.zig_backend) {
+            .stage2_x86_64 => .{
+                .a_align = 8,
+                .a_size = 16,
+
+                .b_align = 16,
+                .b_size = 32,
+
+                .u128_align = 8,
+                .u128_size = 16,
+                .u129_align = 8,
+                .u129_size = 24,
+            },
+            else => .{
+                .a_align = 16,
+                .a_size = 16,
+
+                .b_align = 16,
+                .b_size = 32,
+
+                .u128_align = 16,
+                .u128_size = 16,
+                .u129_align = 16,
+                .u129_size = 32,
+            },
+        },
+
+        .x86,
         .aarch64,
         .aarch64_be,
         .aarch64_32,
@@ -624,7 +613,6 @@ test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/14904
 
@@ -694,5 +682,5 @@ test "zero-bit fields in extern struct pad fields appropriately" {
     try expect(@intFromPtr(&s) % 2 == 0);
     try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
     try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
-    try expect(@fieldParentPtr(S, "a", &s.a) == &s);
+    try expect(@as(*S, @fieldParentPtr("a", &s.a)) == &s);
 }

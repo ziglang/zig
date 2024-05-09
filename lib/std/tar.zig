@@ -29,6 +29,9 @@ pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
 
+    entries: usize = 0,
+    root_dir: []const u8 = "",
+
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
             code: anyerror,
@@ -44,6 +47,42 @@ pub const Diagnostics = struct {
             file_type: Header.Kind,
         },
     };
+
+    fn findRoot(d: *Diagnostics, path: []const u8) !void {
+        if (path.len == 0) return;
+
+        d.entries += 1;
+        const root_dir = rootDir(path);
+        if (d.entries == 1) {
+            d.root_dir = try d.allocator.dupe(u8, root_dir);
+            return;
+        }
+        if (d.root_dir.len == 0 or std.mem.eql(u8, root_dir, d.root_dir))
+            return;
+        d.allocator.free(d.root_dir);
+        d.root_dir = "";
+    }
+
+    // Returns root dir of the path, assumes non empty path.
+    fn rootDir(path: []const u8) []const u8 {
+        const start_index: usize = if (path[0] == '/') 1 else 0;
+        const end_index: usize = if (path[path.len - 1] == '/') path.len - 1 else path.len;
+        const buf = path[start_index..end_index];
+        if (std.mem.indexOfScalarPos(u8, buf, 0, '/')) |idx| {
+            return buf[0..idx];
+        }
+        return buf;
+    }
+
+    test rootDir {
+        const expectEqualStrings = testing.expectEqualStrings;
+        try expectEqualStrings("a", rootDir("a"));
+        try expectEqualStrings("b", rootDir("b"));
+        try expectEqualStrings("c", rootDir("/c"));
+        try expectEqualStrings("d", rootDir("/d/"));
+        try expectEqualStrings("a", rootDir("a/b"));
+        try expectEqualStrings("a", rootDir("a/b/c"));
+    }
 
     pub fn deinit(d: *Diagnostics) void {
         for (d.errors.items) |item| {
@@ -61,6 +100,7 @@ pub const Diagnostics = struct {
             }
         }
         d.errors.deinit(d.allocator);
+        d.allocator.free(d.root_dir);
         d.* = undefined;
     }
 };
@@ -573,18 +613,6 @@ fn PaxIterator(comptime ReaderType: type) type {
 
 /// Saves tar file content to the file systems.
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
-    switch (options.mode_mode) {
-        .ignore => {},
-        .executable_bit_only => {
-            // This code does not look at the mode bits yet. To implement this feature,
-            // the implementation must be adjusted to look at the mode, and check the
-            // user executable bit, then call fchmod on newly created files when
-            // the executable bit is supposed to be set.
-            // It also needs to properly deal with ACLs on Windows.
-            @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
-        },
-    }
-
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var iter = iterator(reader, .{
@@ -592,20 +620,22 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
         .link_name_buffer = &link_name_buffer,
         .diagnostics = options.diagnostics,
     });
+
     while (try iter.next()) |file| {
+        const file_name = stripComponents(file.name, options.strip_components);
+        if (options.diagnostics) |d| {
+            try d.findRoot(file_name);
+        }
+
         switch (file.kind) {
             .directory => {
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len != 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .file => {
-                if (file.size == 0 and file.name.len == 0) return;
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
-
-                if (createDirAndFile(dir, file_name)) |fs_file| {
+                if (createDirAndFile(dir, file_name, fileMode(file.mode, options))) |fs_file| {
                     defer fs_file.close();
                     try file.writeAll(fs_file);
                 } else |err| {
@@ -617,12 +647,8 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 }
             },
             .sym_link => {
-                // The file system path of the symbolic link.
-                const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
-                // The data inside the symbolic link.
                 const link_name = file.link_name;
-
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
@@ -636,12 +662,12 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
     }
 }
 
-fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8) !std.fs.File {
-    const fs_file = dir.createFile(file_name, .{ .exclusive = true }) catch |err| {
+fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8, mode: std.fs.File.Mode) !std.fs.File {
+    const fs_file = dir.createFile(file_name, .{ .exclusive = true, .mode = mode }) catch |err| {
         if (err == error.FileNotFound) {
             if (std.fs.path.dirname(file_name)) |dir_name| {
                 try dir.makePath(dir_name);
-                return try dir.createFile(file_name, .{ .exclusive = true });
+                return try dir.createFile(file_name, .{ .exclusive = true, .mode = mode });
             }
         }
         return err;
@@ -811,6 +837,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = Diagnostics;
 }
 
 test "header parse size" {
@@ -877,9 +904,9 @@ test "create file and symlink" {
     var root = testing.tmpDir(.{});
     defer root.cleanup();
 
-    var file = try createDirAndFile(root.dir, "file1");
+    var file = try createDirAndFile(root.dir, "file1", default_mode);
     file.close();
-    file = try createDirAndFile(root.dir, "a/b/c/file2");
+    file = try createDirAndFile(root.dir, "a/b/c/file2", default_mode);
     file.close();
 
     createDirAndSymlink(root.dir, "a/b/c/file2", "symlink1") catch |err| {
@@ -891,7 +918,7 @@ test "create file and symlink" {
 
     // Danglink symlnik, file created later
     try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
-    file = try createDirAndFile(root.dir, "g/h/i/file4");
+    file = try createDirAndFile(root.dir, "g/h/i/file4", default_mode);
     file.close();
 }
 
@@ -1005,9 +1032,139 @@ test pipeToFileSystem {
     );
 }
 
+test "pipeToFileSystem root_dir" {
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    // with strip_components = 1
+    {
+        var tmp = testing.tmpDir(.{ .no_follow = true });
+        defer tmp.cleanup();
+        var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+        defer diagnostics.deinit();
+
+        pipeToFileSystem(tmp.dir, reader, .{
+            .strip_components = 1,
+            .diagnostics = &diagnostics,
+        }) catch |err| {
+            // Skip on platform which don't support symlinks
+            if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+            return err;
+        };
+
+        // there is no root_dir
+        try testing.expectEqual(0, diagnostics.root_dir.len);
+        try testing.expectEqual(5, diagnostics.entries);
+    }
+
+    // with strip_components = 0
+    {
+        fbs.reset();
+        var tmp = testing.tmpDir(.{ .no_follow = true });
+        defer tmp.cleanup();
+        var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+        defer diagnostics.deinit();
+
+        pipeToFileSystem(tmp.dir, reader, .{
+            .strip_components = 0,
+            .diagnostics = &diagnostics,
+        }) catch |err| {
+            // Skip on platform which don't support symlinks
+            if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+            return err;
+        };
+
+        // root_dir found
+        try testing.expectEqualStrings("example", diagnostics.root_dir);
+        try testing.expectEqual(6, diagnostics.entries);
+    }
+}
+
+test "findRoot without explicit root dir" {
+    const data = @embedFile("tar/testdata/19820.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+
+    try testing.expectEqualStrings("root", diagnostics.root_dir);
+}
+
 fn normalizePath(bytes: []u8) []u8 {
     const canonical_sep = std.fs.path.sep_posix;
     if (std.fs.path.sep == canonical_sep) return bytes;
     std.mem.replaceScalar(u8, bytes, std.fs.path.sep, canonical_sep);
     return bytes;
+}
+
+const default_mode = std.fs.File.default_mode;
+
+// File system mode based on tar header mode and mode_mode options.
+fn fileMode(mode: u32, options: PipeOptions) std.fs.File.Mode {
+    if (!std.fs.has_executable_bit or options.mode_mode == .ignore)
+        return default_mode;
+
+    const S = std.posix.S;
+
+    // The mode from the tar file is inspected for the owner executable bit.
+    if (mode & S.IXUSR == 0)
+        return default_mode;
+
+    // This bit is copied to the group and other executable bits.
+    // Other bits of the mode are left as the default when creating files.
+    return default_mode | S.IXUSR | S.IXGRP | S.IXOTH;
+}
+
+test fileMode {
+    if (!std.fs.has_executable_bit) return error.SkipZigTest;
+    try testing.expectEqual(default_mode, fileMode(0o744, PipeOptions{ .mode_mode = .ignore }));
+    try testing.expectEqual(0o777, fileMode(0o744, PipeOptions{}));
+    try testing.expectEqual(0o666, fileMode(0o644, PipeOptions{}));
+    try testing.expectEqual(0o666, fileMode(0o655, PipeOptions{}));
+}
+
+test "executable bit" {
+    if (!std.fs.has_executable_bit) return error.SkipZigTest;
+
+    const S = std.posix.S;
+    const data = @embedFile("tar/testdata/example.tar");
+
+    for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
+        var fbs = std.io.fixedBufferStream(data);
+        const reader = fbs.reader();
+
+        var tmp = testing.tmpDir(.{ .no_follow = true });
+        //defer tmp.cleanup();
+
+        pipeToFileSystem(tmp.dir, reader, .{
+            .strip_components = 1,
+            .exclude_empty_directories = true,
+            .mode_mode = opt,
+        }) catch |err| {
+            // Skip on platform which don't support symlinks
+            if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+            return err;
+        };
+
+        const fs = try tmp.dir.statFile("a/file");
+        try testing.expect(fs.kind == .file);
+
+        if (opt == .executable_bit_only) {
+            // Executable bit is set for user, group and others
+            try testing.expect(fs.mode & S.IXUSR > 0);
+            try testing.expect(fs.mode & S.IXGRP > 0);
+            try testing.expect(fs.mode & S.IXOTH > 0);
+        }
+        if (opt == .ignore) {
+            try testing.expect(fs.mode & S.IXUSR == 0);
+            try testing.expect(fs.mode & S.IXGRP == 0);
+            try testing.expect(fs.mode & S.IXOTH == 0);
+        }
+    }
 }

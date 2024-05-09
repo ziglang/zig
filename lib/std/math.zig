@@ -56,63 +56,6 @@ pub const inf = @import("math/float.zig").inf;
 pub const nan = @import("math/float.zig").nan;
 pub const snan = @import("math/float.zig").snan;
 
-pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
-pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
-pub const f64_true_min = @compileError("Deprecated: use `floatTrueMin(f64)` instead");
-pub const f80_true_min = @compileError("Deprecated: use `floatTrueMin(f80)` instead");
-pub const f128_true_min = @compileError("Deprecated: use `floatTrueMin(f128)` instead");
-pub const f16_min = @compileError("Deprecated: use `floatMin(f16)` instead");
-pub const f32_min = @compileError("Deprecated: use `floatMin(f32)` instead");
-pub const f64_min = @compileError("Deprecated: use `floatMin(f64)` instead");
-pub const f80_min = @compileError("Deprecated: use `floatMin(f80)` instead");
-pub const f128_min = @compileError("Deprecated: use `floatMin(f128)` instead");
-pub const f16_max = @compileError("Deprecated: use `floatMax(f16)` instead");
-pub const f32_max = @compileError("Deprecated: use `floatMax(f32)` instead");
-pub const f64_max = @compileError("Deprecated: use `floatMax(f64)` instead");
-pub const f80_max = @compileError("Deprecated: use `floatMax(f80)` instead");
-pub const f128_max = @compileError("Deprecated: use `floatMax(f128)` instead");
-pub const f16_epsilon = @compileError("Deprecated: use `floatEps(f16)` instead");
-pub const f32_epsilon = @compileError("Deprecated: use `floatEps(f32)` instead");
-pub const f64_epsilon = @compileError("Deprecated: use `floatEps(f64)` instead");
-pub const f80_epsilon = @compileError("Deprecated: use `floatEps(f80)` instead");
-pub const f128_epsilon = @compileError("Deprecated: use `floatEps(f128)` instead");
-pub const f16_toint = @compileError("Deprecated: use `1.0 / floatEps(f16)` instead");
-pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` instead");
-pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
-pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
-pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
-pub const inf_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(inf(f16)))` instead");
-pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
-pub const inf_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(inf(f32)))` instead");
-pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
-pub const inf_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(inf(f64)))` instead");
-pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
-pub const inf_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(inf(f80)))` instead");
-pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
-pub const inf_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(inf(f128)))` instead");
-pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
-pub const nan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
-pub const nan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
-pub const nan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
-pub const nan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
-pub const nan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
-pub const nan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
-pub const nan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
-pub const nan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
-pub const nan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
-pub const nan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
-pub const qnan_u16 = @compileError("Deprecated: use `@as(u16, @bitCast(nan(f16)))` instead");
-pub const qnan_f16 = @compileError("Deprecated: use `nan(f16)` instead");
-pub const qnan_u32 = @compileError("Deprecated: use `@as(u32, @bitCast(nan(f32)))` instead");
-pub const qnan_f32 = @compileError("Deprecated: use `nan(f32)` instead");
-pub const qnan_u64 = @compileError("Deprecated: use `@as(u64, @bitCast(nan(f64)))` instead");
-pub const qnan_f64 = @compileError("Deprecated: use `nan(f64)` instead");
-pub const qnan_u80 = @compileError("Deprecated: use `@as(u80, @bitCast(nan(f80)))` instead");
-pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
-pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
-pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
-pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
-
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
 /// the specified tolerance.
@@ -228,8 +171,6 @@ test approxEqRel {
     }
 }
 
-pub const doNotOptimizeAway = @compileError("Deprecated: use `std.mem.doNotOptimizeAway` instead");
-
 pub fn raiseInvalid() void {
     // Raise INVALID fpu exception
 }
@@ -255,8 +196,7 @@ pub const isSignalNan = @import("math/isnan.zig").isSignalNan;
 pub const frexp = @import("math/frexp.zig").frexp;
 pub const Frexp = @import("math/frexp.zig").Frexp;
 pub const modf = @import("math/modf.zig").modf;
-pub const modf32_result = @import("math/modf.zig").modf32_result;
-pub const modf64_result = @import("math/modf.zig").modf64_result;
+pub const Modf = @import("math/modf.zig").Modf;
 pub const copysign = @import("math/copysign.zig").copysign;
 pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
@@ -418,8 +358,7 @@ test {
     _ = frexp;
     _ = Frexp;
     _ = modf;
-    _ = modf32_result;
-    _ = modf64_result;
+    _ = Modf;
     _ = copysign;
     _ = isFinite;
     _ = isInf;
@@ -481,12 +420,6 @@ pub fn Min(comptime A: type, comptime B: type) type {
     }
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
-
-pub const min = @compileError("deprecated; use @min instead");
-pub const max = @compileError("deprecated; use @max instead");
-pub const min3 = @compileError("deprecated; use @min instead");
-pub const max3 = @compileError("deprecated; use @max instead");
-pub const ln = @compileError("deprecated; use @log instead");
 
 /// Odd sawtooth function
 /// ```
@@ -1586,6 +1519,31 @@ pub const Order = enum {
         try testing.expect(Order.invert(order(0, 0)) == .eq);
         try testing.expect(Order.invert(order(1, 0)) == .lt);
         try testing.expect(Order.invert(order(-1, 0)) == .gt);
+    }
+
+    pub fn differ(self: Order) ?Order {
+        return if (self != .eq) self else null;
+    }
+
+    test differ {
+        const neg: i32 = -1;
+        const zero: i32 = 0;
+        const pos: i32 = 1;
+        try testing.expect(order(zero, neg).differ() orelse
+            order(pos, zero) == .gt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(zero, zero) == .eq);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(neg, zero) == .lt);
+        try testing.expect(order(zero, zero).differ() orelse
+            order(pos, neg).differ() orelse
+            order(neg, zero) == .gt);
+        try testing.expect(order(pos, pos).differ() orelse
+            order(pos, pos).differ() orelse
+            order(neg, neg) == .eq);
+        try testing.expect(order(zero, pos).differ() orelse
+            order(neg, pos).differ() orelse
+            order(pos, neg) == .lt);
     }
 
     pub fn compare(self: Order, op: CompareOperator) bool {

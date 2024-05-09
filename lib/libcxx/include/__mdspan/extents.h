@@ -456,7 +456,7 @@ using dextents = typename __mdspan_detail::__make_dextents<_IndexType, _Rank>::t
 
 // Deduction guide for extents
 template <class... _IndexTypes>
-extents(_IndexTypes...) -> extents<size_t, size_t((_IndexTypes(), dynamic_extent))...>;
+extents(_IndexTypes...) -> extents<size_t, size_t(((void)sizeof(_IndexTypes), dynamic_extent))...>;
 
 namespace __mdspan_detail {
 

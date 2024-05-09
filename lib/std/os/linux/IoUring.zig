@@ -282,19 +282,15 @@ fn copy_cqes_ready(self: *IoUring, cqes: []linux.io_uring_cqe) u32 {
     const ready = self.cq_ready();
     const count = @min(cqes.len, ready);
     const head = self.cq.head.* & self.cq.mask;
-    const tail = (self.cq.head.* +% count) & self.cq.mask;
 
-    if (head <= tail) {
-        // head behind tail -> no wrapping
-        @memcpy(cqes[0..count], self.cq.cqes[head..tail]);
-    } else {
-        // head in front of tail -> buffer wraps
-        const two_copies_required: bool = self.cq.cqes.len - head < count;
-        const amount_to_copy_in_first = if (two_copies_required) self.cq.cqes.len - head else count;
-        @memcpy(cqes[0..amount_to_copy_in_first], self.cq.cqes[head .. head + amount_to_copy_in_first]);
-        if (two_copies_required) {
-            @memcpy(cqes[amount_to_copy_in_first..count], self.cq.cqes[0..tail]);
-        }
+    // before wrapping
+    const n = @min(self.cq.cqes.len - head, count);
+    @memcpy(cqes[0..n], self.cq.cqes[head..][0..n]);
+
+    if (count > n) {
+        // wrap self.cq.cqes
+        const w = count - n;
+        @memcpy(cqes[n..][0..w], self.cq.cqes[0..w]);
     }
 
     self.cq_advance(count);
@@ -1563,7 +1559,7 @@ pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.p
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
-    const mmap_size = entries * @sizeOf(linux.io_uring_buf);
+    const mmap_size = @as(usize, entries) * @sizeOf(linux.io_uring_buf);
     const mmap = try posix.mmap(
         null,
         mmap_size,
@@ -1770,7 +1766,7 @@ test "readv" {
     try ring.register_files(registered_fds[0..]);
 
     var buffer = [_]u8{42} ** 128;
-    var iovecs = [_]posix.iovec{posix.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
+    var iovecs = [_]posix.iovec{posix.iovec{ .base = &buffer, .len = buffer.len }};
     const sqe = try ring.read(0xcccccccc, fd_index, .{ .iovecs = iovecs[0..] }, 0);
     try testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
@@ -1807,11 +1803,11 @@ test "writev/fsync/readv" {
 
     const buffer_write = [_]u8{42} ** 128;
     const iovecs_write = [_]posix.iovec_const{
-        posix.iovec_const{ .iov_base = &buffer_write, .iov_len = buffer_write.len },
+        posix.iovec_const{ .base = &buffer_write, .len = buffer_write.len },
     };
     var buffer_read = [_]u8{0} ** 128;
     var iovecs_read = [_]posix.iovec{
-        posix.iovec{ .iov_base = &buffer_read, .iov_len = buffer_read.len },
+        posix.iovec{ .base = &buffer_read, .len = buffer_read.len },
     };
 
     const sqe_writev = try ring.writev(0xdddddddd, fd, iovecs_write[0..], 17);
@@ -1999,8 +1995,8 @@ test "write_fixed/read_fixed" {
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
     var buffers = [2]posix.iovec{
-        .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
-        .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
+        .{ .base = &raw_buffers[0], .len = raw_buffers[0].len },
+        .{ .base = &raw_buffers[1], .len = raw_buffers[1].len },
     };
     ring.register_buffers(&buffers) catch |err| switch (err) {
         error.SystemResources => {
@@ -2026,18 +2022,18 @@ test "write_fixed/read_fixed" {
 
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x45454545,
-        .res = @as(i32, @intCast(buffers[0].iov_len)),
+        .res = @as(i32, @intCast(buffers[0].len)),
         .flags = 0,
     }, cqe_write);
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0x12121212,
-        .res = @as(i32, @intCast(buffers[1].iov_len)),
+        .res = @as(i32, @intCast(buffers[1].len)),
         .flags = 0,
     }, cqe_read);
 
-    try testing.expectEqualSlices(u8, "\x00\x00\x00", buffers[1].iov_base[0..3]);
-    try testing.expectEqualSlices(u8, "foobar", buffers[1].iov_base[3..9]);
-    try testing.expectEqualSlices(u8, "zz", buffers[1].iov_base[9..11]);
+    try testing.expectEqualSlices(u8, "\x00\x00\x00", buffers[1].base[0..3]);
+    try testing.expectEqualSlices(u8, "foobar", buffers[1].base[3..9]);
+    try testing.expectEqualSlices(u8, "zz", buffers[1].base[9..11]);
 }
 
 test "openat" {
@@ -2193,7 +2189,7 @@ test "sendmsg/recvmsg" {
 
     const buffer_send = [_]u8{42} ** 128;
     const iovecs_send = [_]posix.iovec_const{
-        posix.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
+        posix.iovec_const{ .base = &buffer_send, .len = buffer_send.len },
     };
     const msg_send: posix.msghdr_const = .{
         .name = &address_server.any,
@@ -2211,7 +2207,7 @@ test "sendmsg/recvmsg" {
 
     var buffer_recv = [_]u8{0} ** 128;
     var iovecs_recv = [_]posix.iovec{
-        posix.iovec{ .iov_base = &buffer_recv, .iov_len = buffer_recv.len },
+        posix.iovec{ .base = &buffer_recv, .len = buffer_recv.len },
     };
     const addr = [_]u8{0} ** 4;
     var address_recv = net.Address.initIp4(addr, 0);
@@ -4229,4 +4225,51 @@ fn expect_buf_grp_cqe(
     try testing.expectEqualSlices(u8, expected, buf);
 
     return cqe;
+}
+
+test "copy_cqes with wrapping sq.cqes buffer" {
+    if (!is_linux) return error.SkipZigTest;
+
+    var ring = IoUring.init(2, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    try testing.expectEqual(2, ring.sq.sqes.len);
+    try testing.expectEqual(4, ring.cq.cqes.len);
+
+    // submit 2 entries, receive 2 completions
+    var cqes: [8]linux.io_uring_cqe = undefined;
+    {
+        for (0..2) |_| {
+            const sqe = try ring.get_sqe();
+            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            try testing.expect(try ring.submit() == 1);
+        }
+        var cqe_count: u32 = 0;
+        while (cqe_count < 2) {
+            cqe_count += try ring.copy_cqes(&cqes, 2 - cqe_count);
+        }
+    }
+
+    try testing.expectEqual(2, ring.cq.head.*);
+
+    // sq.sqes len is 4, starting at position 2
+    // every 4 entries submit wraps completion buffer
+    // we are reading ring.cq.cqes at indexes 2,3,0,1
+    for (1..1024) |i| {
+        for (0..4) |_| {
+            const sqe = try ring.get_sqe();
+            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            try testing.expect(try ring.submit() == 1);
+        }
+        var cqe_count: u32 = 0;
+        while (cqe_count < 4) {
+            cqe_count += try ring.copy_cqes(&cqes, 4 - cqe_count);
+        }
+        try testing.expectEqual(4, cqe_count);
+        try testing.expectEqual(2 + 4 * i, ring.cq.head.*);
+    }
 }

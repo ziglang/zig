@@ -1138,7 +1138,7 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null);
+        return windows.ReadFile(self.handle, first.base[0..first.len], null);
     }
 
     return posix.readv(self.handle, iovecs);
@@ -1153,7 +1153,7 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
 ///   reads from the underlying OS layer.
 /// * The OS layer expects pointer addresses to be inside the application's address space
 ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
-///   addresses when the length is zero. So this function modifies the iov_base fields
+///   addresses when the length is zero. So this function modifies the base fields
 ///   when the length is zero.
 ///
 /// Related open issue: https://github.com/ziglang/zig/issues/7699
@@ -1165,7 +1165,7 @@ pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
     // addresses outside the application's address space.
     var garbage: [1]u8 = undefined;
     for (iovecs) |*v| {
-        if (v.iov_len == 0) v.iov_base = &garbage;
+        if (v.len == 0) v.base = &garbage;
     }
 
     var i: usize = 0;
@@ -1174,15 +1174,15 @@ pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
         var amt = try self.readv(iovecs[i..]);
         var eof = amt == 0;
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return off;
             eof = false;
         }
         if (eof) return off;
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1194,7 +1194,7 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset);
+        return windows.ReadFile(self.handle, first.base[0..first.len], offset);
     }
 
     return posix.preadv(self.handle, iovecs, offset);
@@ -1217,15 +1217,15 @@ pub fn preadvAll(self: File, iovecs: []posix.iovec, offset: u64) PReadError!usiz
         var amt = try self.preadv(iovecs[i..], offset + off);
         var eof = amt == 0;
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return off;
             eof = false;
         }
         if (eof) return off;
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1273,7 +1273,7 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null);
+        return windows.WriteFile(self.handle, first.base[0..first.len], null);
     }
 
     return posix.writev(self.handle, iovecs);
@@ -1284,7 +1284,7 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
 ///   writes from the underlying OS layer.
 /// * The OS layer expects pointer addresses to be inside the application's address space
 ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
-///   addresses when the length is zero. So this function modifies the iov_base fields
+///   addresses when the length is zero. So this function modifies the base fields
 ///   when the length is zero.
 /// See https://github.com/ziglang/zig/issues/7699
 /// See equivalent function: `std.net.Stream.writevAll`.
@@ -1296,19 +1296,19 @@ pub fn writevAll(self: File, iovecs: []posix.iovec_const) WriteError!void {
     // addresses outside the application's address space.
     var garbage: [1]u8 = undefined;
     for (iovecs) |*v| {
-        if (v.iov_len == 0) v.iov_base = &garbage;
+        if (v.len == 0) v.base = &garbage;
     }
 
     var i: usize = 0;
     while (true) {
         var amt = try self.writev(iovecs[i..]);
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return;
         }
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1320,7 +1320,7 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset);
+        return windows.WriteFile(self.handle, first.base[0..first.len], offset);
     }
 
     return posix.pwritev(self.handle, iovecs, offset);
@@ -1339,13 +1339,13 @@ pub fn pwritevAll(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteEr
     while (true) {
         var amt = try self.pwritev(iovecs[i..], offset + off);
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return;
         }
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1456,13 +1456,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
         var i: usize = 0;
         while (i < headers.len) {
             amt = try posix.sendfile(out_fd, in_fd, offset, count, headers[i..], trls, flags);
-            while (amt >= headers[i].iov_len) {
-                amt -= headers[i].iov_len;
+            while (amt >= headers[i].len) {
+                amt -= headers[i].len;
                 i += 1;
                 if (i >= headers.len) break :hdrs;
             }
-            headers[i].iov_base += amt;
-            headers[i].iov_len -= amt;
+            headers[i].base += amt;
+            headers[i].len -= amt;
         }
     }
     if (count == 0) {
@@ -1482,13 +1482,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
     var i: usize = 0;
     while (i < trailers.len) {
-        while (amt >= trailers[i].iov_len) {
-            amt -= trailers[i].iov_len;
+        while (amt >= trailers[i].len) {
+            amt -= trailers[i].len;
             i += 1;
             if (i >= trailers.len) return;
         }
-        trailers[i].iov_base += amt;
-        trailers[i].iov_len -= amt;
+        trailers[i].base += amt;
+        trailers[i].len -= amt;
         amt = try posix.writev(self.handle, trailers[i..]);
     }
 }

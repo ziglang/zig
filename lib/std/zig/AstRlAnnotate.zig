@@ -911,6 +911,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .field_parent_ptr,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             return false;
@@ -976,7 +977,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         },
         .bit_offset_of,
         .offset_of,
-        .field_parent_ptr,
         .has_decl,
         .has_field,
         .field,

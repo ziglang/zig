@@ -2263,7 +2263,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnitsOptional().?);
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnits().?);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
@@ -3047,8 +3047,8 @@ fn writeToFile(
 
     // finally, write the entire binary into the file.
     var iovec = [_]std.posix.iovec_const{.{
-        .iov_base = binary_bytes.items.ptr,
-        .iov_len = binary_bytes.items.len,
+        .base = binary_bytes.items.ptr,
+        .len = binary_bytes.items.len,
     }};
     try wasm.base.file.?.writevAll(&iovec);
 }

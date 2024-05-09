@@ -13,7 +13,7 @@ const native_endian = builtin.cpu.arch.endian();
 pub const page_size = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     .aarch64 => switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos => 16 * 1024,
+        .macos, .ios, .watchos, .tvos, .visionos => 16 * 1024,
         else => 4 * 1024,
     },
     .sparc64 => 8 * 1024,
@@ -2008,7 +2008,12 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
         .Struct => {
             inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
-                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Struct => |struct_info| if (struct_info.backing_integer) |Int| {
+                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(Int, @bitCast(@field(ptr, f.name)))));
+                    } else {
+                        byteSwapAllFields(f.type, &@field(ptr, f.name));
+                    },
+                    .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .Enum => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },

@@ -48,7 +48,7 @@ pub const File = struct {
     pub fn field_count(file: *const File, node: Ast.Node.Index) u32 {
         const scope = file.scopes.get(node) orelse return 0;
         if (scope.tag != .namespace) return 0;
-        const namespace = @fieldParentPtr(Scope.Namespace, "base", scope);
+        const namespace: *Scope.Namespace = @alignCast(@fieldParentPtr("base", scope));
         return namespace.field_count;
     }
 
@@ -439,11 +439,11 @@ pub const Scope = struct {
         while (true) switch (it.tag) {
             .top => unreachable,
             .local => {
-                const local = @fieldParentPtr(Local, "base", it);
+                const local: *Local = @alignCast(@fieldParentPtr("base", it));
                 it = local.parent;
             },
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", it);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", it));
                 return namespace.decl_index;
             },
         };
@@ -453,7 +453,7 @@ pub const Scope = struct {
         switch (scope.tag) {
             .top, .local => return null,
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", scope);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", scope));
                 return namespace.names.get(name);
             },
         }
@@ -465,7 +465,7 @@ pub const Scope = struct {
         while (true) switch (it.tag) {
             .top => break,
             .local => {
-                const local = @fieldParentPtr(Local, "base", it);
+                const local: *Local = @alignCast(@fieldParentPtr("base", it));
                 const name_token = main_tokens[local.var_node] + 1;
                 const ident_name = ast.tokenSlice(name_token);
                 if (std.mem.eql(u8, ident_name, name)) {
@@ -474,7 +474,7 @@ pub const Scope = struct {
                 it = local.parent;
             },
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", it);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", it));
                 if (namespace.names.get(name)) |node| {
                     return node;
                 }

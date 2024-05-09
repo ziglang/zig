@@ -45,7 +45,7 @@ const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairConte
 /// Khronos made it so that these names are not defined explicitly, so
 /// we need to hardcode it (like they did).
 /// See https://github.com/KhronosGroup/SPIRV-Registry/
-const set_names = std.ComptimeStringMap([]const u8, .{
+const set_names = std.StaticStringMap([]const u8).initComptime(.{
     .{ "opencl.std.100", "OpenCL.std" },
     .{ "glsl.std.450", "GLSL.std.450" },
     .{ "opencl.debuginfo.100", "OpenCL.DebugInfo.100" },
@@ -311,7 +311,7 @@ fn renderInstructionSet(
     );
 
     for (extensions) |ext| {
-        try writer.print("{},\n", .{std.zig.fmtId(ext.name)});
+        try writer.print("{p},\n", .{std.zig.fmtId(ext.name)});
     }
 
     try writer.writeAll(
@@ -344,7 +344,7 @@ fn renderInstructionsCase(
     // but there aren't so many total aliases and that would add more overhead in total. We will
     // just filter those out when needed.
 
-    try writer.print(".{} => &[_]Instruction{{\n", .{std.zig.fmtId(set_name)});
+    try writer.print(".{p_} => &[_]Instruction{{\n", .{std.zig.fmtId(set_name)});
 
     for (instructions) |inst| {
         try writer.print(
@@ -366,7 +366,7 @@ fn renderInstructionsCase(
 
             const kind = all_operand_kinds.get(.{ set_name, operand.kind }) orelse
                 all_operand_kinds.get(.{ "core", operand.kind }).?;
-            try writer.print(".{{.kind = .{}, .quantifier = .{s}}},\n", .{ std.zig.fmtId(kind.kind), quantifier });
+            try writer.print(".{{.kind = .{p_}, .quantifier = .{s}}},\n", .{ std.zig.fmtId(kind.kind), quantifier });
         }
 
         try writer.writeAll(
@@ -423,7 +423,7 @@ fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
         \\
     );
     for (operands) |operand| {
-        try writer.print("{},\n", .{std.zig.fmtId(operand.kind)});
+        try writer.print("{p},\n", .{std.zig.fmtId(operand.kind)});
     }
     try writer.writeAll(
         \\
@@ -440,7 +440,7 @@ fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
             .Literal => "literal",
             .Composite => "composite",
         };
-        try writer.print(".{} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
+        try writer.print(".{p_} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
     }
     try writer.writeAll(
         \\    };
@@ -454,12 +454,12 @@ fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
         switch (operand.category) {
             .BitEnum, .ValueEnum => {},
             else => {
-                try writer.print(".{} => unreachable,\n", .{std.zig.fmtId(operand.kind)});
+                try writer.print(".{p_} => unreachable,\n", .{std.zig.fmtId(operand.kind)});
                 continue;
             },
         }
 
-        try writer.print(".{} => &[_]Enumerant{{", .{std.zig.fmtId(operand.kind)});
+        try writer.print(".{p_} => &[_]Enumerant{{", .{std.zig.fmtId(operand.kind)});
         for (operand.enumerants.?) |enumerant| {
             if (enumerant.value == .bitflag and std.mem.eql(u8, enumerant.enumerant, "None")) {
                 continue;
@@ -483,7 +483,7 @@ fn renderEnumerant(writer: anytype, enumerant: Enumerant) !void {
         if (i != 0)
             try writer.writeAll(", ");
         // Note, param.quantifier will always be one.
-        try writer.print(".{}", .{std.zig.fmtId(param.kind)});
+        try writer.print(".{p_}", .{std.zig.fmtId(param.kind)});
     }
     try writer.writeAll("}}");
 }
@@ -529,7 +529,7 @@ fn renderOpcodes(
     try writer.writeAll("pub const Opcode = enum(u16) {\n");
     for (instructions_indices) |i| {
         const inst = instructions[i];
-        try writer.print("{} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
+        try writer.print("{p} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
     }
 
     try writer.writeAll(
@@ -537,7 +537,7 @@ fn renderOpcodes(
     );
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {} = Opcode.{};\n", .{
+        try writer.print("pub const {} = Opcode.{p_};\n", .{
             std.zig.fmtId(instructions[alias.inst].opname),
             std.zig.fmtId(instructions[alias.alias].opname),
         });
@@ -565,7 +565,7 @@ fn renderOpcodes(
 
     for (instructions_indices) |i| {
         const inst = instructions[i];
-        try writer.print(".{} => .", .{std.zig.fmtId(inst.opname)});
+        try writer.print(".{p_} => .", .{std.zig.fmtId(inst.opname)});
         try renderInstructionClass(writer, inst.class.?);
         try writer.writeAll(",\n");
     }
@@ -636,22 +636,22 @@ fn renderValueEnum(
 
     const enum_indices = enum_map.values();
 
-    try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.kind)});
+    try writer.print("pub const {} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.kind)});
 
     for (enum_indices) |i| {
         const enumerant = enumerants[i];
         // if (enumerant.value != .int) return error.InvalidRegistry;
 
         switch (enumerant.value) {
-            .int => |value| try writer.print("{} = {},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
-            .bitflag => |value| try writer.print("{} = {s},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
+            .int => |value| try writer.print("{p} = {},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
+            .bitflag => |value| try writer.print("{p} = {s},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
         }
     }
 
     try writer.writeByte('\n');
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {} = {}.{};\n", .{
+        try writer.print("pub const {} = {}.{p_};\n", .{
             std.zig.fmtId(enumerants[alias.enumerant].enumerant),
             std.zig.fmtId(enumeration.kind),
             std.zig.fmtId(enumerants[alias.alias].enumerant),
@@ -679,7 +679,7 @@ fn renderBitEnum(
     enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
-    try writer.print("pub const {s} = packed struct {{\n", .{std.zig.fmtId(enumeration.kind)});
+    try writer.print("pub const {} = packed struct {{\n", .{std.zig.fmtId(enumeration.kind)});
 
     var flags_by_bitpos = [_]?usize{null} ** 32;
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
@@ -719,7 +719,7 @@ fn renderBitEnum(
 
     for (flags_by_bitpos, 0..) |maybe_flag_index, bitpos| {
         if (maybe_flag_index) |flag_index| {
-            try writer.print("{}", .{std.zig.fmtId(enumerants[flag_index].enumerant)});
+            try writer.print("{p_}", .{std.zig.fmtId(enumerants[flag_index].enumerant)});
         } else {
             try writer.print("_reserved_bit_{}", .{bitpos});
         }
@@ -730,7 +730,7 @@ fn renderBitEnum(
     try writer.writeByte('\n');
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {}: {} = .{{.{} = true}};\n", .{
+        try writer.print("pub const {}: {} = .{{.{p_} = true}};\n", .{
             std.zig.fmtId(enumerants[alias.flag].enumerant),
             std.zig.fmtId(enumeration.kind),
             std.zig.fmtId(enumerants[flags_by_bitpos[alias.alias].?].enumerant),
@@ -858,7 +858,7 @@ fn renderFieldName(writer: anytype, operands: []const Operand, field_index: usiz
         }
 
         // Assume there are no duplicate 'name' fields.
-        try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
+        try writer.print("{p_}", .{std.zig.fmtId(name_buffer.items)});
         return;
     }
 
@@ -876,7 +876,7 @@ fn renderFieldName(writer: anytype, operands: []const Operand, field_index: usiz
         }
     }
 
-    try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
+    try writer.print("{p_}", .{std.zig.fmtId(name_buffer.items)});
 
     // For fields derived from type name, there could be any amount.
     // Simply check against all other fields, and if another similar one exists, add a number.

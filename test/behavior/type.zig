@@ -758,3 +758,24 @@ test "matching captures causes opaque equivalence" {
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try testing.expect(a == b);
 }
+
+test "reify enum where fields refers to part of array" {
+    const fields: [3]std.builtin.Type.EnumField = .{
+        .{ .name = "foo", .value = 0 },
+        .{ .name = "bar", .value = 1 },
+        undefined,
+    };
+    const E = @Type(.{ .Enum = .{
+        .tag_type = u8,
+        .fields = fields[0..2],
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+    var a: E = undefined;
+    var b: E = undefined;
+    a = .foo;
+    b = .bar;
+    try testing.expect(a == .foo);
+    try testing.expect(b == .bar);
+    try testing.expect(a != b);
+}

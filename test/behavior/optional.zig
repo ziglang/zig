@@ -55,17 +55,55 @@ fn testNullPtrsEql() !void {
     try expect(&number == x);
 }
 
-test "optional with void type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+test "optional with zero-bit type" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
-    const Foo = struct {
-        x: ?void,
+    const S = struct {
+        fn doTheTest(comptime ZeroBit: type, comptime zero_bit: ZeroBit) !void {
+            const WithRuntime = struct {
+                zero_bit: ZeroBit,
+                runtime: u1,
+            };
+            var with_runtime: WithRuntime = undefined;
+            with_runtime = .{ .zero_bit = zero_bit, .runtime = 0 };
+
+            const Opt = struct { opt: ?ZeroBit };
+            var opt: Opt = .{ .opt = null };
+            try expect(opt.opt == null);
+            try expect(opt.opt != zero_bit);
+            try expect(opt.opt != with_runtime.zero_bit);
+            opt.opt = zero_bit;
+            try expect(opt.opt != null);
+            try expect(opt.opt == zero_bit);
+            try expect(opt.opt == with_runtime.zero_bit);
+            opt = .{ .opt = zero_bit };
+            try expect(opt.opt != null);
+            try expect(opt.opt == zero_bit);
+            try expect(opt.opt == with_runtime.zero_bit);
+            opt.opt = with_runtime.zero_bit;
+            try expect(opt.opt != null);
+            try expect(opt.opt == zero_bit);
+            try expect(opt.opt == with_runtime.zero_bit);
+            opt = .{ .opt = with_runtime.zero_bit };
+            try expect(opt.opt != null);
+            try expect(opt.opt == zero_bit);
+            try expect(opt.opt == with_runtime.zero_bit);
+
+            var two: ?struct { ZeroBit, ZeroBit } = undefined;
+            two = .{ with_runtime.zero_bit, with_runtime.zero_bit };
+            try expect(two != null);
+            try expect(two.?[0] == zero_bit);
+            try expect(two.?[0] == with_runtime.zero_bit);
+            try expect(two.?[1] == zero_bit);
+            try expect(two.?[1] == with_runtime.zero_bit);
+        }
     };
-    var x = Foo{ .x = null };
-    _ = &x;
-    try expect(x.x == null);
+
+    try S.doTheTest(void, {});
+    try comptime S.doTheTest(void, {});
+    try S.doTheTest(enum { only }, .only);
+    try comptime S.doTheTest(enum { only }, .only);
 }
 
 test "address of unwrap optional" {
@@ -569,4 +607,28 @@ test "copied optional doesn't alias source" {
     opt_x.?[0] = 15.0;
 
     try expect(x[0] == 0.0);
+}
+
+test "result location initialization of optional with OPV payload" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: u0,
+    };
+
+    const a: ?S = .{ .x = 0 };
+    comptime assert(a.?.x == 0);
+
+    comptime {
+        var b: ?S = .{ .x = 0 };
+        _ = &b;
+        assert(b.?.x == 0);
+    }
+
+    var c: ?S = .{ .x = 0 };
+    _ = &c;
+    try expectEqual(0, (c orelse return error.TestFailed).x);
 }

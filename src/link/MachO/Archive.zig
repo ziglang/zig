@@ -70,6 +70,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
             .archive = .{
                 .path = try gpa.dupe(u8, path),
                 .offset = pos,
+                .size = hdr_size,
             },
             .path = try gpa.dupe(u8, name),
             .file_handle = handle_index,

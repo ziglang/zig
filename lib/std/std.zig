@@ -16,8 +16,8 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 /// Deprecated: use `process.Child`.
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
-pub const ComptimeStringMap = comptime_string_map.ComptimeStringMap;
-pub const ComptimeStringMapWithEql = comptime_string_map.ComptimeStringMapWithEql;
+pub const StaticStringMap = static_string_map.StaticStringMap;
+pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
@@ -62,7 +62,7 @@ pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const compress = @import("compress.zig");
-pub const comptime_string_map = @import("comptime_string_map.zig");
+pub const static_string_map = @import("static_string_map.zig");
 pub const crypto = @import("crypto.zig");
 pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
@@ -104,6 +104,7 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
+pub const zip = @import("zip.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");

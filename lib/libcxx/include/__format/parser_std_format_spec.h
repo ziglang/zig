@@ -82,8 +82,7 @@ __parse_arg_id(_Iterator __begin, _Iterator __end, _ParseContext& __ctx) {
 }
 
 template <class _Context>
-_LIBCPP_HIDE_FROM_ABI constexpr uint32_t
-__substitute_arg_id(basic_format_arg<_Context> __format_arg) {
+_LIBCPP_HIDE_FROM_ABI constexpr uint32_t __substitute_arg_id(basic_format_arg<_Context> __format_arg) {
   // [format.string.std]/8
   //   If the corresponding formatting argument is not of integral type...
   // This wording allows char and bool too. LWG-3720 changes the wording to
@@ -92,7 +91,7 @@ __substitute_arg_id(basic_format_arg<_Context> __format_arg) {
   // This means the 128-bit will not be valid anymore.
   // TODO FMT Verify this resolution is accepted and add a test to verify
   //          128-bit integrals fail and switch to visit_format_arg.
-  return _VSTD::__visit_format_arg(
+  return std::__visit_format_arg(
       [](auto __arg) -> uint32_t {
         using _Type = decltype(__arg);
         if constexpr (same_as<_Type, monostate>)
@@ -176,7 +175,7 @@ inline constexpr __fields __fields_range{.__use_range_fill_ = true, .__clear_bra
 inline constexpr __fields __fields_fill_align_width{};
 #  endif
 
-enum class _LIBCPP_ENUM_VIS __alignment : uint8_t {
+enum class __alignment : uint8_t {
   /// No alignment is set in the format string.
   __default,
   __left,
@@ -185,7 +184,7 @@ enum class _LIBCPP_ENUM_VIS __alignment : uint8_t {
   __zero_padding
 };
 
-enum class _LIBCPP_ENUM_VIS __sign : uint8_t {
+enum class __sign : uint8_t {
   /// No sign is set in the format string.
   ///
   /// The sign isn't allowed for certain format-types. By using this value
@@ -197,7 +196,7 @@ enum class _LIBCPP_ENUM_VIS __sign : uint8_t {
   __space
 };
 
-enum class _LIBCPP_ENUM_VIS __type : uint8_t {
+enum class __type : uint8_t {
   __default = 0,
   __string,
   __binary_lower_case,
@@ -240,22 +239,22 @@ inline constexpr uint32_t __type_mask_integer =
     __create_type_mask(__type::__hexadecimal_upper_case);
 
 struct __std {
-  __alignment __alignment_ : 3;
-  __sign __sign_ : 2;
-  bool __alternate_form_ : 1;
+  __alignment __alignment_     : 3;
+  __sign __sign_               : 2;
+  bool __alternate_form_       : 1;
   bool __locale_specific_form_ : 1;
   __type __type_;
 };
 
 struct __chrono {
-  __alignment __alignment_ : 3;
+  __alignment __alignment_     : 3;
   bool __locale_specific_form_ : 1;
   bool __hour_                 : 1;
-  bool __weekday_name_ : 1;
+  bool __weekday_name_         : 1;
   bool __weekday_              : 1;
   bool __day_of_year_          : 1;
   bool __week_of_year_         : 1;
-  bool __month_name_ : 1;
+  bool __month_name_           : 1;
 };
 
 // The fill UCS scalar value.
@@ -495,8 +494,7 @@ public:
   }
 
   /// \returns the `__parsed_specifications` with the resolved dynamic sizes..
-  _LIBCPP_HIDE_FROM_ABI
-  __parsed_specifications<_CharT> __get_parsed_std_specifications(auto& __ctx) const {
+  _LIBCPP_HIDE_FROM_ABI __parsed_specifications<_CharT> __get_parsed_std_specifications(auto& __ctx) const {
     return __parsed_specifications<_CharT>{
         .__std_ = __std{.__alignment_            = __alignment_,
                         .__sign_                 = __sign_,
@@ -524,9 +522,9 @@ public:
         .__fill_{__fill_}};
   }
 
-  __alignment __alignment_ : 3 {__alignment::__default};
-  __sign __sign_ : 2 {__sign::__default};
-  bool __alternate_form_ : 1 {false};
+  __alignment __alignment_     : 3 {__alignment::__default};
+  __sign __sign_               : 2 {__sign::__default};
+  bool __alternate_form_       : 1 {false};
   bool __locale_specific_form_ : 1 {false};
   bool __clear_brackets_       : 1 {false};
   __type __type_{__type::__default};
@@ -547,7 +545,7 @@ public:
   uint8_t __reserved_1_ : 6 {0};
   // These two flags are only used internally and not part of the
   // __parsed_specifications. Therefore put them at the end.
-  bool __width_as_arg_ : 1 {false};
+  bool __width_as_arg_     : 1 {false};
   bool __precision_as_arg_ : 1 {false};
 
   /// The requested width, either the value or the arg-id.
@@ -593,9 +591,10 @@ private:
           || (same_as<_CharT, wchar_t> && sizeof(wchar_t) == 2)
 #    endif
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end, bool __use_range_fill) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__begin != __end,
-                                 "when called with an empty input the function will cause "
-                                 "undefined behavior by evaluating data not in the input");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __begin != __end,
+        "when called with an empty input the function will cause "
+        "undefined behavior by evaluating data not in the input");
     __unicode::__code_point_view<_CharT> __view{__begin, __end};
     __unicode::__consume_result __consumed = __view.__consume();
     if (__consumed.__status != __unicode::__consume_result::__ok)
@@ -625,9 +624,10 @@ private:
   template <contiguous_iterator _Iterator>
     requires(same_as<_CharT, wchar_t> && sizeof(wchar_t) == 4)
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end, bool __use_range_fill) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__begin != __end,
-                                 "when called with an empty input the function will cause "
-                                 "undefined behavior by evaluating data not in the input");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __begin != __end,
+        "when called with an empty input the function will cause "
+        "undefined behavior by evaluating data not in the input");
     if (__begin + 1 != __end && __parse_alignment(*(__begin + 1))) {
       if (!__unicode::__is_scalar_value(*__begin))
         std::__throw_format_error("The fill option contains an invalid value");
@@ -652,9 +652,10 @@ private:
   // range-fill and tuple-fill are identical
   template <contiguous_iterator _Iterator>
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end, bool __use_range_fill) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__begin != __end,
-                                 "when called with an empty input the function will cause "
-                                 "undefined behavior by evaluating data not in the input");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __begin != __end,
+        "when called with an empty input the function will cause "
+        "undefined behavior by evaluating data not in the input");
     if (__begin + 1 != __end) {
       if (__parse_alignment(*(__begin + 1))) {
         __validate_fill_character(*__begin, __use_range_fill);
@@ -721,9 +722,9 @@ private:
 
     if (*__begin == _CharT('{')) {
       __format::__parse_number_result __r = __format_spec::__parse_arg_id(++__begin, __end, __ctx);
-      __width_as_arg_ = true;
-      __width_ = __r.__value;
-      __begin = __r.__last;
+      __width_as_arg_                     = true;
+      __width_                            = __r.__value;
+      __begin                             = __r.__last;
       return true;
     }
 
@@ -731,9 +732,10 @@ private:
       return false;
 
     __format::__parse_number_result __r = __format::__parse_number(__begin, __end);
-    __width_ = __r.__value;
-    _LIBCPP_ASSERT_UNCATEGORIZED(__width_ != 0, "A zero value isn't allowed and should be impossible, "
-                                                "due to validations in this function");
+    __width_                            = __r.__value;
+    _LIBCPP_ASSERT_INTERNAL(__width_ != 0,
+                            "A zero value isn't allowed and should be impossible, "
+                            "due to validations in this function");
     __begin = __r.__last;
     return true;
   }
@@ -749,9 +751,9 @@ private:
 
     if (*__begin == _CharT('{')) {
       __format::__parse_number_result __arg_id = __format_spec::__parse_arg_id(++__begin, __end, __ctx);
-      __precision_as_arg_ = true;
-      __precision_ = __arg_id.__value;
-      __begin = __arg_id.__last;
+      __precision_as_arg_                      = true;
+      __precision_                             = __arg_id.__value;
+      __begin                                  = __arg_id.__last;
       return true;
     }
 
@@ -759,9 +761,9 @@ private:
       std::__throw_format_error("The precision option does not contain a value or an argument index");
 
     __format::__parse_number_result __r = __format::__parse_number(__begin, __end);
-    __precision_ = __r.__value;
-    __precision_as_arg_ = false;
-    __begin = __r.__last;
+    __precision_                        = __r.__value;
+    __precision_as_arg_                 = false;
+    __begin                             = __r.__last;
     return true;
   }
 
@@ -858,16 +860,14 @@ private:
     ++__begin;
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  int32_t __get_width(auto& __ctx) const {
+  _LIBCPP_HIDE_FROM_ABI int32_t __get_width(auto& __ctx) const {
     if (!__width_as_arg_)
       return __width_;
 
     return __format_spec::__substitute_arg_id(__ctx.arg(__width_));
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  int32_t __get_precision(auto& __ctx) const {
+  _LIBCPP_HIDE_FROM_ABI int32_t __get_precision(auto& __ctx) const {
     if (!__precision_as_arg_)
       return __precision_;
 
@@ -1158,7 +1158,7 @@ __estimate_column_width(basic_string_view<_CharT> __str, size_t __maximum, __col
   // When Unicode isn't supported assume ASCII and every code unit is one code
   // point. In ASCII the estimated column width is always one. Thus there's no
   // need for rounding.
-  size_t __width_ = _VSTD::min(__str.size(), __maximum);
+  size_t __width_ = std::min(__str.size(), __maximum);
   return {__width_, __str.begin() + __width_};
 }
 

@@ -9,16 +9,14 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 13, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
-        if (only_c) {
-            default_target.ofmt = .c;
-        }
+        default_target.ofmt = b.option(std.Target.ObjectFormat, "ofmt", "Object format to target") orelse if (only_c) .c else null;
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
 
@@ -34,22 +32,7 @@ pub fn build(b: *std.Build) !void {
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
-    const docgen_exe = b.addExecutable(.{
-        .name = "docgen",
-        .root_source_file = .{ .path = "tools/docgen.zig" },
-        .target = b.host,
-        .optimize = .Debug,
-        .single_threaded = single_threaded,
-    });
-
-    const docgen_cmd = b.addRunArtifact(docgen_exe);
-    docgen_cmd.addArgs(&.{ "--zig", b.graph.zig_exe });
-    if (b.zig_lib_dir) |p| {
-        docgen_cmd.addArg("--zig-lib-dir");
-        docgen_cmd.addDirectoryArg(p);
-    }
-    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
-    const langref_file = docgen_cmd.addOutputFileArg("langref.html");
+    const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
@@ -57,9 +40,9 @@ pub fn build(b: *std.Build) !void {
 
     const autodoc_test = b.addObject(.{
         .name = "std",
-        .root_source_file = .{ .path = "lib/std/std.zig" },
+        .root_source_file = b.path("lib/std/std.zig"),
         .target = target,
-        .zig_lib_dir = .{ .path = "lib" },
+        .zig_lib_dir = b.path("lib"),
         .optimize = .Debug,
     });
     const install_std_docs = b.addInstallDirectory(.{
@@ -88,7 +71,7 @@ pub fn build(b: *std.Build) !void {
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .root_source_file = b.path("test/src/Cases.zig"),
         .target = b.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
@@ -137,7 +120,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(.{
-            .source_dir = .{ .path = "lib" },
+            .source_dir = b.path("lib"),
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
@@ -351,6 +334,9 @@ pub fn build(b: *std.Build) !void {
         }
         if (target.result.os.tag == .windows) {
             inline for (.{ exe, check_case_exe }) |artifact| {
+                // LLVM depends on networking as of version 18.
+                artifact.linkSystemLibrary("ws2_32");
+
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
@@ -523,11 +509,10 @@ pub fn build(b: *std.Build) !void {
         optimization_modes,
         enable_macos_sdk,
         enable_ios_sdk,
-        false,
         enable_symlinks_windows,
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, false, enable_symlinks_windows));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
@@ -555,10 +540,10 @@ pub fn build(b: *std.Build) !void {
     const update_mingw_exe = b.addExecutable(.{
         .name = "update_mingw",
         .target = b.host,
-        .root_source_file = .{ .path = "tools/update_mingw.zig" },
+        .root_source_file = b.path("tools/update_mingw.zig"),
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
-    update_mingw_run.addDirectoryArg(.{ .path = "lib" });
+    update_mingw_run.addDirectoryArg(b.path("lib"));
     if (opt_mingw_src_path) |mingw_src_path| {
         update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
     } else {
@@ -609,10 +594,10 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileArg(.{ .path = "stage1/zig1.wasm" });
+    run_opt.addFileArg(b.path("stage1/zig1.wasm"));
 
     const copy_zig_h = b.addWriteFiles();
-    copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
+    copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
     update_zig1_step.dependOn(&run_opt.step);
@@ -630,7 +615,7 @@ const AddCompilerStepOptions = struct {
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = 7_000_000_000,
@@ -641,11 +626,11 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     exe.stack_size = stack_size;
 
     const aro_module = b.createModule(.{
-        .root_source_file = .{ .path = "lib/compiler/aro/aro.zig" },
+        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
     const aro_translate_c_module = b.createModule(.{
-        .root_source_file = .{ .path = "lib/compiler/aro_translate_c.zig" },
+        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
         .imports = &.{
             .{
                 .name = "aro",
@@ -668,7 +653,7 @@ const exe_cflags = [_][]const u8{
     "-fvisibility-inlines-hidden",
     "-fno-exceptions",
     "-fno-rtti",
-    "-Werror=type-limits",
+    "-Wno-type-limits",
     "-Wno-missing-braces",
     "-Wno-comment",
 };
@@ -720,7 +705,7 @@ fn addCmakeCfgOptionsToExe(
                 };
                 exe.linkSystemLibrary("unwind");
             },
-            .ios, .macos, .watchos, .tvos => {
+            .ios, .macos, .watchos, .tvos, .visionos => {
                 exe.linkLibCpp();
             },
             .windows => {
@@ -749,6 +734,9 @@ fn addCmakeCfgOptionsToExe(
             .solaris, .illumos => {
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+            },
+            .haiku => {
+                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             else => {},
         }
@@ -1054,6 +1042,7 @@ const clang_libs = [_][]const u8{
     "clangAST",
     "clangParse",
     "clangSema",
+    "clangAPINotes",
     "clangBasic",
     "clangEdit",
     "clangLex",
@@ -1083,6 +1072,7 @@ const llvm_libs = [_][]const u8{
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
+    "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
     "LLVMXCoreDisassembler",
@@ -1184,6 +1174,7 @@ const llvm_libs = [_][]const u8{
     "LLVMAArch64Desc",
     "LLVMAArch64Utils",
     "LLVMAArch64Info",
+    "LLVMOrcDebugging",
     "LLVMOrcJIT",
     "LLVMWindowsDriver",
     "LLVMMCJIT",
@@ -1203,6 +1194,7 @@ const llvm_libs = [_][]const u8{
     "LLVMMCDisassembler",
     "LLVMLTO",
     "LLVMPasses",
+    "LLVMHipStdPar",
     "LLVMCFGuard",
     "LLVMCoroutines",
     "LLVMipo",
@@ -1210,10 +1202,13 @@ const llvm_libs = [_][]const u8{
     "LLVMLinker",
     "LLVMInstrumentation",
     "LLVMFrontendOpenMP",
+    "LLVMFrontendOffloading",
     "LLVMFrontendOpenACC",
     "LLVMFrontendHLSL",
+    "LLVMFrontendDriver",
     "LLVMExtensions",
     "LLVMDWARFLinkerParallel",
+    "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
     "LLVMGlobalISel",
     "LLVMMIRParser",
@@ -1256,3 +1251,57 @@ const llvm_libs = [_][]const u8{
     "LLVMSupport",
     "LLVMDemangle",
 };
+
+fn generateLangRef(b: *std.Build) std.Build.LazyPath {
+    const doctest_exe = b.addExecutable(.{
+        .name = "doctest",
+        .root_source_file = b.path("tools/doctest.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
+        std.debug.panic("unable to open 'doc/langref' directory: {s}", .{@errorName(err)});
+    };
+    defer dir.close();
+
+    var wf = b.addWriteFiles();
+
+    var it = dir.iterateAssumeFirstIteration();
+    while (it.next() catch @panic("failed to read dir")) |entry| {
+        if (std.mem.startsWith(u8, entry.name, ".") or entry.kind != .file)
+            continue;
+
+        const out_basename = b.fmt("{s}.out", .{std.fs.path.stem(entry.name)});
+        const cmd = b.addRunArtifact(doctest_exe);
+        cmd.addArgs(&.{
+            "--zig",        b.graph.zig_exe,
+            // TODO: enhance doctest to use "--listen=-" rather than operating
+            // in a temporary directory
+            "--cache-root", b.cache_root.path orelse ".",
+        });
+        if (b.zig_lib_dir) |p| {
+            cmd.addArg("--zig-lib-dir");
+            cmd.addDirectoryArg(p);
+        }
+        cmd.addArgs(&.{"-i"});
+        cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
+
+        cmd.addArgs(&.{"-o"});
+        _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
+    }
+
+    const docgen_exe = b.addExecutable(.{
+        .name = "docgen",
+        .root_source_file = b.path("tools/docgen.zig"),
+        .target = b.host,
+        .optimize = .Debug,
+    });
+
+    const docgen_cmd = b.addRunArtifact(docgen_exe);
+    docgen_cmd.addArgs(&.{"--code-dir"});
+    docgen_cmd.addDirectoryArg(wf.getDirectory());
+
+    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
+    return docgen_cmd.addOutputFileArg("langref.html");
+}

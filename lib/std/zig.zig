@@ -10,6 +10,7 @@ pub const Tokenizer = tokenizer.Tokenizer;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
 pub const primitives = @import("zig/primitives.zig");
+pub const isPrimitive = primitives.isPrimitive;
 pub const Ast = @import("zig/Ast.zig");
 pub const AstGen = @import("zig/AstGen.zig");
 pub const Zir = @import("zig/Zir.zig");
@@ -728,20 +729,87 @@ const tokenizer = @import("zig/tokenizer.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-/// Return a Formatter for a Zig identifier
+/// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
+///
+/// - An empty `{}` format specifier escapes invalid identifiers, identifiers that shadow primitives
+///   and the reserved `_` identifier.
+/// - Add `p` to the specifier to render identifiers that shadow primitives unescaped.
+/// - Add `_` to the specifier to render the reserved `_` identifier unescaped.
+/// - `p` and `_` can be combined, e.g. `{p_}`.
+///
 pub fn fmtId(bytes: []const u8) std.fmt.Formatter(formatId) {
     return .{ .data = bytes };
 }
 
-/// Print the string as a Zig identifier escaping it with @"" syntax if needed.
+test fmtId {
+    const expectFmt = std.testing.expectFmt;
+    try expectFmt("@\"while\"", "{}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{p}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{_}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{p_}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{_p}", .{fmtId("while")});
+
+    try expectFmt("hello", "{}", .{fmtId("hello")});
+    try expectFmt("hello", "{p}", .{fmtId("hello")});
+    try expectFmt("hello", "{_}", .{fmtId("hello")});
+    try expectFmt("hello", "{p_}", .{fmtId("hello")});
+    try expectFmt("hello", "{_p}", .{fmtId("hello")});
+
+    try expectFmt("@\"type\"", "{}", .{fmtId("type")});
+    try expectFmt("type", "{p}", .{fmtId("type")});
+    try expectFmt("@\"type\"", "{_}", .{fmtId("type")});
+    try expectFmt("type", "{p_}", .{fmtId("type")});
+    try expectFmt("type", "{_p}", .{fmtId("type")});
+
+    try expectFmt("@\"_\"", "{}", .{fmtId("_")});
+    try expectFmt("@\"_\"", "{p}", .{fmtId("_")});
+    try expectFmt("_", "{_}", .{fmtId("_")});
+    try expectFmt("_", "{p_}", .{fmtId("_")});
+    try expectFmt("_", "{_p}", .{fmtId("_")});
+
+    try expectFmt("@\"i123\"", "{}", .{fmtId("i123")});
+    try expectFmt("i123", "{p}", .{fmtId("i123")});
+    try expectFmt("@\"4four\"", "{}", .{fmtId("4four")});
+    try expectFmt("_underscore", "{}", .{fmtId("_underscore")});
+    try expectFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
+    try expectFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
+
+    // These are technically not currently legal in Zig.
+    try expectFmt("@\"\"", "{}", .{fmtId("")});
+    try expectFmt("@\"\\x00\"", "{}", .{fmtId("\x00")});
+}
+
+/// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
 fn formatId(
     bytes: []const u8,
-    comptime unused_format_string: []const u8,
+    comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
-    _ = unused_format_string;
-    if (isValidId(bytes)) {
+    const allow_primitive, const allow_underscore = comptime parse_fmt: {
+        var allow_primitive = false;
+        var allow_underscore = false;
+        for (fmt) |char| {
+            switch (char) {
+                'p' => if (!allow_primitive) {
+                    allow_primitive = true;
+                    continue;
+                },
+                '_' => if (!allow_underscore) {
+                    allow_underscore = true;
+                    continue;
+                },
+                else => {},
+            }
+            @compileError("expected {}, {p}, {_}, {p_} or {_p}, found {" ++ fmt ++ "}");
+        }
+        break :parse_fmt .{ allow_primitive, allow_underscore };
+    };
+
+    if (isValidId(bytes) and
+        (allow_primitive or !std.zig.isPrimitive(bytes)) and
+        (allow_underscore or !isUnderscore(bytes)))
+    {
         return writer.writeAll(bytes);
     }
     try writer.writeAll("@\"");
@@ -757,12 +825,8 @@ pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
     return .{ .data = bytes };
 }
 
-test "escape invalid identifiers" {
+test fmtEscapes {
     const expectFmt = std.testing.expectFmt;
-    try expectFmt("@\"while\"", "{}", .{fmtId("while")});
-    try expectFmt("hello", "{}", .{fmtId("hello")});
-    try expectFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
-    try expectFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
     try expectFmt("\\x0f", "{}", .{fmtEscapes("\x0f")});
     try expectFmt(
         \\" \\ hi \x07 \x11 " derp \'"
@@ -816,7 +880,6 @@ pub fn stringEscape(
 
 pub fn isValidId(bytes: []const u8) bool {
     if (bytes.len == 0) return false;
-    if (std.mem.eql(u8, bytes, "_")) return false;
     for (bytes, 0..) |c, i| {
         switch (c) {
             '_', 'a'...'z', 'A'...'Z' => {},
@@ -834,6 +897,18 @@ test isValidId {
     try std.testing.expect(!isValidId("3d"));
     try std.testing.expect(!isValidId("enum"));
     try std.testing.expect(isValidId("i386"));
+}
+
+pub fn isUnderscore(bytes: []const u8) bool {
+    return bytes.len == 1 and bytes[0] == '_';
+}
+
+test isUnderscore {
+    try std.testing.expect(isUnderscore("_"));
+    try std.testing.expect(!isUnderscore("__"));
+    try std.testing.expect(!isUnderscore("_foo"));
+    try std.testing.expect(isUnderscore("\x5f"));
+    try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
 pub fn readSourceFileToEndAlloc(
@@ -1021,4 +1096,5 @@ test {
     _ = string_literal;
     _ = system;
     _ = target;
+    _ = c_translation;
 }

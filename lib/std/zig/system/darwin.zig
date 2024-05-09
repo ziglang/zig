@@ -38,9 +38,14 @@ pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
     const is_simulator_abi = target.abi == .simulator;
     const sdk = switch (target.os.tag) {
         .macos => "macosx",
-        .ios => if (is_simulator_abi) "iphonesimulator" else "iphoneos",
+        .ios => switch (target.abi) {
+            .simulator => "iphonesimulator",
+            .macabi => "macosx",
+            else => "iphoneos",
+        },
         .watchos => if (is_simulator_abi) "watchsimulator" else "watchos",
         .tvos => if (is_simulator_abi) "appletvsimulator" else "appletvos",
+        .visionos => if (is_simulator_abi) "xrsimulator" else "xros",
         else => return null,
     };
     const argv = &[_][]const u8{ "/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-path" };

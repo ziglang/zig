@@ -6,9 +6,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const touch_src = std.Build.LazyPath{
-        .path = "touch.zig",
-    };
+    const touch_src = b.path("touch.zig");
 
     const touch = b.addExecutable(.{
         .name = "touch",
@@ -20,14 +18,14 @@ pub fn build(b: *std.Build) void {
 
     const exists_in = b.addExecutable(.{
         .name = "exists_in",
-        .root_source_file = .{ .path = "exists_in.zig" },
+        .root_source_file = b.path("exists_in.zig"),
         .optimize = .Debug,
         .target = target,
     });
 
     const has_basename = b.addExecutable(.{
         .name = "has_basename",
-        .root_source_file = .{ .path = "has_basename.zig" },
+        .root_source_file = b.path("has_basename.zig"),
         .optimize = .Debug,
         .target = target,
     });
@@ -57,7 +55,7 @@ pub fn build(b: *std.Build) void {
     const abs_path = setup_abspath: {
         const temp_dir = b.makeTempPath();
 
-        var dir = std.fs.openDirAbsolute(temp_dir, .{}) catch @panic("failed to open temp dir");
+        var dir = std.fs.cwd().openDir(temp_dir, .{}) catch @panic("failed to open temp dir");
         defer dir.close();
 
         var file = dir.createFile("foo.txt", .{}) catch @panic("failed to create file");

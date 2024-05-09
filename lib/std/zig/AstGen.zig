@@ -316,8 +316,7 @@ const ResultInfo = struct {
         };
 
         /// Find the result type for a cast builtin given the result location.
-        /// If the location does not have a known result type, emits an error on
-        /// the given node.
+        /// If the location does not have a known result type, returns `null`.
         fn resultType(rl: Loc, gz: *GenZir, node: Ast.Node.Index) !?Zir.Inst.Ref {
             return switch (rl) {
                 .discard, .none, .ref, .inferred_ptr, .destructure => null,
@@ -330,6 +329,9 @@ const ResultInfo = struct {
             };
         }
 
+        /// Find the result type for a cast builtin given the result location.
+        /// If the location does not have a known result type, emits an error on
+        /// the given node.
         fn resultTypeForCast(rl: Loc, gz: *GenZir, node: Ast.Node.Index, builtin_name: []const u8) !Zir.Inst.Ref {
             const astgen = gz.astgen;
             if (try rl.resultType(gz, node)) |ty| return ty;
@@ -2786,7 +2788,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .atomic_load,
             .atomic_rmw,
             .mul_add,
-            .field_parent_ptr,
             .max,
             .min,
             .c_import,
@@ -8853,6 +8854,7 @@ fn ptrCast(
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
 
+    const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
     var flags: Zir.Inst.FullPtrCastFlags = .{};
 
     // Note that all pointer cast builtins have one parameter, so we only need
@@ -8870,36 +8872,62 @@ fn ptrCast(
         }
 
         if (node_datas[node].lhs == 0) break; // 0 args
-        if (node_datas[node].rhs != 0) break; // 2 args
 
         const builtin_token = main_tokens[node];
         const builtin_name = tree.tokenSlice(builtin_token);
         const info = BuiltinFn.list.get(builtin_name) orelse break;
-        if (info.param_count != 1) break;
+        if (node_datas[node].rhs == 0) {
+            // 1 arg
+            if (info.param_count != 1) break;
 
-        switch (info.tag) {
-            else => break,
-            inline .ptr_cast,
-            .align_cast,
-            .addrspace_cast,
-            .const_cast,
-            .volatile_cast,
-            => |tag| {
-                if (@field(flags, @tagName(tag))) {
-                    return astgen.failNode(node, "redundant {s}", .{builtin_name});
-                }
-                @field(flags, @tagName(tag)) = true;
-            },
+            switch (info.tag) {
+                else => break,
+                inline .ptr_cast,
+                .align_cast,
+                .addrspace_cast,
+                .const_cast,
+                .volatile_cast,
+                => |tag| {
+                    if (@field(flags, @tagName(tag))) {
+                        return astgen.failNode(node, "redundant {s}", .{builtin_name});
+                    }
+                    @field(flags, @tagName(tag)) = true;
+                },
+            }
+
+            node = node_datas[node].lhs;
+        } else {
+            // 2 args
+            if (info.param_count != 2) break;
+
+            switch (info.tag) {
+                else => break,
+                .field_parent_ptr => {
+                    if (flags.ptr_cast) break;
+
+                    const flags_int: FlagsInt = @bitCast(flags);
+                    const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
+                    const parent_ptr_type = try ri.rl.resultTypeForCast(gz, root_node, "@alignCast");
+                    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, node_datas[node].lhs);
+                    const field_ptr = try expr(gz, scope, .{ .rl = .none }, node_datas[node].rhs);
+                    try emitDbgStmt(gz, cursor);
+                    const result = try gz.addExtendedPayloadSmall(.field_parent_ptr, flags_int, Zir.Inst.FieldParentPtr{
+                        .src_node = gz.nodeIndexToRelative(node),
+                        .parent_ptr_type = parent_ptr_type,
+                        .field_name = field_name,
+                        .field_ptr = field_ptr,
+                    });
+                    return rvalue(gz, ri, result, root_node);
+                },
+            }
         }
-
-        node = node_datas[node].lhs;
     }
 
-    const flags_i: u5 = @bitCast(flags);
-    assert(flags_i != 0);
+    const flags_int: FlagsInt = @bitCast(flags);
+    assert(flags_int != 0);
 
     const ptr_only: Zir.Inst.FullPtrCastFlags = .{ .ptr_cast = true };
-    if (flags_i == @as(u5, @bitCast(ptr_only))) {
+    if (flags_int == @as(FlagsInt, @bitCast(ptr_only))) {
         // Special case: simpler representation
         return typeCast(gz, scope, ri, root_node, node, .ptr_cast, "@ptrCast");
     }
@@ -8908,12 +8936,12 @@ fn ptrCast(
         .const_cast = true,
         .volatile_cast = true,
     };
-    if ((flags_i & ~@as(u5, @bitCast(no_result_ty_flags))) == 0) {
+    if ((flags_int & ~@as(FlagsInt, @bitCast(no_result_ty_flags))) == 0) {
         // Result type not needed
         const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
         const operand = try expr(gz, scope, .{ .rl = .none }, node);
         try emitDbgStmt(gz, cursor);
-        const result = try gz.addExtendedPayloadSmall(.ptr_cast_no_dest, flags_i, Zir.Inst.UnNode{
+        const result = try gz.addExtendedPayloadSmall(.ptr_cast_no_dest, flags_int, Zir.Inst.UnNode{
             .node = gz.nodeIndexToRelative(root_node),
             .operand = operand,
         });
@@ -8926,7 +8954,7 @@ fn ptrCast(
     const result_type = try ri.rl.resultTypeForCast(gz, root_node, flags.needResultTypeBuiltinName());
     const operand = try expr(gz, scope, .{ .rl = .none }, node);
     try emitDbgStmt(gz, cursor);
-    const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_i, Zir.Inst.BinNode{
+    const result = try gz.addExtendedPayloadSmall(.ptr_cast_full, flags_int, Zir.Inst.BinNode{
         .node = gz.nodeIndexToRelative(root_node),
         .lhs = result_type,
         .rhs = operand,
@@ -9379,7 +9407,7 @@ fn builtinCall(
             try emitDbgNode(gz, node);
 
             const result = try gz.addExtendedPayload(.error_cast, Zir.Inst.BinNode{
-                .lhs = try ri.rl.resultTypeForCast(gz, node, "@errorCast"),
+                .lhs = try ri.rl.resultTypeForCast(gz, node, builtin_name),
                 .rhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
                 .node = gz.nodeIndexToRelative(node),
             });
@@ -9452,7 +9480,7 @@ fn builtinCall(
         },
 
         .splat => {
-            const result_type = try ri.rl.resultTypeForCast(gz, node, "@splat");
+            const result_type = try ri.rl.resultTypeForCast(gz, node, builtin_name);
             const elem_type = try gz.addUnNode(.vector_elem_type, result_type, node);
             const scalar = try expr(gz, scope, .{ .rl = .{ .ty = elem_type } }, params[0]);
             const result = try gz.addPlNode(.splat, node, Zir.Inst.Bin{
@@ -9537,12 +9565,13 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .field_parent_ptr => {
-            const parent_type = try typeExpr(gz, scope, params[0]);
-            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1]);
-            const result = try gz.addPlNode(.field_parent_ptr, node, Zir.Inst.FieldParentPtr{
-                .parent_type = parent_type,
+            const parent_ptr_type = try ri.rl.resultTypeForCast(gz, node, builtin_name);
+            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0]);
+            const result = try gz.addExtendedPayloadSmall(.field_parent_ptr, 0, Zir.Inst.FieldParentPtr{
+                .src_node = gz.nodeIndexToRelative(node),
+                .parent_ptr_type = parent_ptr_type,
                 .field_name = field_name,
-                .field_ptr = try expr(gz, scope, .{ .rl = .none }, params[2]),
+                .field_ptr = try expr(gz, scope, .{ .rl = .none }, params[1]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -10096,7 +10125,7 @@ fn calleeExpr(
     }
 }
 
-const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
+const primitive_instrs = std.StaticStringMap(Zir.Inst.Ref).initComptime(.{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
     .{ "anyopaque", .anyopaque_type },
@@ -10144,14 +10173,14 @@ const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
 comptime {
     // These checks ensure that std.zig.primitives stays in sync with the primitive->Zir map.
     const primitives = std.zig.primitives;
-    for (primitive_instrs.kvs) |kv| {
-        if (!primitives.isPrimitive(kv.key)) {
-            @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(kv.value) ++ "'");
+    for (primitive_instrs.keys(), primitive_instrs.values()) |key, value| {
+        if (!primitives.isPrimitive(key)) {
+            @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(value) ++ "'");
         }
     }
-    for (primitives.names.kvs) |kv| {
-        if (primitive_instrs.get(kv.key) == null) {
-            @compileError("std.zig.primitives entry '" ++ kv.key ++ "' does not have a corresponding Zir instr");
+    for (primitives.names.keys()) |key| {
+        if (primitive_instrs.get(key) == null) {
+            @compileError("std.zig.primitives entry '" ++ key ++ "' does not have a corresponding Zir instr");
         }
     }
 }
@@ -11686,20 +11715,20 @@ const Scope = struct {
     fn cast(base: *Scope, comptime T: type) ?*T {
         if (T == Defer) {
             switch (base.tag) {
-                .defer_normal, .defer_error => return @fieldParentPtr(T, "base", base),
+                .defer_normal, .defer_error => return @alignCast(@fieldParentPtr("base", base)),
                 else => return null,
             }
         }
         if (T == Namespace) {
             switch (base.tag) {
-                .namespace => return @fieldParentPtr(T, "base", base),
+                .namespace => return @alignCast(@fieldParentPtr("base", base)),
                 else => return null,
             }
         }
         if (base.tag != T.base_tag)
             return null;
 
-        return @fieldParentPtr(T, "base", base);
+        return @alignCast(@fieldParentPtr("base", base));
     }
 
     fn parent(base: *Scope) ?*Scope {

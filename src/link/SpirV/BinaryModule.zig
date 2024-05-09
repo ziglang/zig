@@ -94,6 +94,8 @@ pub const ParseError = error{
     DuplicateId,
     /// Some ID did not resolve.
     InvalidId,
+    /// This opcode or instruction is not supported yet.
+    UnsupportedOperation,
     /// Parser ran out of memory.
     OutOfMemory,
 };
@@ -114,7 +116,8 @@ pub const Instruction = struct {
             const instruction_len = self.words[self.offset] >> 16;
             defer self.offset += instruction_len;
             defer self.index += 1;
-            assert(instruction_len != 0 and self.offset < self.words.len); // Verified in BinaryModule.parse.
+            assert(instruction_len != 0);
+            assert(self.offset < self.words.len);
 
             return Instruction{
                 .opcode = @enumFromInt(self.words[self.offset] & 0xFFFF),

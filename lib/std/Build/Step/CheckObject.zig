@@ -12,7 +12,7 @@ const CheckObject = @This();
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
 
-pub const base_id = .check_object;
+pub const base_id: Step.Id = .check_object;
 
 step: Step,
 source: std.Build.LazyPath,
@@ -26,10 +26,10 @@ pub fn create(
     obj_format: std.Target.ObjectFormat,
 ) *CheckObject {
     const gpa = owner.allocator;
-    const self = gpa.create(CheckObject) catch @panic("OOM");
-    self.* = .{
+    const check_object = gpa.create(CheckObject) catch @panic("OOM");
+    check_object.* = .{
         .step = Step.init(.{
-            .id = .check_file,
+            .id = base_id,
             .name = "CheckObject",
             .owner = owner,
             .makeFn = make,
@@ -38,8 +38,8 @@ pub fn create(
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,
     };
-    self.source.addStepDependencies(&self.step);
-    return self;
+    check_object.source.addStepDependencies(&check_object.step);
+    return check_object;
 }
 
 const SearchPhrase = struct {
@@ -247,45 +247,57 @@ const ComputeCompareExpected = struct {
 
 const Check = struct {
     kind: Kind,
+    payload: Payload,
+    data: std.ArrayList(u8),
     actions: std.ArrayList(Action),
 
     fn create(allocator: Allocator, kind: Kind) Check {
         return .{
             .kind = kind,
+            .payload = .{ .none = {} },
+            .data = std.ArrayList(u8).init(allocator),
             .actions = std.ArrayList(Action).init(allocator),
         };
     }
 
-    fn extract(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn dumpSection(allocator: Allocator, name: [:0]const u8) Check {
+        var check = Check.create(allocator, .dump_section);
+        const off: u32 = @intCast(check.data.items.len);
+        check.data.writer().print("{s}\x00", .{name}) catch @panic("OOM");
+        check.payload = .{ .dump_section = off };
+        return check;
+    }
+
+    fn extract(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .extract,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn exact(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn exact(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .exact,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn contains(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn contains(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .contains,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn notPresent(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn notPresent(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .not_present,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn computeCmp(self: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
-        self.actions.append(.{
+    fn computeCmp(check: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
+        check.actions.append(.{
             .tag = .compute_cmp,
             .phrase = phrase,
             .expected = expected,
@@ -305,245 +317,257 @@ const Check = struct {
         dyld_lazy_bind,
         exports,
         compute_compare,
+        dump_section,
+    };
+
+    const Payload = union {
+        none: void,
+        /// Null-delimited string in the 'data' buffer.
+        dump_section: u32,
     };
 };
 
 /// Creates a new empty sequence of actions.
-fn checkStart(self: *CheckObject, kind: Check.Kind) void {
-    const new_check = Check.create(self.step.owner.allocator, kind);
-    self.checks.append(new_check) catch @panic("OOM");
+fn checkStart(check_object: *CheckObject, kind: Check.Kind) void {
+    const check = Check.create(check_object.step.owner.allocator, kind);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 /// Adds an exact match phrase to the latest created Check.
-pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
-    self.checkExactInner(phrase, null);
+pub fn checkExact(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkExactInner(phrase, null);
 }
 
 /// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkExactInner(phrase, lazy_path);
+pub fn checkExactPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkExactInner(phrase, lazy_path);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.exact(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkExactInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.exact(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds a fuzzy match phrase to the latest created Check.
-pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
-    self.checkContainsInner(phrase, null);
+pub fn checkContains(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkContainsInner(phrase, null);
 }
 
 /// Like `checkContains()` but takes an additional argument `lazy_path` which will be
 /// resolved to a full search query in `make()`.
 pub fn checkContainsPath(
-    self: *CheckObject,
+    check_object: *CheckObject,
     phrase: []const u8,
     lazy_path: std.Build.LazyPath,
 ) void {
-    self.checkContainsInner(phrase, lazy_path);
+    check_object.checkContainsInner(phrase, lazy_path);
 }
 
-fn checkContainsInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.contains(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkContainsInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.contains(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds an exact match phrase with variable extractor to the latest created Check.
-pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
-    self.checkExtractInner(phrase, null);
+pub fn checkExtract(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkExtractInner(phrase, null);
 }
 
 /// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExtractLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkExtractInner(phrase, lazy_path);
+pub fn checkExtractLazyPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkExtractInner(phrase, lazy_path);
 }
 
-fn checkExtractInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.extract(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkExtractInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.extract(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds another searched phrase to the latest created Check
 /// however ensures there is no matching phrase in the output.
-pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
-    self.checkNotPresentInner(phrase, null);
+pub fn checkNotPresent(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkNotPresentInner(phrase, null);
 }
 
 /// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkNotPresentLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkNotPresentInner(phrase, lazy_path);
+pub fn checkNotPresentLazyPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkNotPresentInner(phrase, lazy_path);
 }
 
-fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkNotPresentInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.notPresent(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Creates a new check checking in the file headers (section, program headers, etc.).
-pub fn checkInHeaders(self: *CheckObject) void {
-    self.checkStart(.headers);
+pub fn checkInHeaders(check_object: *CheckObject) void {
+    check_object.checkStart(.headers);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
 /// file.
-pub fn checkInSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.symtab_label,
         .elf => ElfDumper.symtab_label,
         .wasm => WasmDumper.symtab_label,
         .coff => @panic("TODO symtab for coff"),
         else => @panic("TODO other file formats"),
     };
-    self.checkStart(.symtab);
-    self.checkExact(label);
+    check_object.checkStart(.symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld rebase opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldRebase(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldRebase(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_rebase_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_rebase);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_rebase);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld weak bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldWeakBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldWeakBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_weak_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_weak_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_weak_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld lazy bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldLazyBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldLazyBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_lazy_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_lazy_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_lazy_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically exports info contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInExports(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInExports(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.exports_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.exports);
-    self.checkExact(label);
+    check_object.checkStart(.exports);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically indirect symbol table parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInIndirectSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInIndirectSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.indirect_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.indirect_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.indirect_symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dynamic symbol table parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
-pub fn checkInDynamicSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDynamicSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.dynamic_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dynamic_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.dynamic_symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dynamic section parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
-pub fn checkInDynamicSection(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDynamicSection(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dynamic_section);
-    self.checkExact(label);
+    check_object.checkStart(.dynamic_section);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the archive
 /// file.
-pub fn checkInArchiveSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInArchiveSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.archive_symtab_label,
         else => @panic("TODO other file formats"),
     };
-    self.checkStart(.archive_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.archive_symtab);
+    check_object.checkExact(label);
+}
+
+pub fn dumpSection(check_object: *CheckObject, name: [:0]const u8) void {
+    const check = Check.dumpSection(check_object.step.owner.allocator, name);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 /// Creates a new standalone, singular check which allows running simple binary operations
 /// on the extracted variables. It will then compare the reduced program with the value of
 /// the expected variable.
 pub fn checkComputeCompare(
-    self: *CheckObject,
+    check_object: *CheckObject,
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.step.owner.allocator, .compute_compare);
-    new_check.computeCmp(.{ .string = self.step.owner.dupe(program) }, expected);
-    self.checks.append(new_check) catch @panic("OOM");
+    var check = Check.create(check_object.step.owner.allocator, .compute_compare);
+    check.computeCmp(.{ .string = check_object.step.owner.dupe(program) }, expected);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const gpa = b.allocator;
-    const self = @fieldParentPtr(CheckObject, "step", step);
+    const check_object: *CheckObject = @fieldParentPtr("step", step);
 
-    const src_path = self.source.getPath(b);
+    const src_path = check_object.source.getPath2(b, step);
     const contents = fs.cwd().readFileAllocOptions(
         gpa,
         src_path,
-        self.max_bytes,
+        check_object.max_bytes,
         null,
         @alignOf(u64),
         null,
     ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
     var vars = std.StringHashMap(u64).init(gpa);
-    for (self.checks.items) |chk| {
+    for (check_object.checks.items) |chk| {
         if (chk.kind == .compute_compare) {
             assert(chk.actions.items.len == 1);
             const act = chk.actions.items[0];
@@ -563,13 +587,44 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             continue;
         }
 
-        const output = switch (self.obj_format) {
-            .macho => try MachODumper.parseAndDump(step, chk.kind, contents),
-            .elf => try ElfDumper.parseAndDump(step, chk.kind, contents),
+        const output = switch (check_object.obj_format) {
+            .macho => try MachODumper.parseAndDump(step, chk, contents),
+            .elf => try ElfDumper.parseAndDump(step, chk, contents),
             .coff => return step.fail("TODO coff parser", .{}),
-            .wasm => try WasmDumper.parseAndDump(step, chk.kind, contents),
+            .wasm => try WasmDumper.parseAndDump(step, chk, contents),
             else => unreachable,
         };
+
+        // Depending on whether we requested dumping section verbatim or not,
+        // we either format message string with escaped codes, or not to aid debugging
+        // the failed test.
+        const fmtMessageString = struct {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+                return .{ .data = .{
+                    .kind = kind,
+                    .msg = msg,
+                } };
+            }
+
+            const Ctx = struct {
+                kind: Check.Kind,
+                msg: []const u8,
+            };
+
+            fn formatMessageString(
+                ctx: Ctx,
+                comptime unused_fmt_string: []const u8,
+                options: std.fmt.FormatOptions,
+                writer: anytype,
+            ) !void {
+                _ = unused_fmt_string;
+                _ = options;
+                switch (ctx.kind) {
+                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
+                    else => try writer.writeAll(ctx.msg),
+                }
+            }
+        }.fmtMessageString;
 
         var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
@@ -585,7 +640,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -600,7 +655,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -614,7 +669,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does contain it: ========
                             \\{s}
                             \\===================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -629,7 +684,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             \\========= but parsed file does not contain it: =======
                             \\{s}
                             \\======================================================
-                        , .{ act.phrase.resolve(b, step), output });
+                        , .{ act.phrase.resolve(b, step), fmtMessageString(chk.kind, output) });
                     }
                 },
 
@@ -660,7 +715,7 @@ const MachODumper = struct {
         }
     };
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -731,7 +786,7 @@ const MachODumper = struct {
             }
         }
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 try dumpHeader(hdr, writer);
 
@@ -764,7 +819,7 @@ const MachODumper = struct {
                 if (dyld_info_lc == null) return step.fail("no dyld info found", .{});
                 const lc = dyld_info_lc.?;
 
-                switch (kind) {
+                switch (check.kind) {
                     .dyld_rebase => if (lc.rebase_size > 0) {
                         const data = bytes[lc.rebase_off..][0..lc.rebase_size];
                         try writer.writeAll(dyld_rebase_label ++ "\n");
@@ -805,7 +860,7 @@ const MachODumper = struct {
                 return step.fail("no exports data found", .{});
             },
 
-            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(kind)}),
+            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -1542,8 +1597,8 @@ const MachODumper = struct {
             },
         },
 
-        inline fn rankByTag(self: Export) u3 {
-            return switch (self.tag) {
+        inline fn rankByTag(@"export": Export) u3 {
+            return switch (@"export".tag) {
                 .@"export" => 1,
                 .reexport => 2,
                 .stub_resolver => 3,
@@ -1633,14 +1688,14 @@ const ElfDumper = struct {
     const dynamic_section_label = "dynamic section";
     const archive_symtab_label = "archive symbol table";
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
-        return parseAndDumpArchive(step, kind, bytes) catch |err| switch (err) {
-            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, kind, bytes),
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
+        return parseAndDumpArchive(step, check, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, check, bytes),
             else => |e| return e,
         };
     }
 
-    fn parseAndDumpArchive(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -1702,13 +1757,13 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .archive_symtab => if (ctx.symtab.items.len > 0) {
                 try ctx.dumpSymtab(writer);
             } else return step.fail("no archive symbol table found", .{}),
 
             else => if (ctx.objects.items.len > 0) {
-                try ctx.dumpObjects(step, kind, writer);
+                try ctx.dumpObjects(step, check, writer);
             } else return step.fail("empty archive", .{}),
         }
 
@@ -1785,10 +1840,10 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpObjects(ctx: ArchiveContext, step: *Step, kind: Check.Kind, writer: anytype) !void {
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, writer: anytype) !void {
             for (ctx.objects.items) |object| {
                 try writer.print("object {s}\n", .{object.name});
-                const output = try parseAndDumpObject(step, kind, ctx.data[object.off..][0..object.len]);
+                const output = try parseAndDumpObject(step, check, ctx.data[object.off..][0..object.len]);
                 defer ctx.gpa.free(output);
                 try writer.print("{s}\n", .{output});
             }
@@ -1806,7 +1861,7 @@ const ElfDumper = struct {
         };
     };
 
-    fn parseAndDumpObject(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -1859,7 +1914,7 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 try ctx.dumpHeader(writer);
                 try ctx.dumpShdrs(writer);
@@ -1878,7 +1933,13 @@ const ElfDumper = struct {
                 try ctx.dumpDynamicSection(shndx, writer);
             } else return step.fail("no .dynamic section found", .{}),
 
-            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(kind)}),
+            .dump_section => {
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
+                const shndx = ctx.getSectionByName(name) orelse return step.fail("no '{s}' section found", .{name});
+                try ctx.dumpSection(shndx, writer);
+            },
+
+            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -2176,6 +2237,11 @@ const ElfDumper = struct {
             }
         }
 
+        fn dumpSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
+            const data = ctx.getSectionContents(shndx);
+            try writer.print("{s}", .{data});
+        }
+
         inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
             const shdr = ctx.shdrs[shndx];
             return getString(ctx.shstrtab, shdr.sh_name);
@@ -2300,7 +2366,7 @@ const ElfDumper = struct {
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
@@ -2317,7 +2383,7 @@ const WasmDumper = struct {
         errdefer output.deinit();
         const writer = output.writer();
 
-        switch (kind) {
+        switch (check.kind) {
             .headers => {
                 while (reader.readByte()) |current_byte| {
                     const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
@@ -2330,7 +2396,7 @@ const WasmDumper = struct {
                 } else |_| {} // reached end of stream
             },
 
-            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(kind)}),
+            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
 
         return output.toOwnedSlice();
@@ -2364,7 +2430,7 @@ const WasmDumper = struct {
             => {
                 const entries = try std.leb.readULEB128(u32, reader);
                 try writer.print("\nentries {d}\n", .{entries});
-                try dumpSection(step, section, data[fbs.pos..], entries, writer);
+                try parseSection(step, section, data[fbs.pos..], entries, writer);
             },
             .custom => {
                 const name_length = try std.leb.readULEB128(u32, reader);
@@ -2393,7 +2459,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn dumpSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
+    fn parseSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
         var fbs = std.io.fixedBufferStream(data);
         const reader = fbs.reader();
 
@@ -2409,12 +2475,12 @@ const WasmDumper = struct {
                     try writer.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
-                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     } else index = 0;
                     const returns = try std.leb.readULEB128(u32, reader);
                     try writer.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
-                        try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     }
                 }
             },
@@ -2446,11 +2512,11 @@ const WasmDumper = struct {
                             try parseDumpLimits(reader, writer);
                         },
                         .global => {
-                            try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                            _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                             try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u32, reader)});
                         },
                         .table => {
-                            try parseDumpType(step, std.wasm.RefType, reader, writer);
+                            _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
                             try parseDumpLimits(reader, writer);
                         },
                     }
@@ -2465,7 +2531,7 @@ const WasmDumper = struct {
             .table => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(step, std.wasm.RefType, reader, writer);
+                    _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
                     try parseDumpLimits(reader, writer);
                 }
             },
@@ -2478,7 +2544,7 @@ const WasmDumper = struct {
             .global => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                    _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u1, reader)});
                     try parseDumpInit(step, reader, writer);
                 }
@@ -2539,12 +2605,13 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpType(step: *Step, comptime WasmType: type, reader: anytype, writer: anytype) !void {
-        const type_byte = try reader.readByte();
-        const valtype = std.meta.intToEnum(WasmType, type_byte) catch {
-            return step.fail("Invalid wasm type value '{d}'", .{type_byte});
+    fn parseDumpType(step: *Step, comptime E: type, reader: anytype, writer: anytype) !E {
+        const byte = try reader.readByte();
+        const tag = std.meta.intToEnum(E, byte) catch {
+            return step.fail("invalid wasm type value '{d}'", .{byte});
         };
-        try writer.print("type {s}\n", .{@tagName(valtype)});
+        try writer.print("type {s}\n", .{@tagName(tag)});
+        return tag;
     }
 
     fn parseDumpLimits(reader: anytype, writer: anytype) !void {
@@ -2576,29 +2643,54 @@ const WasmDumper = struct {
         }
     }
 
+    /// https://webassembly.github.io/spec/core/appendix/custom.html
     fn parseDumpNames(step: *Step, reader: anytype, writer: anytype, data: []const u8) !void {
         while (reader.context.pos < data.len) {
-            try parseDumpType(step, std.wasm.NameSubsection, reader, writer);
-            const size = try std.leb.readULEB128(u32, reader);
-            const entries = try std.leb.readULEB128(u32, reader);
-            try writer.print(
-                \\size {d}
-                \\names {d}
-            , .{ size, entries });
-            try writer.writeByte('\n');
-            var i: u32 = 0;
-            while (i < entries) : (i += 1) {
-                const index = try std.leb.readULEB128(u32, reader);
-                const name_len = try std.leb.readULEB128(u32, reader);
-                const pos = reader.context.pos;
-                const name = data[pos..][0..name_len];
-                reader.context.pos += name_len;
+            switch (try parseDumpType(step, std.wasm.NameSubsection, reader, writer)) {
+                // The module name subsection ... consists of a single name
+                // that is assigned to the module itself.
+                .module => {
+                    const size = try std.leb.readULEB128(u32, reader);
+                    const name_len = try std.leb.readULEB128(u32, reader);
+                    if (size != name_len + 1) return error.BadSubsectionSize;
+                    if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
+                    try writer.print("name {s}\n", .{data[reader.context.pos..][0..name_len]});
+                    reader.context.pos += name_len;
+                },
 
-                try writer.print(
-                    \\index {d}
-                    \\name {s}
-                , .{ index, name });
-                try writer.writeByte('\n');
+                // The function name subsection ... consists of a name map
+                // assigning function names to function indices.
+                .function, .global, .data_segment => {
+                    const size = try std.leb.readULEB128(u32, reader);
+                    const entries = try std.leb.readULEB128(u32, reader);
+                    try writer.print(
+                        \\size {d}
+                        \\names {d}
+                        \\
+                    , .{ size, entries });
+                    for (0..entries) |_| {
+                        const index = try std.leb.readULEB128(u32, reader);
+                        const name_len = try std.leb.readULEB128(u32, reader);
+                        if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
+                        const name = data[reader.context.pos..][0..name_len];
+                        reader.context.pos += name.len;
+
+                        try writer.print(
+                            \\index {d}
+                            \\name {s}
+                            \\
+                        , .{ index, name });
+                    }
+                },
+
+                // The local name subsection ... consists of an indirect name
+                // map assigning local names to local indices grouped by
+                // function indices.
+                .local => {
+                    return step.fail("TODO implement parseDumpNames for local subsections", .{});
+                },
+
+                else => |t| return step.fail("invalid subsection type: {s}", .{@tagName(t)}),
             }
         }
     }

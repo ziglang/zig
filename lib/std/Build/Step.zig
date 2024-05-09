@@ -58,7 +58,7 @@ pub const TestResults = struct {
     }
 };
 
-pub const MakeFn = *const fn (self: *Step, prog_node: *std.Progress.Node) anyerror!void;
+pub const MakeFn = *const fn (step: *Step, prog_node: *std.Progress.Node) anyerror!void;
 
 pub const State = enum {
     precheck_unstarted,
@@ -201,8 +201,8 @@ pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkip
     }
 }
 
-pub fn dependOn(self: *Step, other: *Step) void {
-    self.dependencies.append(other) catch @panic("OOM");
+pub fn dependOn(step: *Step, other: *Step) void {
+    step.dependencies.append(other) catch @panic("OOM");
 }
 
 pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
@@ -231,7 +231,7 @@ fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
     if (step.id == T.base_id) {
-        return @fieldParentPtr(T, "step", step);
+        return @fieldParentPtr("step", step);
     }
     return null;
 }

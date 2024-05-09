@@ -339,15 +339,14 @@ pub const DeclState = struct {
                                     struct_type.field_names.get(ip),
                                     struct_type.field_types.get(ip),
                                     struct_type.offsets.get(ip),
-                                ) |field_name_ip, field_ty, field_off| {
+                                ) |field_name, field_ty, field_off| {
                                     if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
-                                    const field_name = ip.stringToSlice(field_name_ip);
+                                    const field_name_slice = field_name.toSlice(ip);
                                     // DW.AT.member
-                                    try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
+                                    try dbg_info_buffer.ensureUnusedCapacity(field_name_slice.len + 2);
                                     dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                                     // DW.AT.name, DW.FORM.string
-                                    dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                                    dbg_info_buffer.appendAssumeCapacity(0);
+                                    dbg_info_buffer.appendSliceAssumeCapacity(field_name_slice[0 .. field_name_slice.len + 1]);
                                     // DW.AT.type, DW.FORM.ref4
                                     const index = dbg_info_buffer.items.len;
                                     try dbg_info_buffer.appendNTimes(0, 4);
@@ -374,14 +373,13 @@ pub const DeclState = struct {
                 try dbg_info_buffer.append(0);
 
                 const enum_type = ip.loadEnumType(ty.ip_index);
-                for (enum_type.names.get(ip), 0..) |field_name_index, field_i| {
-                    const field_name = ip.stringToSlice(field_name_index);
+                for (enum_type.names.get(ip), 0..) |field_name, field_i| {
+                    const field_name_slice = field_name.toSlice(ip);
                     // DW.AT.enumerator
-                    try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
+                    try dbg_info_buffer.ensureUnusedCapacity(field_name_slice.len + 2 + @sizeOf(u64));
                     dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
                     // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity(field_name);
-                    dbg_info_buffer.appendAssumeCapacity(0);
+                    dbg_info_buffer.appendSliceAssumeCapacity(field_name_slice[0 .. field_name_slice.len + 1]);
                     // DW.AT.const_value, DW.FORM.data8
                     const value: u64 = value: {
                         if (enum_type.values.len == 0) break :value field_i; // auto-numbered
@@ -443,11 +441,11 @@ pub const DeclState = struct {
 
                 for (union_obj.field_types.get(ip), union_obj.loadTagType(ip).names.get(ip)) |field_ty, field_name| {
                     if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
+                    const field_name_slice = field_name.toSlice(ip);
                     // DW.AT.member
                     try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.appendSlice(ip.stringToSlice(field_name));
-                    try dbg_info_buffer.append(0);
+                    try dbg_info_buffer.appendSlice(field_name_slice[0 .. field_name_slice.len + 1]);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.appendNTimes(0, 4);
@@ -1155,8 +1153,8 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
             // .debug_info subprogram
-            const decl_name_slice = mod.intern_pool.stringToSlice(decl.name);
-            const decl_linkage_name_slice = mod.intern_pool.stringToSlice(decl_linkage_name);
+            const decl_name_slice = decl.name.toSlice(&mod.intern_pool);
+            const decl_linkage_name_slice = decl_linkage_name.toSlice(&mod.intern_pool);
             try dbg_info_buffer.ensureUnusedCapacity(1 + ptr_width_bytes + 4 + 4 +
                 (decl_name_slice.len + 1) + (decl_linkage_name_slice.len + 1));
 
@@ -2122,32 +2120,32 @@ fn pwriteDbgLineNops(
         var padding_left = prev_padding_size;
         if (padding_left % 2 != 0) {
             vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
+                .base = &three_byte_nop,
+                .len = three_byte_nop.len,
             };
             vec_index += 1;
             padding_left -= three_byte_nop.len;
         }
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
     }
 
     vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .base = buf.ptr,
+        .len = buf.len,
     };
     if (buf.len > 0) vec_index += 1;
 
@@ -2155,24 +2153,24 @@ fn pwriteDbgLineNops(
         var padding_left = next_padding_size;
         if (padding_left % 2 != 0) {
             vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
+                .base = &three_byte_nop,
+                .len = three_byte_nop.len,
             };
             vec_index += 1;
             padding_left -= three_byte_nop.len;
         }
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
@@ -2239,24 +2237,24 @@ fn pwriteDbgInfoNops(
         var padding_left = prev_padding_size;
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
     }
 
     vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .base = buf.ptr,
+        .len = buf.len,
     };
     if (buf.len > 0) vec_index += 1;
 
@@ -2264,16 +2262,16 @@ fn pwriteDbgInfoNops(
         var padding_left = next_padding_size;
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
@@ -2282,8 +2280,8 @@ fn pwriteDbgInfoNops(
     if (trailing_zero) {
         var zbuf = [1]u8{0};
         vecs[vec_index] = .{
-            .iov_base = &zbuf,
-            .iov_len = zbuf.len,
+            .base = &zbuf,
+            .len = zbuf.len,
         };
         vec_index += 1;
     }
@@ -2866,15 +2864,14 @@ fn addDbgInfoErrorSetNames(
     // DW.AT.const_value, DW.FORM.data8
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
-    for (error_names) |error_name_ip| {
-        const int = try mod.getErrorValue(error_name_ip);
-        const error_name = mod.intern_pool.stringToSlice(error_name_ip);
+    for (error_names) |error_name| {
+        const int = try mod.getErrorValue(error_name);
+        const error_name_slice = error_name.toSlice(&mod.intern_pool);
         // DW.AT.enumerator
-        try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
+        try dbg_info_buffer.ensureUnusedCapacity(error_name_slice.len + 2 + @sizeOf(u64));
         dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
         // DW.AT.name, DW.FORM.string
-        dbg_info_buffer.appendSliceAssumeCapacity(error_name);
-        dbg_info_buffer.appendAssumeCapacity(0);
+        dbg_info_buffer.appendSliceAssumeCapacity(error_name_slice[0 .. error_name_slice.len + 1]);
         // DW.AT.const_value, DW.FORM.data8
         mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), int, target_endian);
     }

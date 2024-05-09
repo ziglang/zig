@@ -1460,6 +1460,8 @@ pub const ImportNameType = enum(u3) {
     /// The import name is the public symbol name, but skipping the leading ?, @, or optionally _,
     /// and truncating at the first @.
     NAME_UNDECORATE = 3,
+    /// https://github.com/llvm/llvm-project/pull/83211
+    NAME_EXPORTAS = 4,
     _,
 };
 

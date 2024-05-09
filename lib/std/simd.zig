@@ -8,8 +8,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const suggestVectorSizeForCpu = @compileError("deprecated; use 'suggestVectorLengthForCpu'");
-
 pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
@@ -56,8 +54,6 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
 
     return @divExact(vector_bit_size, element_bit_size);
 }
-
-pub const suggestVectorSize = @compileError("deprecated; use 'suggestVectorLength'");
 
 /// Suggests a target-dependant vector length for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.

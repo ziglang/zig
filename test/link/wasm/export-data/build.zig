@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
 
     const lib = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = .{ .path = "lib.zig" },
+        .root_source_file = b.path("lib.zig"),
         .optimize = .ReleaseSafe, // to make the output deterministic in address positions
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
     });
