@@ -1,0 +1,11 @@
+LIBRARY api-ms-win-service-management-l1-1-0
+
+EXPORTS
+
+CloseServiceHandle@4
+ControlServiceExW@16
+CreateServiceW@52
+DeleteService@4
+OpenSCManagerW@12
+OpenServiceW@12
+StartServiceW@12

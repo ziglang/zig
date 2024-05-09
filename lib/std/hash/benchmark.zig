@@ -56,12 +56,8 @@ const hashes = [_]Hash{
         .name = "adler32",
     },
     Hash{
-        .ty = hash.crc.Crc32WithPoly(.IEEE),
-        .name = "crc32-slicing-by-8",
-    },
-    Hash{
-        .ty = hash.crc.Crc32SmallWithPoly(.IEEE),
-        .name = "crc32-half-byte-lookup",
+        .ty = hash.crc.Crc32,
+        .name = "crc32",
     },
     Hash{
         .ty = hash.CityHash32,
@@ -367,7 +363,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             seed = try std.fmt.parseUnsigned(u32, args[i], 10);
@@ -376,7 +372,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             filter = args[i];
@@ -384,7 +380,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             const c = try std.fmt.parseUnsigned(usize, args[i], 10);
@@ -393,13 +389,13 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             key_size = try std.fmt.parseUnsigned(usize, args[i], 10);
             if (key_size.? > block_size) {
                 try stdout.print("key_size cannot exceed block size of {}\n", .{block_size});
-                std.os.exit(1);
+                std.process.exit(1);
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
             test_iterative_only = true;
@@ -410,7 +406,7 @@ pub fn main() !void {
             return;
         } else {
             usage();
-            std.os.exit(1);
+            std.process.exit(1);
         }
     }
 

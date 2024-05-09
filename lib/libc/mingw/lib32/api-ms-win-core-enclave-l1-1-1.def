@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-enclave-l1-1-1
+
+EXPORTS
+
+CallEnclave@16
+DeleteEnclave@4
+LoadEnclaveImageA@8
+LoadEnclaveImageW@8
+TerminateEnclave@8

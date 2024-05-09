@@ -2,8 +2,8 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const timezone = std.c.timezone;
 const rusage = std.c.rusage;
 
@@ -800,9 +800,9 @@ pub const winsize = extern struct {
 const NSIG = 32;
 
 pub const SIG = struct {
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
 
     pub const WORDS = 4;
     pub const MAXSIG = 128;
@@ -864,8 +864,8 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -908,7 +908,7 @@ pub const _ksiginfo = extern struct {
             stime: clock_t,
         },
         fault: extern struct {
-            addr: ?*anyopaque,
+            addr: *allowzero anyopaque,
             trap: i32,
             trap2: i32,
             trap3: i32,

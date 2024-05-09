@@ -60,10 +60,10 @@ pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) !void {
         if (file_ptr.index() != self.index) continue;
         global.flags.output_symtab = true;
         if (global.isLocal(elf_file)) {
-            try global.setOutputSymtabIndex(self.output_symtab_ctx.nlocals, elf_file);
+            try global.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, elf_file);
             self.output_symtab_ctx.nlocals += 1;
         } else {
-            try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+            try global.addExtra(.{ .symtab = self.output_symtab_ctx.nglobals }, elf_file);
             self.output_symtab_ctx.nglobals += 1;
         }
         self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;

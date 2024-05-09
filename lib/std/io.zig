@@ -2,74 +2,76 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");
 const c = std.c;
+const is_windows = builtin.os.tag == .windows;
+const windows = std.os.windows;
+const posix = std.posix;
 
 const math = std.math;
 const assert = std.debug.assert;
-const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const meta = std.meta;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 
-fn getStdOutHandle() os.fd_t {
-    if (builtin.os.tag == .windows) {
+fn getStdOutHandle() posix.fd_t {
+    if (is_windows) {
         if (builtin.zig_backend == .stage2_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return os.windows.GetStdHandle(os.windows.STD_OUTPUT_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
+            return windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return os.windows.peb().ProcessParameters.hStdOutput;
+        return windows.peb().ProcessParameters.hStdOutput;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
         return root.os.io.getStdOutHandle();
     }
 
-    return os.STDOUT_FILENO;
+    return posix.STDOUT_FILENO;
 }
 
 pub fn getStdOut() File {
-    return File{ .handle = getStdOutHandle() };
+    return .{ .handle = getStdOutHandle() };
 }
 
-fn getStdErrHandle() os.fd_t {
-    if (builtin.os.tag == .windows) {
+fn getStdErrHandle() posix.fd_t {
+    if (is_windows) {
         if (builtin.zig_backend == .stage2_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return os.windows.GetStdHandle(os.windows.STD_ERROR_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
+            return windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return os.windows.peb().ProcessParameters.hStdError;
+        return windows.peb().ProcessParameters.hStdError;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
         return root.os.io.getStdErrHandle();
     }
 
-    return os.STDERR_FILENO;
+    return posix.STDERR_FILENO;
 }
 
 pub fn getStdErr() File {
-    return File{ .handle = getStdErrHandle() };
+    return .{ .handle = getStdErrHandle() };
 }
 
-fn getStdInHandle() os.fd_t {
-    if (builtin.os.tag == .windows) {
+fn getStdInHandle() posix.fd_t {
+    if (is_windows) {
         if (builtin.zig_backend == .stage2_aarch64) {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return os.windows.GetStdHandle(os.windows.STD_INPUT_HANDLE) catch os.windows.INVALID_HANDLE_VALUE;
+            return windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return os.windows.peb().ProcessParameters.hStdInput;
+        return windows.peb().ProcessParameters.hStdInput;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
         return root.os.io.getStdInHandle();
     }
 
-    return os.STDIN_FILENO;
+    return posix.STDIN_FILENO;
 }
 
 pub fn getStdIn() File {
-    return File{ .handle = getStdInHandle() };
+    return .{ .handle = getStdInHandle() };
 }
 
 pub fn GenericReader(
@@ -342,6 +344,10 @@ pub fn GenericWriter(
             return @errorCast(self.any().writeStruct(value));
         }
 
+        pub inline fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) Error!void {
+            return @errorCast(self.any().writeStructEndian(value, endian));
+        }
+
         pub inline fn any(self: *const Self) AnyWriter {
             return .{
                 .context = @ptrCast(&self.context),
@@ -408,13 +414,10 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
-pub const BufferedTee = @import("io/buffered_tee.zig").BufferedTee;
-pub const bufferedTee = @import("io/buffered_tee.zig").bufferedTee;
-
 pub const tty = @import("io/tty.zig");
 
 /// A Writer that doesn't write to anything.
-pub const null_writer = @as(NullWriter, .{ .context = {} });
+pub const null_writer: NullWriter = .{ .context = {} };
 
 const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
@@ -422,7 +425,7 @@ fn dummyWrite(context: void, data: []const u8) error{}!usize {
     return data.len;
 }
 
-test "null_writer" {
+test null_writer {
     null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
 }
 
@@ -434,10 +437,10 @@ pub fn poll(
     const enum_fields = @typeInfo(StreamEnum).Enum.fields;
     var result: Poller(StreamEnum) = undefined;
 
-    if (builtin.os.tag == .windows) result.windows = .{
+    if (is_windows) result.windows = .{
         .first_read_done = false,
-        .overlapped = [1]os.windows.OVERLAPPED{
-            mem.zeroes(os.windows.OVERLAPPED),
+        .overlapped = [1]windows.OVERLAPPED{
+            mem.zeroes(windows.OVERLAPPED),
         } ** enum_fields.len,
         .active = .{
             .count = 0,
@@ -453,12 +456,12 @@ pub fn poll(
             .head = 0,
             .count = 0,
         };
-        if (builtin.os.tag == .windows) {
+        if (is_windows) {
             result.windows.active.handles_buf[i] = @field(files, enum_fields[i].name).handle;
         } else {
             result.poll_fds[i] = .{
                 .fd = @field(files, enum_fields[i].name).handle,
-                .events = os.POLL.IN,
+                .events = posix.POLL.IN,
                 .revents = undefined,
             };
         }
@@ -471,16 +474,16 @@ pub const PollFifo = std.fifo.LinearFifo(u8, .Dynamic);
 pub fn Poller(comptime StreamEnum: type) type {
     return struct {
         const enum_fields = @typeInfo(StreamEnum).Enum.fields;
-        const PollFd = if (builtin.os.tag == .windows) void else std.os.pollfd;
+        const PollFd = if (is_windows) void else posix.pollfd;
 
         fifos: [enum_fields.len]PollFifo,
         poll_fds: [enum_fields.len]PollFd,
-        windows: if (builtin.os.tag == .windows) struct {
+        windows: if (is_windows) struct {
             first_read_done: bool,
-            overlapped: [enum_fields.len]os.windows.OVERLAPPED,
+            overlapped: [enum_fields.len]windows.OVERLAPPED,
             active: struct {
                 count: math.IntFittingRange(0, enum_fields.len),
-                handles_buf: [enum_fields.len]os.windows.HANDLE,
+                handles_buf: [enum_fields.len]windows.HANDLE,
                 stream_map: [enum_fields.len]StreamEnum,
 
                 pub fn removeAt(self: *@This(), index: u32) void {
@@ -497,10 +500,10 @@ pub fn Poller(comptime StreamEnum: type) type {
         const Self = @This();
 
         pub fn deinit(self: *Self) void {
-            if (builtin.os.tag == .windows) {
+            if (is_windows) {
                 // cancel any pending IO to prevent clobbering OVERLAPPED value
                 for (self.windows.active.handles_buf[0..self.windows.active.count]) |h| {
-                    _ = os.windows.kernel32.CancelIo(h);
+                    _ = windows.kernel32.CancelIo(h);
                 }
             }
             inline for (&self.fifos) |*q| q.deinit();
@@ -508,7 +511,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         }
 
         pub fn poll(self: *Self) !bool {
-            if (builtin.os.tag == .windows) {
+            if (is_windows) {
                 return pollWindows(self, null);
             } else {
                 return pollPosix(self, null);
@@ -516,7 +519,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         }
 
         pub fn pollTimeout(self: *Self, nanoseconds: u64) !bool {
-            if (builtin.os.tag == .windows) {
+            if (is_windows) {
                 return pollWindows(self, nanoseconds);
             } else {
                 return pollPosix(self, nanoseconds);
@@ -554,39 +557,39 @@ pub fn Poller(comptime StreamEnum: type) type {
             while (true) {
                 if (self.windows.active.count == 0) return false;
 
-                const status = os.windows.kernel32.WaitForMultipleObjects(
+                const status = windows.kernel32.WaitForMultipleObjects(
                     self.windows.active.count,
                     &self.windows.active.handles_buf,
                     0,
                     if (nanoseconds) |ns|
-                        @min(std.math.cast(u32, ns / std.time.ns_per_ms) orelse (os.windows.INFINITE - 1), os.windows.INFINITE - 1)
+                        @min(std.math.cast(u32, ns / std.time.ns_per_ms) orelse (windows.INFINITE - 1), windows.INFINITE - 1)
                     else
-                        os.windows.INFINITE,
+                        windows.INFINITE,
                 );
-                if (status == os.windows.WAIT_FAILED)
-                    return os.windows.unexpectedError(os.windows.kernel32.GetLastError());
-                if (status == os.windows.WAIT_TIMEOUT)
+                if (status == windows.WAIT_FAILED)
+                    return windows.unexpectedError(windows.kernel32.GetLastError());
+                if (status == windows.WAIT_TIMEOUT)
                     return true;
 
-                if (status < os.windows.WAIT_OBJECT_0 or status > os.windows.WAIT_OBJECT_0 + enum_fields.len - 1)
+                if (status < windows.WAIT_OBJECT_0 or status > windows.WAIT_OBJECT_0 + enum_fields.len - 1)
                     unreachable;
 
-                const active_idx = status - os.windows.WAIT_OBJECT_0;
+                const active_idx = status - windows.WAIT_OBJECT_0;
 
                 const handle = self.windows.active.handles_buf[active_idx];
                 const stream_idx = @intFromEnum(self.windows.active.stream_map[active_idx]);
                 var read_bytes: u32 = undefined;
-                if (0 == os.windows.kernel32.GetOverlappedResult(
+                if (0 == windows.kernel32.GetOverlappedResult(
                     handle,
                     &self.windows.overlapped[stream_idx],
                     &read_bytes,
                     0,
-                )) switch (os.windows.kernel32.GetLastError()) {
+                )) switch (windows.kernel32.GetLastError()) {
                     .BROKEN_PIPE => {
                         self.windows.active.removeAt(active_idx);
                         continue;
                     },
-                    else => |err| return os.windows.unexpectedError(err),
+                    else => |err| return windows.unexpectedError(err),
                 };
 
                 self.fifos[stream_idx].update(read_bytes);
@@ -611,9 +614,9 @@ pub fn Poller(comptime StreamEnum: type) type {
             // allocate grows exponentially.
             const bump_amt = 512;
 
-            const err_mask = os.POLL.ERR | os.POLL.NVAL | os.POLL.HUP;
+            const err_mask = posix.POLL.ERR | posix.POLL.NVAL | posix.POLL.HUP;
 
-            const events_len = try os.poll(&self.poll_fds, if (nanoseconds) |ns|
+            const events_len = try posix.poll(&self.poll_fds, if (nanoseconds) |ns|
                 std.math.cast(i32, ns / std.time.ns_per_ms) orelse std.math.maxInt(i32)
             else
                 -1);
@@ -629,9 +632,9 @@ pub fn Poller(comptime StreamEnum: type) type {
                 // conditions.
                 // It's still possible to read after a POLL.HUP is received,
                 // always check if there's some data waiting to be read first.
-                if (poll_fd.revents & os.POLL.IN != 0) {
+                if (poll_fd.revents & posix.POLL.IN != 0) {
                     const buf = try q.writableWithSize(bump_amt);
-                    const amt = try os.read(poll_fd.fd, buf);
+                    const amt = try posix.read(poll_fd.fd, buf);
                     q.update(amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
@@ -652,19 +655,19 @@ pub fn Poller(comptime StreamEnum: type) type {
 }
 
 fn windowsAsyncRead(
-    handle: os.windows.HANDLE,
-    overlapped: *os.windows.OVERLAPPED,
+    handle: windows.HANDLE,
+    overlapped: *windows.OVERLAPPED,
     fifo: *PollFifo,
     bump_amt: usize,
 ) !enum { pending, closed } {
     while (true) {
         const buf = try fifo.writableWithSize(bump_amt);
         var read_bytes: u32 = undefined;
-        const read_result = os.windows.kernel32.ReadFile(handle, buf.ptr, math.cast(u32, buf.len) orelse math.maxInt(u32), &read_bytes, overlapped);
-        if (read_result == 0) return switch (os.windows.kernel32.GetLastError()) {
+        const read_result = windows.kernel32.ReadFile(handle, buf.ptr, math.cast(u32, buf.len) orelse math.maxInt(u32), &read_bytes, overlapped);
+        if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
             .IO_PENDING => .pending,
             .BROKEN_PIPE => .closed,
-            else => |err| os.windows.unexpectedError(err),
+            else => |err| windows.unexpectedError(err),
         };
         fifo.update(read_bytes);
     }
@@ -707,5 +710,4 @@ test {
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
-    _ = @import("io/buffered_tee.zig");
 }

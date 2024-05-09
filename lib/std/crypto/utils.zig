@@ -138,7 +138,7 @@ pub inline fn secureZero(comptime T: type, s: []T) void {
     @memset(@as([]volatile T, s), 0);
 }
 
-test "timingSafeEql" {
+test timingSafeEql {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
     random.bytes(a[0..]);
@@ -162,7 +162,7 @@ test "timingSafeEql (vectors)" {
     try testing.expect(timingSafeEql(@Vector(100, u8), v1, v3));
 }
 
-test "timingSafeCompare" {
+test timingSafeCompare {
     var a = [_]u8{10} ** 32;
     var b = [_]u8{10} ** 32;
     try testing.expectEqual(timingSafeCompare(u8, &a, &b, .big), .eq);
@@ -195,7 +195,7 @@ test "timingSafe{Add,Sub}" {
     }
 }
 
-test "secureZero" {
+test secureZero {
     var a = [_]u8{0xfe} ** 8;
     var b = [_]u8{0xfe} ** 8;
 

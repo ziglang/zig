@@ -26,7 +26,7 @@ pub fn main() !void {
 
     if (args.len < 2) {
         try renderErrorMessage(stderr.writer(), stderr_config, .err, "expected zig lib dir as first argument", .{});
-        std.os.exit(1);
+        std.process.exit(1);
     }
     const zig_lib_dir = args[1];
     var cli_args = args[2..];
@@ -62,7 +62,7 @@ pub fn main() !void {
         var options = cli.parse(allocator, cli_args, &cli_diagnostics) catch |err| switch (err) {
             error.ParseError => {
                 try error_handler.emitCliDiagnostics(allocator, cli_args, &cli_diagnostics);
-                std.os.exit(1);
+                std.process.exit(1);
             },
             else => |e| return e,
         };
@@ -117,7 +117,7 @@ pub fn main() !void {
                 },
             }
             try error_handler.emitMessage(allocator, .note, "to disable auto includes, use the option /:auto-includes none", .{});
-            std.os.exit(1);
+            std.process.exit(1);
         },
     };
 
@@ -153,16 +153,16 @@ pub fn main() !void {
             preprocess.preprocess(&comp, preprocessed_buf.writer(), argv.items, maybe_dependencies_list) catch |err| switch (err) {
                 error.GeneratedSourceError => {
                     try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug):", &comp);
-                    std.os.exit(1);
+                    std.process.exit(1);
                 },
                 // ArgError can occur if e.g. the .rc file is not found
                 error.ArgError, error.PreprocessError => {
                     try error_handler.emitAroDiagnostics(allocator, "failed during preprocessing:", &comp);
-                    std.os.exit(1);
+                    std.process.exit(1);
                 },
                 error.StreamTooLong => {
                     try error_handler.emitMessage(allocator, .err, "failed during preprocessing: maximum file size exceeded", .{});
-                    std.os.exit(1);
+                    std.process.exit(1);
                 },
                 error.OutOfMemory => |e| return e,
             };
@@ -171,14 +171,14 @@ pub fn main() !void {
         } else {
             break :full_input std.fs.cwd().readFileAlloc(allocator, options.input_filename, std.math.maxInt(usize)) catch |err| {
                 try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
-                std.os.exit(1);
+                std.process.exit(1);
             };
         }
     };
     defer allocator.free(full_input);
 
     if (options.preprocess == .only) {
-        try std.fs.cwd().writeFile(options.output_filename, full_input);
+        try std.fs.cwd().writeFile(.{ .sub_path = options.output_filename, .data = full_input });
         return;
     }
 
@@ -191,14 +191,14 @@ pub fn main() !void {
     const final_input = removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings) catch |err| switch (err) {
         error.InvalidSourceMappingCollapse => {
             try error_handler.emitMessage(allocator, .err, "failed during comment removal; this is a known bug", .{});
-            std.os.exit(1);
+            std.process.exit(1);
         },
         else => |e| return e,
     };
 
     var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
         try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-        std.os.exit(1);
+        std.process.exit(1);
     };
     var output_file_closed = false;
     defer if (!output_file_closed) output_file.close();
@@ -231,7 +231,7 @@ pub fn main() !void {
             output_file_closed = true;
             // Failing to delete is not really a big deal, so swallow any errors
             std.fs.cwd().deleteFile(options.output_filename) catch {};
-            std.os.exit(1);
+            std.process.exit(1);
         },
         else => |e| return e,
     };
@@ -247,7 +247,7 @@ pub fn main() !void {
     if (options.depfile_path) |depfile_path| {
         var depfile = std.fs.cwd().createFile(depfile_path, .{}) catch |err| {
             try error_handler.emitMessage(allocator, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
-            std.os.exit(1);
+            std.process.exit(1);
         };
         defer depfile.close();
 

@@ -25,13 +25,13 @@ pub fn main() anyerror!void {
     defer allocator.free(tmp_relative_path);
 
     // Clear PATH
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         null,
     ) == windows.TRUE);
 
     // Set PATHEXT to something predictable
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATHEXT"),
         utf16Literal(".COM;.EXE;.BAT;.CMD;.JS"),
     ) == windows.TRUE);
@@ -39,7 +39,7 @@ pub fn main() anyerror!void {
     // No PATH, so it should fail to find anything not in the cwd
     try testExecError(error.FileNotFound, allocator, "something_missing");
 
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         tmp_absolute_path_w,
     ) == windows.TRUE);
@@ -53,9 +53,9 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from exe\n");
 
     // now add a .bat
-    try tmp.dir.writeFile("hello.bat", "@echo hello from bat");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.bat", .data = "@echo hello from bat" });
     // and a .cmd
-    try tmp.dir.writeFile("hello.cmd", "@echo hello from cmd");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.cmd", .data = "@echo hello from cmd" });
 
     // with extension should find the .bat (case insensitive)
     try testExec(allocator, "heLLo.bat", "hello from bat\r\n");
@@ -87,7 +87,7 @@ pub fn main() anyerror!void {
     try testExec(allocator, "heLLo", "hello from bat\r\n");
 
     // Add a hello.exe that is not a valid executable
-    try tmp.dir.writeFile("hello.exe", "invalid");
+    try tmp.dir.writeFile(.{ .sub_path = "hello.exe", .data = "invalid" });
 
     // Trying to execute it with extension will give InvalidExe. This is a special
     // case for .EXE extensions, where if they ever try to get executed but they are
@@ -120,7 +120,7 @@ pub fn main() anyerror!void {
     const something_subdir_abs_path = try std.mem.concatWithSentinel(allocator, u16, &.{ tmp_absolute_path_w, utf16Literal("\\something") }, 0);
     defer allocator.free(something_subdir_abs_path);
 
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         something_subdir_abs_path,
     ) == windows.TRUE);

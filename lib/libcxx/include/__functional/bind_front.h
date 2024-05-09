@@ -29,30 +29,24 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 struct __bind_front_op {
-    template <class ..._Args>
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr auto operator()(_Args&& ...__args) const
-        noexcept(noexcept(_VSTD::invoke(_VSTD::forward<_Args>(__args)...)))
-        -> decltype(      _VSTD::invoke(_VSTD::forward<_Args>(__args)...))
-        { return          _VSTD::invoke(_VSTD::forward<_Args>(__args)...); }
+  template <class... _Args>
+  _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Args&&... __args) const
+      noexcept(noexcept(std::invoke(std::forward<_Args>(__args)...)))
+          -> decltype(std::invoke(std::forward<_Args>(__args)...)) {
+    return std::invoke(std::forward<_Args>(__args)...);
+  }
 };
 
-template <class _Fn, class ..._BoundArgs>
+template <class _Fn, class... _BoundArgs>
 struct __bind_front_t : __perfect_forward<__bind_front_op, _Fn, _BoundArgs...> {
-    using __perfect_forward<__bind_front_op, _Fn, _BoundArgs...>::__perfect_forward;
+  using __perfect_forward<__bind_front_op, _Fn, _BoundArgs...>::__perfect_forward;
 };
 
-template <class _Fn, class... _Args, class = enable_if_t<
-    _And<
-        is_constructible<decay_t<_Fn>, _Fn>,
-        is_move_constructible<decay_t<_Fn>>,
-        is_constructible<decay_t<_Args>, _Args>...,
-        is_move_constructible<decay_t<_Args>>...
-    >::value
->>
-_LIBCPP_HIDE_FROM_ABI
-constexpr auto bind_front(_Fn&& __f, _Args&&... __args) {
-    return __bind_front_t<decay_t<_Fn>, decay_t<_Args>...>(_VSTD::forward<_Fn>(__f), _VSTD::forward<_Args>(__args)...);
+template <class _Fn, class... _Args>
+  requires is_constructible_v<decay_t<_Fn>, _Fn> && is_move_constructible_v<decay_t<_Fn>> &&
+           (is_constructible_v<decay_t<_Args>, _Args> && ...) && (is_move_constructible_v<decay_t<_Args>> && ...)
+_LIBCPP_HIDE_FROM_ABI constexpr auto bind_front(_Fn&& __f, _Args&&... __args) {
+  return __bind_front_t<decay_t<_Fn>, decay_t<_Args>...>(std::forward<_Fn>(__f), std::forward<_Args>(__args)...);
 }
 
 #endif // _LIBCPP_STD_VER >= 20

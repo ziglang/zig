@@ -1,0 +1,18 @@
+LIBRARY api-ms-win-devices-config-l1-1-2
+
+EXPORTS
+
+CM_Delete_Device_Interface_KeyA
+CM_Get_Class_Registry_PropertyA
+CM_Get_Device_ID_List_SizeA
+CM_Get_Device_ID_ListA
+CM_Get_Device_IDA
+CM_Get_Device_Interface_List_SizeA
+CM_Get_Device_Interface_ListA
+CM_Get_DevNode_Registry_PropertyA
+CM_Locate_DevNodeA
+CM_Open_Class_KeyA
+CM_Open_Device_Interface_KeyA
+CM_Query_And_Remove_SubTreeA
+CM_Set_Class_Registry_PropertyA
+CM_Set_DevNode_Registry_PropertyA

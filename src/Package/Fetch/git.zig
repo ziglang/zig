@@ -46,6 +46,10 @@ pub const Diagnostics = struct {
             file_name: []const u8,
             link_name: []const u8,
         },
+        unable_to_create_file: struct {
+            code: anyerror,
+            file_name: []const u8,
+        },
     };
 
     pub fn deinit(d: *Diagnostics) void {
@@ -54,6 +58,9 @@ pub const Diagnostics = struct {
                 .unable_to_create_sym_link => |info| {
                     d.allocator.free(info.file_name);
                     d.allocator.free(info.link_name);
+                },
+                .unable_to_create_file => |info| {
+                    d.allocator.free(info.file_name);
                 },
             }
         }
@@ -119,11 +126,19 @@ pub const Repository = struct {
                     try repository.checkoutTree(subdir, entry.oid, sub_path, diagnostics);
                 },
                 .file => {
-                    var file = try dir.createFile(entry.name, .{});
-                    defer file.close();
                     try repository.odb.seekOid(entry.oid);
                     const file_object = try repository.odb.readObject();
                     if (file_object.type != .blob) return error.InvalidFile;
+                    var file = dir.createFile(entry.name, .{ .exclusive = true }) catch |e| {
+                        const file_name = try std.fs.path.join(diagnostics.allocator, &.{ current_path, entry.name });
+                        errdefer diagnostics.allocator.free(file_name);
+                        try diagnostics.errors.append(diagnostics.allocator, .{ .unable_to_create_file = .{
+                            .code = e,
+                            .file_name = file_name,
+                        } });
+                        continue;
+                    };
+                    defer file.close();
                     try file.writeAll(file_object.data);
                     try file.sync();
                 },
@@ -525,9 +540,13 @@ pub const Session = struct {
         http_headers_buffer: []u8,
     ) !CapabilityIterator {
         var info_refs_uri = session.uri;
-        info_refs_uri.path = try std.fs.path.resolvePosix(allocator, &.{ "/", session.uri.path, "info/refs" });
-        defer allocator.free(info_refs_uri.path);
-        info_refs_uri.query = "service=git-upload-pack";
+        {
+            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
+            defer allocator.free(session_uri_path);
+            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "info/refs" }) };
+        }
+        defer allocator.free(info_refs_uri.path.percent_encoded);
+        info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
         info_refs_uri.fragment = null;
 
         const max_redirects = 3;
@@ -539,16 +558,18 @@ pub const Session = struct {
             },
         });
         errdefer request.deinit();
-        try request.send(.{});
+        try request.send();
         try request.finish();
 
         try request.wait();
         if (request.response.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            if (!mem.endsWith(u8, request.uri.path, "/info/refs")) return error.UnparseableRedirect;
+            const request_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{request.uri.path});
+            defer allocator.free(request_uri_path);
+            if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
-            new_uri.path = new_uri.path[0 .. new_uri.path.len - "/info/refs".len];
+            new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
             new_uri.query = null;
             redirect_uri.* = try std.fmt.allocPrint(allocator, "{+/}", .{new_uri});
             return error.Redirected;
@@ -630,8 +651,12 @@ pub const Session = struct {
     /// Returns an iterator over refs known to the server.
     pub fn listRefs(session: Session, allocator: Allocator, options: ListRefsOptions) !RefIterator {
         var upload_pack_uri = session.uri;
-        upload_pack_uri.path = try std.fs.path.resolvePosix(allocator, &.{ "/", session.uri.path, "git-upload-pack" });
-        defer allocator.free(upload_pack_uri.path);
+        {
+            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
+            defer allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+        }
+        defer allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
@@ -666,7 +691,7 @@ pub const Session = struct {
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.send(.{});
+        try request.send();
         try request.writeAll(body.items);
         try request.finish();
 
@@ -733,8 +758,12 @@ pub const Session = struct {
         http_headers_buffer: []u8,
     ) !FetchStream {
         var upload_pack_uri = session.uri;
-        upload_pack_uri.path = try std.fs.path.resolvePosix(allocator, &.{ "/", session.uri.path, "git-upload-pack" });
-        defer allocator.free(upload_pack_uri.path);
+        {
+            const session_uri_path = try std.fmt.allocPrint(allocator, "{path}", .{session.uri.path});
+            defer allocator.free(session_uri_path);
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+        }
+        defer allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
@@ -771,7 +800,7 @@ pub const Session = struct {
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.send(.{});
+        try request.send();
         try request.writeAll(body.items);
         try request.finish();
 

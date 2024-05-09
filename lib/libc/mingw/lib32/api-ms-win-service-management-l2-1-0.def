@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-service-management-l2-1-0
+
+EXPORTS
+
+ChangeServiceConfig2W@12
+ChangeServiceConfigW@44
+NotifyServiceStatusChangeW@12
+QueryServiceConfig2W@20
+QueryServiceConfigW@16
+QueryServiceObjectSecurity@20
+QueryServiceStatusEx@20
+SetServiceObjectSecurity@12

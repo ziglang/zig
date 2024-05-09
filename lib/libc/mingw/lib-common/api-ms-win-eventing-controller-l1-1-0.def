@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-eventing-controller-l1-1-0
+
+EXPORTS
+
+ControlTraceW
+EnableTraceEx2
+EnumerateTraceGuidsEx
+EventAccessControl
+EventAccessQuery
+EventAccessRemove
+QueryAllTracesW
+StartTraceW
+StopTraceW
+TraceQueryInformation
+TraceSetInformation

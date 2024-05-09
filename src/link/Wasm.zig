@@ -32,7 +32,7 @@ const Module = @import("../Module.zig");
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../Value.zig");
 const ZigObject = @import("Wasm/ZigObject.zig");
 
 pub const Atom = @import("Wasm/Atom.zig");
@@ -1504,8 +1504,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, tv, decl_index);
+pub fn lowerUnnamedConst(wasm: *Wasm, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, val, decl_index);
 }
 
 /// Returns the symbol index from a symbol of which its flag is set global,
@@ -2263,7 +2263,7 @@ fn setupMemory(wasm: *Wasm) !void {
             }
             if (wasm.findGlobalSymbol("__tls_align")) |loc| {
                 const sym = loc.getSymbol(wasm);
-                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnitsOptional().?);
+                wasm.wasm_globals.items[sym.index - wasm.imported_globals_count].init.i32_const = @intCast(segment.alignment.toByteUnits().?);
             }
             if (wasm.findGlobalSymbol("__tls_base")) |loc| {
                 const sym = loc.getSymbol(wasm);
@@ -3046,9 +3046,9 @@ fn writeToFile(
     }
 
     // finally, write the entire binary into the file.
-    var iovec = [_]std.os.iovec_const{.{
-        .iov_base = binary_bytes.items.ptr,
-        .iov_len = binary_bytes.items.len,
+    var iovec = [_]std.posix.iovec_const{.{
+        .base = binary_bytes.items.ptr,
+        .len = binary_bytes.items.len,
     }};
     try wasm.base.file.?.writevAll(&iovec);
 }
@@ -3709,7 +3709,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
             // report a nice error here with the file path if it fails instead of
             // just returning the error code.
             // chmod does not interact with umask, so we use a conservative -rwxr--r-- here.
-            std.os.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0) catch |err| switch (err) {
+            std.posix.fchmodat(fs.cwd().fd, full_out_path, 0o744, 0) catch |err| switch (err) {
                 error.OperationNotSupported => unreachable, // Not a symlink.
                 else => |e| return e,
             };

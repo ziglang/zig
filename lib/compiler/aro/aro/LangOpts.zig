@@ -47,7 +47,7 @@ pub const Standard = enum {
     /// Working Draft for ISO C23 with GNU extensions
     gnu23,
 
-    const NameMap = std.ComptimeStringMap(Standard, .{
+    const NameMap = std.StaticStringMap(Standard).initComptime(.{
         .{ "c89", .c89 },                .{ "c90", .c89 },          .{ "iso9899:1990", .c89 },
         .{ "iso9899:199409", .iso9899 }, .{ "gnu89", .gnu89 },      .{ "gnu90", .gnu89 },
         .{ "c99", .c99 },                .{ "iso9899:1999", .c99 }, .{ "c9x", .c99 },

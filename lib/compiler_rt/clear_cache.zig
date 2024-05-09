@@ -45,7 +45,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         else => false,
     };
     const apple = switch (os) {
-        .ios, .macos, .watchos, .tvos => true,
+        .ios, .macos, .watchos, .tvos, .visionos => true,
         else => false,
     };
     if (x86) {

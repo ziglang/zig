@@ -2,9 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const debug = std.debug;
-const os = std.os;
 const io = std.io;
 const print_zir = @import("print_zir.zig");
+const windows = std.os.windows;
+const posix = std.posix;
 const native_os = builtin.os.tag;
 
 const Module = @import("Module.zig");
@@ -156,14 +157,14 @@ pub fn attachSegfaultHandler() void {
     if (!debug.have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
     }
-    if (builtin.os.tag == .windows) {
-        _ = os.windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
+    if (native_os == .windows) {
+        _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = os.Sigaction{
+    var act: posix.Sigaction = .{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = os.empty_sigset,
-        .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
+        .mask = posix.empty_sigset,
+        .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
 
     debug.updateSegfaultHandler(&act) catch {
@@ -171,11 +172,11 @@ pub fn attachSegfaultHandler() void {
     };
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 
-    const addr = switch (builtin.os.tag) {
+    const addr = switch (native_os) {
         .linux => @intFromPtr(info.fields.sigfault.addr),
         .freebsd, .macos => @intFromPtr(info.addr),
         .netbsd => @intFromPtr(info.info.reason.fault.addr),
@@ -186,9 +187,9 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
 
     var err_buffer: [128]u8 = undefined;
     const error_msg = switch (sig) {
-        os.SIG.SEGV => std.fmt.bufPrint(&err_buffer, "Segmentation fault at address 0x{x}", .{addr}) catch "Segmentation fault",
-        os.SIG.ILL => std.fmt.bufPrint(&err_buffer, "Illegal instruction at address 0x{x}", .{addr}) catch "Illegal instruction",
-        os.SIG.BUS => std.fmt.bufPrint(&err_buffer, "Bus error at address 0x{x}", .{addr}) catch "Bus error",
+        posix.SIG.SEGV => std.fmt.bufPrint(&err_buffer, "Segmentation fault at address 0x{x}", .{addr}) catch "Segmentation fault",
+        posix.SIG.ILL => std.fmt.bufPrint(&err_buffer, "Illegal instruction at address 0x{x}", .{addr}) catch "Illegal instruction",
+        posix.SIG.BUS => std.fmt.bufPrint(&err_buffer, "Bus error at address 0x{x}", .{addr}) catch "Bus error",
         else => std.fmt.bufPrint(&err_buffer, "Unknown error (signal {}) at address 0x{x}", .{ sig, addr }) catch "Unknown error",
     };
 
@@ -210,20 +211,20 @@ const WindowsSegfaultMessage = union(enum) {
     illegal_instruction: void,
 };
 
-fn handleSegfaultWindows(info: *os.windows.EXCEPTION_POINTERS) callconv(os.windows.WINAPI) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
     switch (info.ExceptionRecord.ExceptionCode) {
-        os.windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, .{ .literal = "Unaligned Memory Access" }),
-        os.windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, .segfault),
-        os.windows.EXCEPTION_ILLEGAL_INSTRUCTION => handleSegfaultWindowsExtra(info, .illegal_instruction),
-        os.windows.EXCEPTION_STACK_OVERFLOW => handleSegfaultWindowsExtra(info, .{ .literal = "Stack Overflow" }),
-        else => return os.windows.EXCEPTION_CONTINUE_SEARCH,
+        windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, .{ .literal = "Unaligned Memory Access" }),
+        windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, .segfault),
+        windows.EXCEPTION_ILLEGAL_INSTRUCTION => handleSegfaultWindowsExtra(info, .illegal_instruction),
+        windows.EXCEPTION_STACK_OVERFLOW => handleSegfaultWindowsExtra(info, .{ .literal = "Stack Overflow" }),
+        else => return windows.EXCEPTION_CONTINUE_SEARCH,
     }
 }
 
-fn handleSegfaultWindowsExtra(info: *os.windows.EXCEPTION_POINTERS, comptime msg: WindowsSegfaultMessage) noreturn {
+fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: WindowsSegfaultMessage) noreturn {
     PanicSwitch.preDispatch();
 
-    const stack_ctx = if (@hasDecl(os.windows, "CONTEXT"))
+    const stack_ctx = if (@hasDecl(windows, "CONTEXT"))
         StackContext{ .exception = info.ContextRecord }
     else ctx: {
         const addr = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
@@ -488,7 +489,7 @@ const PanicSwitch = struct {
     }
 
     noinline fn abort() noreturn {
-        os.abort();
+        std.process.abort();
     }
 
     inline fn goTo(comptime func: anytype, args: anytype) noreturn {

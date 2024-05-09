@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-kernel32-legacy-l1-1-2
+
+EXPORTS
+
+GetBinaryTypeW@8
+Module32First@8
+Module32Next@8
+OpenFileMappingA@12
+Process32First@8
+Process32Next@8
+SetTermsrvAppInstallMode@4
+VerifyVersionInfoA@16

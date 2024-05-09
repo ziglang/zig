@@ -1559,9 +1559,9 @@ pub fn HashMapUnmanaged(
             assert(std.math.isPowerOfTwo(new_cap));
 
             var map: Self = .{};
-            defer map.deinit(allocator);
-            map.pointer_stability.lock();
             try map.allocate(allocator, new_cap);
+            errdefer comptime unreachable;
+            map.pointer_stability.lock();
             map.initMetadatas();
             map.available = @truncate((new_cap * max_load_percentage) / 100);
 
@@ -1581,6 +1581,7 @@ pub fn HashMapUnmanaged(
             self.size = 0;
             self.pointer_stability = .{ .state = .unlocked };
             std.mem.swap(Self, self, &map);
+            map.deinit(allocator);
         }
 
         fn allocate(self: *Self, allocator: Allocator, new_capacity: Size) Allocator.Error!void {
@@ -2265,4 +2266,9 @@ test "repeat fetchRemove" {
     try testing.expect(map.get(1) != null);
     try testing.expect(map.get(2) != null);
     try testing.expect(map.get(3) != null);
+}
+
+test "getOrPut allocation failure" {
+    var map: std.StringHashMapUnmanaged(void) = .{};
+    try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
 }

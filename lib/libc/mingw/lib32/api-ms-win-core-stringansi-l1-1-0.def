@@ -1,0 +1,16 @@
+LIBRARY api-ms-win-core-stringansi-l1-1-0
+
+EXPORTS
+
+CharLowerA@4
+CharLowerBuffA@8
+CharNextA@4
+CharNextExA@12
+CharPrevA@8
+CharPrevExA@16
+CharUpperA@4
+CharUpperBuffA@8
+IsCharAlphaA@4
+IsCharAlphaNumericA@4
+IsCharLowerA@4
+IsCharUpperA@4

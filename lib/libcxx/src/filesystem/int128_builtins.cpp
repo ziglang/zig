@@ -18,13 +18,13 @@
 
 #if !defined(_LIBCPP_HAS_NO_INT128)
 
-extern "C" __attribute__((no_sanitize("undefined"))) _LIBCPP_EXPORTED_FROM_ABI
-__int128_t __muloti4(__int128_t a, __int128_t b, int* overflow) {
-  const int N = (int)(sizeof(__int128_t) * CHAR_BIT);
+extern "C" __attribute__((no_sanitize("undefined"))) _LIBCPP_EXPORTED_FROM_ABI __int128_t
+__muloti4(__int128_t a, __int128_t b, int* overflow) {
+  const int N          = (int)(sizeof(__int128_t) * CHAR_BIT);
   const __int128_t MIN = (__int128_t)1 << (N - 1);
   const __int128_t MAX = ~MIN;
-  *overflow = 0;
-  __int128_t result = a * b;
+  *overflow            = 0;
+  __int128_t result    = a * b;
   if (a == MIN) {
     if (b != 0 && b != 1)
       *overflow = 1;
@@ -35,9 +35,9 @@ __int128_t __muloti4(__int128_t a, __int128_t b, int* overflow) {
       *overflow = 1;
     return result;
   }
-  __int128_t sa = a >> (N - 1);
+  __int128_t sa    = a >> (N - 1);
   __int128_t abs_a = (a ^ sa) - sa;
-  __int128_t sb = b >> (N - 1);
+  __int128_t sb    = b >> (N - 1);
   __int128_t abs_b = (b ^ sb) - sb;
   if (abs_a < 2 || abs_b < 2)
     return result;

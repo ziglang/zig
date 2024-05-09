@@ -139,8 +139,8 @@ const Piece = packed struct {
     color: Color,
     type: Type,
 
-    const Type = enum { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
-    const Color = enum { WHITE, BLACK };
+    const Type = enum(u3) { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
+    const Color = enum(u1) { WHITE, BLACK };
 
     fn charToPiece(c: u8) !@This() {
         return .{

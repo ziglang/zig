@@ -420,7 +420,6 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Fn = struct {
         calling_convention: CallingConvention,
-        alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
         /// TODO change the language spec to make this not optional.
@@ -598,11 +597,11 @@ pub const VaListX86_64 = extern struct {
 pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
-        .ios, .macos, .tvos, .watchos => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
     .arm => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
     .amdgcn => *u8,
@@ -612,7 +611,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .aix => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos, .aix => *u8,
         else => VaListPowerPc,
     },
     .powerpc64, .powerpc64le => *u8,
@@ -783,7 +782,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         },
         .wasi => {
             std.debug.print("{s}", .{msg});
-            std.os.abort();
+            std.posix.abort();
         },
         .uefi => {
             const uefi = std.os.uefi;
@@ -831,9 +830,9 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             }
 
             // Didn't have boot_services, just fallback to whatever.
-            std.os.abort();
+            std.posix.abort();
         },
-        .cuda, .amdhsa => std.os.abort(),
+        .cuda, .amdhsa => std.posix.abort(),
         .plan9 => {
             var status: [std.os.plan9.ERRMAX]u8 = undefined;
             const len = @min(msg.len, status.len - 1);

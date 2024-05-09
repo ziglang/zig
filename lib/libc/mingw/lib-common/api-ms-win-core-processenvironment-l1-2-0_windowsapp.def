@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-processenvironment-l1-2-0
+
+EXPORTS
+
+SearchPathA

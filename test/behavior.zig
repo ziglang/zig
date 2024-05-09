@@ -97,7 +97,6 @@ test {
     _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
-    _ = @import("behavior/type_info_only_pub_decls.zig");
     _ = @import("behavior/type_info_mul_linksection_addrspace_decls.zig");
     _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");

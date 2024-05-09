@@ -160,7 +160,7 @@ param_count: ?u8,
 
 pub const list = list: {
     @setEvalBranchQuota(3000);
-    break :list std.ComptimeStringMap(@This(), .{
+    break :list std.StaticStringMap(@This()).initComptime(.{
         .{
             "@addWithOverflow",
             .{
@@ -504,7 +504,7 @@ pub const list = list: {
             "@fieldParentPtr",
             .{
                 .tag = .field_parent_ptr,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{

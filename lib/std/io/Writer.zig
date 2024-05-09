@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 context: *const anyopaque,
 writeFn: *const fn (context: *const anyopaque, bytes: []const u8) anyerror!usize,
@@ -57,6 +58,17 @@ pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .auto);
     return self.writeAll(mem.asBytes(&value));
+}
+
+pub fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) anyerror!void {
+    // TODO: make sure this value is not a reference type
+    if (native_endian == endian) {
+        return self.writeStruct(value);
+    } else {
+        var copy = value;
+        mem.byteSwapAllFields(@TypeOf(value), &copy);
+        return self.writeStruct(copy);
+    }
 }
 
 pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {

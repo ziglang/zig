@@ -48,7 +48,7 @@ pub const File = struct {
     pub fn field_count(file: *const File, node: Ast.Node.Index) u32 {
         const scope = file.scopes.get(node) orelse return 0;
         if (scope.tag != .namespace) return 0;
-        const namespace = @fieldParentPtr(Scope.Namespace, "base", scope);
+        const namespace: *Scope.Namespace = @alignCast(@fieldParentPtr("base", scope));
         return namespace.field_count;
     }
 
@@ -439,11 +439,11 @@ pub const Scope = struct {
         while (true) switch (it.tag) {
             .top => unreachable,
             .local => {
-                const local = @fieldParentPtr(Local, "base", it);
+                const local: *Local = @alignCast(@fieldParentPtr("base", it));
                 it = local.parent;
             },
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", it);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", it));
                 return namespace.decl_index;
             },
         };
@@ -453,7 +453,7 @@ pub const Scope = struct {
         switch (scope.tag) {
             .top, .local => return null,
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", scope);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", scope));
                 return namespace.names.get(name);
             },
         }
@@ -465,7 +465,7 @@ pub const Scope = struct {
         while (true) switch (it.tag) {
             .top => break,
             .local => {
-                const local = @fieldParentPtr(Local, "base", it);
+                const local: *Local = @alignCast(@fieldParentPtr("base", it));
                 const name_token = main_tokens[local.var_node] + 1;
                 const ident_name = ast.tokenSlice(name_token);
                 if (std.mem.eql(u8, ident_name, name)) {
@@ -474,7 +474,7 @@ pub const Scope = struct {
                 it = local.parent;
             },
             .namespace => {
-                const namespace = @fieldParentPtr(Namespace, "base", it);
+                const namespace: *Namespace = @alignCast(@fieldParentPtr("base", it));
                 if (namespace.names.get(name)) |node| {
                     return node;
                 }
@@ -699,12 +699,9 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         },
 
         .assign_destructure => {
-            const extra_index = node_datas[node].lhs;
-            const lhs_count = ast.extra_data[extra_index];
-            const lhs_nodes: []const Ast.Node.Index = @ptrCast(ast.extra_data[extra_index + 1 ..][0..lhs_count]);
-            const rhs = node_datas[node].rhs;
-            for (lhs_nodes) |lhs_node| try expr(w, scope, parent_decl, lhs_node);
-            _ = try expr(w, scope, parent_decl, rhs);
+            const full = ast.assignDestructure(node);
+            for (full.ast.variables) |variable_node| try expr(w, scope, parent_decl, variable_node);
+            _ = try expr(w, scope, parent_decl, full.ast.value_expr);
         },
 
         .bool_not,

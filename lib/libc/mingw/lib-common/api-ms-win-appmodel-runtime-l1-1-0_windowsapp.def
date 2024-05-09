@@ -1,0 +1,25 @@
+LIBRARY api-ms-win-appmodel-runtime-l1-1-0
+
+EXPORTS
+
+ClosePackageInfo
+CreateDeviceAccessInstance
+GetApplicationUserModelId
+GetCurrentApplicationUserModelId
+GetCurrentPackageFamilyName
+GetCurrentPackageFullName
+GetCurrentPackageId
+GetCurrentPackageInfo
+GetCurrentPackagePath
+GetPackageFamilyName
+GetPackageFullName
+GetPackageId
+GetPackageInfo
+GetPackagePath
+GetPackagesByPackageFamily
+OpenPackageInfoByFullName
+PackageFamilyNameFromFullName
+PackageFamilyNameFromId
+PackageFullNameFromId
+PackageIdFromFullName
+PackageNameAndPublisherIdFromFamilyName

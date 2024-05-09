@@ -1211,7 +1211,7 @@ test "storing an array of type in a field" {
 
     const S = struct {
         fn doTheTest() void {
-            comptime var foobar = Foobar.foo();
+            const foobar = Foobar.foo();
             foo(foobar.str[0..10]);
         }
         const Foobar = struct {

@@ -13,7 +13,7 @@ const native_endian = builtin.cpu.arch.endian();
 pub const page_size = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     .aarch64 => switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos => 16 * 1024,
+        .macos, .ios, .watchos, .tvos, .visionos => 16 * 1024,
         else => 4 * 1024,
     },
     .sparc64 => 8 * 1024,
@@ -306,7 +306,7 @@ pub fn zeroes(comptime T: type) T {
     }
 }
 
-test "zeroes" {
+test zeroes {
     const C_struct = extern struct {
         x: u32,
         y: u32 align(128),
@@ -475,7 +475,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
     }
 }
 
-test "zeroInit" {
+test zeroInit {
     const I = struct {
         d: f64,
     };
@@ -606,16 +606,19 @@ pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order
     return math.order(lhs[i], rhs[i]);
 }
 
-test "order and orderZ" {
+test order {
     try testing.expect(order(u8, "abcd", "bee") == .lt);
-    try testing.expect(orderZ(u8, "abcd", "bee") == .lt);
     try testing.expect(order(u8, "abc", "abc") == .eq);
-    try testing.expect(orderZ(u8, "abc", "abc") == .eq);
     try testing.expect(order(u8, "abc", "abc0") == .lt);
-    try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
     try testing.expect(order(u8, "", "") == .eq);
-    try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(order(u8, "", "a") == .lt);
+}
+
+test orderZ {
+    try testing.expect(orderZ(u8, "abcd", "bee") == .lt);
+    try testing.expect(orderZ(u8, "abc", "abc") == .eq);
+    try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
+    try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(orderZ(u8, "", "a") == .lt);
 }
 
@@ -624,7 +627,7 @@ pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) bool {
     return order(T, lhs, rhs) == .lt;
 }
 
-test "lessThan" {
+test lessThan {
     try testing.expect(lessThan(u8, "abcd", "bee"));
     try testing.expect(!lessThan(u8, "abc", "abc"));
     try testing.expect(lessThan(u8, "abc", "abc0"));
@@ -726,7 +729,7 @@ pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
     return if (a.len == b.len) null else shortest;
 }
 
-test "indexOfDiff" {
+test indexOfDiff {
     try testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
     try testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
     try testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
@@ -759,7 +762,7 @@ fn Span(comptime T: type) type {
     @compileError("invalid type given to std.mem.span: " ++ @typeName(T));
 }
 
-test "Span" {
+test Span {
     try testing.expect(Span([*:1]u16) == [:1]u16);
     try testing.expect(Span(?[*:1]u16) == ?[:1]u16);
     try testing.expect(Span([*:1]const u8) == [:1]const u8);
@@ -793,7 +796,7 @@ pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     }
 }
 
-test "span" {
+test span {
     var array: [5]u16 = [_]u16{ 1, 2, 3, 4, 5 };
     const ptr = @as([*:3]u16, array[0..2 :3]);
     try testing.expect(eql(u16, span(ptr), &[_]u16{ 1, 2 }));
@@ -877,7 +880,7 @@ pub fn sliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) SliceTo(
     }
 }
 
-test "sliceTo" {
+test sliceTo {
     try testing.expectEqualSlices(u8, "aoeu", sliceTo("aoeu", 0));
 
     {
@@ -963,7 +966,7 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
     @compileError("invalid type given to std.mem.sliceTo: " ++ @typeName(@TypeOf(ptr)));
 }
 
-test "lenSliceTo" {
+test lenSliceTo {
     try testing.expect(lenSliceTo("aoeu", 0) == 4);
 
     {
@@ -1018,7 +1021,7 @@ pub fn len(value: anytype) usize {
     }
 }
 
-test "len" {
+test len {
     var array: [5]u16 = [_]u16{ 1, 2, 0, 4, 5 };
     const ptr = @as([*:4]u16, array[0..3 :4]);
     try testing.expect(len(ptr) == 3);
@@ -1035,6 +1038,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
     var i: usize = 0;
 
     if (backend_supports_vectors and
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
@@ -1157,7 +1161,7 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
     return slice[begin..end];
 }
 
-test "trim" {
+test trim {
     try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
@@ -1184,6 +1188,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
 
     var i: usize = start_index;
     if (backend_supports_vectors and
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
@@ -1240,7 +1245,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     return null;
 }
 
-test "indexOfScalarPos" {
+test indexOfScalarPos {
     const Types = [_]type{ u8, u16, u32, u64 };
 
     inline for (Types) |T| {
@@ -1316,7 +1321,7 @@ pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, va
     return null;
 }
 
-test "indexOfNone" {
+test indexOfNone {
     try testing.expect(indexOfNone(u8, "abc123", "123").? == 0);
     try testing.expect(lastIndexOfNone(u8, "abc123", "123").? == 2);
     try testing.expect(indexOfNone(u8, "123abc", "123").? == 3);
@@ -1460,7 +1465,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
     return null;
 }
 
-test "indexOf" {
+test indexOf {
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(lastIndexOf(u8, "one two three four five six seven eight nine ten eleven", "three four").? == 8);
     try testing.expect(indexOf(u8, "one two three four five six seven eight nine ten eleven", "two two") == null);
@@ -1533,7 +1538,7 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     return found;
 }
 
-test "count" {
+test count {
     try testing.expect(count(u8, "", "h") == 0);
     try testing.expect(count(u8, "h", "h") == 1);
     try testing.expect(count(u8, "hh", "h") == 2);
@@ -1565,7 +1570,7 @@ pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: us
     return false;
 }
 
-test "containsAtLeast" {
+test containsAtLeast {
     try testing.expect(containsAtLeast(u8, "aa", 0, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 1, "a"));
     try testing.expect(containsAtLeast(u8, "aa", 2, "a"));
@@ -1698,6 +1703,9 @@ test readInt {
 
     try testing.expect(readInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
     try testing.expect(readInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
+
+    try moreReadIntTests();
+    try comptime moreReadIntTests();
 }
 
 fn readPackedIntLittle(comptime T: type, bytes: []const u8, bit_offset: usize) T {
@@ -2000,7 +2008,12 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
         .Struct => {
             inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
-                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Struct => |struct_info| if (struct_info.backing_integer) |Int| {
+                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(Int, @bitCast(@field(ptr, f.name)))));
+                    } else {
+                        byteSwapAllFields(f.type, &@field(ptr, f.name));
+                    },
+                    .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .Enum => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -2027,7 +2040,7 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     }
 }
 
-test "byteSwapAllFields" {
+test byteSwapAllFields {
     const T = extern struct {
         f0: u8,
         f1: u16,
@@ -2136,7 +2149,7 @@ pub fn tokenizeScalar(comptime T: type, buffer: []const T, delimiter: T) TokenIt
     };
 }
 
-test "tokenizeScalar" {
+test tokenizeScalar {
     var it = tokenizeScalar(u8, "   abc def   ghi  ", ' ');
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.peek().?, "def"));
@@ -2177,7 +2190,7 @@ test "tokenizeScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenizeAny" {
+test tokenizeAny {
     var it = tokenizeAny(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.peek().?, "b"));
@@ -2205,7 +2218,7 @@ test "tokenizeAny" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenizeSequence" {
+test tokenizeSequence {
     var it = tokenizeSequence(u8, "a<>b<><>c><>d><", "<>");
     try testing.expectEqualStrings("a", it.next().?);
     try testing.expectEqualStrings("b", it.peek().?);
@@ -2334,7 +2347,7 @@ pub fn splitScalar(comptime T: type, buffer: []const T, delimiter: T) SplitItera
     };
 }
 
-test "splitScalar" {
+test splitScalar {
     var it = splitScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "abc");
@@ -2377,7 +2390,7 @@ test "splitScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitSequence" {
+test splitSequence {
     var it = splitSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
@@ -2400,7 +2413,7 @@ test "splitSequence" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitAny" {
+test splitAny {
     var it = splitAny(u8, "a,b, c d e", ", ");
     try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b, c d e");
@@ -2536,7 +2549,7 @@ pub fn splitBackwardsScalar(comptime T: type, buffer: []const T, delimiter: T) S
     };
 }
 
-test "splitBackwardsScalar" {
+test splitBackwardsScalar {
     var it = splitBackwardsScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "ghi");
@@ -2575,7 +2588,7 @@ test "splitBackwardsScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwardsSequence" {
+test splitBackwardsSequence {
     var it = splitBackwardsSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.first(), "e");
@@ -2608,7 +2621,7 @@ test "splitBackwardsSequence" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwardsAny" {
+test splitBackwardsAny {
     var it = splitBackwardsAny(u8, "a,b, c d e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a,b, c d e");
     try testing.expectEqualSlices(u8, it.first(), "e");
@@ -2715,7 +2728,7 @@ pub fn window(comptime T: type, buffer: []const T, size: usize, advance: usize) 
     };
 }
 
-test "window" {
+test window {
     {
         // moving average size 3
         var it = window(u8, "abcdefg", 3, 1);
@@ -2841,7 +2854,7 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
 
-test "startsWith" {
+test startsWith {
     try testing.expect(startsWith(u8, "Bob", "Bo"));
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
@@ -2850,7 +2863,7 @@ pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
 
-test "endsWith" {
+test endsWith {
     try testing.expect(endsWith(u8, "Needle in haystack", "haystack"));
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
@@ -3086,7 +3099,7 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     return buf;
 }
 
-test "join" {
+test join {
     {
         const str = try join(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -3109,7 +3122,7 @@ test "join" {
     }
 }
 
-test "joinZ" {
+test joinZ {
     {
         const str = try joinZ(testing.allocator, ",", &[_][]const u8{});
         defer testing.allocator.free(str);
@@ -3181,7 +3194,7 @@ pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []con
     return buf;
 }
 
-test "concat" {
+test concat {
     {
         const str = try concat(testing.allocator, u8, &[_][]const u8{ "abc", "def", "ghi" });
         defer testing.allocator.free(str);
@@ -3219,17 +3232,13 @@ test "concat" {
     }
 }
 
-test "testStringEquality" {
+test eql {
     try testing.expect(eql(u8, "abcd", "abcd"));
     try testing.expect(!eql(u8, "abcdef", "abZdef"));
     try testing.expect(!eql(u8, "abcdefg", "abcdef"));
 }
 
-test "testReadInt" {
-    try testReadIntImpl();
-    try comptime testReadIntImpl();
-}
-fn testReadIntImpl() !void {
+fn moreReadIntTests() !void {
     {
         const bytes = [_]u8{
             0x12,
@@ -3287,7 +3296,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "min" {
+test min {
     try testing.expectEqual(min(u8, "abcdefg"), 'a');
     try testing.expectEqual(min(u8, "bcdefga"), 'a');
     try testing.expectEqual(min(u8, "a"), 'a');
@@ -3304,7 +3313,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     return best;
 }
 
-test "max" {
+test max {
     try testing.expectEqual(max(u8, "abcdefg"), 'g');
     try testing.expectEqual(max(u8, "gabcdef"), 'g');
     try testing.expectEqual(max(u8, "g"), 'g');
@@ -3357,7 +3366,7 @@ pub fn indexOfMin(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "indexOfMin" {
+test indexOfMin {
     try testing.expectEqual(indexOfMin(u8, "abcdefg"), 0);
     try testing.expectEqual(indexOfMin(u8, "bcdefga"), 6);
     try testing.expectEqual(indexOfMin(u8, "a"), 0);
@@ -3378,7 +3387,7 @@ pub fn indexOfMax(comptime T: type, slice: []const T) usize {
     return index;
 }
 
-test "indexOfMax" {
+test indexOfMax {
     try testing.expectEqual(indexOfMax(u8, "abcdefg"), 6);
     try testing.expectEqual(indexOfMax(u8, "gabcdef"), 0);
     try testing.expectEqual(indexOfMax(u8, "a"), 0);
@@ -3406,7 +3415,7 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { usize, usize }
     return .{ minIdx, maxIdx };
 }
 
-test "indexOfMinMax" {
+test indexOfMinMax {
     try testing.expectEqual(.{ 0, 6 }, indexOfMinMax(u8, "abcdefg"));
     try testing.expectEqual(.{ 1, 0 }, indexOfMinMax(u8, "gabcdef"));
     try testing.expectEqual(.{ 0, 0 }, indexOfMinMax(u8, "a"));
@@ -3427,7 +3436,7 @@ pub fn reverse(comptime T: type, items: []T) void {
     }
 }
 
-test "reverse" {
+test reverse {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     reverse(i32, arr[0..]);
 
@@ -3488,7 +3497,7 @@ pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
     return .{ .ptr = slice.ptr, .index = slice.len };
 }
 
-test "reverseIterator" {
+test reverseIterator {
     {
         var it = reverseIterator("abc");
         try testing.expectEqual(@as(?u8, 'c'), it.next());
@@ -3546,7 +3555,7 @@ pub fn rotate(comptime T: type, items: []T, amount: usize) void {
     reverse(T, items);
 }
 
-test "rotate" {
+test rotate {
     var arr = [_]i32{ 5, 3, 1, 2, 4 };
     rotate(i32, arr[0..], 2);
 
@@ -3580,7 +3589,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     return replacements;
 }
 
-test "replace" {
+test replace {
     var output: [29]u8 = undefined;
     var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
     var expected: []const u8 = "All your Zig are belong to us";
@@ -3643,7 +3652,7 @@ fn testCollapseRepeats(str: []const u8, elem: u8, expected: []const u8) !void {
     defer std.testing.allocator.free(mutable);
     try testing.expect(std.mem.eql(u8, collapseRepeats(u8, mutable, elem), expected));
 }
-test "collapseRepeats" {
+test collapseRepeats {
     try testCollapseRepeats("", '/', "");
     try testCollapseRepeats("a", '/', "a");
     try testCollapseRepeats("/", '/', "/");
@@ -3677,7 +3686,7 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
     return size;
 }
 
-test "replacementSize" {
+test replacementSize {
     try testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
     try testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
     try testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
@@ -3697,7 +3706,7 @@ pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, ne
     return output;
 }
 
-test "replaceOwned" {
+test replaceOwned {
     const gpa = std.testing.allocator;
 
     const base_replace = replaceOwned(u8, gpa, "All your base are belong to us", "base", "Zig") catch @panic("out of memory");
@@ -3801,7 +3810,7 @@ pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
     return @alignCast(ptr + adjust_off);
 }
 
-test "alignPointer" {
+test alignPointer {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
             const ptr: T = @ptrFromInt(base);
@@ -3850,7 +3859,7 @@ pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
     return @ptrCast(@alignCast(ptr));
 }
 
-test "asBytes" {
+test asBytes {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .big => "\xDE\xAD\xBE\xEF",
@@ -3910,7 +3919,7 @@ pub fn toBytes(value: anytype) [@sizeOf(@TypeOf(value))]u8 {
     return asBytes(&value).*;
 }
 
-test "toBytes" {
+test toBytes {
     var my_bytes = toBytes(@as(u32, 0x12345678));
     switch (native_endian) {
         .big => try testing.expect(eql(u8, &my_bytes, "\x12\x34\x56\x78")),
@@ -3934,7 +3943,7 @@ pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, 
     return @ptrCast(bytes);
 }
 
-test "bytesAsValue" {
+test bytesAsValue {
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .big => "\xDE\xAD\xBE\xEF",
@@ -3993,7 +4002,7 @@ test "bytesAsValue preserves pointer attributes" {
 pub fn bytesToValue(comptime T: type, bytes: anytype) T {
     return bytesAsValue(T, bytes).*;
 }
-test "bytesToValue" {
+test bytesToValue {
     const deadbeef_bytes = switch (native_endian) {
         .big => "\xDE\xAD\xBE\xEF",
         .little => "\xEF\xBE\xAD\xDE",
@@ -4021,7 +4030,7 @@ pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, 
     return @as(cast_target, @ptrCast(bytes))[0..@divExact(bytes.len, @sizeOf(T))];
 }
 
-test "bytesAsSlice" {
+test bytesAsSlice {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         const slice = bytesAsSlice(u16, bytes[0..]);
@@ -4110,7 +4119,7 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
 }
 
-test "sliceAsBytes" {
+test sliceAsBytes {
     const bytes = [_]u16{ 0xDEAD, 0xBEEF };
     const slice = sliceAsBytes(bytes[0..]);
     try testing.expect(slice.len == 4);
@@ -4268,7 +4277,7 @@ fn doNotOptimizeAwayC(ptr: anytype) void {
     dest.* = 0;
 }
 
-test "doNotOptimizeAway" {
+test doNotOptimizeAway {
     comptime doNotOptimizeAway("test");
 
     doNotOptimizeAway(null);
@@ -4293,7 +4302,7 @@ test "doNotOptimizeAway" {
     doNotOptimizeAway(@as(std.builtin.Endian, .little));
 }
 
-test "alignForward" {
+test alignForward {
     try testing.expect(alignForward(usize, 1, 1) == 1);
     try testing.expect(alignForward(usize, 2, 1) == 2);
     try testing.expect(alignForward(usize, 1, 2) == 2);
@@ -4362,7 +4371,7 @@ pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
     return alignBackward(T, addr, alignment) == addr;
 }
 
-test "isAligned" {
+test isAligned {
     try testing.expect(isAligned(0, 4));
     try testing.expect(isAligned(1, 1));
     try testing.expect(isAligned(2, 1));

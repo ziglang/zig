@@ -39,8 +39,12 @@ const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
+const Section = @import("../codegen/spirv/Section.zig");
 const spec = @import("../codegen/spirv/spec.zig");
 const IdResult = spec.IdResult;
+const Word = spec.Word;
+
+const BinaryModule = @import("SpirV/BinaryModule.zig");
 
 base: link.File,
 
@@ -126,7 +130,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
 
     const func = module.funcInfo(func_index);
     const decl = module.declPtr(func.owner_decl);
-    log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
+    log.debug("lowering function {}", .{decl.name.fmt(&module.intern_pool)});
 
     try self.object.updateFunc(module, func_index, air, liveness);
 }
@@ -137,7 +141,7 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: InternPool.DeclInde
     }
 
     const decl = module.declPtr(decl_index);
-    log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
+    log.debug("lowering declaration {}", .{decl.name.fmt(&module.intern_pool)});
 
     try self.object.updateDecl(module, decl_index);
 }
@@ -159,11 +163,12 @@ pub fn updateExports(
     if (decl.val.isFuncBody(mod)) {
         const target = mod.getTarget();
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        const execution_model = switch (decl.ty.fnCallingConvention(mod)) {
+        const execution_model = switch (decl.typeOf(mod).fnCallingConvention(mod)) {
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,
-            else => return,
+            .C => return, // TODO: What to do here?
+            else => unreachable,
         };
         const is_vulkan = target.os.tag == .vulkan;
 
@@ -173,7 +178,7 @@ pub fn updateExports(
             for (exports) |exp| {
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
-                    mod.intern_pool.stringToSlice(exp.opts.name),
+                    exp.opts.name.toSlice(&mod.intern_pool),
                     execution_model,
                 );
             }
@@ -196,8 +201,6 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
-
-    _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -223,23 +226,60 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors");
-    const module = self.base.comp.module.?;
-    for (module.global_error_set.keys()) |name_nts| {
-        const name = module.intern_pool.stringToSlice(name_nts);
+    const mod = self.base.comp.module.?;
+    for (mod.global_error_set.keys()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        const escaped_name = try std.Uri.escapeString(gpa, name);
-        defer gpa.free(escaped_name);
-        try error_info.writer().print(":{s}", .{escaped_name});
+        try std.Uri.Component.percentEncode(
+            error_info.writer(),
+            name.toSlice(&mod.intern_pool),
+            struct {
+                fn isValidChar(c: u8) bool {
+                    return switch (c) {
+                        0, '%', ':' => false,
+                        else => true,
+                    };
+                }
+            }.isValidChar,
+        );
     }
     try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.items,
     });
 
-    try spv.flush(self.base.file.?, target);
+    const module = try spv.finalize(arena, target);
+    errdefer arena.free(module);
+
+    const linked_module = self.linkModule(arena, module, &sub_prog_node) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |other| {
+            log.err("error while linking: {s}\n", .{@errorName(other)});
+            return error.FlushFailure;
+        },
+    };
+
+    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+}
+
+fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: *std.Progress.Node) ![]Word {
+    _ = self;
+
+    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
+    const prune_unused = @import("SpirV/prune_unused.zig");
+    const dedup = @import("SpirV/deduplicate.zig");
+
+    var parser = try BinaryModule.Parser.init(a);
+    defer parser.deinit();
+    var binary = try parser.parse(module);
+
+    try lower_invocation_globals.run(&parser, &binary, progress);
+    try prune_unused.run(&parser, &binary, progress);
+    try dedup.run(&parser, &binary, progress);
+
+    return binary.finalize(a);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {

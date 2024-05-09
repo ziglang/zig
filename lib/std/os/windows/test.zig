@@ -245,7 +245,7 @@ test "loadWinsockExtensionFunction" {
     const LPFN_CONNECTEX = *const fn (
         Socket: windows.ws2_32.SOCKET,
         SockAddr: *const windows.ws2_32.sockaddr,
-        SockLen: std.os.socklen_t,
+        SockLen: std.posix.socklen_t,
         SendBuf: ?*const anyopaque,
         SendBufLen: windows.DWORD,
         BytesSent: *windows.DWORD,
@@ -254,7 +254,7 @@ test "loadWinsockExtensionFunction" {
 
     _ = windows.loadWinsockExtensionFunction(
         LPFN_CONNECTEX,
-        try std.os.socket(std.os.AF.INET, std.os.SOCK.DGRAM, 0),
+        try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0),
         windows.ws2_32.WSAID_CONNECTEX,
     ) catch |err| switch (err) {
         error.OperationNotSupported => unreachable,

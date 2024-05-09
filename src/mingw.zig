@@ -13,7 +13,7 @@ const Cache = std.Build.Cache;
 pub const CRTFile = enum {
     crt2_o,
     dllcrt2_o,
-    mingwex_lib,
+    mingw32_lib,
 };
 
 pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
@@ -28,14 +28,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         .crt2_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try add_cc_args(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                // Prevents warning: 'used' attribute ignored on a non-definition declaration
-                // pointing at extern _CRTALLOC
-                "-Wno-ignored-attributes",
-                // Uncommenting this makes mingw-w64 look for wmain instead of main.
-                //"-DUNICODE",
-                //"-D_UNICODE",
-            });
+            if (comp.mingw_unicode_entry_point) {
+                try args.appendSlice(&.{ "-DUNICODE", "-D_UNICODE" });
+            }
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -63,12 +58,12 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &files);
         },
 
-        .mingwex_lib => {
+        .mingw32_lib => {
             var args = std.ArrayList([]const u8).init(arena);
             try add_cc_args(comp, arena, &args);
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
 
-            for (mingwex_generic_src) |dep| {
+            for (mingw32_generic_src) |dep| {
                 try c_source_files.append(.{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", dep,
@@ -79,7 +74,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             }
             const target = comp.getTarget();
             if (target.cpu.arch == .x86 or target.cpu.arch == .x86_64) {
-                for (mingwex_x86_src) |dep| {
+                for (mingw32_x86_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                             "libc", "mingw", dep,
@@ -89,7 +84,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     });
                 }
                 if (target.cpu.arch == .x86) {
-                    for (mingwex_x86_32_src) |dep| {
+                    for (mingw32_x86_32_src) |dep| {
                         try c_source_files.append(.{
                             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                                 "libc", "mingw", dep,
@@ -100,7 +95,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     }
                 }
             } else if (target.cpu.arch.isARM()) {
-                for (mingwex_arm32_src) |dep| {
+                for (mingw32_arm32_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                             "libc", "mingw", dep,
@@ -110,7 +105,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                     });
                 }
             } else if (target.cpu.arch.isAARCH64()) {
-                for (mingwex_arm64_src) |dep| {
+                for (mingw32_arm64_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                             "libc", "mingw", dep,
@@ -122,7 +117,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             } else {
                 @panic("unsupported arch");
             }
-            return comp.build_crt_file("mingwex", .Lib, .@"mingw-w64 mingwex.lib", prog_node, c_source_files.items);
+            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items);
         },
     }
 }
@@ -152,6 +147,7 @@ fn add_cc_args(
         "-D_CRTBLD",
         "-D_SYSCRT=1",
         "-DCRTDLL=1",
+        "-D_WIN32_WINNT=0x0f00",
         // According to Martin Storsjö,
         // > the files under mingw-w64-crt are designed to always
         // be built with __MSVCRT_VERSION__=0x700
@@ -388,14 +384,16 @@ fn findDef(
     return error.FileNotFound;
 }
 
-const mingwex_generic_src = [_][]const u8{
+const mingw32_generic_src = [_][]const u8{
     // mingw32
+    "crt" ++ path.sep_str ++ "crtexewin.c",
     "crt" ++ path.sep_str ++ "dll_argv.c",
     "crt" ++ path.sep_str ++ "gccmain.c",
     "crt" ++ path.sep_str ++ "natstart.c",
     "crt" ++ path.sep_str ++ "pseudo-reloc-list.c",
     "crt" ++ path.sep_str ++ "wildcard.c",
     "crt" ++ path.sep_str ++ "charmax.c",
+    "crt" ++ path.sep_str ++ "ucrtexewin.c",
     "crt" ++ path.sep_str ++ "dllargv.c",
     "crt" ++ path.sep_str ++ "_newmode.c",
     "crt" ++ path.sep_str ++ "tlssup.c",
@@ -813,7 +811,7 @@ const mingwex_generic_src = [_][]const u8{
     "libsrc" ++ path.sep_str ++ "activeds-uuid.c",
 };
 
-const mingwex_x86_src = [_][]const u8{
+const mingw32_x86_src = [_][]const u8{
     // mingwex
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
@@ -872,8 +870,7 @@ const mingwex_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "nexttowardf.c",
 };
 
-const mingwex_x86_32_src = [_][]const u8{
-    // ucrtbase
+const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "coshf.c",
     "math" ++ path.sep_str ++ "expf.c",
     "math" ++ path.sep_str ++ "log10f.c",
@@ -895,7 +892,7 @@ const mingwex_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanf.c",
 };
 
-const mingwex_arm32_src = [_][]const u8{
+const mingw32_arm32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
@@ -904,7 +901,7 @@ const mingwex_arm32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincosf.S",
 };
 
-const mingwex_arm64_src = [_][]const u8{
+const mingw32_arm64_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
@@ -914,7 +911,21 @@ const mingwex_arm64_src = [_][]const u8{
 };
 
 pub const always_link_libs = [_][]const u8{
-    "ucrtbase",
+    "api-ms-win-crt-conio-l1-1-0",
+    "api-ms-win-crt-convert-l1-1-0",
+    "api-ms-win-crt-environment-l1-1-0",
+    "api-ms-win-crt-filesystem-l1-1-0",
+    "api-ms-win-crt-heap-l1-1-0",
+    "api-ms-win-crt-locale-l1-1-0",
+    "api-ms-win-crt-math-l1-1-0",
+    "api-ms-win-crt-multibyte-l1-1-0",
+    "api-ms-win-crt-private-l1-1-0",
+    "api-ms-win-crt-process-l1-1-0",
+    "api-ms-win-crt-runtime-l1-1-0",
+    "api-ms-win-crt-stdio-l1-1-0",
+    "api-ms-win-crt-string-l1-1-0",
+    "api-ms-win-crt-time-l1-1-0",
+    "api-ms-win-crt-utility-l1-1-0",
     "advapi32",
     "kernel32",
     "ntdll",

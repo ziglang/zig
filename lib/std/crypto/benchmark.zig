@@ -131,7 +131,12 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
     return throughput;
 }
 
-const signatures = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+const signatures = [_]Crypto{
+    Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" },
+    Crypto{ .ty = crypto.sign.ecdsa.EcdsaP256Sha256, .name = "ecdsa-p256" },
+    Crypto{ .ty = crypto.sign.ecdsa.EcdsaP384Sha384, .name = "ecdsa-p384" },
+    Crypto{ .ty = crypto.sign.ecdsa.EcdsaSecp256k1Sha256, .name = "ecdsa-secp256k1" },
+};
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
@@ -463,7 +468,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             const seed = try std.fmt.parseUnsigned(u32, args[i], 10);
@@ -472,7 +477,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             filter = args[i];
@@ -481,7 +486,7 @@ pub fn main() !void {
             return;
         } else {
             usage();
-            std.os.exit(1);
+            std.process.exit(1);
         }
     }
 

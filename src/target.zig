@@ -26,6 +26,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .ios,
         .watchos,
         .tvos,
+        .visionos,
         .freestanding,
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
@@ -59,10 +60,15 @@ pub fn alwaysSingleThreaded(target: std.Target) bool {
 }
 
 pub fn defaultSingleThreaded(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => true,
-        else => false,
-    };
+    switch (target.cpu.arch) {
+        .wasm32, .wasm64 => return true,
+        else => {},
+    }
+    switch (target.os.tag) {
+        .haiku => return true,
+        else => {},
+    }
+    return false;
 }
 
 /// Valgrind supports more, but Zig does not support them yet.
@@ -154,6 +160,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv,
         .spirv32,
         .spirv64,
         .kalimba,
@@ -301,6 +308,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lroot",
             "-lpthread",
             "-lc",
+            "-lnetwork",
         },
         else => switch (target.abi) {
             .android => &[_][]const u8{
@@ -524,7 +532,7 @@ pub fn backendSupportsFeature(
         .error_return_trace => use_llvm,
         .is_named_enum_value => use_llvm,
         .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => use_llvm,
+        .field_reordering => ofmt == .c or use_llvm,
         .safety_checked_instructions => use_llvm,
     };
 }

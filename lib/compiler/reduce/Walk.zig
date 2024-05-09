@@ -345,23 +345,19 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         },
 
         .assign_destructure => {
-            const lhs_count = ast.extra_data[datas[node].lhs];
-            assert(lhs_count > 1);
-            const lhs_exprs = ast.extra_data[datas[node].lhs + 1 ..][0..lhs_count];
-            const rhs = datas[node].rhs;
-
-            for (lhs_exprs) |lhs_node| {
-                switch (node_tags[lhs_node]) {
+            const full = ast.assignDestructure(node);
+            for (full.ast.variables) |variable_node| {
+                switch (node_tags[variable_node]) {
                     .global_var_decl,
                     .local_var_decl,
                     .simple_var_decl,
                     .aligned_var_decl,
-                    => try walkLocalVarDecl(w, ast.fullVarDecl(lhs_node).?),
+                    => try walkLocalVarDecl(w, ast.fullVarDecl(variable_node).?),
 
-                    else => try walkExpression(w, lhs_node),
+                    else => try walkExpression(w, variable_node),
                 }
             }
-            return walkExpression(w, rhs);
+            return walkExpression(w, full.ast.value_expr);
         },
 
         .bit_not,

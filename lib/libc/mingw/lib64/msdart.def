@@ -983,7 +983,6 @@ EXPORTS
 ; protected: static unsigned short  CSpinLock::sm_wDefaultSpinCount
 ?sm_wDefaultSpinCount@CSpinLock@@1GA DATA
 DllBidEntryPoint
-DllMain
 FXMemAttach
 FXMemDetach
 GetIUMS

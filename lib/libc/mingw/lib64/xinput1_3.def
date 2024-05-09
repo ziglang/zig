@@ -5,7 +5,6 @@
 ;
 LIBRARY "XINPUT1_3.dll"
 EXPORTS
-DllMain
 XInputGetState
 XInputSetState
 XInputGetCapabilities

@@ -671,7 +671,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     return addTopLevelDecl(c, var_name, node);
 }
 
-const builtin_typedef_map = std.ComptimeStringMap([]const u8, .{
+const builtin_typedef_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "uint8_t", "u8" },
     .{ "int8_t", "i8" },
     .{ "uint16_t", "u16" },
@@ -1080,6 +1080,8 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
+                // TODO: as of LLVM 18, the return value from `enum_const.getInitVal` here needs
+                // to be freed with a call to its free() method.
                 .value = try transCreateNodeAPInt(c, enum_const.getInitVal()),
             });
             if (toplevel)
@@ -2086,6 +2088,11 @@ fn finishBoolExpr(
             }
         },
         .Pointer => {
+            if (node.tag() == .string_literal) {
+                // @intFromPtr(node) != 0
+                const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+                return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+            }
             // node != null
             return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.null_literal.init() });
         },
@@ -3587,6 +3594,7 @@ fn transUnaryExprOrTypeTraitExpr(
     const node = switch (kind) {
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
+        .DataSizeOf,
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,
@@ -5724,7 +5732,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     };
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -5754,7 +5762,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .identifier, .extended_identifier => {
             if (c.global_scope.blank_macros.contains(slice)) {
-                return parseCPrimaryExprInner(c, m, scope);
+                return parseCPrimaryExpr(c, m, scope);
             }
             const mangled_name = scope.getAlias(slice);
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
@@ -5781,35 +5789,6 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
     }
 }
 
-fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    var node = try parseCPrimaryExprInner(c, m, scope);
-    // In C the preprocessor would handle concatting strings while expanding macros.
-    // This should do approximately the same by concatting any strings and identifiers
-    // after a primary expression.
-    while (true) {
-        switch (m.peek().?) {
-            .string_literal,
-            .string_literal_utf_16,
-            .string_literal_utf_8,
-            .string_literal_utf_32,
-            .string_literal_wide,
-            => {},
-            .identifier, .extended_identifier => {
-                const tok = m.list[m.i + 1];
-                const slice = m.source[tok.start..tok.end];
-                if (c.global_scope.blank_macros.contains(slice)) {
-                    m.i += 1;
-                    continue;
-                }
-            },
-            else => break,
-        }
-        const rhs = try parseCPrimaryExprInner(c, m, scope);
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
-    }
-    return node;
-}
-
 fn macroIntFromBool(c: *Context, node: Node) !Node {
     if (!isBoolRes(node)) {
         return node;
@@ -5822,7 +5801,12 @@ fn macroIntToBool(c: *Context, node: Node) !Node {
     if (isBoolRes(node)) {
         return node;
     }
-
+    if (node.tag() == .string_literal) {
+        // @intFromPtr(node) != 0
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, node);
+        return Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
+    }
+    // node != 0
     return Tag.not_equal.create(c.arena, .{ .lhs = node, .rhs = Tag.zero_literal.init() });
 }
 
@@ -6241,6 +6225,35 @@ fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, node: Node) ParseError!No
 }
 
 fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
+    var node = try parseCPostfixExprInner(c, m, scope, type_name);
+    // In C the preprocessor would handle concatting strings while expanding macros.
+    // This should do approximately the same by concatting any strings and identifiers
+    // after a primary or postfix expression.
+    while (true) {
+        switch (m.peek().?) {
+            .string_literal,
+            .string_literal_utf_16,
+            .string_literal_utf_8,
+            .string_literal_utf_32,
+            .string_literal_wide,
+            => {},
+            .identifier, .extended_identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            else => break,
+        }
+        const rhs = try parseCPostfixExprInner(c, m, scope, type_name);
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
+    }
+    return node;
+}
+
+fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
     var node = type_name orelse try parseCPrimaryExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {

@@ -76,7 +76,6 @@ test "vector int operators" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -372,7 +371,6 @@ test "load vector elements via comptime index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -394,7 +392,6 @@ test "store vector elements via comptime index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1039,7 +1036,6 @@ test "multiplication-assignment operator with an array operand" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1138,7 +1134,6 @@ test "@mulWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1178,18 +1173,22 @@ test "@shlWithOverflow" {
 test "alignment of vectors" {
     try expect(@alignOf(@Vector(2, u8)) == switch (builtin.zig_backend) {
         else => 2,
+        .stage2_c => @alignOf(u8),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(2, u1)) == switch (builtin.zig_backend) {
         else => 1,
+        .stage2_c => @alignOf(u1),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(1, u1)) == switch (builtin.zig_backend) {
         else => 1,
+        .stage2_c => @alignOf(u1),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(2, u16)) == switch (builtin.zig_backend) {
         else => 4,
+        .stage2_c => @alignOf(u16),
         .stage2_x86_64 => 16,
     });
 }
@@ -1393,7 +1392,6 @@ test "store vector with memset" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     if (builtin.zig_backend == .stage2_llvm) {
         switch (builtin.target.cpu.arch) {

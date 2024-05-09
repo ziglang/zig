@@ -24,13 +24,13 @@ pub fn init(allocator: mem.Allocator) !*Pragma {
 }
 
 fn deinit(pragma: *Pragma, comp: *Compilation) void {
-    var self = @fieldParentPtr(Pack, "pragma", pragma);
+    var self: *Pack = @fieldParentPtr("pragma", pragma);
     self.stack.deinit(comp.gpa);
     comp.gpa.destroy(self);
 }
 
 fn parserHandler(pragma: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation.Error!void {
-    var pack = @fieldParentPtr(Pack, "pragma", pragma);
+    var pack: *Pack = @fieldParentPtr("pragma", pragma);
     var idx = start_idx + 1;
     const l_paren = p.pp.tokens.get(idx);
     if (l_paren.id != .l_paren) {

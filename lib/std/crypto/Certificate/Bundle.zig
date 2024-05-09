@@ -125,7 +125,7 @@ fn rescanBSD(cb: *Bundle, gpa: Allocator, cert_file_path: []const u8) RescanBSDE
     cb.bytes.shrinkAndFree(gpa, cb.bytes.items.len);
 }
 
-const RescanWindowsError = Allocator.Error || ParseCertError || std.os.UnexpectedError || error{FileNotFound};
+const RescanWindowsError = Allocator.Error || ParseCertError || std.posix.UnexpectedError || error{FileNotFound};
 
 fn rescanWindows(cb: *Bundle, gpa: Allocator) RescanWindowsError!void {
     cb.bytes.clearRetainingCapacity();

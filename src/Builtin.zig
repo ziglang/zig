@@ -35,17 +35,17 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
         \\pub const zig_version_string = "{s}";
-        \\pub const zig_backend = std.builtin.CompilerBackend.{};
+        \\pub const zig_backend = std.builtin.CompilerBackend.{p_};
         \\
-        \\pub const output_mode = std.builtin.OutputMode.{};
-        \\pub const link_mode = std.builtin.LinkMode.{};
+        \\pub const output_mode = std.builtin.OutputMode.{p_};
+        \\pub const link_mode = std.builtin.LinkMode.{p_};
         \\pub const is_test = {};
         \\pub const single_threaded = {};
-        \\pub const abi = std.Target.Abi.{};
+        \\pub const abi = std.Target.Abi.{p_};
         \\pub const cpu: std.Target.Cpu = .{{
-        \\    .arch = .{},
-        \\    .model = &std.Target.{}.cpu.{},
-        \\    .features = std.Target.{}.featureSet(&[_]std.Target.{}.Feature{{
+        \\    .arch = .{p_},
+        \\    .model = &std.Target.{p_}.cpu.{p_},
+        \\    .features = std.Target.{p_}.featureSet(&[_]std.Target.{p_}.Feature{{
         \\
     , .{
         build_options.version,
@@ -66,14 +66,14 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
         const is_enabled = target.cpu.features.isEnabled(index);
         if (is_enabled) {
-            try buffer.writer().print("        .{},\n", .{std.zig.fmtId(feature.name)});
+            try buffer.writer().print("        .{p_},\n", .{std.zig.fmtId(feature.name)});
         }
     }
     try buffer.writer().print(
         \\    }}),
         \\}};
         \\pub const os = std.Target.Os{{
-        \\    .tag = .{},
+        \\    .tag = .{p_},
         \\    .version_range = .{{
     ,
         .{std.zig.fmtId(@tagName(target.os.tag))},
@@ -140,13 +140,11 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         }),
         .windows => |windows| try buffer.writer().print(
             \\ .windows = .{{
-            \\        .min = {s},
-            \\        .max = {s},
+            \\        .min = {c},
+            \\        .max = {c},
             \\    }}}},
             \\
-        ,
-            .{ windows.min, windows.max },
-        ),
+        , .{ windows.min, windows.max }),
     }
     try buffer.appendSlice(
         \\};
@@ -180,8 +178,8 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const link_libc = opts.link_libc;
 
     try buffer.writer().print(
-        \\pub const object_format = std.Target.ObjectFormat.{};
-        \\pub const mode = std.builtin.OptimizeMode.{};
+        \\pub const object_format = std.Target.ObjectFormat.{p_};
+        \\pub const mode = std.builtin.OptimizeMode.{p_};
         \\pub const link_libc = {};
         \\pub const link_libcpp = {};
         \\pub const have_error_return_tracing = {};
@@ -190,7 +188,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const position_independent_code = {};
         \\pub const position_independent_executable = {};
         \\pub const strip_debug_info = {};
-        \\pub const code_model = std.builtin.CodeModel.{};
+        \\pub const code_model = std.builtin.CodeModel.{p_};
         \\pub const omit_frame_pointer = {};
         \\
     , .{
@@ -209,11 +207,10 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     });
 
     if (target.os.tag == .wasi) {
-        const wasi_exec_model_fmt = std.zig.fmtId(@tagName(opts.wasi_exec_model));
         try buffer.writer().print(
-            \\pub const wasi_exec_model = std.builtin.WasiExecModel.{};
+            \\pub const wasi_exec_model = std.builtin.WasiExecModel.{p_};
             \\
-        , .{wasi_exec_model_fmt});
+        , .{std.zig.fmtId(@tagName(opts.wasi_exec_model))});
     }
 
     if (opts.is_test) {

@@ -6,7 +6,6 @@
 ;
 LIBRARY SRRSTR.dll
 EXPORTS
-DllMain
 IsSRFrozen
 CheckPrivilegesForRestore
 SRGetCplPropPage

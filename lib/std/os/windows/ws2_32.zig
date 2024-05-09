@@ -850,6 +850,8 @@ pub const POLL = struct {
     pub const ERR = 1;
     pub const HUP = 2;
     pub const NVAL = 4;
+    pub const IN = RDNORM | RDBAND;
+    pub const OUT = WRNORM;
 };
 
 pub const TF_DISCONNECT = 1;

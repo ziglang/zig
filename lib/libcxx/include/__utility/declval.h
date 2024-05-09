@@ -27,7 +27,11 @@ _Tp __declval(long);
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 template <class _Tp>
-decltype(std::__declval<_Tp>(0)) declval() _NOEXCEPT;
+_LIBCPP_HIDE_FROM_ABI decltype(std::__declval<_Tp>(0)) declval() _NOEXCEPT {
+  static_assert(!__is_same(_Tp, _Tp),
+                "std::declval can only be used in an unevaluated context. "
+                "It's likely that your current usage is trying to extract a value from the function.");
+}
 
 _LIBCPP_END_NAMESPACE_STD
 

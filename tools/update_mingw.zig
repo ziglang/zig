@@ -94,7 +94,10 @@ pub fn main() !void {
 
             if (blacklisted) continue;
 
-            if (std.mem.startsWith(u8, entry.basename, "api-ms-win-"))
+            if (std.mem.endsWith(u8, entry.basename, "_windowsapp.def"))
+                continue;
+
+            if (std.mem.endsWith(u8, entry.basename, "_onecore.def"))
                 continue;
 
             src_crt_dir.copyFile(entry.path, dest_crt_dir, entry.path, .{}) catch |err| {

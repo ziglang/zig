@@ -13,5 +13,4 @@ CceStreamMultiByteToUnicode
 CceStreamUnicodeToMultiByte
 CceStringMultiByteToUnicode
 CceStringUnicodeToMultiByte
-DllMain
 FetchMsEncodeDllVersion

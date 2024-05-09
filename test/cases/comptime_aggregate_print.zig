@@ -23,10 +23,13 @@ comptime {
 
 pub fn main() !void {}
 
+// TODO: the output here has been regressed by #19414.
+// Restoring useful output here will require providing a Sema to TypedValue.print.
+
 // error
 //
 // :20:5: error: found compile log statement
 //
 // Compile Log Output:
-// @as([]i32, .{ 1, 2 })
-// @as([]i32, .{ 3, 4 })
+// @as([]i32, @as([*]i32, @ptrCast(@as(tmp.UnionContainer, .{ .buf = .{ 1, 2 } }).buf[0]))[0..2])
+// @as([]i32, @as([*]i32, @ptrCast(@as(tmp.StructContainer, .{ .buf = .{ 3, 4 } }).buf[0]))[0..2])

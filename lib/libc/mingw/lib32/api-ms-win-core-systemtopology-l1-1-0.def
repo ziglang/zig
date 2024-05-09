@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-systemtopology-l1-1-0
+
+EXPORTS
+
+GetNumaHighestNodeNumber@4
+GetNumaNodeProcessorMaskEx@8

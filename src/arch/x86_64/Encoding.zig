@@ -818,7 +818,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(4_000);
+    @setEvalBranchQuota(5_000);
     const mnemonic_count = @typeInfo(Mnemonic).Enum.fields.len;
     var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
     const encodings = @import("encodings.zig");
@@ -845,5 +845,12 @@ const mnemonic_to_encodings_map = init: {
         };
         i.* += 1;
     }
-    break :init mnemonic_map;
+    const final_storage = data_storage;
+    var final_map: [mnemonic_count][]const Data = .{&.{}} ** mnemonic_count;
+    storage_i = 0;
+    for (&final_map, mnemonic_map) |*final_value, value| {
+        final_value.* = final_storage[storage_i..][0..value.len];
+        storage_i += value.len;
+    }
+    break :init final_map;
 };

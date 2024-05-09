@@ -195,6 +195,7 @@ pub const Feature = struct {
         bulk_memory,
         exception_handling,
         extended_const,
+        multimemory,
         multivalue,
         mutable_globals,
         nontrapping_fptoint,
@@ -218,6 +219,7 @@ pub const Feature = struct {
                 .bulk_memory => "bulk-memory",
                 .exception_handling => "exception-handling",
                 .extended_const => "extended-const",
+                .multimemory => "multimemory",
                 .multivalue => "multivalue",
                 .mutable_globals => "mutable-globals",
                 .nontrapping_fptoint => "nontrapping-fptoint",
@@ -244,7 +246,7 @@ pub const Feature = struct {
     }
 };
 
-pub const known_features = std.ComptimeStringMap(Feature.Tag, .{
+pub const known_features = std.StaticStringMap(Feature.Tag).initComptime(.{
     .{ "atomics", .atomics },
     .{ "bulk-memory", .bulk_memory },
     .{ "exception-handling", .exception_handling },

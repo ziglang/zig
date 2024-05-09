@@ -912,12 +912,12 @@ fn generateVaListType(comp: *Compilation) !Type {
     const kind: Kind = switch (comp.target.cpu.arch) {
         .aarch64 => switch (comp.target.os.tag) {
             .windows => @as(Kind, .char_ptr),
-            .ios, .macos, .tvos, .watchos => .char_ptr,
+            .ios, .macos, .tvos, .watchos, .visionos => .char_ptr,
             else => .aarch64_va_list,
         },
         .sparc, .wasm32, .wasm64, .bpfel, .bpfeb, .riscv32, .riscv64, .avr, .spirv32, .spirv64 => .void_ptr,
         .powerpc => switch (comp.target.os.tag) {
-            .ios, .macos, .tvos, .watchos, .aix => @as(Kind, .char_ptr),
+            .ios, .macos, .tvos, .watchos, .visionos, .aix => @as(Kind, .char_ptr),
             else => return Type{ .specifier = .void }, // unknown
         },
         .x86, .msp430 => .char_ptr,

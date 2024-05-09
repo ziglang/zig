@@ -288,31 +288,29 @@ test "string set bad base error" {
 }
 
 test "twos complement limit set" {
-    const test_types = [_]type{
-        u64,
-        i64,
-        u1,
-        i1,
-        u0,
-        i0,
-        u65,
-        i65,
-    };
+    try testTwosComplementLimit(u64);
+    try testTwosComplementLimit(i64);
+    try testTwosComplementLimit(u1);
+    try testTwosComplementLimit(i1);
+    try testTwosComplementLimit(u0);
+    try testTwosComplementLimit(i0);
+    try testTwosComplementLimit(u65);
+    try testTwosComplementLimit(i65);
+}
 
-    inline for (test_types) |T| {
-        const int_info = @typeInfo(T).Int;
+fn testTwosComplementLimit(comptime T: type) !void {
+    const int_info = @typeInfo(T).Int;
 
-        var a = try Managed.init(testing.allocator);
-        defer a.deinit();
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
 
-        try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
-        const max: T = maxInt(T);
-        try testing.expect(max == try a.to(T));
+    try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+    const max: T = maxInt(T);
+    try testing.expect(max == try a.to(T));
 
-        try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
-        const min: T = minInt(T);
-        try testing.expect(min == try a.to(T));
-    }
+    try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+    const min: T = minInt(T);
+    try testing.expect(min == try a.to(T));
 }
 
 test "string to" {
@@ -2019,6 +2017,19 @@ test "shift-right multi" {
     try a.shiftRight(&a, 63);
     try a.shiftRight(&a, 2);
     try testing.expect(a.eqlZero());
+
+    try a.set(0xffff0000eeee1111dddd2222cccc3333000000000000000000000);
+    try a.shiftRight(&a, 84);
+    const string = try a.toString(
+        testing.allocator,
+        16,
+        .lower,
+    );
+    defer testing.allocator.free(string);
+    try std.testing.expectEqualStrings(
+        string,
+        "ffff0000eeee1111dddd2222cccc3333",
+    );
 }
 
 test "shift-left single" {

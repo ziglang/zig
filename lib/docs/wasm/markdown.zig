@@ -75,6 +75,17 @@
 //!   content. `target` may contain `\`-escaped characters and balanced
 //!   parentheses.
 //!
+//! - **Autolink** - an abbreviated link, of the format `<target>`, where
+//!   `target` serves as both the link target and text. `target` may not
+//!   contain spaces or `<`, and any `\` in it are interpreted literally (not as
+//!   escapes). `target` is expected to be an absolute URI: an autolink will not
+//!   be recognized unless `target` starts with a URI scheme followed by a `:`.
+//!
+//!   For convenience, autolinks may also be recognized in plain text without
+//!   any `<>` delimiters. Such autolinks are restricted to start with `http://`
+//!   or `https://` followed by at least one other character, not including any
+//!   trailing punctuation after the link.
+//!
 //! - **Image** - a link directly preceded by a `!`. The link text is
 //!   interpreted as the alt text of the image.
 //!
@@ -365,6 +376,106 @@ test "lists with block content" {
     );
 }
 
+test "indented lists" {
+    try testRender(
+        \\Test:
+        \\ * a1
+        \\ * a2
+        \\      * b1
+        \\      * b2
+        \\
+        \\---
+        \\
+        \\    Test:
+        \\  - One
+        \\Two
+        \\    - Three
+        \\Four
+        \\    Five
+        \\Six
+        \\
+        \\---
+        \\
+        \\None of these items are indented far enough from the previous one to
+        \\start a nested list:
+        \\  - One
+        \\   - Two
+        \\    - Three
+        \\     - Four
+        \\      - Five
+        \\     - Six
+        \\    - Seven
+        \\   - Eight
+        \\  - Nine
+        \\
+        \\---
+        \\
+        \\   - One
+        \\     - Two
+        \\       - Three
+        \\         - Four
+        \\     - Five
+        \\         - Six
+        \\- Seven
+        \\
+    ,
+        \\<p>Test:</p>
+        \\<ul>
+        \\<li>a1</li>
+        \\<li>a2<ul>
+        \\<li>b1</li>
+        \\<li>b2</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\<hr />
+        \\<p>Test:</p>
+        \\<ul>
+        \\<li>One
+        \\Two<ul>
+        \\<li>Three
+        \\Four
+        \\Five
+        \\Six</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\<hr />
+        \\<p>None of these items are indented far enough from the previous one to
+        \\start a nested list:</p>
+        \\<ul>
+        \\<li>One</li>
+        \\<li>Two</li>
+        \\<li>Three</li>
+        \\<li>Four</li>
+        \\<li>Five</li>
+        \\<li>Six</li>
+        \\<li>Seven</li>
+        \\<li>Eight</li>
+        \\<li>Nine</li>
+        \\</ul>
+        \\<hr />
+        \\<ul>
+        \\<li>One<ul>
+        \\<li>Two<ul>
+        \\<li>Three<ul>
+        \\<li>Four</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\</li>
+        \\<li>Five<ul>
+        \\<li>Six</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\</li>
+        \\<li>Seven</li>
+        \\</ul>
+        \\
+    );
+}
+
 test "tables" {
     try testRender(
         \\| Operator | Meaning          |
@@ -382,6 +493,10 @@ test "tables" {
         \\
         \\| :--- | :----: | ----: |
         \\| Left | Center | Right |
+        \\
+        \\   | One | Two |
+        \\ | Three |     Four   |
+        \\         | Five | Six |
         \\
     ,
         \\<table>
@@ -433,6 +548,20 @@ test "tables" {
         \\<td style="text-align: left">Left</td>
         \\<td style="text-align: center">Center</td>
         \\<td style="text-align: right">Right</td>
+        \\</tr>
+        \\</table>
+        \\<table>
+        \\<tr>
+        \\<td>One</td>
+        \\<td>Two</td>
+        \\</tr>
+        \\<tr>
+        \\<td>Three</td>
+        \\<td>Four</td>
+        \\</tr>
+        \\<tr>
+        \\<td>Five</td>
+        \\<td>Six</td>
         \\</tr>
         \\</table>
         \\
@@ -586,6 +715,14 @@ test "code blocks" {
         \\    try std.testing.expect(2 + 2 == 4);
         \\}
         \\```
+        \\   ```
+        \\   Indentation up to the fence is removed.
+        \\        Like this.
+        \\ Doesn't need to be fully indented.
+        \\  ```
+        \\```
+        \\Overly indented closing fence is fine:
+        \\    ```
         \\
     ,
         \\<pre><code>Hello, world!
@@ -596,6 +733,12 @@ test "code blocks" {
         \\test {
         \\    try std.testing.expect(2 + 2 == 4);
         \\}
+        \\</code></pre>
+        \\<pre><code>Indentation up to the fence is removed.
+        \\     Like this.
+        \\Doesn't need to be fully indented.
+        \\</code></pre>
+        \\<pre><code>Overly indented closing fence is fine:
         \\</code></pre>
         \\
     );
@@ -706,6 +849,50 @@ test "links" {
         \\<a href="https://example.com/)escaped(">Escaped parens</a>
         \\<a href="test\
         \\target">Line break in target</a></p>
+        \\
+    );
+}
+
+test "autolinks" {
+    try testRender(
+        \\<https://example.com>
+        \\**This is important: <https://example.com/strong>**
+        \\<https://example.com?query=abc.123#page(parens)>
+        \\<placeholder>
+        \\<data:>
+        \\1 < 2
+        \\4 > 3
+        \\Unclosed: <
+        \\
+    ,
+        \\<p><a href="https://example.com">https://example.com</a>
+        \\<strong>This is important: <a href="https://example.com/strong">https://example.com/strong</a></strong>
+        \\<a href="https://example.com?query=abc.123#page(parens)">https://example.com?query=abc.123#page(parens)</a>
+        \\&lt;placeholder&gt;
+        \\<a href="data:">data:</a>
+        \\1 &lt; 2
+        \\4 &gt; 3
+        \\Unclosed: &lt;</p>
+        \\
+    );
+}
+
+test "text autolinks" {
+    try testRender(
+        \\Text autolinks must start with http:// or https://.
+        \\This doesn't count: ftp://example.com.
+        \\Example: https://ziglang.org.
+        \\Here is an important link: **http://example.com**
+        \\(Links may be in parentheses: https://example.com/?q=(parens))
+        \\Escaping a link so it's plain text: https\://example.com
+        \\
+    ,
+        \\<p>Text autolinks must start with http:// or https://.
+        \\This doesn't count: ftp://example.com.
+        \\Example: <a href="https://ziglang.org">https://ziglang.org</a>.
+        \\Here is an important link: <strong><a href="http://example.com">http://example.com</a></strong>
+        \\(Links may be in parentheses: <a href="https://example.com/?q=(parens)">https://example.com/?q=(parens)</a>)
+        \\Escaping a link so it's plain text: https://example.com</p>
         \\
     );
 }

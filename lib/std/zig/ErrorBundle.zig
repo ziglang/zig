@@ -642,96 +642,96 @@ pub const Wip = struct {
             i += 1;
         }
     }
-};
 
-test "addBundleAsRoots" {
-    var bundle = bundle: {
-        var wip: ErrorBundle.Wip = undefined;
-        try wip.init(std.testing.allocator);
-        errdefer wip.deinit();
+    test addBundleAsRoots {
+        var bundle = bundle: {
+            var wip: ErrorBundle.Wip = undefined;
+            try wip.init(std.testing.allocator);
+            errdefer wip.deinit();
 
-        var ref_traces: [3]ReferenceTrace = undefined;
-        for (&ref_traces, 0..) |*ref_trace, i| {
-            if (i == ref_traces.len - 1) {
-                // sentinel reference trace
-                ref_trace.* = .{
-                    .decl_name = 3, // signifies 3 hidden references
-                    .src_loc = .none,
-                };
-            } else {
-                ref_trace.* = .{
-                    .decl_name = try wip.addString("foo"),
-                    .src_loc = try wip.addSourceLocation(.{
-                        .src_path = try wip.addString("foo"),
-                        .line = 1,
-                        .column = 2,
-                        .span_start = 3,
-                        .span_main = 4,
-                        .span_end = 5,
-                        .source_line = 0,
-                    }),
-                };
+            var ref_traces: [3]ReferenceTrace = undefined;
+            for (&ref_traces, 0..) |*ref_trace, i| {
+                if (i == ref_traces.len - 1) {
+                    // sentinel reference trace
+                    ref_trace.* = .{
+                        .decl_name = 3, // signifies 3 hidden references
+                        .src_loc = .none,
+                    };
+                } else {
+                    ref_trace.* = .{
+                        .decl_name = try wip.addString("foo"),
+                        .src_loc = try wip.addSourceLocation(.{
+                            .src_path = try wip.addString("foo"),
+                            .line = 1,
+                            .column = 2,
+                            .span_start = 3,
+                            .span_main = 4,
+                            .span_end = 5,
+                            .source_line = 0,
+                        }),
+                    };
+                }
             }
-        }
 
-        const src_loc = try wip.addSourceLocation(.{
-            .src_path = try wip.addString("foo"),
-            .line = 1,
-            .column = 2,
-            .span_start = 3,
-            .span_main = 4,
-            .span_end = 5,
-            .source_line = try wip.addString("some source code"),
-            .reference_trace_len = ref_traces.len,
-        });
-        for (&ref_traces) |ref_trace| {
-            try wip.addReferenceTrace(ref_trace);
-        }
-
-        try wip.addRootErrorMessage(ErrorMessage{
-            .msg = try wip.addString("hello world"),
-            .src_loc = src_loc,
-            .notes_len = 1,
-        });
-        const i = try wip.reserveNotes(1);
-        const note_index = @intFromEnum(wip.addErrorMessageAssumeCapacity(.{
-            .msg = try wip.addString("this is a note"),
-            .src_loc = try wip.addSourceLocation(.{
-                .src_path = try wip.addString("bar"),
+            const src_loc = try wip.addSourceLocation(.{
+                .src_path = try wip.addString("foo"),
                 .line = 1,
                 .column = 2,
                 .span_start = 3,
                 .span_main = 4,
                 .span_end = 5,
-                .source_line = try wip.addString("another line of source"),
-            }),
-        }));
-        wip.extra.items[i] = note_index;
+                .source_line = try wip.addString("some source code"),
+                .reference_trace_len = ref_traces.len,
+            });
+            for (&ref_traces) |ref_trace| {
+                try wip.addReferenceTrace(ref_trace);
+            }
 
-        break :bundle try wip.toOwnedBundle("");
-    };
-    defer bundle.deinit(std.testing.allocator);
+            try wip.addRootErrorMessage(ErrorMessage{
+                .msg = try wip.addString("hello world"),
+                .src_loc = src_loc,
+                .notes_len = 1,
+            });
+            const i = try wip.reserveNotes(1);
+            const note_index = @intFromEnum(wip.addErrorMessageAssumeCapacity(.{
+                .msg = try wip.addString("this is a note"),
+                .src_loc = try wip.addSourceLocation(.{
+                    .src_path = try wip.addString("bar"),
+                    .line = 1,
+                    .column = 2,
+                    .span_start = 3,
+                    .span_main = 4,
+                    .span_end = 5,
+                    .source_line = try wip.addString("another line of source"),
+                }),
+            }));
+            wip.extra.items[i] = note_index;
 
-    const ttyconf: std.io.tty.Config = .no_color;
+            break :bundle try wip.toOwnedBundle("");
+        };
+        defer bundle.deinit(std.testing.allocator);
 
-    var bundle_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer bundle_buf.deinit();
-    try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_buf.writer());
+        const ttyconf: std.io.tty.Config = .no_color;
 
-    var copy = copy: {
-        var wip: ErrorBundle.Wip = undefined;
-        try wip.init(std.testing.allocator);
-        errdefer wip.deinit();
+        var bundle_buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer bundle_buf.deinit();
+        try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_buf.writer());
 
-        try wip.addBundleAsRoots(bundle);
+        var copy = copy: {
+            var wip: ErrorBundle.Wip = undefined;
+            try wip.init(std.testing.allocator);
+            errdefer wip.deinit();
 
-        break :copy try wip.toOwnedBundle("");
-    };
-    defer copy.deinit(std.testing.allocator);
+            try wip.addBundleAsRoots(bundle);
 
-    var copy_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer copy_buf.deinit();
-    try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_buf.writer());
+            break :copy try wip.toOwnedBundle("");
+        };
+        defer copy.deinit(std.testing.allocator);
 
-    try std.testing.expectEqualStrings(bundle_buf.items, copy_buf.items);
-}
+        var copy_buf = std.ArrayList(u8).init(std.testing.allocator);
+        defer copy_buf.deinit();
+        try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_buf.writer());
+
+        try std.testing.expectEqualStrings(bundle_buf.items, copy_buf.items);
+    }
+};

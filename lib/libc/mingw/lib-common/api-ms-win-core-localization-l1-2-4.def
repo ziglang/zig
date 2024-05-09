@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-localization-l1-2-4
+
+EXPORTS
+
+RestoreThreadPreferredUILanguages
+SetThreadPreferredUILanguages2

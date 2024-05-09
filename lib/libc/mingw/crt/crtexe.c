@@ -50,10 +50,10 @@ extern _CRTIMP void __cdecl _initterm(_PVFV *, _PVFV *);
 
 static int __cdecl check_managed_app (void);
 
-extern _CRTALLOC(".CRT$XIA") _PIFV __xi_a[];
-extern _CRTALLOC(".CRT$XIZ") _PIFV __xi_z[];
-extern _CRTALLOC(".CRT$XCA") _PVFV __xc_a[];
-extern _CRTALLOC(".CRT$XCZ") _PVFV __xc_z[];
+extern _PIFV __xi_a[];
+extern _PIFV __xi_z[];
+extern _PVFV __xc_a[];
+extern _PVFV __xc_z[];
 
 
 /* TLS initialization hook.  */
@@ -146,7 +146,7 @@ static int __tmainCRTStartup (void);
 
 int WinMainCRTStartup (void);
 
-__attribute__((used)) /* required due to bug in gcc / ld */
+__attribute__((used)) /* required due to GNU LD bug: https://sourceware.org/bugzilla/show_bug.cgi?id=30300 */
 int WinMainCRTStartup (void)
 {
   int ret = 255;
@@ -177,7 +177,7 @@ int mainCRTStartup (void);
 int __mingw_init_ehandler (void);
 #endif
 
-__attribute__((used)) /* required due to bug in gcc / ld */
+__attribute__((used)) /* required due to GNU LD bug: https://sourceware.org/bugzilla/show_bug.cgi?id=30300 */
 int mainCRTStartup (void)
 {
   int ret = 255;
