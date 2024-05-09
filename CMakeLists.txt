@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.9)
 include(CheckSymbolExists)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -925,56 +925,63 @@ if(MSVC OR MINGW)
     target_link_libraries(zig2 LINK_PUBLIC version)
 endif()
 
-if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-  set(ZIG_RELEASE_ARG "")
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast)
-else()
-  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast -Dstrip)
-endif()
-if(ZIG_NO_LIB)
-  set(ZIG_NO_LIB_ARG "-Dno-lib")
-else()
-  set(ZIG_NO_LIB_ARG "")
-endif()
-if(ZIG_SINGLE_THREADED)
-  set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
-else()
-  set(ZIG_SINGLE_THREADED_ARG "")
-endif()
-if(ZIG_STATIC AND NOT MSVC)
-  set(ZIG_STATIC_ARG "-Duse-zig-libcxx")
-else()
-  set(ZIG_STATIC_ARG "")
-endif()
-if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
-  set(ZIG_PIE_ARG "-Dpie")
-else()
-  set(ZIG_PIE_ARG "")
-endif()
-if("${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
-  set(ZIG_DYNAMIC_LINKER_ARG "")
-else()
-  set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
+set(ZIG_BUILD_ARGS_OVERRIDE "" CACHE STRING "Override args used to build stage3. By default auto-filled using other CMake arguments. \"--prefix\" argument is passed before this.")
 
-# -Dno-langref is currently hardcoded because building the langref takes too damn long
-# To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
-set(ZIG_BUILD_ARGS
-  --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
-  "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
-  "-Denable-llvm"
-  ${ZIG_RELEASE_ARG}
-  ${ZIG_STATIC_ARG}
-  ${ZIG_NO_LIB_ARG}
-  "-Dno-langref"
-  ${ZIG_SINGLE_THREADED_ARG}
-  ${ZIG_PIE_ARG}
-  "-Dtarget=${ZIG_TARGET_TRIPLE}"
-  "-Dcpu=${ZIG_TARGET_MCPU}"
-  ${ZIG_DYNAMIC_LINKER_ARG}
-  "-Dversion-string=${RESOLVED_ZIG_VERSION}"
-)
+if("${ZIG_BUILD_ARGS_OVERRIDE}" STREQUAL "")
+  if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    set(ZIG_RELEASE_ARG "")
+  elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+    set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast)
+  else()
+    set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast -Dstrip)
+  endif()
+  if(ZIG_NO_LIB)
+    set(ZIG_NO_LIB_ARG "-Dno-lib")
+  else()
+    set(ZIG_NO_LIB_ARG "")
+  endif()
+  if(ZIG_SINGLE_THREADED)
+    set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
+  else()
+    set(ZIG_SINGLE_THREADED_ARG "")
+  endif()
+  if(ZIG_STATIC AND NOT MSVC)
+    set(ZIG_STATIC_ARG "-Duse-zig-libcxx")
+  else()
+    set(ZIG_STATIC_ARG "")
+  endif()
+  if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
+    set(ZIG_PIE_ARG "-Dpie")
+  else()
+    set(ZIG_PIE_ARG "")
+  endif()
+  if("${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
+    set(ZIG_DYNAMIC_LINKER_ARG "")
+  else()
+    set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
+  endif()
+
+  # -Dno-langref is currently hardcoded because building the langref takes too damn long
+  # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
+  set(ZIG_BUILD_ARGS
+    --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
+    "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+    "-Denable-llvm"
+    ${ZIG_RELEASE_ARG}
+    ${ZIG_STATIC_ARG}
+    ${ZIG_NO_LIB_ARG}
+    "-Dno-langref"
+    ${ZIG_SINGLE_THREADED_ARG}
+    ${ZIG_PIE_ARG}
+    "-Dtarget=${ZIG_TARGET_TRIPLE}"
+    "-Dcpu=${ZIG_TARGET_MCPU}"
+    ${ZIG_DYNAMIC_LINKER_ARG}
+    "-Dversion-string=${RESOLVED_ZIG_VERSION}"
+  )
+else()
+  # Parse space-separated arguments into a list.
+  separate_arguments(ZIG_BUILD_ARGS NATIVE_COMMAND ${ZIG_BUILD_ARGS_OVERRIDE})
+endif()
 
 add_custom_target(stage3 ALL
   DEPENDS "${CMAKE_BINARY_DIR}/stage3/bin/zig"
