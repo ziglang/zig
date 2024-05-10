@@ -1858,8 +1858,8 @@ pub const ConsoleMode = packed union {
         /// Whether to allow usage of `ENABLE_QUICK_EDIT_MODE`, `ENABLE_INSERT_MODE`, and `ENABLE_AUTO_POSITION`
         ENABLE_EXTENDED_FLAGS: bool,
 
-        // Undocumented by the Windows API
-        // TODO: Document this
+        /// Whether the default top-left corner position should be used when creating the console window
+        /// Only significant for overlapped windows
         ENABLE_AUTO_POSITION: bool,
 
         // Whether to enable the conversion of user-input into virtual terminal sequences
@@ -2956,12 +2956,6 @@ pub const LPARAM = LONG_PTR;
 pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
-
-pub const TCHAR = @compileError("Deprecated: choose between `CHAR` or `WCHAR` directly instead.");
-pub const LPTSTR = @compileError("Deprecated: choose between `LPSTR` or `LPWSTR` directly instead.");
-pub const LPCTSTR = @compileError("Deprecated: choose between `LPCSTR` or `LPCWSTR` directly instead.");
-pub const PTSTR = @compileError("Deprecated: choose between `PSTR` or `PWSTR` directly instead.");
-pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR` directly instead.");
 
 pub const TRUE = 1;
 pub const FALSE = 0;
