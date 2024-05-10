@@ -14,8 +14,8 @@ comptime {
         assert(@alignOf(u16) == 2);
         assert(@alignOf(i32) == 4);
         assert(@alignOf(u32) == 4);
-        // assert(@alignOf(i64) == 8);
-        // assert(@alignOf(u64) == 8);
+        assert(@alignOf(i64) == 8);
+        assert(@alignOf(u64) == 8);
     }
 }
 
