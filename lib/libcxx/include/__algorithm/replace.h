@@ -18,13 +18,11 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-replace(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __old_value, const _Tp& __new_value)
-{
-    for (; __first != __last; ++__first)
-        if (*__first == __old_value)
-            *__first = __new_value;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+replace(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __old_value, const _Tp& __new_value) {
+  for (; __first != __last; ++__first)
+    if (*__first == __old_value)
+      *__first = __new_value;
 }
 
 _LIBCPP_END_NAMESPACE_STD

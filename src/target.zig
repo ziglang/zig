@@ -26,6 +26,7 @@ pub fn libcNeedsLibUnwind(target: std.Target) bool {
         .ios,
         .watchos,
         .tvos,
+        .visionos,
         .freestanding,
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
@@ -159,6 +160,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv,
         .spirv32,
         .spirv64,
         .kalimba,

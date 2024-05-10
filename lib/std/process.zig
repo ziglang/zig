@@ -1456,6 +1456,7 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
         .linux,
         .macos,
         .watchos,
+        .visionos,
         .tvos,
         .ios,
         .freebsd,
@@ -1599,7 +1600,7 @@ pub const can_execv = switch (native_os) {
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
 pub const can_spawn = switch (native_os) {
-    .wasi, .watchos, .tvos => false,
+    .wasi, .watchos, .tvos, .visionos => false,
     else => true,
 };
 

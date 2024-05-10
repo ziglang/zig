@@ -576,6 +576,7 @@ fn maybeIgnoreSigpipe() void {
         .ios,
         .watchos,
         .tvos,
+        .visionos,
         .dragonfly,
         .freebsd,
         => true,

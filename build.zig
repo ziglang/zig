@@ -334,6 +334,9 @@ pub fn build(b: *std.Build) !void {
         }
         if (target.result.os.tag == .windows) {
             inline for (.{ exe, check_case_exe }) |artifact| {
+                // LLVM depends on networking as of version 18.
+                artifact.linkSystemLibrary("ws2_32");
+
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
@@ -650,7 +653,7 @@ const exe_cflags = [_][]const u8{
     "-fvisibility-inlines-hidden",
     "-fno-exceptions",
     "-fno-rtti",
-    "-Werror=type-limits",
+    "-Wno-type-limits",
     "-Wno-missing-braces",
     "-Wno-comment",
 };
@@ -702,7 +705,7 @@ fn addCmakeCfgOptionsToExe(
                 };
                 exe.linkSystemLibrary("unwind");
             },
-            .ios, .macos, .watchos, .tvos => {
+            .ios, .macos, .watchos, .tvos, .visionos => {
                 exe.linkLibCpp();
             },
             .windows => {
@@ -1039,6 +1042,7 @@ const clang_libs = [_][]const u8{
     "clangAST",
     "clangParse",
     "clangSema",
+    "clangAPINotes",
     "clangBasic",
     "clangEdit",
     "clangLex",
@@ -1068,6 +1072,7 @@ const llvm_libs = [_][]const u8{
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
+    "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
     "LLVMXCoreDisassembler",
@@ -1169,6 +1174,7 @@ const llvm_libs = [_][]const u8{
     "LLVMAArch64Desc",
     "LLVMAArch64Utils",
     "LLVMAArch64Info",
+    "LLVMOrcDebugging",
     "LLVMOrcJIT",
     "LLVMWindowsDriver",
     "LLVMMCJIT",
@@ -1188,6 +1194,7 @@ const llvm_libs = [_][]const u8{
     "LLVMMCDisassembler",
     "LLVMLTO",
     "LLVMPasses",
+    "LLVMHipStdPar",
     "LLVMCFGuard",
     "LLVMCoroutines",
     "LLVMipo",
@@ -1195,10 +1202,13 @@ const llvm_libs = [_][]const u8{
     "LLVMLinker",
     "LLVMInstrumentation",
     "LLVMFrontendOpenMP",
+    "LLVMFrontendOffloading",
     "LLVMFrontendOpenACC",
     "LLVMFrontendHLSL",
+    "LLVMFrontendDriver",
     "LLVMExtensions",
     "LLVMDWARFLinkerParallel",
+    "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
     "LLVMGlobalISel",
     "LLVMMIRParser",

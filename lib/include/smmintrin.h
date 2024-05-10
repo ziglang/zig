@@ -18,8 +18,8 @@
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS                                                     \
-  __attribute__((__always_inline__, __nodebug__, __target__("sse4.1"),         \
-                 __min_vector_width__(128)))
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("sse4.1,no-evex512"), __min_vector_width__(128)))
 
 /* SSE4 Rounding macros. */
 #define _MM_FROUND_TO_NEAREST_INT 0x00
@@ -645,7 +645,7 @@ static __inline__ __m128i __DEFAULT_FN_ATTRS _mm_mul_epi32(__m128i __V1,
 /// \returns A 128-bit integer vector containing the data stored at the
 ///    specified memory location.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_stream_load_si128(__m128i const *__V) {
+_mm_stream_load_si128(const void *__V) {
   return (__m128i)__builtin_nontemporal_load((const __v2di *)__V);
 }
 

@@ -2481,6 +2481,13 @@ test "@intFromBool on vector" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
+    if (builtin.zig_backend == .stage2_llvm and
+        builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows)
+    {
+        // https://github.com/ziglang/zig/issues/19825
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTest() !void {
             var a: @Vector(3, bool) = .{ false, true, false };

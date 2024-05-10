@@ -17,7 +17,6 @@
 #include <cstddef>
 #include <limits>
 #include <new>
-#include <stdexcept>
 #include <tuple>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -69,7 +68,10 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI void deallocate(_ValueType* __p, size_t __n) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__n <= __max_size(), "deallocate called for size which exceeds max_size()");
+    _LIBCPP_ASSERT_VALID_DEALLOCATION(
+        __n <= __max_size(),
+        "deallocate() called for a size which exceeds max_size(), leading to a memory leak "
+        "(the argument will overflow and result in too few objects being deleted)");
     __res_->deallocate(__p, __n * sizeof(_ValueType), alignof(_ValueType));
   }
 

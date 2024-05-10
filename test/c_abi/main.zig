@@ -136,7 +136,7 @@ export fn zig_f64(x: f64) void {
     expect(x == 56.78) catch @panic("test failure: zig_f64");
 }
 export fn zig_longdouble(x: c_longdouble) void {
-    if (!builtin.cpu.arch.isWasm()) return; // waiting for #1481
+    if (!builtin.target.isWasm()) return; // waiting for #1481
     expect(x == 12.34) catch @panic("test failure: zig_longdouble");
 }
 
@@ -1671,7 +1671,7 @@ test "bool simd vector" {
     }
 
     {
-        if (builtin.target.cpu.arch != .wasm32) c_vector_256_bool(.{
+        if (!builtin.target.isWasm()) c_vector_256_bool(.{
             false,
             true,
             true,
@@ -2189,7 +2189,7 @@ test "bool simd vector" {
         try expect(vec[255] == false);
     }
     {
-        if (builtin.target.cpu.arch != .wasm32) c_vector_512_bool(.{
+        if (!builtin.target.isWasm()) c_vector_512_bool(.{
             true,
             true,
             true,
@@ -5614,23 +5614,64 @@ test "f80 extra struct" {
     try expect(a.b == 24);
 }
 
-extern fn c_f128(f128) f128;
-test "f128 bare" {
-    if (!have_f128) return error.SkipZigTest;
+comptime {
+    skip: {
+        if (builtin.target.isWasm()) break :skip;
 
-    const a = c_f128(12.34);
-    try expect(@as(f64, @floatCast(a)) == 56.78);
-}
+        _ = struct {
+            export fn zig_f128(x: f128) f128 {
+                expect(x == 12) catch @panic("test failure");
+                return 34;
+            }
+            extern fn c_f128(f128) f128;
+            test "f128 bare" {
+                if (!have_f128) return error.SkipZigTest;
 
-const f128_struct = extern struct {
-    a: f128,
-};
-extern fn c_f128_struct(f128_struct) f128_struct;
-test "f128 struct" {
-    if (!have_f128) return error.SkipZigTest;
+                const a = c_f128(12.34);
+                try expect(@as(f64, @floatCast(a)) == 56.78);
+            }
 
-    const a = c_f128_struct(.{ .a = 12.34 });
-    try expect(@as(f64, @floatCast(a.a)) == 56.78);
+            const f128_struct = extern struct {
+                a: f128,
+            };
+            export fn zig_f128_struct(a: f128_struct) f128_struct {
+                expect(a.a == 12345) catch @panic("test failure");
+                return .{ .a = 98765 };
+            }
+            extern fn c_f128_struct(f128_struct) f128_struct;
+            test "f128 struct" {
+                if (!have_f128) return error.SkipZigTest;
+
+                const a = c_f128_struct(.{ .a = 12.34 });
+                try expect(@as(f64, @floatCast(a.a)) == 56.78);
+
+                const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
+                try expect(@as(f64, @floatCast(b.a)) == 56.78);
+                try expect(@as(f64, @floatCast(b.b)) == 43.21);
+            }
+
+            const f128_f128_struct = extern struct {
+                a: f128,
+                b: f128,
+            };
+            export fn zig_f128_f128_struct(a: f128_f128_struct) f128_f128_struct {
+                expect(a.a == 13) catch @panic("test failure");
+                expect(a.b == 57) catch @panic("test failure");
+                return .{ .a = 24, .b = 68 };
+            }
+            extern fn c_f128_f128_struct(f128_f128_struct) f128_f128_struct;
+            test "f128 f128 struct" {
+                if (!have_f128) return error.SkipZigTest;
+
+                const a = c_f128_struct(.{ .a = 12.34 });
+                try expect(@as(f64, @floatCast(a.a)) == 56.78);
+
+                const b = c_f128_f128_struct(.{ .a = 12.34, .b = 87.65 });
+                try expect(@as(f64, @floatCast(b.a)) == 56.78);
+                try expect(@as(f64, @floatCast(b.b)) == 43.21);
+            }
+        };
+    }
 }
 
 // The stdcall attribute on C functions is ignored when compiled on non-x86
