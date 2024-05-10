@@ -32,7 +32,6 @@ ServiceMain
 ; public: void __cdecl BUFFER_CHAIN_ITEM::SetUsed(unsigned long) __ptr64
 ?SetUsed@BUFFER_CHAIN_ITEM@@QEAAXK@Z
 SvchostPushServiceGlobals
-DllEntryPoint
 DllRegisterServer
 DllUnregisterServer
 wiasCreateChildAppItem

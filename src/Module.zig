@@ -22,7 +22,6 @@ const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
@@ -100,12 +99,6 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// The idea is that this will be periodically garbage-collected, but such logic
 /// is not yet implemented.
 intern_pool: InternPool = .{},
-
-/// To be eliminated in a future commit by moving more data into InternPool.
-/// Current uses that must be eliminated:
-/// * comptime pointer mutation
-/// This memory lives until the Module is destroyed.
-tmp_hack_arena: std.heap.ArenaAllocator,
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
@@ -306,7 +299,7 @@ const ValueArena = struct {
     /// and must live until the matching call to release().
     pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
         if (self.state_acquired) |state_acquired| {
-            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
+            return @as(*std.heap.ArenaAllocator, @fieldParentPtr("state", state_acquired)).allocator();
         }
 
         out_arena_allocator.* = self.state.promote(child_allocator);
@@ -316,7 +309,7 @@ const ValueArena = struct {
 
     /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
     pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
-        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
+        if (@as(*std.heap.ArenaAllocator, @fieldParentPtr("state", self.state_acquired.?)) == arena_allocator) {
             self.state = self.state_acquired.?.*;
             self.state_acquired = null;
         }
@@ -336,9 +329,6 @@ const ValueArena = struct {
 
 pub const Decl = struct {
     name: InternPool.NullTerminatedString,
-    /// The most recent Type of the Decl after a successful semantic analysis.
-    /// Populated when `has_tv`.
-    ty: Type,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -362,7 +352,7 @@ pub const Decl = struct {
     src_line: u32,
     /// Index of the ZIR `declaration` instruction from which this `Decl` was created.
     /// For the root `Decl` of a `File` and legacy anonymous decls, this is `.none`.
-    zir_decl_index: Zir.Inst.OptionalIndex,
+    zir_decl_index: InternPool.TrackedInst.Index.Optional,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -403,15 +393,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// Flag used by garbage collection to mark and sweep.
-    /// Decls which correspond to an AST node always have this field set to `true`.
-    /// Anonymous Decls are initialized with this field set to `false` and then it
-    /// is the responsibility of machine code backends to mark it `true` whenever
-    /// a `decl_ref` Value is encountered that points to this Decl.
-    /// When the `codegen_decl` job is encountered in the main work queue, if the
-    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
-    /// deletes the Decl on the spot.
-    alive: bool,
     /// If true `name` is already fully qualified.
     name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
@@ -428,16 +409,9 @@ pub const Decl = struct {
     const Index = InternPool.DeclIndex;
     const OptionalIndex = InternPool.OptionalDeclIndex;
 
-    /// Asserts that `zir_decl_index` is not `.none`.
-    fn getDeclaration(decl: Decl, zir: Zir) Zir.Inst.Declaration {
-        const zir_index = decl.zir_decl_index.unwrap().?;
-        const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
-        return zir.extraData(Zir.Inst.Declaration, pl_node.payload_index).data;
-    }
-
     pub fn zirBodies(decl: Decl, zcu: *Zcu) Zir.Inst.Declaration.Bodies {
         const zir = decl.getFileScope(zcu).zir;
-        const zir_index = decl.zir_decl_index.unwrap().?;
+        const zir_index = decl.zir_decl_index.unwrap().?.resolve(&zcu.intern_pool);
         const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
         const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
@@ -451,14 +425,6 @@ pub const Decl = struct {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(decl.src_node));
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
-        return .{ .token_offset = token_index - decl.srcToken() };
-    }
-
-    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
-    }
-
     pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
         return decl.nodeOffsetSrcLoc(0, zcu);
     }
@@ -469,16 +435,6 @@ pub const Decl = struct {
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
-    }
-
-    pub fn srcToken(decl: Decl, zcu: *Zcu) Ast.TokenIndex {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.firstToken(decl.src_node);
-    }
-
-    pub fn srcByteOffset(decl: Decl, zcu: *Zcu) u32 {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.tokens.items(.start)[decl.srcToken()];
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
@@ -500,37 +456,16 @@ pub const Decl = struct {
             zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(zcu, decl.name);
     }
 
-    pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
-        if (!decl.has_tv) return error.AnalysisFail;
-        return TypedValue{ .ty = decl.ty, .val = decl.val };
-    }
-
-    pub fn internValue(decl: *Decl, zcu: *Zcu) Allocator.Error!InternPool.Index {
+    pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
         assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.ty, zcu);
-        decl.val = Value.fromInterned(ip_index);
-        return ip_index;
+        return decl.val.typeOf(zcu);
     }
 
-    pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
-        const tv = try decl.typedValue();
-        return tv.ty.zigTypeTag(zcu) == .Fn;
-    }
-
-    /// If the Decl owns its value and it is a struct, return it,
-    /// otherwise null.
-    pub fn getOwnedStruct(decl: Decl, zcu: *Zcu) ?InternPool.Key.StructType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToStruct(decl.val.toType());
-    }
-
-    /// If the Decl owns its value and it is a union, return it,
-    /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.LoadedUnionType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToUnion(decl.val.toType());
+    /// Small wrapper for Sema to use over direct access to the `val` field.
+    /// If the value is not populated, instead returns `error.AnalysisFail`.
+    pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
+        if (!decl.has_tv) return error.AnalysisFail;
+        return decl.val;
     }
 
     pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
@@ -593,21 +528,6 @@ pub const Decl = struct {
         return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
     }
 
-    pub fn dump(decl: *Decl) void {
-        const loc = std.zig.findLineColumn(decl.scope.source.bytes, decl.src);
-        std.debug.print("{s}:{d}:{d} name={d} status={s}", .{
-            decl.scope.sub_file_path,
-            loc.line + 1,
-            loc.column + 1,
-            @intFromEnum(decl.name),
-            @tagName(decl.analysis),
-        });
-        if (decl.has_tv) {
-            std.debug.print(" ty={} val={}", .{ decl.ty, decl.val });
-        }
-        std.debug.print("\n", .{});
-    }
-
     pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
         return zcu.namespacePtr(decl.src_namespace).file_scope;
     }
@@ -628,7 +548,7 @@ pub const Decl = struct {
     pub fn getAlignment(decl: Decl, zcu: *Zcu) Alignment {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
-        return decl.ty.abiAlignment(zcu);
+        return decl.typeOf(zcu).abiAlignment(zcu);
     }
 
     /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
@@ -725,6 +645,22 @@ pub const Decl = struct {
             },
         };
     }
+
+    pub fn declPtrType(decl: Decl, zcu: *Zcu) !Type {
+        assert(decl.has_tv);
+        const decl_ty = decl.typeOf(zcu);
+        return zcu.ptrType(.{
+            .child = decl_ty.toIntern(),
+            .flags = .{
+                .alignment = if (decl.alignment == decl_ty.abiAlignment(zcu))
+                    .none
+                else
+                    decl.alignment,
+                .address_space = decl.@"addrspace",
+                .is_const = decl.getOwnedVariable(zcu) == null,
+            },
+        });
+    }
 };
 
 /// This state is attached to every Decl when Module emit_h is non-null.
@@ -769,14 +705,14 @@ pub const Namespace = struct {
         zcu: *Zcu,
 
         pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
-            const decl = ctx.module.declPtr(decl_index);
+            const decl = ctx.zcu.declPtr(decl_index);
             return std.hash.uint32(@intFromEnum(decl.name));
         }
 
         pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
             _ = b_index;
-            const a_decl = ctx.module.declPtr(a_decl_index);
-            const b_decl = ctx.module.declPtr(b_decl_index);
+            const a_decl = ctx.zcu.declPtr(a_decl_index);
+            const b_decl = ctx.zcu.declPtr(b_decl_index);
             return a_decl.name == b_decl.name;
         }
     };
@@ -828,11 +764,11 @@ pub const Namespace = struct {
     ) !InternPool.NullTerminatedString {
         const ip = &zcu.intern_pool;
         const count = count: {
-            var count: usize = ip.stringToSlice(name).len + 1;
+            var count: usize = name.length(ip) + 1;
             var cur_ns = &ns;
             while (true) {
                 const decl = zcu.declPtr(cur_ns.decl_index);
-                count += ip.stringToSlice(decl.name).len + 1;
+                count += decl.name.length(ip) + 1;
                 cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
                     count += ns.file_scope.sub_file_path.len;
                     break :count count;
@@ -858,7 +794,7 @@ pub const Namespace = struct {
             };
         }
 
-        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
     }
 
     pub fn getType(ns: Namespace, zcu: *Zcu) Type {
@@ -1045,15 +981,11 @@ pub const File = struct {
         const ip = &mod.intern_pool;
         const start = ip.string_bytes.items.len;
         try file.renderFullyQualifiedName(ip.string_bytes.writer(mod.gpa));
-        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start);
+        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
     }
 
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {
         return file.mod.root.joinString(ally, file.sub_file_path);
-    }
-
-    pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
-        return file.mod.root.joinStringZ(ally, file.sub_file_path);
     }
 
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -1904,8 +1836,11 @@ pub const SrcLoc = struct {
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 var buf: [2]Ast.Node.Index = undefined;
-                const full = tree.fullArrayInit(&buf, parent_node).?;
-                return tree.nodeToSpan(full.ast.type_expr);
+                const type_expr = if (tree.fullArrayInit(&buf, parent_node)) |array_init|
+                    array_init.ast.type_expr
+                else
+                    tree.fullStructInit(&buf, parent_node).?.ast.type_expr;
+                return tree.nodeToSpan(type_expr);
             },
             .node_offset_store_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2103,7 +2038,6 @@ pub fn deinit(zcu: *Zcu) void {
     }
 
     zcu.intern_pool.deinit(gpa);
-    zcu.tmp_hack_arena.deinit();
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -2400,26 +2334,26 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs = [_]std.os.iovec_const{
+    var iovecs = [_]std.posix.iovec_const{
         .{
-            .iov_base = @as([*]const u8, @ptrCast(&header)),
-            .iov_len = @sizeOf(Zir.Header),
+            .base = @as([*]const u8, @ptrCast(&header)),
+            .len = @sizeOf(Zir.Header),
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
-            .iov_len = file.zir.instructions.len,
+            .base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
+            .len = file.zir.instructions.len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = file.zir.instructions.len * 8,
+            .base = data_ptr,
+            .len = file.zir.instructions.len * 8,
         },
         .{
-            .iov_base = file.zir.string_bytes.ptr,
-            .iov_len = file.zir.string_bytes.len,
+            .base = file.zir.string_bytes.ptr,
+            .len = file.zir.string_bytes.len,
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
-            .iov_len = file.zir.extra.len * 4,
+            .base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
+            .len = file.zir.extra.len * 4,
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
@@ -2488,22 +2422,22 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     else
         @as([*]u8, @ptrCast(zir.instructions.items(.data).ptr));
 
-    var iovecs = [_]std.os.iovec{
+    var iovecs = [_]std.posix.iovec{
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .iov_len = header.instructions_len,
+            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
+            .len = header.instructions_len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = header.instructions_len * 8,
+            .base = data_ptr,
+            .len = header.instructions_len * 8,
         },
         .{
-            .iov_base = zir.string_bytes.ptr,
-            .iov_len = header.string_bytes_len,
+            .base = zir.string_bytes.ptr,
+            .len = header.string_bytes_len,
         },
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .iov_len = header.extra_len * 4,
+            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
+            .len = header.extra_len * 4,
         },
     };
     const amt_read = try cache_file.readvAll(&iovecs);
@@ -2597,6 +2531,7 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
                 const name_ip = try zcu.intern_pool.getOrPutString(
                     zcu.gpa,
                     old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
                 );
                 try old_names.put(zcu.gpa, name_ip, {});
             }
@@ -2614,6 +2549,7 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
                 const name_ip = try zcu.intern_pool.getOrPutString(
                     zcu.gpa,
                     old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
                 );
                 if (!old_names.swapRemove(name_ip)) continue;
                 // Name added
@@ -2662,16 +2598,15 @@ pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
             if (opt_po_entry) |e| e.value else 0,
         );
         log.debug("outdated: {}", .{depender});
-        if (opt_po_entry != null) {
+        if (opt_po_entry == null) {
             // This is a new entry with no PO dependencies.
             try zcu.outdated_ready.put(zcu.gpa, depender, {});
         }
         // If this is a Decl and was not previously PO, we must recursively
         // mark dependencies on its tyval as PO.
-        if (opt_po_entry == null) switch (depender.unwrap()) {
-            .decl => |decl_index| try zcu.markDeclDependenciesPotentiallyOutdated(decl_index),
-            .func => {},
-        };
+        if (opt_po_entry == null) {
+            try zcu.markTransitiveDependersPotentiallyOutdated(depender);
+        }
     }
 }
 
@@ -2701,15 +2636,19 @@ fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         // as no longer PO.
         switch (depender.unwrap()) {
             .decl => |decl_index| try zcu.markPoDependeeUpToDate(.{ .decl_val = decl_index }),
-            .func => {},
+            .func => |func_index| try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index }),
         }
     }
 }
 
-/// Given a Decl which is newly outdated or PO, mark all dependers which depend
-/// on its tyval as PO.
-fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !void {
-    var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+/// Given a Depender which is newly outdated or PO, mark all Dependers which may
+/// in turn be PO, due to a dependency on the original Depender's tyval or IES.
+fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: InternPool.Depender) !void {
+    var it = zcu.intern_pool.dependencyIterator(switch (maybe_outdated.unwrap()) {
+        .decl => |decl_index| .{ .decl_val = decl_index }, // TODO: also `decl_ref` deps when introduced
+        .func => |func_index| .{ .func_ies = func_index },
+    });
+
     while (it.next()) |po| {
         if (zcu.outdated.getPtr(po)) |po_dep_count| {
             // This dependency is already outdated, but it now has one more PO
@@ -2726,14 +2665,9 @@ fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !v
             continue;
         }
         try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
-        // If this ia a Decl, we must recursively mark dependencies
-        // on its tyval as PO.
-        switch (po.unwrap()) {
-            .decl => |po_decl| try zcu.markDeclDependenciesPotentiallyOutdated(po_decl),
-            .func => {},
-        }
+        // This Depender was not already PO, so we must recursively mark its dependers as also PO.
+        try zcu.markTransitiveDependersPotentiallyOutdated(po);
     }
-    // TODO: repeat the above for `decl_ty` dependencies when they are introduced
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
@@ -2859,10 +2793,7 @@ pub fn flushRetryableFailures(zcu: *Zcu) !void {
         // This Depender was not marked PO, but is now outdated. Mark it as
         // such, then recursively mark transitive dependencies as PO.
         try zcu.outdated.put(gpa, depender, 0);
-        switch (depender.unwrap()) {
-            .decl => |decl| try zcu.markDeclDependenciesPotentiallyOutdated(decl),
-            .func => {},
-        }
+        try zcu.markTransitiveDependersPotentiallyOutdated(depender);
     }
     zcu.retryable_failures.clearRetainingCapacity();
 }
@@ -2994,6 +2925,15 @@ pub fn mapOldZirToNew(
     }
 }
 
+/// Like `ensureDeclAnalyzed`, but the Decl is a file's root Decl.
+pub fn ensureFileAnalyzed(zcu: *Zcu, file: *File) SemaError!void {
+    if (file.root_decl.unwrap()) |existing_root| {
+        return zcu.ensureDeclAnalyzed(existing_root);
+    } else {
+        return zcu.semaFile(file);
+    }
+}
+
 /// This ensures that the Decl will have an up-to-date Type and Value populated.
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
@@ -3003,6 +2943,11 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
+
+    log.debug("ensureDeclAnalyzed '{d}' (name '{}')", .{
+        @intFromEnum(decl_index),
+        decl.name.fmt(&mod.intern_pool),
+    });
 
     // Determine whether or not this Decl is outdated, i.e. requires re-analysis
     // even if `complete`. If a Decl is PO, we pessismistically assume that it
@@ -3015,12 +2960,14 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     // dependencies are all up-to-date.
 
     const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
-    const was_outdated = mod.outdated.swapRemove(decl_as_depender) or
+    const decl_was_outdated = mod.outdated.swapRemove(decl_as_depender) or
         mod.potentially_outdated.swapRemove(decl_as_depender);
 
-    if (was_outdated) {
+    if (decl_was_outdated) {
         _ = mod.outdated_ready.swapRemove(decl_as_depender);
     }
+
+    const was_outdated = mod.outdated_file_root.swapRemove(decl_index) or decl_was_outdated;
 
     switch (decl.analysis) {
         .in_progress => unreachable,
@@ -3057,6 +3004,14 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             };
         }
 
+        if (mod.declIsRoot(decl_index)) {
+            const changed = try mod.semaFileUpdate(decl.getFileScope(mod), decl_was_outdated);
+            break :blk .{
+                .invalidate_decl_val = changed,
+                .invalidate_decl_ref = changed,
+            };
+        }
+
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
             error.AnalysisFail => {
                 if (decl.analysis == .in_progress) {
@@ -3085,13 +3040,15 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     };
 
     // TODO: we do not yet have separate dependencies for decl values vs types.
-    if (was_outdated) {
+    if (decl_was_outdated) {
         if (sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref) {
+            log.debug("Decl tv invalidated ('{d}')", .{@intFromEnum(decl_index)});
             // This dependency was marked as PO, meaning dependees were waiting
             // on its analysis result, and it has turned out to be outdated.
             // Update dependees accordingly.
             try mod.markDependeeOutdated(.{ .decl_val = decl_index });
         } else {
+            log.debug("Decl tv up-to-date ('{d}')", .{@intFromEnum(decl_index)});
             // This dependency was previously PO, but turned out to be up-to-date.
             // We do not need to queue successive analysis.
             try mod.markPoDependeeUpToDate(.{ .decl_val = decl_index });
@@ -3099,14 +3056,47 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     }
 }
 
-pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError!void {
+pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.Index) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const func = zcu.funcInfo(func_index);
+
+    // We only care about the uncoerced function.
+    // We need to do this for the "orphaned function" check below to be valid.
+    const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
+
+    const func = zcu.funcInfo(maybe_coerced_func_index);
     const decl_index = func.owner_decl;
     const decl = zcu.declPtr(decl_index);
+
+    log.debug("ensureFuncBodyAnalyzed '{d}' (instance of '{}')", .{
+        @intFromEnum(func_index),
+        decl.name.fmt(ip),
+    });
+
+    // First, our owner decl must be up-to-date. This will always be the case
+    // during the first update, but may not on successive updates if we happen
+    // to get analyzed before our parent decl.
+    try zcu.ensureDeclAnalyzed(decl_index);
+
+    // On an update, it's possible this function changed such that our owner
+    // decl now refers to a different function, making this one orphaned. If
+    // that's the case, we should remove this function from the binary.
+    if (decl.val.ip_index != func_index) {
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
+        ip.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+        ip.remove(func_index);
+        @panic("TODO: remove orphaned function from binary");
+    }
+
+    // We'll want to remember what the IES used to be before the update for
+    // dependency invalidation purposes.
+    const old_resolved_ies = if (func.analysis(ip).inferred_error_set)
+        func.resolvedErrorSet(ip).*
+    else
+        .none;
 
     switch (decl.analysis) {
         .unreferenced => unreachable,
@@ -3131,7 +3121,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     }
 
     switch (func.analysis(ip).state) {
-        .success,
+        .success => if (!was_outdated) return,
         .sema_failure,
         .dependency_failure,
         .codegen_failure,
@@ -3141,7 +3131,10 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         .inline_only => unreachable, // don't queue work for this
     }
 
-    const gpa = zcu.gpa;
+    log.debug("analyze and generate fn body '{d}'; reason='{s}'", .{
+        @intFromEnum(func_index),
+        if (was_outdated) "outdated" else "never analyzed",
+    });
 
     var tmp_arena = std.heap.ArenaAllocator.init(gpa);
     defer tmp_arena.deinit();
@@ -3160,6 +3153,20 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         error.OutOfMemory => return error.OutOfMemory,
     };
     defer air.deinit(gpa);
+
+    const invalidate_ies_deps = i: {
+        if (!was_outdated) break :i false;
+        if (!func.analysis(ip).inferred_error_set) break :i true;
+        const new_resolved_ies = func.resolvedErrorSet(ip).*;
+        break :i new_resolved_ies != old_resolved_ies;
+    };
+    if (invalidate_ies_deps) {
+        log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
+    } else if (was_outdated) {
+        log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index });
+    }
 
     const comp = zcu.comp;
 
@@ -3299,7 +3306,9 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
-    return mod.semaFile(file);
+    if (file.root_decl == .none) {
+        return mod.semaFile(file);
+    }
 }
 
 fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespace.Index, file: *File) Allocator.Error!InternPool.Index {
@@ -3366,13 +3375,75 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
-/// Regardless of the file status, will create a `Decl` so that we
-/// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *File) SemaError!void {
+/// Re-analyze the root Decl of a file on an incremental update.
+/// If `type_outdated`, the struct type itself is considered outdated and is
+/// reconstructed at a new InternPool index. Otherwise, the namespace is just
+/// re-analyzed. Returns whether the decl's tyval was invalidated.
+fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
+    const decl = zcu.declPtr(file.root_decl.unwrap().?);
+
+    log.debug("semaFileUpdate mod={s} sub_file_path={s} type_outdated={}", .{
+        file.mod.fully_qualified_name,
+        file.sub_file_path,
+        type_outdated,
+    });
+
+    if (file.status != .success_zir) {
+        if (decl.analysis == .file_failure) {
+            return false;
+        } else {
+            decl.analysis = .file_failure;
+            return true;
+        }
+    }
+
+    if (decl.analysis == .file_failure) {
+        // No struct type currently exists. Create one!
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
+        return true;
+    }
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    if (type_outdated) {
+        // Invalidate the existing type, reusing the decl and namespace.
+        zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = file.root_decl.unwrap().? }));
+        zcu.intern_pool.remove(decl.val.toIntern());
+        decl.val = undefined;
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
+        return true;
+    }
+
+    // Only the struct's namespace is outdated.
+    // Preserve the type - just scan the namespace again.
+
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    extra_index += @intFromBool(small.has_fields_len);
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+
+    if (!type_outdated) {
+        try zcu.scanNamespace(decl.src_namespace, decls, decl);
+    }
+
+    return false;
+}
+
+/// Regardless of the file status, will create a `Decl` if none exists so that we can track
+/// dependencies and re-analyze when the file becomes outdated.
+fn semaFile(mod: *Module, file: *File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (file.root_decl != .none) return;
+    assert(file.root_decl == .none);
 
     const gpa = mod.gpa;
     log.debug("semaFile mod={s} sub_file_path={s}", .{
@@ -3401,10 +3472,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
-    new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
 
     if (file.status != .success_zir) {
@@ -3439,9 +3508,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         },
         .incremental => {},
     }
-
-    // Since this is our first time analyzing this file, there can be no dependencies on
-    // its root Decl. Thus, we do not need to invalidate any dependencies.
 }
 
 const SemaDeclResult = packed struct {
@@ -3462,51 +3528,76 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         return error.AnalysisFail;
     }
 
-    if (mod.declIsRoot(decl_index)) {
-        // This comes from an `analyze_decl` job on an incremental update where
-        // this file changed.
-        @panic("TODO: update root Decl of modified file");
-    } else if (decl.owns_tv) {
-        // We are re-analyzing an owner Decl (for a function or a namespace type).
-        @panic("TODO: update owner Decl");
+    assert(!mod.declIsRoot(decl_index));
+
+    if (decl.zir_decl_index == .none and decl.owns_tv) {
+        // We are re-analyzing an anonymous owner Decl (for a function or a namespace type).
+        return mod.semaAnonOwnerDecl(decl_index);
     }
 
-    const decl_inst = decl.zir_decl_index.unwrap().?;
+    log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
+    log.debug("decl name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish decl name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
+
+    const old_has_tv = decl.has_tv;
+    // The following values are ignored if `!old_has_tv`
+    const old_ty = if (old_has_tv) decl.typeOf(mod) else undefined;
+    const old_val = decl.val;
+    const old_align = decl.alignment;
+    const old_linksection = decl.@"linksection";
+    const old_addrspace = decl.@"addrspace";
+    const old_is_inline = if (decl.getOwnedFunction(mod)) |prev_func|
+        prev_func.analysis(ip).state == .inline_only
+    else
+        false;
+
+    const decl_inst = decl.zir_decl_index.unwrap().?.resolve(ip);
 
     const gpa = mod.gpa;
     const zir = decl.getFileScope(mod).zir;
 
-    const builtin_type_target_index: InternPool.Index = blk: {
+    const builtin_type_target_index: InternPool.Index = ip_index: {
         const std_mod = mod.std_mod;
-        if (decl.getFileScope(mod).mod != std_mod) break :blk .none;
+        if (decl.getFileScope(mod).mod != std_mod) break :ip_index .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
         const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
         const std_namespace = std_decl.getInnerNamespace(mod).?;
-        const builtin_str = try ip.getOrPutString(gpa, "builtin");
-        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :blk .none);
-        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
-        if (decl.src_namespace != builtin_namespace) break :blk .none;
+        const builtin_str = try ip.getOrPutString(gpa, "builtin", .no_embedded_nulls);
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :ip_index .none);
+        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :ip_index .none;
+        if (decl.src_namespace != builtin_namespace) break :ip_index .none;
         // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
-        for ([_]struct { []const u8, InternPool.Index }{
-            .{ "AtomicOrder", .atomic_order_type },
-            .{ "AtomicRmwOp", .atomic_rmw_op_type },
-            .{ "CallingConvention", .calling_convention_type },
-            .{ "AddressSpace", .address_space_type },
-            .{ "FloatMode", .float_mode_type },
-            .{ "ReduceOp", .reduce_op_type },
-            .{ "CallModifier", .call_modifier_type },
-            .{ "PrefetchOptions", .prefetch_options_type },
-            .{ "ExportOptions", .export_options_type },
-            .{ "ExternOptions", .extern_options_type },
-            .{ "Type", .type_info_type },
-        }) |pair| {
-            const decl_name = ip.stringToSlice(decl.name);
-            if (std.mem.eql(u8, decl_name, pair[0])) {
-                break :blk pair[1];
-            }
+        for ([_][]const u8{
+            "AtomicOrder",
+            "AtomicRmwOp",
+            "CallingConvention",
+            "AddressSpace",
+            "FloatMode",
+            "ReduceOp",
+            "CallModifier",
+            "PrefetchOptions",
+            "ExportOptions",
+            "ExternOptions",
+            "Type",
+        }, [_]InternPool.Index{
+            .atomic_order_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .address_space_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_modifier_type,
+            .prefetch_options_type,
+            .export_options_type,
+            .extern_options_type,
+            .type_info_type,
+        }) |type_name, type_ip| {
+            if (decl.name.eqlSlice(type_name, ip)) break :ip_index type_ip;
         }
-        break :blk .none;
+        break :ip_index .none;
     };
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
@@ -3515,9 +3606,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
-
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
 
     var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
@@ -3534,7 +3622,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
         .builtin_type_target_index = builtin_type_target_index,
     };
@@ -3564,36 +3651,30 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     // We'll do some other bits with the Sema. Clear the type target index just
     // in case they analyze any type.
     sema.builtin_type_target_index = .none;
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
-    }
     const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = 0 };
     const section_src: LazySrcLoc = .{ .node_offset_var_decl_section = 0 };
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveConstValueAllowVariables(&block_scope, init_src, result_ref, .{
-        .needed_comptime_reason = "global variable initializer must be comptime-known",
-    });
+    const decl_val = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_ty = decl_val.typeOf(mod);
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(decl_tv.ty);
+    try sema.resolveTypeLayout(decl_ty);
 
     if (decl.kind == .@"usingnamespace") {
-        if (!decl_tv.ty.eql(Type.type, mod)) {
+        if (!decl_ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
-                decl_tv.ty.fmt(mod),
+                decl_ty.fmt(mod),
             });
         }
-        const ty = decl_tv.val.toType();
+        const ty = decl_val.toType();
         if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
@@ -3608,144 +3689,97 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         };
     }
 
-    switch (ip.indexToKey(decl_tv.val.toIntern())) {
-        .func => |func| {
-            const owns_tv = func.owner_decl == decl_index;
-            if (owns_tv) {
-                var prev_type_has_bits = false;
-                var prev_is_inline = false;
-                var type_changed = true;
-
-                if (decl.has_tv) {
-                    prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
-                    type_changed = !decl.ty.eql(decl_tv.ty, mod);
-                    if (decl.getOwnedFunction(mod)) |prev_func| {
-                        prev_is_inline = prev_func.analysis(ip).state == .inline_only;
-                    }
-                }
-
-                decl.ty = decl_tv.ty;
-                decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-                // linksection, align, and addrspace were already set by Sema
-                decl.has_tv = true;
-                decl.owns_tv = owns_tv;
-                decl.analysis = .complete;
-
-                const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
-                if (decl.is_exported) {
-                    const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
-                    if (is_inline) {
-                        return sema.fail(&block_scope, export_src, "export of inline function", .{});
-                    }
-                    // The scope needs to have the decl in it.
-                    try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
-                }
-                // TODO: align, linksection, addrspace?
-                const changed = type_changed or is_inline != prev_is_inline;
-                return .{
-                    .invalidate_decl_val = changed,
-                    .invalidate_decl_ref = changed,
-                };
-            }
-        },
-        else => {},
-    }
-
-    decl.owns_tv = false;
-    var queue_linker_work = false;
-    var is_extern = false;
-    switch (decl_tv.val.toIntern()) {
+    var queue_linker_work = true;
+    var is_func = false;
+    var is_inline = false;
+    switch (decl_val.toIntern()) {
         .generic_poison => unreachable,
         .unreachable_value => unreachable,
-        else => switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => |variable| if (variable.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
+        else => switch (ip.indexToKey(decl_val.toIntern())) {
+            .variable => |variable| {
+                decl.owns_tv = variable.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
             },
 
-            .extern_func => |extern_fn| if (extern_fn.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-                is_extern = true;
+            .extern_func => |extern_func| {
+                decl.owns_tv = extern_func.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
+                is_func = decl.owns_tv;
             },
 
-            .func => {},
-
-            else => {
-                queue_linker_work = true;
+            .func => |func| {
+                decl.owns_tv = func.owner_decl == decl_index;
+                queue_linker_work = false;
+                is_inline = decl.owns_tv and decl_ty.fnCallingConvention(mod) == .Inline;
+                is_func = decl.owns_tv;
             },
+
+            else => {},
         },
     }
 
-    const old_has_tv = decl.has_tv;
-    // The following values are ignored if `!old_has_tv`
-    const old_ty = decl.ty;
-    const old_val = decl.val;
-    const old_align = decl.alignment;
-    const old_linksection = decl.@"linksection";
-    const old_addrspace = decl.@"addrspace";
-
-    decl.ty = decl_tv.ty;
-    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-    decl.alignment = blk: {
-        const align_body = decl_bodies.align_body orelse break :blk .none;
-        const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
-        break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
-    };
-    decl.@"linksection" = blk: {
-        const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
-        const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
-        const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        });
-        if (mem.indexOfScalar(u8, bytes, 0) != null) {
-            return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
-        } else if (bytes.len == 0) {
-            return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
-        }
-        const section = try ip.getOrPutString(gpa, bytes);
-        break :blk section.toOptional();
-    };
-    decl.@"addrspace" = blk: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => .variable,
-            .extern_func, .func => .function,
-            else => .constant,
+    decl.val = decl_val;
+    // Function linksection, align, and addrspace were already set by Sema
+    if (!is_func) {
+        decl.alignment = blk: {
+            const align_body = decl_bodies.align_body orelse break :blk .none;
+            const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
+            break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
         };
-
-        const target = sema.mod.getTarget();
-
-        const addrspace_body = decl_bodies.addrspace_body orelse break :blk switch (addrspace_ctx) {
-            .function => target_util.defaultAddressSpace(target, .function),
-            .variable => target_util.defaultAddressSpace(target, .global_mutable),
-            .constant => target_util.defaultAddressSpace(target, .global_constant),
-            else => unreachable,
+        decl.@"linksection" = blk: {
+            const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
+            const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
+            const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
+                .needed_comptime_reason = "linksection must be comptime-known",
+            });
+            if (mem.indexOfScalar(u8, bytes, 0) != null) {
+                return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
+            } else if (bytes.len == 0) {
+                return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
+            }
+            break :blk try ip.getOrPutStringOpt(gpa, bytes, .no_embedded_nulls);
         };
-        const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
-        break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
-    };
+        decl.@"addrspace" = blk: {
+            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
+                .variable => .variable,
+                .extern_func, .func => .function,
+                else => .constant,
+            };
+
+            const target = sema.mod.getTarget();
+
+            const addrspace_body = decl_bodies.addrspace_body orelse break :blk switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
+                else => unreachable,
+            };
+            const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
+            break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
+        };
+    }
     decl.has_tv = true;
     decl.analysis = .complete;
 
     const result: SemaDeclResult = if (old_has_tv) .{
-        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or !decl.val.eql(old_val, decl.ty, mod),
-        .invalidate_decl_ref = !decl.ty.eql(old_ty, mod) or
+        .invalidate_decl_val = !decl_ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl_ty, mod) or
+            is_inline != old_is_inline,
+        .invalidate_decl_ref = !decl_ty.eql(old_ty, mod) or
             decl.alignment != old_align or
             decl.@"linksection" != old_linksection or
-            decl.@"addrspace" != old_addrspace,
+            decl.@"addrspace" != old_addrspace or
+            is_inline != old_is_inline,
     } else .{
         .invalidate_decl_val = true,
         .invalidate_decl_ref = true,
     };
 
-    const has_runtime_bits = is_extern or
-        (queue_linker_work and try sema.typeHasRuntimeBits(decl.ty));
-
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_ty));
     if (has_runtime_bits) {
-
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl.ty);
+        try sema.resolveTypeFully(decl_ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
@@ -3756,11 +3790,48 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     if (decl.is_exported) {
         const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
+        if (is_inline) return sema.fail(&block_scope, export_src, "export of inline function", .{});
         // The scope needs to have the decl in it.
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }
 
     return result;
+}
+
+fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
+    const decl = zcu.declPtr(decl_index);
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
+
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
+        .Fn => @panic("TODO: update fn instance"),
+        .Type => {},
+        else => unreachable,
+    }
+
+    // We are the owner Decl of a type, and we were marked as outdated. That means the *structure*
+    // of this type changed; not just its namespace. Therefore, we need a new InternPool index.
+    //
+    // However, as soon as we make that, the context that created us will require re-analysis anyway
+    // (as it depends on this Decl's value), meaning the `struct_decl` (or equivalent) instruction
+    // will be analyzed again. Since Sema already needs to be able to reconstruct types like this,
+    // why should we bother implementing it here too when the Sema logic will be hit right after?
+    //
+    // So instead, let's just mark this Decl as failed - so that any remaining Decls which genuinely
+    // reference it (via `@This`) end up silently erroring too - and we'll let Sema make a new type
+    // with a new Decl.
+    //
+    // Yes, this does mean that any type owner Decl has a constant value for its entire lifetime.
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.remove(decl.val.toIntern());
+    decl.analysis = .dependency_failure;
+    return .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 }
 
 pub const ImportFileResult = struct {
@@ -4041,7 +4112,10 @@ fn newEmbedFile(
         .sentinel = .zero_u8,
         .child = .u8_type,
     } });
-    const array_val = try ip.getTrailingAggregate(gpa, array_ty, bytes.len);
+    const array_val = try ip.get(gpa, .{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, bytes.len, .maybe_embedded_nulls) },
+    } });
 
     const ptr_ty = (try mod.ptrType(.{
         .child = array_ty,
@@ -4051,18 +4125,18 @@ fn newEmbedFile(
             .address_space = .generic,
         },
     })).toIntern();
-
     const ptr_val = try ip.get(gpa, .{ .ptr = .{
         .ty = ptr_ty,
-        .addr = .{ .anon_decl = .{
+        .base_addr = .{ .anon_decl = .{
             .val = array_val,
             .orig_ty = ptr_ty,
         } },
+        .byte_offset = 0,
     } });
 
     result.* = new_file;
     new_file.* = .{
-        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
+        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path, .no_embedded_nulls),
         .owner = pkg,
         .stat = stat,
         .val = ptr_val,
@@ -4083,16 +4157,57 @@ pub fn scanNamespace(
     const gpa = zcu.gpa;
     const namespace = zcu.namespacePtr(namespace_index);
 
+    // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
+    // than their name. We'll build an efficient mapping now, then discard the current `decls`.
+    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index) = .{};
+    defer existing_by_inst.deinit(gpa);
+
+    try existing_by_inst.ensureTotalCapacity(gpa, @intCast(namespace.decls.count()));
+
+    for (namespace.decls.keys()) |decl_index| {
+        const decl = zcu.declPtr(decl_index);
+        existing_by_inst.putAssumeCapacityNoClobber(decl.zir_decl_index.unwrap().?, decl_index);
+    }
+
+    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+    defer seen_decls.deinit(gpa);
+
     try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
+
+    namespace.decls.clearRetainingCapacity();
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
+
+    namespace.usingnamespace_set.clearRetainingCapacity();
 
     var scan_decl_iter: ScanDeclIter = .{
         .zcu = zcu,
         .namespace_index = namespace_index,
         .parent_decl = parent_decl,
+        .seen_decls = &seen_decls,
+        .existing_by_inst = &existing_by_inst,
+        .pass = .named,
     };
     for (decls) |decl_inst| {
         try scanDecl(&scan_decl_iter, decl_inst);
+    }
+    scan_decl_iter.pass = .unnamed;
+    for (decls) |decl_inst| {
+        try scanDecl(&scan_decl_iter, decl_inst);
+    }
+
+    if (seen_decls.count() != namespace.decls.count()) {
+        // Do a pass over the namespace contents and remove any decls from the last update
+        // which were removed in this one.
+        var i: usize = 0;
+        while (i < namespace.decls.count()) {
+            const decl_index = namespace.decls.keys()[i];
+            const decl = zcu.declPtr(decl_index);
+            if (!seen_decls.contains(decl.name)) {
+                // We must preserve namespace ordering for @typeInfo.
+                namespace.decls.orderedRemoveAt(i);
+                i -= 1;
+            }
+        }
     }
 }
 
@@ -4100,9 +4215,29 @@ const ScanDeclIter = struct {
     zcu: *Zcu,
     namespace_index: Namespace.Index,
     parent_decl: *Decl,
+    seen_decls: *std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
+    existing_by_inst: *const std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index),
+    /// Decl scanning is run in two passes, so that we can detect when a generated
+    /// name would clash with an explicit name and use a different one.
+    pass: enum { named, unnamed },
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
     unnamed_test_index: usize = 0,
+
+    fn avoidNameConflict(iter: *ScanDeclIter, comptime fmt: []const u8, args: anytype) !InternPool.NullTerminatedString {
+        const zcu = iter.zcu;
+        const gpa = zcu.gpa;
+        const ip = &zcu.intern_pool;
+        var name = try ip.getOrPutStringFmt(gpa, fmt, args, .no_embedded_nulls);
+        var gop = try iter.seen_decls.getOrPut(gpa, name);
+        var next_suffix: u32 = 0;
+        while (gop.found_existing) {
+            name = try ip.getOrPutStringFmt(gpa, "{}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
+            gop = try iter.seen_decls.getOrPut(gpa, name);
+            next_suffix += 1;
+        }
+        return name;
+    }
 };
 
 fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void {
@@ -4126,153 +4261,154 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     // Every Decl needs a name.
     const decl_name: InternPool.NullTerminatedString, const kind: Decl.Kind, const is_named_test: bool = switch (declaration.name) {
         .@"comptime" => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.comptime_index;
             iter.comptime_index += 1;
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "comptime_{d}", .{i}),
+                try iter.avoidNameConflict("comptime_{d}", .{i}),
                 .@"comptime",
                 false,
             };
         },
         .@"usingnamespace" => info: {
+            // TODO: this isn't right! These should be considered unnamed. Name conflicts can happen here.
+            // The problem is, we need to preserve the decl ordering for `@typeInfo`.
+            // I'm not bothering to fix this now, since some upcoming changes will change this code significantly anyway.
+            if (iter.pass != .named) return;
             const i = iter.usingnamespace_index;
             iter.usingnamespace_index += 1;
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "usingnamespace_{d}", .{i}),
+                try iter.avoidNameConflict("usingnamespace_{d}", .{i}),
                 .@"usingnamespace",
                 false,
             };
         },
         .unnamed_test => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "test_{d}", .{i}),
+                try iter.avoidNameConflict("test_{d}", .{i}),
                 .@"test",
                 false,
             };
         },
         .decltest => info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
             assert(declaration.flags.has_doc_comment);
             const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "decltest.{s}", .{name}),
+                try iter.avoidNameConflict("decltest.{s}", .{name}),
                 .@"test",
                 true,
             };
         },
-        _ => if (declaration.name.isNamedTest(zir)) .{
-            try ip.getOrPutStringFmt(gpa, "test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
-            .@"test",
-            true,
-        } else .{
-            try ip.getOrPutString(gpa, zir.nullTerminatedString(declaration.name.toString(zir).?)),
-            .named,
-            false,
+        _ => if (declaration.name.isNamedTest(zir)) info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
+            break :info .{
+                try iter.avoidNameConflict("test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
+                .@"test",
+                true,
+            };
+        } else info: {
+            if (iter.pass != .named) return;
+            const name = try ip.getOrPutString(
+                gpa,
+                zir.nullTerminatedString(declaration.name.toString(zir).?),
+                .no_embedded_nulls,
+            );
+            try iter.seen_decls.putNoClobber(gpa, name, {});
+            break :info .{
+                name,
+                .named,
+                false,
+            };
         },
     };
 
-    if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
+    switch (kind) {
+        .@"usingnamespace" => try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1),
+        .@"test" => try zcu.test_functions.ensureUnusedCapacity(gpa, 1),
+        else => {},
+    }
+
+    const tracked_inst = try ip.trackZir(gpa, iter.parent_decl.getFileScope(zcu), decl_inst);
 
     // We create a Decl for it regardless of analysis status.
-    const gop = try namespace.decls.getOrPutContextAdapted(
-        gpa,
-        decl_name,
-        DeclAdapter{ .zcu = zcu },
-        Namespace.DeclContext{ .zcu = zcu },
-    );
-    const comp = zcu.comp;
-    if (!gop.found_existing) {
+
+    const prev_exported, const decl_index = if (iter.existing_by_inst.get(tracked_inst)) |decl_index| decl_index: {
+        // We need only update this existing Decl.
+        const decl = zcu.declPtr(decl_index);
+        const was_exported = decl.is_exported;
+        assert(decl.kind == kind); // ZIR tracking should preserve this
+        decl.name = decl_name;
+        decl.src_node = decl_node;
+        decl.src_line = line;
+        decl.is_pub = declaration.flags.is_pub;
+        decl.is_exported = declaration.flags.is_export;
+        break :decl_index .{ was_exported, decl_index };
+    } else decl_index: {
+        // Create and set up a new Decl.
         const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
-        if (kind == .@"usingnamespace") {
-            namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, declaration.flags.is_pub);
-        }
         new_decl.src_line = line;
-        gop.key_ptr.* = new_decl_index;
-        // Exported decls, comptime decls, usingnamespace decls, and
-        // test decls if in test mode, get analyzed.
-        const decl_mod = namespace.file_scope.mod;
-        const want_analysis = declaration.flags.is_export or switch (kind) {
-            .anon => unreachable,
-            .@"comptime", .@"usingnamespace" => true,
-            .named => false,
-            .@"test" => a: {
-                if (!comp.config.is_test) break :a false;
-                if (decl_mod != zcu.main_mod) break :a false;
-                if (is_named_test and comp.test_filters.len > 0) {
-                    const decl_fqn = ip.stringToSlice(try namespace.fullyQualifiedName(zcu, decl_name));
-                    for (comp.test_filters) |test_filter| {
-                        if (mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
-                    } else break :a false;
-                }
-                try zcu.test_functions.put(gpa, new_decl_index, {});
-                break :a true;
-            },
-        };
-        if (want_analysis) {
-            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{s}' decl_index={d}", .{
-                namespace.file_scope.sub_file_path, ip.stringToSlice(decl_name), new_decl_index,
-            });
-            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl_index });
-        }
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
-        new_decl.zir_decl_index = decl_inst.toOptional();
-        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
-        return;
-    }
-    const decl_index = gop.key_ptr.*;
-    const decl = zcu.declPtr(decl_index);
-    if (kind == .@"test") {
-        const src_loc = SrcLoc{
-            .file_scope = decl.getFileScope(zcu),
-            .parent_decl_node = decl.src_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        const msg = try ErrorMsg.create(gpa, src_loc, "duplicate test name: {}", .{
-            decl_name.fmt(ip),
-        });
-        errdefer msg.destroy(gpa);
-        try zcu.failed_decls.putNoClobber(gpa, decl_index, msg);
-        const other_src_loc = SrcLoc{
-            .file_scope = namespace.file_scope,
-            .parent_decl_node = decl_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        try zcu.errNoteNonLazy(other_src_loc, msg, "other test here", .{});
-    }
-    // Update the AST node of the decl; even if its contents are unchanged, it may
-    // have been re-ordered.
-    decl.src_node = decl_node;
-    decl.src_line = line;
+        new_decl.zir_decl_index = tracked_inst.toOptional();
+        break :decl_index .{ false, new_decl_index };
+    };
 
-    decl.is_pub = declaration.flags.is_pub;
-    decl.is_exported = declaration.flags.is_export;
-    decl.kind = kind;
-    decl.zir_decl_index = decl_inst.toOptional();
+    const decl = zcu.declPtr(decl_index);
+
+    namespace.decls.putAssumeCapacityNoClobberContext(decl_index, {}, .{ .zcu = zcu });
+
+    const comp = zcu.comp;
+    const decl_mod = namespace.file_scope.mod;
+    const want_analysis = declaration.flags.is_export or switch (kind) {
+        .anon => unreachable,
+        .@"comptime" => true,
+        .@"usingnamespace" => a: {
+            namespace.usingnamespace_set.putAssumeCapacityNoClobber(decl_index, declaration.flags.is_pub);
+            break :a true;
+        },
+        .named => false,
+        .@"test" => a: {
+            if (!comp.config.is_test) break :a false;
+            if (decl_mod != zcu.main_mod) break :a false;
+            if (is_named_test and comp.test_filters.len > 0) {
+                const decl_fqn = try namespace.fullyQualifiedName(zcu, decl_name);
+                const decl_fqn_slice = decl_fqn.toSlice(ip);
+                for (comp.test_filters) |test_filter| {
+                    if (mem.indexOf(u8, decl_fqn_slice, test_filter)) |_| break;
+                } else break :a false;
+            }
+            zcu.test_functions.putAssumeCapacity(decl_index, {}); // may clobber on incremental update
+            break :a true;
+        },
+    };
+
+    if (want_analysis) {
+        // We will not queue analysis if the decl has been analyzed on a previous update and
+        // `is_export` is unchanged. In this case, the incremental update mechanism will handle
+        // re-analysis for us if necessary.
+        if (prev_exported != declaration.flags.is_export or decl.analysis == .unreferenced) {
+            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
+                namespace.file_scope.sub_file_path, decl_name.fmt(ip), decl_index,
+            });
+            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+        }
+    }
+
     if (decl.getOwnedFunction(zcu) != null) {
+        // TODO this logic is insufficient; namespaces we don't re-scan may still require
+        // updated line numbers. Look into this!
         // TODO Look into detecting when this would be unnecessary by storing enough state
         // in `Decl` to notice that the line number did not change.
         comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-    }
-}
-
-/// This function is exclusively called for anonymous decls.
-/// All resources referenced by anonymous decls are owned by InternPool
-/// so there is no cleanup to do here.
-pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-
-    ip.destroyDecl(gpa, decl_index);
-
-    if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
     }
 }
 
@@ -4285,12 +4421,8 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    // The Decl starts off with alive=false and the codegen backend will set alive=true
-    // if the Decl is referenced by an instruction or another constant. Otherwise,
-    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
-    // to the linker.
-    if (mod.declPtr(decl_index).ty.isFnOrHasRuntimeBits(mod)) {
-        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
+    if (mod.declPtr(decl_index).typeOf(mod).isFnOrHasRuntimeBits(mod)) {
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -4363,10 +4495,12 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
-    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+    log.debug("func name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
     var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
@@ -4376,7 +4510,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // the runtime-known parameters only, not to be confused with the
     // generic_owner function type, which potentially has more parameters,
     // including comptime parameters.
-    const fn_ty = decl.ty;
+    const fn_ty = decl.typeOf(mod);
     const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
@@ -4392,10 +4526,14 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
+
+    // Every runtime function has a dependency on the source of the Decl it originates from.
+    // It also depends on the value of its owner Decl.
+    try sema.declareDependency(.{ .src_hash = decl.zir_decl_index.unwrap().? });
+    try sema.declareDependency(.{ .decl_val = decl_index });
 
     if (func.analysis(ip).inferred_error_set) {
         const ies = try arena.create(Sema.InferredErrorSet);
@@ -4524,11 +4662,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         };
     }
 
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
-    }
-
     // Copy the block into place and mark that as the main block.
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
         inner_block.instructions.items.len);
@@ -4626,7 +4759,6 @@ pub fn allocateNewDecl(
         .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
-        .ty = undefined,
         .val = undefined,
         .alignment = undefined,
         .@"linksection" = .none,
@@ -4635,7 +4767,6 @@ pub fn allocateNewDecl(
         .zir_decl_index = .none,
         .is_pub = false,
         .is_exported = false,
-        .alive = false,
         .kind = .anon,
     });
 
@@ -4670,41 +4801,18 @@ pub fn errorSetBits(mod: *Module) u16 {
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
-pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
-    const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, typed_value);
-}
-
-pub fn createAnonymousDeclFromDecl(
-    mod: *Module,
-    src_decl: *Decl,
-    namespace: Namespace.Index,
-    tv: TypedValue,
-) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node);
-    errdefer mod.destroyDecl(new_decl_index);
-    const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
-        src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
-    });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, tv, name);
-    return new_decl_index;
-}
-
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    typed_value: TypedValue,
+    val: Value,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
-    assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
-
     const new_decl = mod.declPtr(new_decl_index);
 
     new_decl.name = name;
     new_decl.src_line = src_line;
-    new_decl.ty = typed_value.ty;
-    new_decl.val = typed_value.val;
+    new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
@@ -5216,7 +5324,7 @@ pub fn populateTestFunctions(
     const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
-    const test_functions_str = try ip.getOrPutString(gpa, "test_functions");
+    const test_functions_str = try ip.getOrPutString(gpa, "test_functions", .no_embedded_nulls);
     const decl_index = builtin_namespace.decls.getKeyAdapted(
         test_functions_str,
         DeclAdapter{ .zcu = mod },
@@ -5233,9 +5341,9 @@ pub fn populateTestFunctions(
         try mod.ensureDeclAnalyzed(decl_index);
     }
     const decl = mod.declPtr(decl_index);
-    const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
+    const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_decl_index = d: {
+    const array_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
@@ -5243,23 +5351,22 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(try test_decl.fullyQualifiedName(mod)));
-            defer gpa.free(test_decl_name);
-            const test_name_decl_index = n: {
-                const test_name_decl_ty = try mod.arrayType(.{
-                    .len = test_decl_name.len,
+            const test_decl_name = try test_decl.fullyQualifiedName(mod);
+            const test_decl_name_len = test_decl_name.length(ip);
+            const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = n: {
+                const test_name_ty = try mod.arrayType(.{
+                    .len = test_decl_name_len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-                    .ty = test_name_decl_ty,
-                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                        .ty = test_name_decl_ty.toIntern(),
-                        .storage = .{ .bytes = test_decl_name },
-                    } }))),
-                });
-                break :n test_name_decl_index;
+                const test_name_val = try mod.intern(.{ .aggregate = .{
+                    .ty = test_name_ty.toIntern(),
+                    .storage = .{ .bytes = test_decl_name.toString() },
+                } });
+                break :n .{
+                    .orig_ty = (try mod.singleConstPtrType(test_name_ty)).toIntern(),
+                    .val = test_name_val,
+                };
             };
-            try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
                 // name
@@ -5267,22 +5374,24 @@ pub fn populateTestFunctions(
                     .ty = .slice_const_u8_type,
                     .ptr = try mod.intern(.{ .ptr = .{
                         .ty = .manyptr_const_u8_type,
-                        .addr = .{ .decl = test_name_decl_index },
+                        .base_addr = .{ .anon_decl = test_name_anon_decl },
+                        .byte_offset = 0,
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
-                        .storage = .{ .u64 = test_decl_name.len },
+                        .storage = .{ .u64 = test_decl_name_len },
                     } }),
                 } }),
                 // func
                 try mod.intern(.{ .ptr = .{
                     .ty = try mod.intern(.{ .ptr_type = .{
-                        .child = test_decl.ty.toIntern(),
+                        .child = test_decl.typeOf(mod).toIntern(),
                         .flags = .{
                             .is_const = true,
                         },
                     } }),
-                    .addr = .{ .decl = test_decl_index },
+                    .base_addr = .{ .decl = test_decl_index },
+                    .byte_offset = 0,
                 } }),
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
@@ -5291,22 +5400,20 @@ pub fn populateTestFunctions(
             } });
         }
 
-        const array_decl_ty = try mod.arrayType(.{
+        const array_ty = try mod.arrayType(.{
             .len = test_fn_vals.len,
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-            .ty = array_decl_ty,
-            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                .ty = array_decl_ty.toIntern(),
-                .storage = .{ .elems = test_fn_vals },
-            } }))),
-        });
-
-        break :d array_decl_index;
+        const array_val = try mod.intern(.{ .aggregate = .{
+            .ty = array_ty.toIntern(),
+            .storage = .{ .elems = test_fn_vals },
+        } });
+        break :array .{
+            .orig_ty = (try mod.singleConstPtrType(array_ty)).toIntern(),
+            .val = array_val,
+        };
     };
-    try mod.linkerUpdateDecl(array_decl_index);
 
     {
         const new_ty = try mod.ptrType(.{
@@ -5321,7 +5428,8 @@ pub fn populateTestFunctions(
             .ty = new_ty.toIntern(),
             .ptr = try mod.intern(.{ .ptr = .{
                 .ty = new_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = .{ .decl = array_decl_index },
+                .base_addr = .{ .anon_decl = array_anon_decl },
+                .byte_offset = 0,
             } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
@@ -5329,7 +5437,6 @@ pub fn populateTestFunctions(
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
-        decl.ty = new_ty;
         decl.val = new_val;
         decl.has_tv = true;
     }
@@ -5402,54 +5509,6 @@ fn reportRetryableFileError(
         }
     }
     gop.value_ptr.* = err_msg;
-}
-
-pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
-    switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| try mod.markDeclIndexAlive(variable.decl),
-        .extern_func => |extern_func| try mod.markDeclIndexAlive(extern_func.decl),
-        .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
-        .error_union => |error_union| switch (error_union.val) {
-            .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
-        },
-        .slice => |slice| {
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.ptr));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.len));
-        },
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| try mod.markDeclIndexAlive(decl),
-            .anon_decl => {},
-            .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
-            .int, .comptime_field => {},
-            .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
-            .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
-        },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
-        .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
-        .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
-        },
-        else => {},
-    }
-}
-
-pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    _ = try decl.internValue(mod);
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-    try mod.markReferencedDeclsAlive(decl.val);
-}
-
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
@@ -5635,9 +5694,11 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
+    assert(x != 0 or ty.isAllowzeroPtr(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
+        .base_addr = .int,
+        .byte_offset = x,
     } });
     return Value.fromInterned(i);
 }
@@ -5814,7 +5875,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits() orelse 0) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
             return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(mod)) + @intFromBool(sign);
@@ -5915,6 +5976,8 @@ pub fn atomicPtrAlignment(
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
+
+        .spirv => @panic("TODO what should this value be?"),
     };
 
     const int_ty = switch (ty.zigTypeTag(mod)) {
@@ -6079,18 +6142,18 @@ pub const UnionLayout = struct {
     padding: u32,
 };
 
-pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
+pub fn getUnionLayout(mod: *Module, loaded_union: InternPool.LoadedUnionType) UnionLayout {
     const ip = &mod.intern_pool;
-    assert(u.haveLayout(ip));
+    assert(loaded_union.haveLayout(ip));
     var most_aligned_field: u32 = undefined;
     var most_aligned_field_size: u64 = undefined;
     var biggest_field: u32 = undefined;
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
-    for (u.field_types.get(ip), 0..) |field_ty, i| {
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-        const explicit_align = u.fieldAlign(ip, @intCast(i));
+        const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -6098,16 +6161,16 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
-            biggest_field = @intCast(i);
+            biggest_field = @intCast(field_index);
         }
         if (field_align.compare(.gte, payload_align)) {
             payload_align = field_align;
-            most_aligned_field = @intCast(i);
+            most_aligned_field = @intCast(field_index);
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6122,10 +6185,10 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         };
     }
 
-    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
-    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
-        .abi_size = u.size(ip).*,
+        .abi_size = loaded_union.size(ip).*,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6134,24 +6197,24 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = u.padding(ip).*,
+        .padding = loaded_union.padding(ip).*,
     };
 }
 
-pub fn unionAbiSize(mod: *Module, u: InternPool.LoadedUnionType) u64 {
-    return mod.getUnionLayout(u).abi_size;
+pub fn unionAbiSize(mod: *Module, loaded_union: InternPool.LoadedUnionType) u64 {
+    return mod.getUnionLayout(loaded_union).abi_size;
 }
 
 /// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment {
+pub fn unionAbiAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType) Alignment {
     const ip = &mod.intern_pool;
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
-    for (u.field_types.get(ip), 0..) |field_ty, field_index| {
+    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod);
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
-        const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
+        const field_align = mod.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
         max_align = max_align.max(field_align);
     }
     return max_align;
@@ -6160,20 +6223,20 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment 
 /// Returns the field alignment, assuming the union is not packed.
 /// Keep implementation in sync with `Sema.unionFieldAlignment`.
 /// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.LoadedUnionType, field_index: u32) Alignment {
+pub fn unionFieldNormalAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
     const ip = &mod.intern_pool;
-    const field_align = u.fieldAlign(ip, field_index);
+    const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
+    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, u: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
-    assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
-    return u.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
+    assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
+    return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
 /// Returns the field alignment of a non-packed struct in byte units.

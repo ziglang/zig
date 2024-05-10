@@ -35,17 +35,19 @@ ADD_UNDERSCORE(execv)
 ADD_UNDERSCORE(execve)
 ADD_UNDERSCORE(execvp)
 ADD_UNDERSCORE(execvpe)
+ADD_UNDERSCORE(fcloseall)
 ADD_UNDERSCORE(fcvt)
 ADD_UNDERSCORE(fdopen)
 ADD_UNDERSCORE(fgetchar)
 ADD_UNDERSCORE(fgetwchar)
 ADD_UNDERSCORE(filelength)
 ADD_UNDERSCORE(fileno)
-; fpreset)
+; Alias fpreset is set in CRT_fp10.c and CRT_fp8.c.
+; ADD_UNDERSCORE(fpreset)
 ADD_UNDERSCORE(fputchar)
 ADD_UNDERSCORE(fputwchar)
-;fstat)
-;ftime)
+; ADD_UNDERSCORE(fstat)
+; ADD_UNDERSCORE(ftime)
 ADD_UNDERSCORE(gcvt)
 ADD_UNDERSCORE(getch)
 ADD_UNDERSCORE(getche)
@@ -90,7 +92,7 @@ ADD_UNDERSCORE(spawnv)
 ADD_UNDERSCORE(spawnve)
 ADD_UNDERSCORE(spawnvp)
 ADD_UNDERSCORE(spawnvpe)
-;stat)
+; ADD_UNDERSCORE(stat)
 #ifndef UCRTBASE
 ADD_UNDERSCORE(strcmpi)
 #endif
@@ -134,13 +136,13 @@ ADD_UNDERSCORE(y0)
 ADD_UNDERSCORE(y1)
 ADD_UNDERSCORE(yn)
 ADD_UNDERSCORE(chgsign)
-;scalb
+; ADD_UNDERSCORE(scalb)
 ADD_UNDERSCORE(finite)
 ADD_UNDERSCORE(fpclass)
 ; C99 functions
-;cabs
+; ADD_UNDERSCORE(cabs)
 ADD_UNDERSCORE(hypot)
-;logb
+; ADD_UNDERSCORE(logb)
 ADD_UNDERSCORE(nextafter)
 
 #ifndef UCRTBASE

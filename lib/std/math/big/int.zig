@@ -340,7 +340,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
+        const bit: Log2Limb = @truncate(bit_count - 1);
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
@@ -2186,7 +2186,7 @@ pub const Const = struct {
                     return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
-                        return @as(T, @intCast(r));
+                        return @intCast(r);
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
@@ -3776,19 +3776,19 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
     const limb_shift = shift / limb_bits;
     const interior_limb_shift = @as(Log2Limb, @truncate(shift));
 
-    var carry: Limb = 0;
     var i: usize = 0;
     while (i < a.len - limb_shift) : (i += 1) {
-        const src_i = a.len - i - 1;
-        const dst_i = src_i - limb_shift;
+        const dst_i = i;
+        const src_i = dst_i + limb_shift;
 
         const src_digit = a[src_i];
-        r[dst_i] = carry | (src_digit >> interior_limb_shift);
-        carry = @call(.always_inline, math.shl, .{
+        const src_digit_next = if (src_i + 1 < a.len) a[src_i + 1] else 0;
+        const carry = @call(.always_inline, math.shl, .{
             Limb,
-            src_digit,
+            src_digit_next,
             limb_bits - @as(Limb, @intCast(interior_limb_shift)),
         });
+        r[dst_i] = carry | (src_digit >> interior_limb_shift);
     }
 }
 

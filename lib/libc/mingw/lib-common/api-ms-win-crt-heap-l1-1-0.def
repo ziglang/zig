@@ -1,0 +1,32 @@
+LIBRARY api-ms-win-crt-heap-l1-1-0
+
+EXPORTS
+
+_aligned_free
+_aligned_malloc
+_aligned_msize
+_aligned_offset_malloc
+_aligned_offset_realloc
+_aligned_offset_recalloc
+_aligned_realloc
+_aligned_recalloc
+_callnewh
+_calloc_base
+_expand
+_free_base
+_get_heap_handle
+_heapchk
+_heapmin
+_heapwalk
+heapwalk == _heapwalk
+_malloc_base
+_msize
+_query_new_handler
+_query_new_mode
+_realloc_base
+_recalloc
+_set_new_mode
+calloc
+free
+malloc
+realloc

@@ -20,16 +20,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_tag = .linux,
         .abi = .gnu,
     });
-    // const aarch64_musl = b.resolveTargetQuery(.{
-    //     .cpu_arch = .aarch64,
-    //     .os_tag = .linux,
-    //     .abi = .musl,
-    // });
-    // const aarch64_gnu = b.resolveTargetQuery(.{
-    //     .cpu_arch = .aarch64,
-    //     .os_tag = .linux,
-    //     .abi = .gnu,
-    // });
+    const aarch64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
     const riscv64_musl = b.resolveTargetQuery(.{
         .cpu_arch = .riscv64,
         .os_tag = .linux,
@@ -66,6 +61,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
+        elf_step.dependOn(testCommentString(b, .{ .target = musl_target }));
         elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
         elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
         elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
@@ -77,6 +73,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+        elf_step.dependOn(testMergeStrings(b, .{ .target = musl_target }));
+        elf_step.dependOn(testMergeStrings2(b, .{ .target = musl_target }));
         // https://github.com/ziglang/zig/issues/17451
         // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
         elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
@@ -86,6 +84,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testAsNeeded(b, .{ .target = gnu_target }));
         // https://github.com/ziglang/zig/issues/17430
         // elf_step.dependOn(testCanonicalPlt(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testCommentString(b, .{ .target = gnu_target }));
         elf_step.dependOn(testCopyrel(b, .{ .target = gnu_target }));
         // https://github.com/ziglang/zig/issues/17430
         // elf_step.dependOn(testCopyrelAlias(b, .{ .target = gnu_target }));
@@ -153,7 +152,12 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = x86_64_musl }));
     elf_step.dependOn(testZText(b, .{ .target = x86_64_gnu }));
 
+    // aarch64 specific tests
+    elf_step.dependOn(testThunks(b, .{ .target = aarch64_musl }));
+
     // x86_64 self-hosted backend
+    elf_step.dependOn(testCommentString(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testCommentStringStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = x86_64_musl }));
     elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = x86_64_musl }));
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
@@ -360,6 +364,36 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testCommentString(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comment-string", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\pub fn main() void {}
+    });
+
+    const check = exe.checkObject();
+    check.dumpSection(".comment");
+    check.checkContains("zig");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testCommentStringStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comment-string-static-lib", opts);
+
+    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes = 
+    \\export fn foo() void {}
+    });
+
+    const check = lib.checkObject();
+    check.dumpSection(".comment");
+    check.checkContains("zig");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -2269,6 +2303,125 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+// Adapted from https://github.com/rui314/mold/blob/main/test/elf/mergeable-strings.sh
+fn testMergeStrings(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-strings", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a.o" });
+    addCSourceBytes(obj1,
+        \\#include <uchar.h>
+        \\#include <wchar.h>
+        \\char *cstr1 = "foo";
+        \\wchar_t *wide1 = L"foo";
+        \\char16_t *utf16_1 = u"foo";
+        \\char32_t *utf32_1 = U"foo";
+    , &.{"-O2"});
+    obj1.linkLibC();
+
+    const obj2 = addObject(b, opts, .{ .name = "b.o" });
+    addCSourceBytes(obj2,
+        \\#include <stdio.h>
+        \\#include <assert.h>
+        \\#include <uchar.h>
+        \\#include <wchar.h>
+        \\extern char *cstr1;
+        \\extern wchar_t *wide1;
+        \\extern char16_t *utf16_1;
+        \\extern char32_t *utf32_1;
+        \\char *cstr2 = "foo";
+        \\wchar_t *wide2 = L"foo";
+        \\char16_t *utf16_2 = u"foo";
+        \\char32_t *utf32_2 = U"foo";
+        \\int main() {
+        \\ printf("%p %p %p %p %p %p %p %p\n",
+        \\ cstr1, cstr2, wide1, wide2, utf16_1, utf16_2, utf32_1, utf32_2);
+        \\  assert((void*)cstr1 ==   (void*)cstr2);
+        \\  assert((void*)wide1 ==   (void*)wide2);
+        \\  assert((void*)utf16_1 == (void*)utf16_2);
+        \\  assert((void*)utf32_1 == (void*)utf32_2);
+        \\  assert((void*)wide1 ==   (void*)utf32_1);
+        \\  assert((void*)cstr1 !=   (void*)wide1);
+        \\  assert((void*)cstr1 !=   (void*)utf32_1);
+        \\  assert((void*)wide1 !=   (void*)utf16_1);
+        \\}
+    , &.{"-O2"});
+    obj2.linkLibC();
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(obj1);
+    exe.addObject(obj2);
+    exe.linkLibC();
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testMergeStrings2(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-strings2", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\export fn foo() void {
+    \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
+    \\    const slice = std.mem.sliceTo(&arr, 3);
+    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+    \\}
+    });
+
+    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn foo() void;
+    \\pub fn main() void {
+    \\    foo();
+    \\    var arr: [5:0]u16 = [_:0]u16{ 5, 4, 3, 2, 1 };
+    \\    const slice = std.mem.sliceTo(&arr, 3);
+    \\    std.testing.expectEqualSlices(u16, arr[0..2], slice) catch unreachable;
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(obj1);
+        exe.addObject(obj2);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const obj3 = addObject(b, opts, .{ .name = "c" });
+        obj3.addObject(obj1);
+        obj3.addObject(obj2);
+
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(obj3);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x01\x00\x02\x00\x03\x00\x04\x00\x05\x00\x00\x00");
+        check.dumpSection(".rodata.str");
+        check.checkContains("\x05\x00\x04\x00\x03\x00\x02\x00\x01\x00\x00\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
 fn testNoEhFrameHdr(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "no-eh-frame-hdr", opts);
 
@@ -2530,6 +2683,33 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+// Adapted from https://github.com/rui314/mold/blob/main/test/elf/relocatable-mergeable-sections.sh
+fn testRelocatableMergeStrings(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-merge-strings", opts);
+
+    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val1:
+    \\.ascii "Hello \0"
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val5:
+    \\.ascii "World \0"
+    \\.section .rodata.str1.1,"aMS",@progbits,1
+    \\val7:
+    \\.ascii "Hello \0"
+    });
+
+    const obj2 = addObject(b, opts, .{ .name = "b" });
+    obj2.addObject(obj1);
+
+    const check = obj2.checkObject();
+    check.dumpSection(".rodata.str1.1");
+    check.checkExact("Hello \x00World \x00");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn testRelocatableNoEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-no-eh-frame", opts);
 
@@ -2665,6 +2845,51 @@ fn testStrip(b: *Build, opts: Options) *Step {
         check.checkExact("section headers");
         check.checkNotPresent("name .debug_info");
         test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testThunks(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "thunks", opts);
+
+    const src =
+        \\#include <stdio.h>
+        \\__attribute__((aligned(0x8000000))) int bar() {
+        \\  return 42;
+        \\}
+        \\int foobar();
+        \\int foo() {
+        \\  return bar() - foobar();
+        \\}
+        \\__attribute__((aligned(0x8000000))) int foobar() {
+        \\  return 42;
+        \\}
+        \\int main() {
+        \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
+        \\  return foo();
+        \\}
+    ;
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = src });
+        exe.link_function_sections = true;
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = src });
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
     }
 
     return test_step;

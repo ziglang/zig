@@ -8,14 +8,14 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 fn foo() void {
     var f = async bar(@frame());
     _ = &f;
-    std.os.exit(1);
+    std.process.exit(1);
 }
 
 fn bar(frame: anyframe) void {
     suspend {
         resume frame;
     }
-    std.os.exit(1);
+    std.process.exit(1);
 }
 
 pub fn main() !void {

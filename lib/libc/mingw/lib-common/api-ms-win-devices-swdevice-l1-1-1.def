@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-devices-swdevice-l1-1-1
+
+EXPORTS
+
+SwDeviceGetLifetime
+SwDeviceSetLifetime

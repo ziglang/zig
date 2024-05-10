@@ -21,11 +21,10 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#  define _LIBCPP_PSTL_CUSTOMIZATION_POINT(name)                                                                       \
-    [](auto&&... __args) -> decltype(std::name<_RawPolicy>(typename __select_backend<_RawPolicy>::type{},              \
-                                                           std::forward<decltype(__args)>(__args)...)) {               \
-      return std::name<_RawPolicy>(                                                                                    \
-          typename __select_backend<_RawPolicy>::type{}, std::forward<decltype(__args)>(__args)...);                   \
+#  define _LIBCPP_PSTL_CUSTOMIZATION_POINT(name, policy)                                                               \
+    [](auto&&... __args) -> decltype(std::name<policy>(                                                                \
+                             typename __select_backend<policy>::type{}, std::forward<decltype(__args)>(__args)...)) {  \
+      return std::name<policy>(typename __select_backend<policy>::type{}, std::forward<decltype(__args)>(__args)...);  \
     }
 
 template <class _SpecializedImpl, class _GenericImpl, class... _Args>

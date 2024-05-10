@@ -87,6 +87,5 @@ SPUpdateUserPicture
 SPUpdateUserSettings
 SSPAddCredentials
 SSPRemoveCredentials
-DllMain
 InitSecurityInterfaceW
 QuerySecurityPackageInfoW

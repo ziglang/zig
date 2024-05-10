@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const macho = std.macho;
 const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
-const iovec_const = std.os.iovec_const;
+const iovec_const = std.posix.iovec_const;
 
 pub const aarch64 = @import("darwin/aarch64.zig");
 pub const x86_64 = @import("darwin/x86_64.zig");
@@ -924,9 +924,6 @@ pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
 pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
 pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
-// XXX: close -> close$NOCANCEL
-// XXX: getdirentries -> _getdirentries64
-
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
 pub const blkcnt_t = i64;
@@ -1056,10 +1053,10 @@ pub const sigset_t = u32;
 pub const empty_sigset: sigset_t = 0;
 
 pub const SIG = struct {
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(5));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(5);
 
     /// block specified signal set
     pub const BLOCK = 1;
@@ -1142,7 +1139,7 @@ pub const siginfo_t = extern struct {
     pid: pid_t,
     uid: uid_t,
     status: c_int,
-    addr: *anyopaque,
+    addr: *allowzero anyopaque,
     value: extern union {
         int: c_int,
         ptr: *anyopaque,
@@ -1153,8 +1150,8 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -2829,237 +2826,12 @@ pub extern "c" fn posix_spawnp(
     env: [*:null]?[*:0]const u8,
 ) c_int;
 
-pub const PosixSpawn = struct {
-    const errno = std.os.errno;
-    const unexpectedErrno = std.os.unexpectedErrno;
-
-    pub const Error = error{
-        SystemResources,
-        InvalidFileDescriptor,
-        NameTooLong,
-        TooBig,
-        PermissionDenied,
-        InputOutput,
-        FileSystem,
-        FileNotFound,
-        InvalidExe,
-        NotDir,
-        FileBusy,
-        /// Returned when the child fails to execute either in the pre-exec() initialization step, or
-        /// when exec(3) is invoked.
-        ChildExecFailed,
-    } || std.os.UnexpectedError;
-
-    pub const Attr = struct {
-        attr: posix_spawnattr_t,
-
-        pub fn init() Error!Attr {
-            var attr: posix_spawnattr_t = undefined;
-            switch (errno(posix_spawnattr_init(&attr))) {
-                .SUCCESS => return Attr{ .attr = attr },
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn deinit(self: *Attr) void {
-            defer self.* = undefined;
-            switch (errno(posix_spawnattr_destroy(&self.attr))) {
-                .SUCCESS => return,
-                .INVAL => unreachable, // Invalid parameters.
-                else => unreachable,
-            }
-        }
-
-        pub fn get(self: Attr) Error!u16 {
-            var flags: c_short = undefined;
-            switch (errno(posix_spawnattr_getflags(&self.attr, &flags))) {
-                .SUCCESS => return @as(u16, @bitCast(flags)),
-                .INVAL => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn set(self: *Attr, flags: u16) Error!void {
-            switch (errno(posix_spawnattr_setflags(&self.attr, @as(c_short, @bitCast(flags))))) {
-                .SUCCESS => return,
-                .INVAL => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-    };
-
-    pub const Actions = struct {
-        actions: posix_spawn_file_actions_t,
-
-        pub fn init() Error!Actions {
-            var actions: posix_spawn_file_actions_t = undefined;
-            switch (errno(posix_spawn_file_actions_init(&actions))) {
-                .SUCCESS => return Actions{ .actions = actions },
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn deinit(self: *Actions) void {
-            defer self.* = undefined;
-            switch (errno(posix_spawn_file_actions_destroy(&self.actions))) {
-                .SUCCESS => return,
-                .INVAL => unreachable, // Invalid parameters.
-                else => unreachable,
-            }
-        }
-
-        pub fn open(self: *Actions, fd: fd_t, path: []const u8, flags: u32, mode: mode_t) Error!void {
-            const posix_path = try std.os.toPosixPath(path);
-            return self.openZ(fd, &posix_path, flags, mode);
-        }
-
-        pub fn openZ(self: *Actions, fd: fd_t, path: [*:0]const u8, flags: u32, mode: mode_t) Error!void {
-            switch (errno(posix_spawn_file_actions_addopen(&self.actions, fd, path, @as(c_int, @bitCast(flags)), mode))) {
-                .SUCCESS => return,
-                .BADF => return error.InvalidFileDescriptor,
-                .NOMEM => return error.SystemResources,
-                .NAMETOOLONG => return error.NameTooLong,
-                .INVAL => unreachable, // the value of file actions is invalid
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn close(self: *Actions, fd: fd_t) Error!void {
-            switch (errno(posix_spawn_file_actions_addclose(&self.actions, fd))) {
-                .SUCCESS => return,
-                .BADF => return error.InvalidFileDescriptor,
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable, // the value of file actions is invalid
-                .NAMETOOLONG => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn dup2(self: *Actions, fd: fd_t, newfd: fd_t) Error!void {
-            switch (errno(posix_spawn_file_actions_adddup2(&self.actions, fd, newfd))) {
-                .SUCCESS => return,
-                .BADF => return error.InvalidFileDescriptor,
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable, // the value of file actions is invalid
-                .NAMETOOLONG => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn inherit(self: *Actions, fd: fd_t) Error!void {
-            switch (errno(posix_spawn_file_actions_addinherit_np(&self.actions, fd))) {
-                .SUCCESS => return,
-                .BADF => return error.InvalidFileDescriptor,
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable, // the value of file actions is invalid
-                .NAMETOOLONG => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn chdir(self: *Actions, path: []const u8) Error!void {
-            const posix_path = try std.os.toPosixPath(path);
-            return self.chdirZ(&posix_path);
-        }
-
-        pub fn chdirZ(self: *Actions, path: [*:0]const u8) Error!void {
-            switch (errno(posix_spawn_file_actions_addchdir_np(&self.actions, path))) {
-                .SUCCESS => return,
-                .NOMEM => return error.SystemResources,
-                .NAMETOOLONG => return error.NameTooLong,
-                .BADF => unreachable,
-                .INVAL => unreachable, // the value of file actions is invalid
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-
-        pub fn fchdir(self: *Actions, fd: fd_t) Error!void {
-            switch (errno(posix_spawn_file_actions_addfchdir_np(&self.actions, fd))) {
-                .SUCCESS => return,
-                .BADF => return error.InvalidFileDescriptor,
-                .NOMEM => return error.SystemResources,
-                .INVAL => unreachable, // the value of file actions is invalid
-                .NAMETOOLONG => unreachable,
-                else => |err| return unexpectedErrno(err),
-            }
-        }
-    };
-
-    pub fn spawn(
-        path: []const u8,
-        actions: ?Actions,
-        attr: ?Attr,
-        argv: [*:null]?[*:0]const u8,
-        envp: [*:null]?[*:0]const u8,
-    ) Error!pid_t {
-        const posix_path = try std.os.toPosixPath(path);
-        return spawnZ(&posix_path, actions, attr, argv, envp);
-    }
-
-    pub fn spawnZ(
-        path: [*:0]const u8,
-        actions: ?Actions,
-        attr: ?Attr,
-        argv: [*:null]?[*:0]const u8,
-        envp: [*:null]?[*:0]const u8,
-    ) Error!pid_t {
-        var pid: pid_t = undefined;
-        switch (errno(posix_spawn(
-            &pid,
-            path,
-            if (actions) |a| &a.actions else null,
-            if (attr) |a| &a.attr else null,
-            argv,
-            envp,
-        ))) {
-            .SUCCESS => return pid,
-            .@"2BIG" => return error.TooBig,
-            .NOMEM => return error.SystemResources,
-            .BADF => return error.InvalidFileDescriptor,
-            .ACCES => return error.PermissionDenied,
-            .IO => return error.InputOutput,
-            .LOOP => return error.FileSystem,
-            .NAMETOOLONG => return error.NameTooLong,
-            .NOENT => return error.FileNotFound,
-            .NOEXEC => return error.InvalidExe,
-            .NOTDIR => return error.NotDir,
-            .TXTBSY => return error.FileBusy,
-            .BADARCH => return error.InvalidExe,
-            .BADEXEC => return error.InvalidExe,
-            .FAULT => unreachable,
-            .INVAL => unreachable,
-            else => |err| return unexpectedErrno(err),
-        }
-    }
-
-    pub fn waitpid(pid: pid_t, flags: u32) Error!std.os.WaitPidResult {
-        var status: c_int = undefined;
-        while (true) {
-            const rc = waitpid(pid, &status, @as(c_int, @intCast(flags)));
-            switch (errno(rc)) {
-                .SUCCESS => return std.os.WaitPidResult{
-                    .pid = @as(pid_t, @intCast(rc)),
-                    .status = @as(u32, @bitCast(status)),
-                },
-                .INTR => continue,
-                .CHILD => return error.ChildExecFailed,
-                .INVAL => unreachable, // Invalid flags.
-                else => unreachable,
-            }
-        }
-    }
-};
-
 pub fn getKernError(err: kern_return_t) KernE {
     return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
 }
 
-pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }
@@ -3070,7 +2842,7 @@ pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel
     /// call.
     PermissionDenied,
-} || std.os.UnexpectedError;
+} || std.posix.UnexpectedError;
 
 pub const MachTask = extern struct {
     port: mach_port_name_t,
@@ -3079,8 +2851,8 @@ pub const MachTask = extern struct {
         return self.port != TASK_NULL;
     }
 
-    pub fn pidForTask(self: MachTask) MachError!std.os.pid_t {
-        var pid: std.os.pid_t = undefined;
+    pub fn pidForTask(self: MachTask) MachError!std.c.pid_t {
+        var pid: std.c.pid_t = undefined;
         switch (getKernError(pid_for_task(self.port, &pid))) {
             .SUCCESS => return pid,
             .FAILURE => return error.PermissionDenied,
@@ -3520,7 +3292,7 @@ pub const MachThread = extern struct {
     }
 };
 
-pub fn machTaskForPid(pid: std.os.pid_t) MachError!MachTask {
+pub fn machTaskForPid(pid: std.c.pid_t) MachError!MachTask {
     var port: mach_port_name_t = undefined;
     switch (getKernError(task_for_pid(mach_task_self(), pid, &port))) {
         .SUCCESS => {},

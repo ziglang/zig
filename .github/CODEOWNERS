@@ -5,7 +5,7 @@
 /lib/std/Thread* @kprotty
 
 # resinator
-/src/resinator/* @squeek502
+/lib/compiler/resinator/* @squeek502
 
 # SPIR-V selfhosted backend
 /src/codegen/spirv* @Snektron

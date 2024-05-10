@@ -6,7 +6,6 @@
 ;
 LIBRARY admparse.dll
 EXPORTS
-DllMain
 IsAdmDirty
 ResetAdmDirtyFlag
 AdmClose

@@ -5694,7 +5694,7 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const val_ty = val.typeOfWip(self);
         if (val_ty == ty) return val;
-        return self.cast(self.builder.convTag(Instruction.Tag, signedness, val_ty, ty), val, ty, name);
+        return self.cast(self.builder.convTag(signedness, val_ty, ty), val, ty, name);
     }
 
     pub fn cast(
@@ -6839,7 +6839,7 @@ pub const FastMath = packed struct(u8) {
         .arcp = true,
         .contract = true,
         .afn = true,
-        .realloc = true,
+        .reassoc = true,
     };
 };
 
@@ -6891,39 +6891,19 @@ pub const Constant = enum(u32) {
         dso_local_equivalent,
         no_cfi,
         trunc,
-        zext,
-        sext,
-        fptrunc,
-        fpext,
-        fptoui,
-        fptosi,
-        uitofp,
-        sitofp,
         ptrtoint,
         inttoptr,
         bitcast,
         addrspacecast,
         getelementptr,
         @"getelementptr inbounds",
-        icmp,
-        fcmp,
-        extractelement,
-        insertelement,
-        shufflevector,
         add,
         @"add nsw",
         @"add nuw",
         sub,
         @"sub nsw",
         @"sub nuw",
-        mul,
-        @"mul nsw",
-        @"mul nuw",
         shl,
-        lshr,
-        ashr,
-        @"and",
-        @"or",
         xor,
         @"asm",
         @"asm sideeffect",
@@ -6952,15 +6932,7 @@ pub const Constant = enum(u32) {
                 .@"sub nsw",
                 .@"sub nuw",
                 => .sub,
-                .mul,
-                .@"mul nsw",
-                .@"mul nuw",
-                => .mul,
                 .shl => .shl,
-                .lshr => .lshr,
-                .ashr => .ashr,
-                .@"and" => .@"and",
-                .@"or" => .@"or",
                 .xor => .xor,
                 else => unreachable,
             };
@@ -6969,14 +6941,6 @@ pub const Constant = enum(u32) {
         pub fn toCastOpcode(self: Tag) CastOpcode {
             return switch (self) {
                 .trunc => .trunc,
-                .zext => .zext,
-                .sext => .sext,
-                .fptoui => .fptoui,
-                .fptosi => .fptosi,
-                .uitofp => .uitofp,
-                .sitofp => .sitofp,
-                .fptrunc => .fptrunc,
-                .fpext => .fpext,
                 .ptrtoint => .ptrtoint,
                 .inttoptr => .inttoptr,
                 .bitcast => .bitcast,
@@ -7049,29 +7013,6 @@ pub const Constant = enum(u32) {
         pub const Kind = enum { normal, inbounds };
         pub const InRangeIndex = enum(u16) { none = std.math.maxInt(u16), _ };
         pub const Info = packed struct(u32) { indices_len: u16, inrange: InRangeIndex };
-    };
-
-    pub const Compare = extern struct {
-        cond: u32,
-        lhs: Constant,
-        rhs: Constant,
-    };
-
-    pub const ExtractElement = extern struct {
-        val: Constant,
-        index: Constant,
-    };
-
-    pub const InsertElement = extern struct {
-        val: Constant,
-        elem: Constant,
-        index: Constant,
-    };
-
-    pub const ShuffleVector = extern struct {
-        lhs: Constant,
-        rhs: Constant,
-        mask: Constant,
     };
 
     pub const Binary = extern struct {
@@ -7149,14 +7090,6 @@ pub const Constant = enum(u32) {
                     => builder.ptrTypeAssumeCapacity(@as(Function.Index, @enumFromInt(item.data))
                         .ptrConst(builder).global.ptrConst(builder).addr_space),
                     .trunc,
-                    .zext,
-                    .sext,
-                    .fptrunc,
-                    .fpext,
-                    .fptoui,
-                    .fptosi,
-                    .uitofp,
-                    .sitofp,
                     .ptrtoint,
                     .inttoptr,
                     .bitcast,
@@ -7176,35 +7109,13 @@ pub const Constant = enum(u32) {
                         };
                         return base_ty;
                     },
-                    .icmp,
-                    .fcmp,
-                    => builder.constantExtraData(Compare, item.data).lhs.typeOf(builder)
-                        .changeScalarAssumeCapacity(.i1, builder),
-                    .extractelement => builder.constantExtraData(ExtractElement, item.data)
-                        .val.typeOf(builder).childType(builder),
-                    .insertelement => builder.constantExtraData(InsertElement, item.data)
-                        .val.typeOf(builder),
-                    .shufflevector => {
-                        const extra = builder.constantExtraData(ShuffleVector, item.data);
-                        return extra.lhs.typeOf(builder).changeLengthAssumeCapacity(
-                            extra.mask.typeOf(builder).vectorLen(builder),
-                            builder,
-                        );
-                    },
                     .add,
                     .@"add nsw",
                     .@"add nuw",
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
                     .@"asm",
@@ -7339,28 +7250,36 @@ pub const Constant = enum(u32) {
                     .positive_integer,
                     .negative_integer,
                     => |tag| {
-                        const extra: *align(@alignOf(std.math.big.Limb)) Integer =
+                        const extra: *align(@alignOf(std.math.big.Limb)) const Integer =
                             @ptrCast(data.builder.constant_limbs.items[item.data..][0..Integer.limbs]);
                         const limbs = data.builder.constant_limbs
                             .items[item.data + Integer.limbs ..][0..extra.limbs_len];
                         const bigint: std.math.big.int.Const = .{
                             .limbs = limbs,
-                            .positive = tag == .positive_integer,
+                            .positive = switch (tag) {
+                                .positive_integer => true,
+                                .negative_integer => false,
+                                else => unreachable,
+                            },
                         };
                         const ExpectedContents = extern struct {
-                            string: [(64 * 8 / std.math.log2(10)) + 2]u8,
+                            const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
+                            string: [
+                                (std.math.big.int.Const{
+                                    .limbs = &([1]std.math.big.Limb{
+                                        std.math.maxInt(std.math.big.Limb),
+                                    } ** expected_limbs),
+                                    .positive = false,
+                                }).sizeInBaseUpperBound(10)
+                            ]u8,
                             limbs: [
-                                std.math.big.int.calcToStringLimbsBufferLen(
-                                    64 / @sizeOf(std.math.big.Limb),
-                                    10,
-                                )
+                                std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                             ]std.math.big.Limb,
                         };
                         var stack align(@alignOf(ExpectedContents)) =
                             std.heap.stackFallback(@sizeOf(ExpectedContents), data.builder.gpa);
                         const allocator = stack.get();
-                        const str = bigint.toStringAlloc(allocator, 10, undefined) catch
-                            return writer.writeAll("...");
+                        const str = try bigint.toStringAlloc(allocator, 10, undefined);
                         defer allocator.free(str);
                         try writer.writeAll(str);
                     },
@@ -7508,14 +7427,6 @@ pub const Constant = enum(u32) {
                         });
                     },
                     .trunc,
-                    .zext,
-                    .sext,
-                    .fptrunc,
-                    .fpext,
-                    .fptoui,
-                    .fptosi,
-                    .uitofp,
-                    .sitofp,
                     .ptrtoint,
                     .inttoptr,
                     .bitcast,
@@ -7542,61 +7453,13 @@ pub const Constant = enum(u32) {
                         for (indices) |index| try writer.print(", {%}", .{index.fmt(data.builder)});
                         try writer.writeByte(')');
                     },
-                    inline .icmp,
-                    .fcmp,
-                    => |tag| {
-                        const extra = data.builder.constantExtraData(Compare, item.data);
-                        try writer.print("{s} {s} ({%}, {%})", .{
-                            @tagName(tag),
-                            @tagName(@as(switch (tag) {
-                                .icmp => IntegerCondition,
-                                .fcmp => FloatCondition,
-                                else => unreachable,
-                            }, @enumFromInt(extra.cond))),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                        });
-                    },
-                    .extractelement => |tag| {
-                        const extra = data.builder.constantExtraData(ExtractElement, item.data);
-                        try writer.print("{s} ({%}, {%})", .{
-                            @tagName(tag),
-                            extra.val.fmt(data.builder),
-                            extra.index.fmt(data.builder),
-                        });
-                    },
-                    .insertelement => |tag| {
-                        const extra = data.builder.constantExtraData(InsertElement, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.val.fmt(data.builder),
-                            extra.elem.fmt(data.builder),
-                            extra.index.fmt(data.builder),
-                        });
-                    },
-                    .shufflevector => |tag| {
-                        const extra = data.builder.constantExtraData(ShuffleVector, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                            extra.mask.fmt(data.builder),
-                        });
-                    },
                     .add,
                     .@"add nsw",
                     .@"add nuw",
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => |tag| {
                         const extra = data.builder.constantExtraData(Binary, item.data);
@@ -9270,21 +9133,19 @@ pub fn noCfiValue(self: *Builder, function: Function.Index) Allocator.Error!Valu
 
 pub fn convConst(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Allocator.Error!Constant {
     try self.ensureUnusedConstantCapacity(1, Constant.Cast, 0);
-    return self.convConstAssumeCapacity(signedness, val, ty);
+    return self.convConstAssumeCapacity(val, ty);
 }
 
 pub fn convValue(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Allocator.Error!Value {
-    return (try self.convConst(signedness, val, ty)).toValue();
+    return (try self.convConst(val, ty)).toValue();
 }
 
 pub fn castConst(self: *Builder, tag: Constant.Tag, val: Constant, ty: Type) Allocator.Error!Constant {
@@ -9318,92 +9179,6 @@ pub fn gepValue(
     indices: []const Constant,
 ) Allocator.Error!Value {
     return (try self.gepConst(kind, ty, base, inrange, indices)).toValue();
-}
-
-pub fn icmpConst(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Compare, 0);
-    return self.icmpConstAssumeCapacity(cond, lhs, rhs);
-}
-
-pub fn icmpValue(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Value {
-    return (try self.icmpConst(cond, lhs, rhs)).toValue();
-}
-
-pub fn fcmpConst(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Compare, 0);
-    return self.icmpConstAssumeCapacity(cond, lhs, rhs);
-}
-
-pub fn fcmpValue(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Value {
-    return (try self.fcmpConst(cond, lhs, rhs)).toValue();
-}
-
-pub fn extractElementConst(self: *Builder, val: Constant, index: Constant) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.ExtractElement, 0);
-    return self.extractElementConstAssumeCapacity(val, index);
-}
-
-pub fn extractElementValue(self: *Builder, val: Constant, index: Constant) Allocator.Error!Value {
-    return (try self.extractElementConst(val, index)).toValue();
-}
-
-pub fn insertElementConst(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.InsertElement, 0);
-    return self.insertElementConstAssumeCapacity(val, elem, index);
-}
-
-pub fn insertElementValue(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Allocator.Error!Value {
-    return (try self.insertElementConst(val, elem, index)).toValue();
-}
-
-pub fn shuffleVectorConst(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedTypeCapacity(1, Type.Array, 0);
-    try self.ensureUnusedConstantCapacity(1, Constant.ShuffleVector, 0);
-    return self.shuffleVectorConstAssumeCapacity(lhs, rhs, mask);
-}
-
-pub fn shuffleVectorValue(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Allocator.Error!Value {
-    return (try self.shuffleVectorConst(lhs, rhs, mask)).toValue();
 }
 
 pub fn binConst(
@@ -9464,10 +9239,38 @@ pub fn print(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocato
     try bw.flush();
 }
 
+fn WriterWithErrors(comptime BackingWriter: type, comptime ExtraErrors: type) type {
+    return struct {
+        backing_writer: BackingWriter,
+
+        pub const Error = BackingWriter.Error || ExtraErrors;
+        pub const Writer = std.io.Writer(*const Self, Error, write);
+
+        const Self = @This();
+
+        pub fn writer(self: *const Self) Writer {
+            return .{ .context = self };
+        }
+
+        pub fn write(self: *const Self, bytes: []const u8) Error!usize {
+            return self.backing_writer.write(bytes);
+        }
+    };
+}
+fn writerWithErrors(
+    backing_writer: anytype,
+    comptime ExtraErrors: type,
+) WriterWithErrors(@TypeOf(backing_writer), ExtraErrors) {
+    return .{ .backing_writer = backing_writer };
+}
+
 pub fn printUnbuffered(
     self: *Builder,
-    writer: anytype,
-) (@TypeOf(writer).Error || Allocator.Error)!void {
+    backing_writer: anytype,
+) (@TypeOf(backing_writer).Error || Allocator.Error)!void {
+    const writer_with_errors = writerWithErrors(backing_writer, Allocator.Error);
+    const writer = writer_with_errors.writer();
+
     var need_newline = false;
     var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
     defer metadata_formatter.map.deinit(self.gpa);
@@ -10344,12 +10147,17 @@ pub fn printUnbuffered(
                     const extra = self.metadataExtraData(Metadata.Enumerator, metadata_item.data);
 
                     const ExpectedContents = extern struct {
-                        string: [(64 * 8 / std.math.log2(10)) + 2]u8,
+                        const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
+                        string: [
+                            (std.math.big.int.Const{
+                                .limbs = &([1]std.math.big.Limb{
+                                    std.math.maxInt(std.math.big.Limb),
+                                } ** expected_limbs),
+                                .positive = false,
+                            }).sizeInBaseUpperBound(10)
+                        ]u8,
                         limbs: [
-                            std.math.big.int.calcToStringLimbsBufferLen(
-                                64 / @sizeOf(std.math.big.Limb),
-                                10,
-                            )
+                            std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                         ]std.math.big.Limb,
                     };
                     var stack align(@alignOf(ExpectedContents)) =
@@ -10375,7 +10183,9 @@ pub fn printUnbuffered(
                         .value = str,
                         .isUnsigned = switch (kind) {
                             .enumerator_unsigned => true,
-                            .enumerator_signed_positive, .enumerator_signed_negative => false,
+                            .enumerator_signed_positive,
+                            .enumerator_signed_negative,
+                            => false,
                             else => unreachable,
                         },
                     }, writer);
@@ -11347,11 +11157,10 @@ fn noCfiConstAssumeCapacity(self: *Builder, function: Function.Index) Constant {
 
 fn convTag(
     self: *Builder,
-    comptime Tag: type,
     signedness: Constant.Cast.Signedness,
     val_ty: Type,
     ty: Type,
-) Tag {
+) Function.Instruction.Tag {
     assert(val_ty != ty);
     return switch (val_ty.scalarTag(self)) {
         .simple => switch (ty.scalarTag(self)) {
@@ -11394,15 +11203,38 @@ fn convTag(
     };
 }
 
+fn convConstTag(
+    self: *Builder,
+    val_ty: Type,
+    ty: Type,
+) Constant.Tag {
+    assert(val_ty != ty);
+    return switch (val_ty.scalarTag(self)) {
+        .integer => switch (ty.scalarTag(self)) {
+            .integer => switch (std.math.order(val_ty.scalarBits(self), ty.scalarBits(self))) {
+                .gt => .trunc,
+                else => unreachable,
+            },
+            .pointer => .inttoptr,
+            else => unreachable,
+        },
+        .pointer => switch (ty.scalarTag(self)) {
+            .integer => .ptrtoint,
+            .pointer => .addrspacecast,
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+}
+
 fn convConstAssumeCapacity(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Constant {
     const val_ty = val.typeOf(self);
     if (val_ty == ty) return val;
-    return self.castConstAssumeCapacity(self.convTag(Constant.Tag, signedness, val_ty, ty), val, ty);
+    return self.castConstAssumeCapacity(self.convConstTag(val_ty, ty), val, ty);
 }
 
 fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty: Type) Constant {
@@ -11527,179 +11359,6 @@ fn gepConstAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
-fn icmpConstAssumeCapacity(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.Compare) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(Constant.tag.icmp)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .icmp) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .icmp,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn fcmpConstAssumeCapacity(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.Compare) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(Constant.tag.fcmp)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .fcmp) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .fcmp,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn extractElementConstAssumeCapacity(
-    self: *Builder,
-    val: Constant,
-    index: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.ExtractElement) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.extractelement)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.ExtractElement, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .extractelement) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.ExtractElement, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.ExtractElement{ .val = val, .index = index };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .extractelement,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn insertElementConstAssumeCapacity(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.InsertElement) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.insertelement)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.InsertElement, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .insertelement) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.InsertElement, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.InsertElement{ .val = val, .elem = elem, .index = index };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .insertelement,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn shuffleVectorConstAssumeCapacity(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Constant {
-    assert(lhs.typeOf(self).isVector(self.builder));
-    assert(lhs.typeOf(self) == rhs.typeOf(self));
-    assert(mask.typeOf(self).scalarType(self).isInteger(self));
-    _ = lhs.typeOf(self).changeLengthAssumeCapacity(mask.typeOf(self).vectorLen(self), self);
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.ShuffleVector) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.shufflevector)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.ShuffleVector, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .shufflevector) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.ShuffleVector, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.ShuffleVector{ .lhs = lhs, .rhs = rhs, .mask = mask };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .shufflevector,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
 fn binConstAssumeCapacity(
     self: *Builder,
     tag: Constant.Tag,
@@ -11713,14 +11372,7 @@ fn binConstAssumeCapacity(
         .sub,
         .@"sub nsw",
         .@"sub nuw",
-        .mul,
-        .@"mul nsw",
-        .@"mul nuw",
         .shl,
-        .lshr,
-        .ashr,
-        .@"and",
-        .@"or",
         .xor,
         => {},
         else => unreachable,
@@ -13787,37 +13439,42 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     => |tag| {
                         const extra: *align(@alignOf(std.math.big.Limb)) Constant.Integer =
                             @ptrCast(self.constant_limbs.items[data..][0..Constant.Integer.limbs]);
-                        const limbs = self.constant_limbs
-                            .items[data + Constant.Integer.limbs ..][0..extra.limbs_len];
                         const bigint: std.math.big.int.Const = .{
-                            .limbs = limbs,
-                            .positive = tag == .positive_integer,
+                            .limbs = self.constant_limbs
+                                .items[data + Constant.Integer.limbs ..][0..extra.limbs_len],
+                            .positive = switch (tag) {
+                                .positive_integer => true,
+                                .negative_integer => false,
+                                else => unreachable,
+                            },
                         };
-
                         const bit_count = extra.type.scalarBits(self);
-                        if (bit_count <= 64) {
-                            const val = bigint.to(i64) catch unreachable;
-                            const emit_val = if (tag == .positive_integer)
-                                @shlWithOverflow(val, 1)[0]
-                            else
-                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
-                            try constants_block.writeAbbrev(Constants.Integer{ .value = @bitCast(emit_val) });
-                        } else {
-                            const word_count = std.mem.alignForward(u24, bit_count, 64) / 64;
-                            try record.ensureUnusedCapacity(self.gpa, word_count);
-                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
-                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
-
-                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
-                            for (signed_buffer[0..word_count], 0..) |val, i| {
-                                signed_buffer[i] = if (val >= 0)
-                                    @shlWithOverflow(val, 1)[0]
+                        const val: i64 = if (bit_count <= 64)
+                            bigint.to(i64) catch unreachable
+                        else if (bigint.to(u64)) |val|
+                            @bitCast(val)
+                        else |_| {
+                            const limbs = try record.addManyAsSlice(
+                                self.gpa,
+                                std.math.divCeil(u24, bit_count, 64) catch unreachable,
+                            );
+                            bigint.writeTwosComplement(std.mem.sliceAsBytes(limbs), .little);
+                            for (limbs) |*limb| {
+                                const val = std.mem.littleToNative(i64, @bitCast(limb.*));
+                                limb.* = @bitCast(if (val >= 0)
+                                    val << 1 | 0
                                 else
-                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                                    -%val << 1 | 1);
                             }
-
-                            try constants_block.writeUnabbrev(5, record.items.ptr[0..word_count]);
-                        }
+                            try constants_block.writeUnabbrev(5, record.items);
+                            continue;
+                        };
+                        try constants_block.writeAbbrev(Constants.Integer{
+                            .value = @bitCast(if (val >= 0)
+                                val << 1 | 0
+                            else
+                                -%val << 1 | 1),
+                        });
                     },
                     .half,
                     .bfloat,
@@ -13890,16 +13547,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .bitcast,
                     .inttoptr,
                     .ptrtoint,
-                    .fptosi,
-                    .fptoui,
-                    .sitofp,
-                    .uitofp,
                     .addrspacecast,
-                    .fptrunc,
                     .trunc,
-                    .fpext,
-                    .sext,
-                    .zext,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Cast, data);
                         try constants_block.writeAbbrevAdapted(Constants.Cast{
@@ -13914,14 +13563,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Binary, data);
@@ -13930,55 +13572,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .lhs = extra.lhs,
                             .rhs = extra.rhs,
                         }, constant_adapter);
-                    },
-                    .icmp,
-                    .fcmp,
-                    => {
-                        const extra = self.constantExtraData(Constant.Compare, data);
-                        try constants_block.writeAbbrevAdapted(Constants.Cmp{
-                            .ty = extra.lhs.typeOf(self),
-                            .lhs = extra.lhs,
-                            .rhs = extra.rhs,
-                            .pred = extra.cond,
-                        }, constant_adapter);
-                    },
-                    .extractelement => {
-                        const extra = self.constantExtraData(Constant.ExtractElement, data);
-                        try constants_block.writeAbbrevAdapted(Constants.ExtractElement{
-                            .val_type = extra.val.typeOf(self),
-                            .val = extra.val,
-                            .index_type = extra.index.typeOf(self),
-                            .index = extra.index,
-                        }, constant_adapter);
-                    },
-                    .insertelement => {
-                        const extra = self.constantExtraData(Constant.InsertElement, data);
-                        try constants_block.writeAbbrevAdapted(Constants.InsertElement{
-                            .val = extra.val,
-                            .elem = extra.elem,
-                            .index_type = extra.index.typeOf(self),
-                            .index = extra.index,
-                        }, constant_adapter);
-                    },
-                    .shufflevector => {
-                        const extra = self.constantExtraData(Constant.ShuffleVector, data);
-                        const ty = constant.typeOf(self);
-                        const lhs_type = extra.lhs.typeOf(self);
-                        // Check if instruction is widening, truncating or not
-                        if (ty == lhs_type) {
-                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVector{
-                                .lhs = extra.lhs,
-                                .rhs = extra.rhs,
-                                .mask = extra.mask,
-                            }, constant_adapter);
-                        } else {
-                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVectorEx{
-                                .ty = ty,
-                                .lhs = extra.lhs,
-                                .rhs = extra.rhs,
-                                .mask = extra.mask,
-                            }, constant_adapter);
-                        }
                     },
                     .getelementptr,
                     .@"getelementptr inbounds",
@@ -14186,6 +13779,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 self.metadata_items.items(.tag)[1..],
                 self.metadata_items.items(.data)[1..],
             ) |tag, data| {
+                record.clearRetainingCapacity();
                 switch (tag) {
                     .none => unreachable,
                     .file => {
@@ -14333,77 +13927,60 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .enumerator_signed_positive,
                     .enumerator_signed_negative,
                     => |kind| {
-                        const positive = switch (kind) {
-                            .enumerator_unsigned,
-                            .enumerator_signed_positive,
-                            => true,
-                            .enumerator_signed_negative => false,
-                            else => unreachable,
-                        };
-
-                        const unsigned = switch (kind) {
-                            .enumerator_unsigned => true,
-                            .enumerator_signed_positive,
-                            .enumerator_signed_negative,
-                            => false,
-                            else => unreachable,
-                        };
-
                         const extra = self.metadataExtraData(Metadata.Enumerator, data);
-
-                        const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
-
                         const bigint: std.math.big.int.Const = .{
-                            .limbs = limbs,
-                            .positive = positive,
+                            .limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len],
+                            .positive = switch (kind) {
+                                .enumerator_unsigned,
+                                .enumerator_signed_positive,
+                                => true,
+                                .enumerator_signed_negative => false,
+                                else => unreachable,
+                            },
                         };
-
-                        if (extra.bit_width <= 64) {
-                            const val = bigint.to(i64) catch unreachable;
-                            const emit_val = if (positive)
-                                @shlWithOverflow(val, 1)[0]
-                            else
-                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
-                            try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
-                                .flags = .{
-                                    .unsigned = unsigned,
-                                },
-                                .bit_width = extra.bit_width,
-                                .name = extra.name,
-                                .value = @bitCast(emit_val),
-                            }, metadata_adapter);
-                        } else {
-                            const word_count = std.mem.alignForward(u32, extra.bit_width, 64) / 64;
-                            try record.ensureUnusedCapacity(self.gpa, 3 + word_count);
-
-                            const flags: MetadataBlock.Enumerator.Flags = .{
-                                .unsigned = unsigned,
-                            };
-
-                            const FlagsInt = @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?;
-
-                            const flags_int: FlagsInt = @bitCast(flags);
-
-                            record.appendAssumeCapacity(@intCast(flags_int));
-                            record.appendAssumeCapacity(@intCast(extra.bit_width));
+                        const flags: MetadataBlock.Enumerator.Flags = .{
+                            .unsigned = switch (kind) {
+                                .enumerator_unsigned => true,
+                                .enumerator_signed_positive,
+                                .enumerator_signed_negative,
+                                => false,
+                                else => unreachable,
+                            },
+                        };
+                        const val: i64 = if (bigint.to(i64)) |val|
+                            val
+                        else |_| if (bigint.to(u64)) |val|
+                            @bitCast(val)
+                        else |_| {
+                            const limbs_len = std.math.divCeil(u32, extra.bit_width, 64) catch unreachable;
+                            try record.ensureTotalCapacity(self.gpa, 3 + limbs_len);
+                            record.appendAssumeCapacity(@as(
+                                @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?,
+                                @bitCast(flags),
+                            ));
+                            record.appendAssumeCapacity(extra.bit_width);
                             record.appendAssumeCapacity(metadata_adapter.getMetadataStringIndex(extra.name));
-
-                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
-                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
-
-                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
-                            for (signed_buffer[0..word_count], 0..) |val, i| {
-                                signed_buffer[i] = if (val >= 0)
-                                    @shlWithOverflow(val, 1)[0]
+                            const limbs = record.addManyAsSliceAssumeCapacity(limbs_len);
+                            bigint.writeTwosComplement(std.mem.sliceAsBytes(limbs), .little);
+                            for (limbs) |*limb| {
+                                const val = std.mem.littleToNative(i64, @bitCast(limb.*));
+                                limb.* = @bitCast(if (val >= 0)
+                                    val << 1 | 0
                                 else
-                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                                    -%val << 1 | 1);
                             }
-
-                            try metadata_block.writeUnabbrev(
-                                MetadataBlock.Enumerator.id,
-                                record.items.ptr[0..(3 + word_count)],
-                            );
-                        }
+                            try metadata_block.writeUnabbrev(MetadataBlock.Enumerator.id, record.items);
+                            continue;
+                        };
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
+                            .flags = flags,
+                            .bit_width = extra.bit_width,
+                            .name = extra.name,
+                            .value = @bitCast(if (val >= 0)
+                                val << 1 | 0
+                            else
+                                -%val << 1 | 1),
+                        }, metadata_adapter);
                     },
                     .subrange => {
                         const extra = self.metadataExtraData(Metadata.Subrange, data);
@@ -14491,7 +14068,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         }, metadata_adapter);
                     },
                 }
-                record.clearRetainingCapacity();
             }
 
             // Write named metadata
@@ -14615,7 +14191,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 pub fn getOffsetValueIndex(adapter: @This(), value: Value) u32 {
-                    return @subWithOverflow(adapter.offset(), adapter.getValueIndex(value))[0];
+                    return adapter.offset() -% adapter.getValueIndex(value);
                 }
 
                 pub fn getOffsetValueSignedIndex(adapter: @This(), value: Value) i32 {
@@ -14721,58 +14297,92 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeAbbrevAdapted(FunctionBlock.CallFast{
                                 .attributes = extra.data.attributes,
                                 .call_type = switch (kind) {
-                                    .call => .{ .call_conv = call_conv },
-                                    .@"tail call" => .{ .tail = true, .call_conv = call_conv },
-                                    .@"musttail call" => .{ .must_tail = true, .call_conv = call_conv },
-                                    .@"notail call" => .{ .no_tail = true, .call_conv = call_conv },
+                                    .@"call fast" => .{ .call_conv = call_conv },
+                                    .@"tail call fast" => .{ .tail = true, .call_conv = call_conv },
+                                    .@"musttail call fast" => .{ .must_tail = true, .call_conv = call_conv },
+                                    .@"notail call fast" => .{ .no_tail = true, .call_conv = call_conv },
                                     else => unreachable,
                                 },
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                                 .type_id = extra.data.ty,
                                 .callee = extra.data.callee,
                                 .args = args,
                             }, adapter);
                         },
                         .add,
-                        .@"add nsw",
-                        .@"add nuw",
-                        .@"add nuw nsw",
                         .@"and",
                         .fadd,
                         .fdiv,
                         .fmul,
                         .mul,
-                        .@"mul nsw",
-                        .@"mul nuw",
-                        .@"mul nuw nsw",
                         .frem,
                         .fsub,
                         .sdiv,
-                        .@"sdiv exact",
                         .sub,
-                        .@"sub nsw",
-                        .@"sub nuw",
-                        .@"sub nuw nsw",
                         .udiv,
-                        .@"udiv exact",
                         .xor,
                         .shl,
-                        .@"shl nsw",
-                        .@"shl nuw",
-                        .@"shl nuw nsw",
                         .lshr,
-                        .@"lshr exact",
                         .@"or",
                         .urem,
                         .srem,
                         .ashr,
-                        .@"ashr exact",
                         => |kind| {
                             const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.Binary{
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                            });
+                        },
+                        .@"sdiv exact",
+                        .@"udiv exact",
+                        .@"lshr exact",
+                        .@"ashr exact",
+                        => |kind| {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.BinaryExact{
+                                .opcode = kind.toBinaryOpcode(),
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                            });
+                        },
+                        .@"add nsw",
+                        .@"add nuw",
+                        .@"add nuw nsw",
+                        .@"mul nsw",
+                        .@"mul nuw",
+                        .@"mul nuw nsw",
+                        .@"sub nsw",
+                        .@"sub nuw",
+                        .@"sub nuw nsw",
+                        .@"shl nsw",
+                        .@"shl nuw",
+                        .@"shl nuw nsw",
+                        => |kind| {
+                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            try function_block.writeAbbrev(FunctionBlock.BinaryNoWrap{
+                                .opcode = kind.toBinaryOpcode(),
+                                .lhs = adapter.getOffsetValueIndex(extra.lhs),
+                                .rhs = adapter.getOffsetValueIndex(extra.rhs),
+                                .flags = switch (kind) {
+                                    .@"add nsw",
+                                    .@"mul nsw",
+                                    .@"sub nsw",
+                                    .@"shl nsw",
+                                    => .{ .no_unsigned_wrap = false, .no_signed_wrap = true },
+                                    .@"add nuw",
+                                    .@"mul nuw",
+                                    .@"sub nuw",
+                                    .@"shl nuw",
+                                    => .{ .no_unsigned_wrap = true, .no_signed_wrap = false },
+                                    .@"add nuw nsw",
+                                    .@"mul nuw nsw",
+                                    .@"sub nuw nsw",
+                                    .@"shl nuw nsw",
+                                    => .{ .no_unsigned_wrap = true, .no_signed_wrap = true },
+                                    else => unreachable,
+                                },
                             });
                         },
                         .@"fadd fast",
@@ -14786,7 +14396,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .alloca,
@@ -14884,7 +14494,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                                 .pred = kind.toCmpPredicate(),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .fneg => try function_block.writeAbbrev(FunctionBlock.FNeg{
@@ -14892,7 +14502,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         }),
                         .@"fneg fast" => try function_block.writeAbbrev(FunctionBlock.FNegFast{
                             .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
-                            .fast_math = .{},
+                            .fast_math = FastMath.fast,
                         }),
                         .extractvalue => {
                             var extra = func.extraDataTrail(Function.Instruction.ExtractValue, datas[instr_index]);
@@ -14940,7 +14550,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                                 .cond = adapter.getOffsetValueIndex(extra.cond),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .shufflevector => {

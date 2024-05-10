@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-errorhandling-l1-1-3
+
+EXPORTS
+
+FatalAppExitA
+FatalAppExitW
+GetThreadErrorMode
+SetThreadErrorMode
+TerminateProcessOnMemoryExhaustion

@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-libraryloader-l1-2-2
+
+EXPORTS
+
+EnumResourceNamesW@16

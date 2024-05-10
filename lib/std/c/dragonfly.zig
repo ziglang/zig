@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-const iovec = std.os.iovec;
+const iovec = std.posix.iovec;
 
 extern "c" threadlocal var errno: c_int;
 pub fn _errno() *c_int {
@@ -494,6 +494,12 @@ pub const sockaddr = extern struct {
         addr: [16]u8,
         scope_id: u32,
     };
+
+    pub const un = extern struct {
+        len: u8 = @sizeOf(un),
+        family: sa_family_t = AF.UNIX,
+        path: [104]u8,
+    };
 };
 
 pub const Kevent = extern struct {
@@ -610,9 +616,9 @@ pub const S = struct {
 pub const BADSIG = SIG.ERR;
 
 pub const SIG = struct {
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
 
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -662,7 +668,7 @@ pub const siginfo_t = extern struct {
     pid: c_int,
     uid: uid_t,
     status: c_int,
-    addr: ?*anyopaque,
+    addr: *allowzero anyopaque,
     value: sigval,
     band: c_long,
     __spare__: [7]c_int,
@@ -684,8 +690,8 @@ pub const empty_sigset = sigset_t{ .__bits = [_]c_uint{0} ** _SIG_WORDS };
 pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -696,7 +702,7 @@ pub const Sigaction = extern struct {
     mask: sigset_t,
 };
 
-pub const sig_t = *const fn (c_int) callconv(.C) void;
+pub const sig_t = *const fn (i32) callconv(.C) void;
 
 pub const SOCK = struct {
     pub const STREAM = 1;
@@ -837,6 +843,8 @@ pub const EAI = enum(c_int) {
     OVERFLOW = 14,
     _,
 };
+
+pub const IFNAMESIZE = 16;
 
 pub const AI = struct {
     pub const PASSIVE = 0x00000001;

@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-quirks-l1-1-0
+
+EXPORTS
+
+QuirkGetData@8
+QuirkGetData2@8
+QuirkIsEnabled@4
+QuirkIsEnabled2@12
+QuirkIsEnabled3@8
+QuirkIsEnabledForPackage@16
+QuirkIsEnabledForPackage2@24
+QuirkIsEnabledForProcess@12

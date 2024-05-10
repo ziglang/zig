@@ -1263,3 +1263,44 @@ test "matching captures causes enum equivalence" {
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try expect(@intFromEnum(a) == @intFromEnum(b));
 }
+
+test "large enum field values" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    {
+        const E = enum(u64) { min = std.math.minInt(u64), max = std.math.maxInt(u64) };
+        var e: E = .min;
+        try expect(e == .min);
+        try expect(@intFromEnum(e) == std.math.minInt(u64));
+        e = .max;
+        try expect(e == .max);
+        try expect(@intFromEnum(e) == std.math.maxInt(u64));
+    }
+    {
+        const E = enum(i64) { min = std.math.minInt(i64), max = std.math.maxInt(i64) };
+        var e: E = .min;
+        try expect(e == .min);
+        try expect(@intFromEnum(e) == std.math.minInt(i64));
+        e = .max;
+        try expect(e == .max);
+        try expect(@intFromEnum(e) == std.math.maxInt(i64));
+    }
+    {
+        const E = enum(u128) { min = std.math.minInt(u128), max = std.math.maxInt(u128) };
+        var e: E = .min;
+        try expect(e == .min);
+        try expect(@intFromEnum(e) == std.math.minInt(u128));
+        e = .max;
+        try expect(e == .max);
+        try expect(@intFromEnum(e) == std.math.maxInt(u128));
+    }
+    {
+        const E = enum(i128) { min = std.math.minInt(i128), max = std.math.maxInt(i128) };
+        var e: E = .min;
+        try expect(e == .min);
+        try expect(@intFromEnum(e) == std.math.minInt(i128));
+        e = .max;
+        try expect(e == .max);
+        try expect(@intFromEnum(e) == std.math.maxInt(i128));
+    }
+}

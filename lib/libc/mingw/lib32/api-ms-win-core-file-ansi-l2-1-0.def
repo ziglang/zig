@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-file-ansi-l2-1-0
+
+EXPORTS
+
+CopyFileExA@24
+CreateDirectoryExA@12
+CreateSymbolicLinkA@12
+MoveFileWithProgressA@20
+ReplaceFileA@24

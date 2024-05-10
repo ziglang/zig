@@ -1,10 +1,11 @@
 const std = @import("std");
-const os = std.os;
 const mem = std.mem;
 const elf = std.elf;
 const math = std.math;
 const assert = std.debug.assert;
 const native_arch = @import("builtin").cpu.arch;
+const linux = std.os.linux;
+const posix = std.posix;
 
 // This file implements the two TLS variants [1] used by ELF-based systems.
 //
@@ -111,7 +112,7 @@ pub var tls_image: TLSImage = undefined;
 pub fn setThreadPointer(addr: usize) void {
     switch (native_arch) {
         .x86 => {
-            var user_desc = std.os.linux.user_desc{
+            var user_desc: linux.user_desc = .{
                 .entry_number = tls_image.gdt_entry_number,
                 .base_addr = addr,
                 .limit = 0xfffff,
@@ -124,7 +125,7 @@ pub fn setThreadPointer(addr: usize) void {
                     .useable = 1,
                 },
             };
-            const rc = std.os.linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
+            const rc = linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
             assert(rc == 0);
 
             const gdt_entry_number = user_desc.entry_number;
@@ -137,7 +138,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .x86_64 => {
-            const rc = std.os.linux.syscall2(.arch_prctl, std.os.linux.ARCH.SET_FS, addr);
+            const rc = linux.syscall2(.arch_prctl, linux.ARCH.SET_FS, addr);
             assert(rc == 0);
         },
         .aarch64, .aarch64_be => {
@@ -148,7 +149,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .arm, .thumb => {
-            const rc = std.os.linux.syscall1(.set_tls, addr);
+            const rc = linux.syscall1(.set_tls, addr);
             assert(rc == 0);
         },
         .riscv64 => {
@@ -159,7 +160,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .mips, .mipsel, .mips64, .mips64el => {
-            const rc = std.os.linux.syscall1(.set_thread_area, addr);
+            const rc = linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
         .powerpc, .powerpcle => {
@@ -320,14 +321,14 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
             break :blk main_thread_tls_buffer[0..tls_image.alloc_size];
         }
 
-        const alloc_tls_area = os.mmap(
+        const alloc_tls_area = posix.mmap(
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,
-            os.PROT.READ | os.PROT.WRITE,
+            posix.PROT.READ | posix.PROT.WRITE,
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
-        ) catch os.abort();
+        ) catch posix.abort();
 
         // Make sure the slice is correctly aligned.
         const begin_addr = @intFromPtr(alloc_tls_area.ptr);

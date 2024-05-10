@@ -1,45 +1,138 @@
 const std = @import("std");
-const g = @import("spirv/grammar.zig");
 const Allocator = std.mem.Allocator;
+const g = @import("spirv/grammar.zig");
+const CoreRegistry = g.CoreRegistry;
+const ExtensionRegistry = g.ExtensionRegistry;
+const Instruction = g.Instruction;
+const OperandKind = g.OperandKind;
+const Enumerant = g.Enumerant;
+const Operand = g.Operand;
 
 const ExtendedStructSet = std.StringHashMap(void);
+
+const Extension = struct {
+    name: []const u8,
+    spec: ExtensionRegistry,
+};
+
+const CmpInst = struct {
+    fn lt(_: CmpInst, a: Instruction, b: Instruction) bool {
+        return a.opcode < b.opcode;
+    }
+};
+
+const StringPair = struct { []const u8, []const u8 };
+
+const StringPairContext = struct {
+    pub fn hash(_: @This(), a: StringPair) u32 {
+        var hasher = std.hash.Wyhash.init(0);
+        const x, const y = a;
+        hasher.update(x);
+        hasher.update(y);
+        return @truncate(hasher.final());
+    }
+
+    pub fn eql(_: @This(), a: StringPair, b: StringPair, b_index: usize) bool {
+        _ = b_index;
+        const a_x, const a_y = a;
+        const b_x, const b_y = b;
+        return std.mem.eql(u8, a_x, b_x) and std.mem.eql(u8, a_y, b_y);
+    }
+};
+
+const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairContext, true);
+
+/// Khronos made it so that these names are not defined explicitly, so
+/// we need to hardcode it (like they did).
+/// See https://github.com/KhronosGroup/SPIRV-Registry/
+const set_names = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "opencl.std.100", "OpenCL.std" },
+    .{ "glsl.std.450", "GLSL.std.450" },
+    .{ "opencl.debuginfo.100", "OpenCL.DebugInfo.100" },
+    .{ "spv-amd-shader-ballot", "SPV_AMD_shader_ballot" },
+    .{ "nonsemantic.shader.debuginfo.100", "NonSemantic.Shader.DebugInfo.100" },
+    .{ "nonsemantic.vkspreflection", "NonSemantic.VkspReflection" },
+    .{ "nonsemantic.clspvreflection", "NonSemantic.ClspvReflection.6" }, // This version needs to be handled manually
+    .{ "spv-amd-gcn-shader", "SPV_AMD_gcn_shader" },
+    .{ "spv-amd-shader-trinary-minmax", "SPV_AMD_shader_trinary_minmax" },
+    .{ "debuginfo", "DebugInfo" },
+    .{ "nonsemantic.debugprintf", "NonSemantic.DebugPrintf" },
+    .{ "spv-amd-shader-explicit-vertex-parameter", "SPV_AMD_shader_explicit_vertex_parameter" },
+    .{ "nonsemantic.debugbreak", "NonSemantic.DebugBreak" },
+    .{ "zig", "zig" },
+});
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
+    const a = arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    if (args.len != 2) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+    const args = try std.process.argsAlloc(a);
+    if (args.len != 3) {
+        usageAndExit(args[0], 1);
     }
 
-    const spec_path = args[1];
-    const spec = try std.fs.cwd().readFileAlloc(allocator, spec_path, std.math.maxInt(usize));
+    const json_path = try std.fs.path.join(a, &.{ args[1], "include/spirv/unified1/" });
+    const dir = try std.fs.cwd().openDir(json_path, .{ .iterate = true });
 
+    const core_spec = try readRegistry(CoreRegistry, a, dir, "spirv.core.grammar.json");
+    std.sort.block(Instruction, core_spec.instructions, CmpInst{}, CmpInst.lt);
+
+    var exts = std.ArrayList(Extension).init(a);
+
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind != .file) {
+            continue;
+        }
+
+        try readExtRegistry(&exts, a, dir, entry.name);
+    }
+
+    try readExtRegistry(&exts, a, std.fs.cwd(), args[2]);
+
+    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
+    try render(bw.writer(), a, core_spec, exts.items);
+    try bw.flush();
+}
+
+fn readExtRegistry(exts: *std.ArrayList(Extension), a: Allocator, dir: std.fs.Dir, sub_path: []const u8) !void {
+    const filename = std.fs.path.basename(sub_path);
+    if (!std.mem.startsWith(u8, filename, "extinst.")) {
+        return;
+    }
+
+    std.debug.assert(std.mem.endsWith(u8, filename, ".grammar.json"));
+    const name = filename["extinst.".len .. filename.len - ".grammar.json".len];
+    const spec = try readRegistry(ExtensionRegistry, a, dir, sub_path);
+
+    std.sort.block(Instruction, spec.instructions, CmpInst{}, CmpInst.lt);
+
+    try exts.append(.{ .name = set_names.get(name).?, .spec = spec });
+}
+
+fn readRegistry(comptime RegistryType: type, a: Allocator, dir: std.fs.Dir, path: []const u8) !RegistryType {
+    const spec = try dir.readFileAlloc(a, path, std.math.maxInt(usize));
     // Required for json parsing.
     @setEvalBranchQuota(10000);
 
-    var scanner = std.json.Scanner.initCompleteInput(allocator, spec);
+    var scanner = std.json.Scanner.initCompleteInput(a, spec);
     var diagnostics = std.json.Diagnostics{};
     scanner.enableDiagnostics(&diagnostics);
-    const parsed = std.json.parseFromTokenSource(g.CoreRegistry, allocator, &scanner, .{}) catch |err| {
-        std.debug.print("line,col: {},{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
+    const parsed = std.json.parseFromTokenSource(RegistryType, a, &scanner, .{}) catch |err| {
+        std.debug.print("{s}:{}:{}:\n", .{ path, diagnostics.getLine(), diagnostics.getColumn() });
         return err;
     };
-
-    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-    try render(bw.writer(), allocator, parsed.value);
-    try bw.flush();
+    return parsed.value;
 }
 
 /// Returns a set with types that require an extra struct for the `Instruction` interface
 /// to the spir-v spec, or whether the original type can be used.
 fn extendedStructs(
-    arena: Allocator,
-    kinds: []const g.OperandKind,
+    a: Allocator,
+    kinds: []const OperandKind,
 ) !ExtendedStructSet {
-    var map = ExtendedStructSet.init(arena);
+    var map = ExtendedStructSet.init(a);
     try map.ensureTotalCapacity(@as(u32, @intCast(kinds.len)));
 
     for (kinds) |kind| {
@@ -73,9 +166,11 @@ fn tagPriorityScore(tag: []const u8) usize {
     }
 }
 
-fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void {
+fn render(writer: anytype, a: Allocator, registry: CoreRegistry, extensions: []const Extension) !void {
     try writer.writeAll(
         \\//! This file is auto-generated by tools/gen_spirv_spec.zig.
+        \\
+        \\const std = @import("std");
         \\
         \\pub const Version = packed struct(Word) {
         \\    padding: u8 = 0,
@@ -89,8 +184,21 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\};
         \\
         \\pub const Word = u32;
-        \\pub const IdResult = struct{
-        \\    id: Word,
+        \\pub const IdResult = enum(Word) {
+        \\    none,
+        \\    _,
+        \\
+        \\    pub fn format(
+        \\        self: IdResult,
+        \\        comptime _: []const u8,
+        \\        _: std.fmt.FormatOptions,
+        \\        writer: anytype,
+        \\    ) @TypeOf(writer).Error!void {
+        \\        switch (self) {
+        \\            .none => try writer.writeAll("(none)"),
+        \\            else => try writer.print("%{}", .{@intFromEnum(self)}),
+        \\        }
+        \\    }
         \\};
         \\pub const IdResultType = IdResult;
         \\pub const IdRef = IdResult;
@@ -99,6 +207,7 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\pub const IdScope = IdRef;
         \\
         \\pub const LiteralInteger = Word;
+        \\pub const LiteralFloat = Word;
         \\pub const LiteralString = []const u8;
         \\pub const LiteralContextDependentNumber = union(enum) {
         \\    int32: i32,
@@ -139,6 +248,13 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         \\    parameters: []const OperandKind,
         \\};
         \\
+        \\pub const Instruction = struct {
+        \\    name: []const u8,
+        \\    opcode: Word,
+        \\    operands: []const Operand,
+        \\};
+        \\
+        \\pub const zig_generator_id: Word = 41;
         \\
     );
 
@@ -151,15 +267,123 @@ fn render(writer: anytype, allocator: Allocator, registry: g.CoreRegistry) !void
         .{ registry.major_version, registry.minor_version, registry.revision, registry.magic_number },
     );
 
-    const extended_structs = try extendedStructs(allocator, registry.operand_kinds);
-    try renderClass(writer, allocator, registry.instructions);
-    try renderOperandKind(writer, registry.operand_kinds);
-    try renderOpcodes(writer, allocator, registry.instructions, extended_structs);
-    try renderOperandKinds(writer, allocator, registry.operand_kinds, extended_structs);
+    // Merge the operand kinds from all extensions together.
+    // var all_operand_kinds = std.ArrayList(OperandKind).init(a);
+    // try all_operand_kinds.appendSlice(registry.operand_kinds);
+    var all_operand_kinds = OperandKindMap.init(a);
+    for (registry.operand_kinds) |kind| {
+        try all_operand_kinds.putNoClobber(.{ "core", kind.kind }, kind);
+    }
+    for (extensions) |ext| {
+        // Note: extensions may define the same operand kind, with different
+        // parameters. Instead of trying to merge them, just discriminate them
+        // using the name of the extension. This is similar to what
+        // the official headers do.
+
+        try all_operand_kinds.ensureUnusedCapacity(ext.spec.operand_kinds.len);
+        for (ext.spec.operand_kinds) |kind| {
+            var new_kind = kind;
+            new_kind.kind = try std.mem.join(a, ".", &.{ ext.name, kind.kind });
+            try all_operand_kinds.putNoClobber(.{ ext.name, kind.kind }, new_kind);
+        }
+    }
+
+    const extended_structs = try extendedStructs(a, all_operand_kinds.values());
+    // Note: extensions don't seem to have class.
+    try renderClass(writer, a, registry.instructions);
+    try renderOperandKind(writer, all_operand_kinds.values());
+    try renderOpcodes(writer, a, registry.instructions, extended_structs);
+    try renderOperandKinds(writer, a, all_operand_kinds.values(), extended_structs);
+    try renderInstructionSet(writer, a, registry, extensions, all_operand_kinds);
 }
 
-fn renderClass(writer: anytype, allocator: Allocator, instructions: []const g.Instruction) !void {
-    var class_map = std.StringArrayHashMap(void).init(allocator);
+fn renderInstructionSet(
+    writer: anytype,
+    a: Allocator,
+    core: CoreRegistry,
+    extensions: []const Extension,
+    all_operand_kinds: OperandKindMap,
+) !void {
+    _ = a;
+    try writer.writeAll(
+        \\pub const InstructionSet = enum {
+        \\    core,
+    );
+
+    for (extensions) |ext| {
+        try writer.print("{p},\n", .{std.zig.fmtId(ext.name)});
+    }
+
+    try writer.writeAll(
+        \\
+        \\    pub fn instructions(self: InstructionSet) []const Instruction {
+        \\        return switch (self) {
+        \\
+    );
+
+    try renderInstructionsCase(writer, "core", core.instructions, all_operand_kinds);
+    for (extensions) |ext| {
+        try renderInstructionsCase(writer, ext.name, ext.spec.instructions, all_operand_kinds);
+    }
+
+    try writer.writeAll(
+        \\        };
+        \\    }
+        \\};
+        \\
+    );
+}
+
+fn renderInstructionsCase(
+    writer: anytype,
+    set_name: []const u8,
+    instructions: []const Instruction,
+    all_operand_kinds: OperandKindMap,
+) !void {
+    // Note: theoretically we could dedup from tags and give every instruction a list of aliases,
+    // but there aren't so many total aliases and that would add more overhead in total. We will
+    // just filter those out when needed.
+
+    try writer.print(".{p_} => &[_]Instruction{{\n", .{std.zig.fmtId(set_name)});
+
+    for (instructions) |inst| {
+        try writer.print(
+            \\.{{
+            \\    .name = "{s}",
+            \\    .opcode = {},
+            \\    .operands = &[_]Operand{{
+            \\
+        , .{ inst.opname, inst.opcode });
+
+        for (inst.operands) |operand| {
+            const quantifier = if (operand.quantifier) |q|
+                switch (q) {
+                    .@"?" => "optional",
+                    .@"*" => "variadic",
+                }
+            else
+                "required";
+
+            const kind = all_operand_kinds.get(.{ set_name, operand.kind }) orelse
+                all_operand_kinds.get(.{ "core", operand.kind }).?;
+            try writer.print(".{{.kind = .{p_}, .quantifier = .{s}}},\n", .{ std.zig.fmtId(kind.kind), quantifier });
+        }
+
+        try writer.writeAll(
+            \\    },
+            \\},
+            \\
+        );
+    }
+
+    try writer.writeAll(
+        \\},
+        \\
+    );
+}
+
+fn renderClass(writer: anytype, a: Allocator, instructions: []const Instruction) !void {
+    var class_map = std.StringArrayHashMap(void).init(a);
 
     for (instructions) |inst| {
         if (std.mem.eql(u8, inst.class.?, "@exclude")) {
@@ -173,7 +397,7 @@ fn renderClass(writer: anytype, allocator: Allocator, instructions: []const g.In
         try renderInstructionClass(writer, class);
         try writer.writeAll(",\n");
     }
-    try writer.writeAll("};\n");
+    try writer.writeAll("};\n\n");
 }
 
 fn renderInstructionClass(writer: anytype, class: []const u8) !void {
@@ -192,15 +416,20 @@ fn renderInstructionClass(writer: anytype, class: []const u8) !void {
     }
 }
 
-fn renderOperandKind(writer: anytype, operands: []const g.OperandKind) !void {
-    try writer.writeAll("pub const OperandKind = enum {\n");
+fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
+    try writer.writeAll(
+        \\pub const OperandKind = enum {
+        \\    Opcode,
+        \\
+    );
     for (operands) |operand| {
-        try writer.print("{},\n", .{std.zig.fmtId(operand.kind)});
+        try writer.print("{p},\n", .{std.zig.fmtId(operand.kind)});
     }
     try writer.writeAll(
         \\
         \\pub fn category(self: OperandKind) OperandCategory {
-        \\return switch (self) {
+        \\    return switch (self) {
+        \\        .Opcode => .literal,
         \\
     );
     for (operands) |operand| {
@@ -211,25 +440,26 @@ fn renderOperandKind(writer: anytype, operands: []const g.OperandKind) !void {
             .Literal => "literal",
             .Composite => "composite",
         };
-        try writer.print(".{} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
+        try writer.print(".{p_} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
     }
     try writer.writeAll(
-        \\};
+        \\    };
         \\}
         \\pub fn enumerants(self: OperandKind) []const Enumerant {
-        \\return switch (self) {
+        \\    return switch (self) {
+        \\        .Opcode => unreachable,
         \\
     );
     for (operands) |operand| {
         switch (operand.category) {
             .BitEnum, .ValueEnum => {},
             else => {
-                try writer.print(".{} => unreachable,\n", .{std.zig.fmtId(operand.kind)});
+                try writer.print(".{p_} => unreachable,\n", .{std.zig.fmtId(operand.kind)});
                 continue;
             },
         }
 
-        try writer.print(".{} => &[_]Enumerant{{", .{std.zig.fmtId(operand.kind)});
+        try writer.print(".{p_} => &[_]Enumerant{{", .{std.zig.fmtId(operand.kind)});
         for (operand.enumerants.?) |enumerant| {
             if (enumerant.value == .bitflag and std.mem.eql(u8, enumerant.enumerant, "None")) {
                 continue;
@@ -242,7 +472,7 @@ fn renderOperandKind(writer: anytype, operands: []const g.OperandKind) !void {
     try writer.writeAll("};\n}\n};\n");
 }
 
-fn renderEnumerant(writer: anytype, enumerant: g.Enumerant) !void {
+fn renderEnumerant(writer: anytype, enumerant: Enumerant) !void {
     try writer.print(".{{.name = \"{s}\", .value = ", .{enumerant.enumerant});
     switch (enumerant.value) {
         .bitflag => |flag| try writer.writeAll(flag),
@@ -253,21 +483,21 @@ fn renderEnumerant(writer: anytype, enumerant: g.Enumerant) !void {
         if (i != 0)
             try writer.writeAll(", ");
         // Note, param.quantifier will always be one.
-        try writer.print(".{}", .{std.zig.fmtId(param.kind)});
+        try writer.print(".{p_}", .{std.zig.fmtId(param.kind)});
     }
     try writer.writeAll("}}");
 }
 
 fn renderOpcodes(
     writer: anytype,
-    allocator: Allocator,
-    instructions: []const g.Instruction,
+    a: Allocator,
+    instructions: []const Instruction,
     extended_structs: ExtendedStructSet,
 ) !void {
-    var inst_map = std.AutoArrayHashMap(u32, usize).init(allocator);
+    var inst_map = std.AutoArrayHashMap(u32, usize).init(a);
     try inst_map.ensureTotalCapacity(instructions.len);
 
-    var aliases = std.ArrayList(struct { inst: usize, alias: usize }).init(allocator);
+    var aliases = std.ArrayList(struct { inst: usize, alias: usize }).init(a);
     try aliases.ensureTotalCapacity(instructions.len);
 
     for (instructions, 0..) |inst, i| {
@@ -299,13 +529,15 @@ fn renderOpcodes(
     try writer.writeAll("pub const Opcode = enum(u16) {\n");
     for (instructions_indices) |i| {
         const inst = instructions[i];
-        try writer.print("{} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
+        try writer.print("{p} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
     }
 
-    try writer.writeByte('\n');
+    try writer.writeAll(
+        \\
+    );
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {} = Opcode.{};\n", .{
+        try writer.print("pub const {} = Opcode.{p_};\n", .{
             std.zig.fmtId(instructions[alias.inst].opname),
             std.zig.fmtId(instructions[alias.alias].opname),
         });
@@ -314,7 +546,7 @@ fn renderOpcodes(
     try writer.writeAll(
         \\
         \\pub fn Operands(comptime self: Opcode) type {
-        \\return switch (self) {
+        \\    return switch (self) {
         \\
     );
 
@@ -324,58 +556,38 @@ fn renderOpcodes(
     }
 
     try writer.writeAll(
-        \\};
-        \\}
-        \\pub fn operands(self: Opcode) []const Operand {
-        \\return switch (self) {
-        \\
-    );
-
-    for (instructions_indices) |i| {
-        const inst = instructions[i];
-        try writer.print(".{} => &[_]Operand{{", .{std.zig.fmtId(inst.opname)});
-        for (inst.operands) |operand| {
-            const quantifier = if (operand.quantifier) |q|
-                switch (q) {
-                    .@"?" => "optional",
-                    .@"*" => "variadic",
-                }
-            else
-                "required";
-
-            try writer.print(".{{.kind = .{s}, .quantifier = .{s}}},", .{ operand.kind, quantifier });
-        }
-        try writer.writeAll("},\n");
-    }
-
-    try writer.writeAll(
-        \\};
+        \\    };
         \\}
         \\pub fn class(self: Opcode) Class {
-        \\return switch (self) {
+        \\    return switch (self) {
         \\
     );
 
     for (instructions_indices) |i| {
         const inst = instructions[i];
-        try writer.print(".{} => .", .{std.zig.fmtId(inst.opname)});
+        try writer.print(".{p_} => .", .{std.zig.fmtId(inst.opname)});
         try renderInstructionClass(writer, inst.class.?);
         try writer.writeAll(",\n");
     }
 
-    try writer.writeAll("};\n}\n};\n");
+    try writer.writeAll(
+        \\   };
+        \\}
+        \\};
+        \\
+    );
 }
 
 fn renderOperandKinds(
     writer: anytype,
-    allocator: Allocator,
-    kinds: []const g.OperandKind,
+    a: Allocator,
+    kinds: []const OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
     for (kinds) |kind| {
         switch (kind.category) {
-            .ValueEnum => try renderValueEnum(writer, allocator, kind, extended_structs),
-            .BitEnum => try renderBitEnum(writer, allocator, kind, extended_structs),
+            .ValueEnum => try renderValueEnum(writer, a, kind, extended_structs),
+            .BitEnum => try renderBitEnum(writer, a, kind, extended_structs),
             else => {},
         }
     }
@@ -383,20 +595,26 @@ fn renderOperandKinds(
 
 fn renderValueEnum(
     writer: anytype,
-    allocator: Allocator,
-    enumeration: g.OperandKind,
+    a: Allocator,
+    enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
 
-    var enum_map = std.AutoArrayHashMap(u32, usize).init(allocator);
+    var enum_map = std.AutoArrayHashMap(u32, usize).init(a);
     try enum_map.ensureTotalCapacity(enumerants.len);
 
-    var aliases = std.ArrayList(struct { enumerant: usize, alias: usize }).init(allocator);
+    var aliases = std.ArrayList(struct { enumerant: usize, alias: usize }).init(a);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {
-        const result = enum_map.getOrPutAssumeCapacity(enumerant.value.int);
+        try writer.context.flush();
+        const value: u31 = switch (enumerant.value) {
+            .int => |value| value,
+            // Some extensions declare ints as string
+            .bitflag => |value| try std.fmt.parseInt(u31, value, 10),
+        };
+        const result = enum_map.getOrPutAssumeCapacity(value);
         if (!result.found_existing) {
             result.value_ptr.* = i;
             continue;
@@ -418,19 +636,22 @@ fn renderValueEnum(
 
     const enum_indices = enum_map.values();
 
-    try writer.print("pub const {s} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.kind)});
+    try writer.print("pub const {} = enum(u32) {{\n", .{std.zig.fmtId(enumeration.kind)});
 
     for (enum_indices) |i| {
         const enumerant = enumerants[i];
-        if (enumerant.value != .int) return error.InvalidRegistry;
+        // if (enumerant.value != .int) return error.InvalidRegistry;
 
-        try writer.print("{} = {},\n", .{ std.zig.fmtId(enumerant.enumerant), enumerant.value.int });
+        switch (enumerant.value) {
+            .int => |value| try writer.print("{p} = {},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
+            .bitflag => |value| try writer.print("{p} = {s},\n", .{ std.zig.fmtId(enumerant.enumerant), value }),
+        }
     }
 
     try writer.writeByte('\n');
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {} = {}.{};\n", .{
+        try writer.print("pub const {} = {}.{p_};\n", .{
             std.zig.fmtId(enumerants[alias.enumerant].enumerant),
             std.zig.fmtId(enumeration.kind),
             std.zig.fmtId(enumerants[alias.alias].enumerant),
@@ -454,16 +675,16 @@ fn renderValueEnum(
 
 fn renderBitEnum(
     writer: anytype,
-    allocator: Allocator,
-    enumeration: g.OperandKind,
+    a: Allocator,
+    enumeration: OperandKind,
     extended_structs: ExtendedStructSet,
 ) !void {
-    try writer.print("pub const {s} = packed struct {{\n", .{std.zig.fmtId(enumeration.kind)});
+    try writer.print("pub const {} = packed struct {{\n", .{std.zig.fmtId(enumeration.kind)});
 
     var flags_by_bitpos = [_]?usize{null} ** 32;
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
 
-    var aliases = std.ArrayList(struct { flag: usize, alias: u5 }).init(allocator);
+    var aliases = std.ArrayList(struct { flag: usize, alias: u5 }).init(a);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {
@@ -471,6 +692,10 @@ fn renderBitEnum(
         const value = try parseHexInt(enumerant.value.bitflag);
         if (value == 0) {
             continue; // Skip 'none' items
+        } else if (std.mem.eql(u8, enumerant.enumerant, "FlagIsPublic")) {
+            // This flag is special and poorly defined in the json files.
+            // Just skip it for now
+            continue;
         }
 
         std.debug.assert(@popCount(value) == 1);
@@ -494,7 +719,7 @@ fn renderBitEnum(
 
     for (flags_by_bitpos, 0..) |maybe_flag_index, bitpos| {
         if (maybe_flag_index) |flag_index| {
-            try writer.print("{}", .{std.zig.fmtId(enumerants[flag_index].enumerant)});
+            try writer.print("{p_}", .{std.zig.fmtId(enumerants[flag_index].enumerant)});
         } else {
             try writer.print("_reserved_bit_{}", .{bitpos});
         }
@@ -505,7 +730,7 @@ fn renderBitEnum(
     try writer.writeByte('\n');
 
     for (aliases.items) |alias| {
-        try writer.print("pub const {}: {} = .{{.{} = true}};\n", .{
+        try writer.print("pub const {}: {} = .{{.{p_} = true}};\n", .{
             std.zig.fmtId(enumerants[alias.flag].enumerant),
             std.zig.fmtId(enumeration.kind),
             std.zig.fmtId(enumerants[flags_by_bitpos[alias.alias].?].enumerant),
@@ -540,7 +765,7 @@ fn renderOperand(
         mask,
     },
     field_name: []const u8,
-    parameters: []const g.Operand,
+    parameters: []const Operand,
     extended_structs: ExtendedStructSet,
 ) !void {
     if (kind == .instruction) {
@@ -606,7 +831,7 @@ fn renderOperand(
     try writer.writeAll(",\n");
 }
 
-fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: usize) !void {
+fn renderFieldName(writer: anytype, operands: []const Operand, field_index: usize) !void {
     const operand = operands[field_index];
 
     // Should be enough for all names - adjust as needed.
@@ -633,7 +858,7 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
         }
 
         // Assume there are no duplicate 'name' fields.
-        try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
+        try writer.print("{p_}", .{std.zig.fmtId(name_buffer.items)});
         return;
     }
 
@@ -651,7 +876,7 @@ fn renderFieldName(writer: anytype, operands: []const g.Operand, field_index: us
         }
     }
 
-    try writer.print("{}", .{std.zig.fmtId(name_buffer.items)});
+    try writer.print("{p_}", .{std.zig.fmtId(name_buffer.items)});
 
     // For fields derived from type name, there could be any amount.
     // Simply check against all other fields, and if another similar one exists, add a number.
@@ -673,16 +898,16 @@ fn parseHexInt(text: []const u8) !u31 {
     return try std.fmt.parseInt(u31, text[prefix.len..], 16);
 }
 
-fn usageAndExit(file: std.fs.File, arg0: []const u8, code: u8) noreturn {
-    file.writer().print(
-        \\Usage: {s} <spirv json spec>
+fn usageAndExit(arg0: []const u8, code: u8) noreturn {
+    std.io.getStdErr().writer().print(
+        \\Usage: {s} <SPIRV-Headers repository path> <path/to/zig/src/codegen/spirv/extinst.zig.grammar.json>
         \\
-        \\Generates Zig bindings for a SPIR-V specification .json (either core or
-        \\extinst versions). The result, printed to stdout, should be used to update
+        \\Generates Zig bindings for SPIR-V specifications found in the SPIRV-Headers
+        \\repository. The result, printed to stdout, should be used to update
         \\files in src/codegen/spirv. Don't forget to format the output.
         \\
-        \\The relevant specifications can be obtained from the SPIR-V registry:
-        \\https://github.com/KhronosGroup/SPIRV-Headers/blob/master/include/spirv/unified1/
+        \\<SPIRV-Headers repository path> should point to a clone of
+        \\https://github.com/KhronosGroup/SPIRV-Headers/
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);

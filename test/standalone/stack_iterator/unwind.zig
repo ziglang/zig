@@ -19,7 +19,7 @@ noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
 }
 
 noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
-    // Excercise different __unwind_info / DWARF CFI encodings by forcing some registers to be restored
+    // Exercise different __unwind_info / DWARF CFI encodings by forcing some registers to be restored
     if (builtin.target.ofmt != .c) {
         switch (builtin.cpu.arch) {
             .x86 => {

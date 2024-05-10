@@ -18,13 +18,11 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _BidirectionalIterator, class _OutputIterator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-reverse_copy(_BidirectionalIterator __first, _BidirectionalIterator __last, _OutputIterator __result)
-{
-    for (; __first != __last; ++__result)
-        *__result = *--__last;
-    return __result;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+reverse_copy(_BidirectionalIterator __first, _BidirectionalIterator __last, _OutputIterator __result) {
+  for (; __first != __last; ++__result)
+    *__result = *--__last;
+  return __result;
 }
 
 _LIBCPP_END_NAMESPACE_STD

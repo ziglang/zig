@@ -507,7 +507,7 @@ test "LinearFifo(u8, .Dynamic)" {
     }
 }
 
-test "LinearFifo" {
+test LinearFifo {
     inline for ([_]type{ u1, u8, u16, u64 }) |T| {
         inline for ([_]LinearFifoBufferType{ LinearFifoBufferType{ .Static = 32 }, .Slice, .Dynamic }) |bt| {
             const FifoType = LinearFifo(T, bt);

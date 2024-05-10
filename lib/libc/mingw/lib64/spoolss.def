@@ -75,7 +75,6 @@ DllCanUnloadNow
 DllFreeSplMem
 DllFreeSplStr
 DllGetClassObject
-DllMain
 DllReallocSplMem
 DllReallocSplStr
 DllRegisterServer

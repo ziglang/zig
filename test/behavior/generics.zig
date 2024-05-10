@@ -447,7 +447,6 @@ test "return type of generic function is function pointer" {
 
 test "coerced function body has inequal value with its uncoerced body" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const A = B(i32, c);
@@ -577,4 +576,10 @@ test "call generic function that uses capture from function declaration's scope"
     const S = StructCapture(f64);
     const s = S.foo(123);
     try expectEqual(123.0, s[0]);
+}
+
+comptime {
+    // The same function parameter instruction being analyzed multiple times
+    // should override the result of the previous analysis.
+    for (0..2) |_| _ = fn (void) void;
 }

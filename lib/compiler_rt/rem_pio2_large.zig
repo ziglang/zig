@@ -174,14 +174,14 @@ const PIo2 = [_]f64{
 ///                      z    = (z-x[i])*2**24
 ///
 ///
-///      y[]     ouput result in an array of double precision numbers.
+///      y[]     output result in an array of double precision numbers.
 ///              The dimension of y[] is:
 ///                      24-bit  precision       1
 ///                      53-bit  precision       2
 ///                      64-bit  precision       2
 ///                      113-bit precision       3
 ///              The actual value is the sum of them. Thus for 113-bit
-///              precison, one may have to do something like:
+///              precision, one may have to do something like:
 ///
 ///              long double t,w,r_head, r_tail;
 ///              t = (long double)y[2] + (long double)y[1];

@@ -34,7 +34,7 @@ inline fn suboXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST 
     // and the sign of a-b-carry is opposite of a (or equivalently same as b).
     // Faster routine: res = (a ^ b) & (sum ^ a)
     // Slower routine: res = (sum^a) & ~(sum^b)
-    // Overflow occured, iff (res < 0)
+    // Overflow occurred, iff (res < 0)
     if (((a ^ b) & (sum ^ a)) < 0)
         overflow.* = 1;
     return sum;

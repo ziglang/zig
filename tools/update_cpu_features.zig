@@ -184,6 +184,10 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a17",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7-sysreg",
                 .flatten = true,
             },
@@ -205,6 +209,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "cortex-x3",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x4",
                 .flatten = true,
             },
             .{
@@ -255,6 +263,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "ampere1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "ampere1b",
                 .flatten = true,
             },
         },
@@ -680,6 +692,10 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "armv9.4-a",
                 .zig_name = "v9_4a",
+            },
+            .{
+                .llvm_name = "armv9.5-a",
+                .zig_name = "v9_5a",
             },
             .{
                 .llvm_name = "armv9-a",
@@ -1314,7 +1330,7 @@ fn processOneTarget(job: Job) anyerror!void {
     );
 
     for (all_features.items) |feature| {
-        try w.print("    {},\n", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("    {p},\n", .{std.zig.fmtId(feature.zig_name)});
     }
 
     try w.writeAll(
@@ -1341,7 +1357,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = "{}",
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1354,7 +1370,7 @@ fn processOneTarget(job: Job) anyerror!void {
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = null,
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1388,7 +1404,7 @@ fn processOneTarget(job: Job) anyerror!void {
         } else {
             try w.writeAll("\n");
             for (dependencies.items) |dep| {
-                try w.print("            .{},\n", .{std.zig.fmtId(dep)});
+                try w.print("            .{p_},\n", .{std.zig.fmtId(dep)});
             }
             try w.writeAll(
                 \\        }),
@@ -1454,7 +1470,7 @@ fn processOneTarget(job: Job) anyerror!void {
         } else {
             try w.writeAll("\n");
             for (cpu_features.items) |feature_zig_name| {
-                try w.print("            .{},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{p_},\n", .{std.zig.fmtId(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),

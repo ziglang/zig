@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-service-core-l1-1-2
+
+EXPORTS
+
+GetServiceDisplayNameW
+GetServiceKeyNameW

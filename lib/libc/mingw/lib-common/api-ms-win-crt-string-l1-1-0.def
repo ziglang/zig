@@ -1,0 +1,211 @@
+LIBRARY api-ms-win-crt-string-l1-1-0
+
+EXPORTS
+
+__isascii
+isascii == __isascii
+__iscsym
+iscsym == __iscsym
+__iscsymf
+iscsymf == __iscsymf
+__iswcsym
+__iswcsymf
+__strncnt
+__wcsncnt
+_isalnum_l
+_isalpha_l
+_isblank_l
+_iscntrl_l
+_isctype
+_isctype_l
+_isdigit_l
+_isgraph_l
+_isleadbyte_l
+_islower_l
+_isprint_l
+_ispunct_l
+_isspace_l
+_isupper_l
+_iswalnum_l
+_iswalpha_l
+_iswblank_l
+_iswcntrl_l
+_iswcsym_l
+_iswcsymf_l
+_iswctype_l
+_iswdigit_l
+_iswgraph_l
+_iswlower_l
+_iswprint_l
+_iswpunct_l
+_iswspace_l
+_iswupper_l
+_iswxdigit_l
+_isxdigit_l
+_memccpy
+memccpy == _memccpy
+_memicmp
+memicmp == _memicmp
+_memicmp_l
+_strcoll_l
+_strdup
+strdup == _strdup
+_stricmp
+_strcmpi == _stricmp
+strcmpi == _stricmp
+stricmp == _stricmp
+strcasecmp == _stricmp
+_stricmp_l
+_stricoll
+stricoll == _stricoll
+_stricoll_l
+_strlwr
+strlwr == _strlwr
+_strlwr_l
+_strlwr_s
+_strlwr_s_l
+_strncoll
+_strncoll_l
+_strnicmp
+strnicmp == _strnicmp
+strncasecmp == _strnicmp
+_strnicmp_l
+_strnicoll
+_strnicoll_l
+_strnset
+strnset == _strnset
+_strnset_s
+_strrev
+strrev == _strrev
+_strset
+strset == _strset
+_strset_s
+_strupr
+strupr == _strupr
+_strupr_l
+_strupr_s
+_strupr_s_l
+_strxfrm_l
+_tolower
+_tolower_l
+_toupper
+_toupper_l
+_towlower_l
+_towupper_l
+_wcscoll_l
+_wcsdup
+wcsdup == _wcsdup
+_wcsicmp
+wcsicmp == _wcsicmp
+wcscmpi == _wcsicmp
+_wcsicmp_l
+_wcsicoll
+wcsicoll == _wcsicoll
+_wcsicoll_l
+_wcslwr
+wcslwr == _wcslwr
+_wcslwr_l
+_wcslwr_s
+_wcslwr_s_l
+_wcsncoll
+_wcsncoll_l
+_wcsnicmp
+wcsnicmp == _wcsnicmp
+_wcsnicmp_l
+_wcsnicoll
+_wcsnicoll_l
+_wcsnset
+wcsnset == _wcsnset
+_wcsnset_s
+_wcsrev
+wcsrev == _wcsrev
+_wcsset
+wcsset == _wcsset
+_wcsset_s
+_wcsupr
+wcsupr == _wcsupr
+_wcsupr_l
+_wcsupr_s
+_wcsupr_s_l
+_wcsxfrm_l
+_wctype
+is_wctype
+isalnum
+isalpha
+isblank
+iscntrl
+isdigit
+isgraph
+isleadbyte
+islower
+isprint
+ispunct
+isspace
+isupper
+iswalnum
+iswalpha
+iswascii
+iswblank
+iswcntrl
+iswctype
+iswdigit
+iswgraph
+iswlower
+iswprint
+iswpunct
+iswspace
+iswupper
+iswxdigit
+isxdigit
+mblen
+mbrlen
+memcpy_s
+memmove_s
+memset
+strcat
+strcat_s
+strcmp
+strcoll
+strcpy
+strcpy_s
+strcspn
+strlen
+strncat
+strncat_s
+strncmp
+strncpy
+strncpy_s
+; strnlen replaced by emu
+strpbrk
+strspn
+strtok
+strtok_s
+strxfrm
+tolower
+toupper
+towctrans
+towlower
+towupper
+wcscat
+wcscat_s
+wcscmp
+wcscoll
+wcscpy
+wcscpy_s
+wcscspn
+wcslen
+wcsncat
+wcsncat_s
+wcsncmp
+wcsncpy
+wcsncpy_s
+; We provide replacement implementation in libmingwex
+wcsnlen DATA
+wcspbrk
+wcsspn
+wcstok
+wcstok_s
+wcsxfrm
+wctype
+wmemcpy_s
+wmemmove_s

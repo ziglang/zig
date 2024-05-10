@@ -22,13 +22,15 @@ typedef _Float16 __m512h_u __attribute__((__vector_size__(64), __aligned__(1)));
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS512                                                  \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512fp16"),     \
-                 __min_vector_width__(512)))
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512fp16,evex512"), __min_vector_width__(512)))
 #define __DEFAULT_FN_ATTRS256                                                  \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512fp16"),     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512fp16,no-evex512"),                          \
                  __min_vector_width__(256)))
 #define __DEFAULT_FN_ATTRS128                                                  \
-  __attribute__((__always_inline__, __nodebug__, __target__("avx512fp16"),     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512fp16,no-evex512"),                          \
                  __min_vector_width__(128)))
 
 static __inline__ _Float16 __DEFAULT_FN_ATTRS512 _mm512_cvtsh_h(__m512h __a) {

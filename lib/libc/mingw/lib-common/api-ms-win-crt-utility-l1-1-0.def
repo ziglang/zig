@@ -1,0 +1,37 @@
+LIBRARY api-ms-win-crt-utility-l1-1-0
+
+EXPORTS
+
+_abs64
+_byteswap_uint64
+_byteswap_ulong
+_byteswap_ushort
+_lfind
+lfind == _lfind
+_lfind_s
+_lrotl
+_lrotr
+_lsearch
+lsearch == _lsearch
+_lsearch_s
+_rotl
+_rotl64
+_rotr
+_rotr64
+_swab
+swab == _swab
+abs
+bsearch
+bsearch_s
+div
+imaxabs
+imaxdiv
+labs
+ldiv
+llabs
+lldiv
+qsort
+qsort_s
+rand
+rand_s
+srand

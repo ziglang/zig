@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-url-l1-1-0
+
+EXPORTS
+
+GetAcceptLanguagesA
+GetAcceptLanguagesW

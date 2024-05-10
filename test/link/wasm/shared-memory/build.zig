@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = .{ .path = "lib.zig" },
+        .root_source_file = b.path("lib.zig"),
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },

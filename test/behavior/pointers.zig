@@ -216,7 +216,6 @@ test "assign null directly to C pointer and test null equality" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: [*c]i32 = null;
     _ = &x;
@@ -621,4 +620,40 @@ test "cast pointers with zero sized elements" {
     const c: *[0]u8 = undefined;
     const d: []u8 = c;
     _ = d;
+}
+
+test "comptime pointer equality through distinct fields with well-defined layout" {
+    const A = extern struct {
+        x: u32,
+        z: u16,
+    };
+    const B = extern struct {
+        x: u16,
+        y: u16,
+        z: u16,
+    };
+
+    const a: A = .{
+        .x = undefined,
+        .z = 123,
+    };
+
+    const ap: *const A = &a;
+    const bp: *const B = @ptrCast(ap);
+
+    comptime assert(&ap.z == &bp.z);
+    comptime assert(ap.z == 123);
+    comptime assert(bp.z == 123);
+}
+
+test "comptime pointer equality through distinct elements with well-defined layout" {
+    const buf: [2]u32 = .{ 123, 456 };
+
+    const ptr: *const [2]u32 = &buf;
+    const byte_ptr: *align(4) const [8]u8 = @ptrCast(ptr);
+    const second_elem: *const u32 = @ptrCast(byte_ptr[4..8]);
+
+    comptime assert(&buf[1] == second_elem);
+    comptime assert(buf[1] == 456);
+    comptime assert(second_elem.* == 456);
 }

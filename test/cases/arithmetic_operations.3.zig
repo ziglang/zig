@@ -8,7 +8,7 @@ pub fn main() void {
 fn print(a: u32, b: u32) void {
     const str = "123456789";
     const len = a | b;
-    _ = std.os.write(1, str[0..len]) catch {};
+    _ = std.posix.write(1, str[0..len]) catch {};
 }
 
 // run

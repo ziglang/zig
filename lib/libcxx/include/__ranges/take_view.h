@@ -57,37 +57,42 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 
-template<view _View>
+template <view _View>
 class take_view : public view_interface<take_view<_View>> {
   _LIBCPP_NO_UNIQUE_ADDRESS _View __base_ = _View();
-  range_difference_t<_View> __count_ = 0;
+  range_difference_t<_View> __count_      = 0;
 
-  template<bool> class __sentinel;
+  template <bool>
+  class __sentinel;
 
 public:
-  _LIBCPP_HIDE_FROM_ABI
-  take_view() requires default_initializable<_View> = default;
+  _LIBCPP_HIDE_FROM_ABI take_view()
+    requires default_initializable<_View>
+  = default;
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr _LIBCPP_EXPLICIT_SINCE_CXX23 take_view(_View __base, range_difference_t<_View> __count)
+  _LIBCPP_HIDE_FROM_ABI constexpr _LIBCPP_EXPLICIT_SINCE_CXX23
+  take_view(_View __base, range_difference_t<_View> __count)
       : __base_(std::move(__base)), __count_(__count) {
     _LIBCPP_ASSERT_UNCATEGORIZED(__count >= 0, "count has to be greater than or equal to zero");
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr _View base() const& requires copy_constructible<_View> { return __base_; }
+  _LIBCPP_HIDE_FROM_ABI constexpr _View base() const&
+    requires copy_constructible<_View>
+  {
+    return __base_;
+  }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr _View base() && { return std::move(__base_); }
+  _LIBCPP_HIDE_FROM_ABI constexpr _View base() && { return std::move(__base_); }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto begin() requires (!__simple_view<_View>) {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto begin()
+    requires(!__simple_view<_View>)
+  {
     if constexpr (sized_range<_View>) {
       if constexpr (random_access_range<_View>) {
         return ranges::begin(__base_);
       } else {
         using _DifferenceT = range_difference_t<_View>;
-        auto __size = size();
+        auto __size        = size();
         return counted_iterator(ranges::begin(__base_), static_cast<_DifferenceT>(__size));
       }
     } else {
@@ -95,14 +100,15 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto begin() const requires range<const _View> {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto begin() const
+    requires range<const _View>
+  {
     if constexpr (sized_range<const _View>) {
       if constexpr (random_access_range<const _View>) {
         return ranges::begin(__base_);
       } else {
         using _DifferenceT = range_difference_t<const _View>;
-        auto __size = size();
+        auto __size        = size();
         return counted_iterator(ranges::begin(__base_), static_cast<_DifferenceT>(__size));
       }
     } else {
@@ -110,8 +116,9 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto end() requires (!__simple_view<_View>) {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto end()
+    requires(!__simple_view<_View>)
+  {
     if constexpr (sized_range<_View>) {
       if constexpr (random_access_range<_View>) {
         return ranges::begin(__base_) + size();
@@ -123,8 +130,9 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto end() const requires range<const _View> {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto end() const
+    requires range<const _View>
+  {
     if constexpr (sized_range<const _View>) {
       if constexpr (random_access_range<const _View>) {
         return ranges::begin(__base_) + size();
@@ -136,62 +144,58 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto size() requires sized_range<_View> {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto size()
+    requires sized_range<_View>
+  {
     auto __n = ranges::size(__base_);
     return ranges::min(__n, static_cast<decltype(__n)>(__count_));
   }
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr auto size() const requires sized_range<const _View> {
+  _LIBCPP_HIDE_FROM_ABI constexpr auto size() const
+    requires sized_range<const _View>
+  {
     auto __n = ranges::size(__base_);
     return ranges::min(__n, static_cast<decltype(__n)>(__count_));
   }
 };
 
-template<view _View>
-template<bool _Const>
+template <view _View>
+template <bool _Const>
 class take_view<_View>::__sentinel {
   using _Base = __maybe_const<_Const, _View>;
-  template<bool _OtherConst>
-  using _Iter = counted_iterator<iterator_t<__maybe_const<_OtherConst, _View>>>;
+  template <bool _OtherConst>
+  using _Iter                                        = counted_iterator<iterator_t<__maybe_const<_OtherConst, _View>>>;
   _LIBCPP_NO_UNIQUE_ADDRESS sentinel_t<_Base> __end_ = sentinel_t<_Base>();
 
-  template<bool>
+  template <bool>
   friend class take_view<_View>::__sentinel;
 
 public:
-  _LIBCPP_HIDE_FROM_ABI
-  __sentinel() = default;
+  _LIBCPP_HIDE_FROM_ABI __sentinel() = default;
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr explicit __sentinel(sentinel_t<_Base> __end) : __end_(std::move(__end)) {}
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __sentinel(sentinel_t<_Base> __end) : __end_(std::move(__end)) {}
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr __sentinel(__sentinel<!_Const> __s)
+  _LIBCPP_HIDE_FROM_ABI constexpr __sentinel(__sentinel<!_Const> __s)
     requires _Const && convertible_to<sentinel_t<_View>, sentinel_t<_Base>>
-    : __end_(std::move(__s.__end_)) {}
+      : __end_(std::move(__s.__end_)) {}
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr sentinel_t<_Base> base() const { return __end_; }
+  _LIBCPP_HIDE_FROM_ABI constexpr sentinel_t<_Base> base() const { return __end_; }
 
-  _LIBCPP_HIDE_FROM_ABI
-  friend constexpr bool operator==(const _Iter<_Const>& __lhs, const __sentinel& __rhs) {
+  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator==(const _Iter<_Const>& __lhs, const __sentinel& __rhs) {
     return __lhs.count() == 0 || __lhs.base() == __rhs.__end_;
   }
 
-  template<bool _OtherConst = !_Const>
+  template <bool _OtherConst = !_Const>
     requires sentinel_for<sentinel_t<_Base>, iterator_t<__maybe_const<_OtherConst, _View>>>
-  _LIBCPP_HIDE_FROM_ABI
-  friend constexpr bool operator==(const _Iter<_Const>& __lhs, const __sentinel& __rhs) {
+  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator==(const _Iter<_OtherConst>& __lhs, const __sentinel& __rhs) {
     return __lhs.count() == 0 || __lhs.base() == __rhs.__end_;
   }
 };
 
-template<class _Range>
+template <class _Range>
 take_view(_Range&&, range_difference_t<_Range>) -> take_view<views::all_t<_Range>>;
 
-template<class _Tp>
+template <class _Tp>
 inline constexpr bool enable_borrowed_range<take_view<_Tp>> = enable_borrowed_range<_Tp>;
 
 namespace views {
@@ -235,7 +239,7 @@ struct __passthrough_type<basic_string_view<_CharT, _Traits>> {
 };
 
 template <class _Iter, class _Sent, subrange_kind _Kind>
-  requires requires{typename subrange<_Iter>;}
+  requires requires { typename subrange<_Iter>; }
 struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
   using type = subrange<_Iter>;
 };
@@ -247,42 +251,36 @@ struct __fn {
   // [range.take.overview]: the `empty_view` case.
   template <class _Range, convertible_to<range_difference_t<_Range>> _Np>
     requires __is_empty_view<remove_cvref_t<_Range>>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-  constexpr auto operator()(_Range&& __range, _Np&&) const
-    noexcept(noexcept(_LIBCPP_AUTO_CAST(std::forward<_Range>(__range))))
-    -> decltype(      _LIBCPP_AUTO_CAST(std::forward<_Range>(__range)))
-    { return          _LIBCPP_AUTO_CAST(std::forward<_Range>(__range)); }
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range, _Np&&) const
+      noexcept(noexcept(_LIBCPP_AUTO_CAST(std::forward<_Range>(__range))))
+          -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Range>(__range))) {
+    return _LIBCPP_AUTO_CAST(std::forward<_Range>(__range));
+  }
 
   // [range.take.overview]: the `span | basic_string_view | subrange` case.
   template <class _Range,
             convertible_to<range_difference_t<_Range>> _Np,
             class _RawRange = remove_cvref_t<_Range>,
-            class _Dist = range_difference_t<_Range>>
-    requires (!__is_empty_view<_RawRange> &&
-              random_access_range<_RawRange> &&
-              sized_range<_RawRange> &&
-              __is_passthrough_specialization<_RawRange>)
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-  constexpr auto operator()(_Range&& __rng, _Np&& __n) const
-    noexcept(noexcept(__passthrough_type_t<_RawRange>(
-                              ranges::begin(__rng),
-                              ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
-                              )))
-    -> decltype(      __passthrough_type_t<_RawRange>(
-                              // Note: deliberately not forwarding `__rng` to guard against double moves.
-                              ranges::begin(__rng),
-                              ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
-                              ))
-    { return          __passthrough_type_t<_RawRange>(
-                              ranges::begin(__rng),
-                              ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
-                              ); }
+            class _Dist     = range_difference_t<_Range>>
+    requires(!__is_empty_view<_RawRange> && random_access_range<_RawRange> && sized_range<_RawRange> &&
+             __is_passthrough_specialization<_RawRange>)
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto
+  operator()(_Range&& __rng, _Np&& __n) const noexcept(noexcept(__passthrough_type_t<_RawRange>(
+      ranges::begin(__rng), ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)))))
+      -> decltype(__passthrough_type_t<_RawRange>(
+          // Note: deliberately not forwarding `__rng` to guard against double moves.
+          ranges::begin(__rng),
+          ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)))) {
+    return __passthrough_type_t<_RawRange>(
+        ranges::begin(__rng), ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)));
+  }
 
   // [range.take.overview]: the `iota_view` case.
+  // clang-format off
   template <class _Range,
             convertible_to<range_difference_t<_Range>> _Np,
             class _RawRange = remove_cvref_t<_Range>,
-            class _Dist = range_difference_t<_Range>>
+            class _Dist     = range_difference_t<_Range>>
     requires (!__is_empty_view<_RawRange> &&
               random_access_range<_RawRange> &&
               sized_range<_RawRange> &&
@@ -291,18 +289,18 @@ struct __fn {
   constexpr auto operator()(_Range&& __rng, _Np&& __n) const
     noexcept(noexcept(ranges::iota_view(
                               *ranges::begin(__rng),
-                              *ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
+                              *(ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)))
                               )))
     -> decltype(      ranges::iota_view(
                               // Note: deliberately not forwarding `__rng` to guard against double moves.
                               *ranges::begin(__rng),
-                              *ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
+                              *(ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)))
                               ))
     { return          ranges::iota_view(
                               *ranges::begin(__rng),
-                              *ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n))
+                              *(ranges::begin(__rng) + std::min<_Dist>(ranges::distance(__rng), std::forward<_Np>(__n)))
                               ); }
-// clang-format off
+
 #if _LIBCPP_STD_VER >= 23
   // [range.take.overview]: the `repeat_view` "_RawRange models sized_range" case.
   template <class _Range,
@@ -326,42 +324,37 @@ struct __fn {
     -> decltype(      views::repeat(*__range.__value_, static_cast<_Dist>(__n)))
     { return          views::repeat(*__range.__value_, static_cast<_Dist>(__n)); }
 #endif
-// clang-format on
+  // clang-format on
 
   // [range.take.overview]: the "otherwise" case.
-  template <class _Range, convertible_to<range_difference_t<_Range>> _Np,
-            class _RawRange = remove_cvref_t<_Range>>
-    // Note: without specifically excluding the other cases, GCC sees this overload as ambiguous with the other
-    // overloads.
-    requires (!(__is_empty_view<_RawRange> ||
-#if _LIBCPP_STD_VER >= 23
-                __is_repeat_specialization<_RawRange> ||
-#endif
-               (__is_iota_specialization<_RawRange> &&
-                sized_range<_RawRange> &&
-                random_access_range<_RawRange>) ||
-               (__is_passthrough_specialization<_RawRange> &&
-                sized_range<_RawRange> &&
-                random_access_range<_RawRange>)
-             ))
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-  constexpr auto operator()(_Range&& __range, _Np&& __n) const
-    noexcept(noexcept(take_view(std::forward<_Range>(__range), std::forward<_Np>(__n))))
-    -> decltype(      take_view(std::forward<_Range>(__range), std::forward<_Np>(__n)))
-    { return          take_view(std::forward<_Range>(__range), std::forward<_Np>(__n)); }
+  template <class _Range, convertible_to<range_difference_t<_Range>> _Np, class _RawRange = remove_cvref_t<_Range>>
+  // Note: without specifically excluding the other cases, GCC sees this overload as ambiguous with the other
+  // overloads.
+    requires(!(__is_empty_view<_RawRange> ||
+#  if _LIBCPP_STD_VER >= 23
+               __is_repeat_specialization<_RawRange> ||
+#  endif
+               (__is_iota_specialization<_RawRange> && sized_range<_RawRange> && random_access_range<_RawRange>) ||
+               (__is_passthrough_specialization<_RawRange> && sized_range<_RawRange> &&
+                random_access_range<_RawRange>)))
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Range&& __range, _Np&& __n) const
+      noexcept(noexcept(take_view(std::forward<_Range>(__range), std::forward<_Np>(__n))))
+          -> decltype(take_view(std::forward<_Range>(__range), std::forward<_Np>(__n))) {
+    return take_view(std::forward<_Range>(__range), std::forward<_Np>(__n));
+  }
 
   template <class _Np>
     requires constructible_from<decay_t<_Np>, _Np>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-  constexpr auto operator()(_Np&& __n) const
-    noexcept(is_nothrow_constructible_v<decay_t<_Np>, _Np>)
-  { return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Np>(__n))); }
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Np&& __n) const
+      noexcept(is_nothrow_constructible_v<decay_t<_Np>, _Np>) {
+    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Np>(__n)));
+  }
 };
 
 } // namespace __take
 
 inline namespace __cpo {
-  inline constexpr auto take = __take::__fn{};
+inline constexpr auto take = __take::__fn{};
 } // namespace __cpo
 } // namespace views
 

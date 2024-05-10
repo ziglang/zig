@@ -34,12 +34,16 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
         zig_object.resolveSymbols(elf_file);
+        try elf_file.addCommentString();
+        try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedObject(elf_file);
 
+        try elf_file.initMergeSections();
         try elf_file.initSymtab();
         try elf_file.initShStrtab();
         try elf_file.sortShdrs();
         try zig_object.addAtomsToRelaSections(elf_file);
+        try elf_file.updateMergeSectionSizes();
         try updateSectionSizes(elf_file);
 
         try allocateAllocSections(elf_file);
@@ -49,6 +53,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
             state_log.debug("{}", .{elf_file.dumpState()});
         }
 
+        try elf_file.writeMergeSections();
         try writeSyntheticSections(elf_file);
         try elf_file.writeShdrTable();
         try elf_file.writeElfHeader();
@@ -179,9 +184,13 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     // input Object files.
     elf_file.resolveSymbols();
     elf_file.markEhFrameAtomsDead();
+    try elf_file.resolveMergeSections();
+    try elf_file.addCommentString();
+    try elf_file.finalizeMergeSections();
     claimUnresolved(elf_file);
 
     try initSections(elf_file);
+    try elf_file.initMergeSections();
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
@@ -191,6 +200,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
         try object.addAtomsToOutputSections(elf_file);
         try object.addAtomsToRelaSections(elf_file);
     }
+    try elf_file.updateMergeSectionSizes();
     try updateSectionSizes(elf_file);
 
     try allocateAllocSections(elf_file);
@@ -201,6 +211,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     }
 
     try writeAtoms(elf_file);
+    try elf_file.writeMergeSections();
     try writeSyntheticSections(elf_file);
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
@@ -328,9 +339,9 @@ fn updateSectionSizes(elf_file: *Elf) !void {
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
-            atom_ptr.value = offset;
+            atom_ptr.value = @intCast(offset);
             shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
         }
     }
 
@@ -434,7 +445,7 @@ fn writeAtoms(elf_file: *Elf) !void {
             const atom_ptr = elf_file.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
+            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(shdr.sh_addr - base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 

@@ -18,9 +18,9 @@ const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPPC();
 const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
-const iovec = std.os.iovec;
-const iovec_const = std.os.iovec_const;
-const ACCMODE = std.os.ACCMODE;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
+const ACCMODE = std.posix.ACCMODE;
 
 test {
     if (builtin.os.tag == .linux) {
@@ -451,10 +451,11 @@ fn splitValue64(val: i64) [2]u32 {
 }
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn getErrno(r: usize) E {
-    const signed_r = @as(isize, @bitCast(r));
+/// The public API is exposed via the `E` namespace.
+fn errnoFromSyscall(r: usize) E {
+    const signed_r: isize = @bitCast(r);
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-    return @as(E, @enumFromInt(int));
+    return @enumFromInt(int);
 }
 
 pub fn dup(old: i32) usize {
@@ -1327,16 +1328,14 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
 
-var vdso_clock_gettime = @as(?*const anyopaque, @ptrCast(&init_vdso_clock_gettime));
-
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
-        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .unordered);
-        if (ptr) |fn_ptr| {
-            const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
+        const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
+        if (ptr) |f| {
             const rc = f(clk_id, tp);
             switch (rc) {
                 0, @as(usize, @bitCast(-@as(isize, @intFromEnum(E.INVAL)))) => return rc,
@@ -1348,15 +1347,12 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
 }
 
 fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
-    const ptr = @as(?*const anyopaque, @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM)));
+    const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .monotonic);
+    @atomicStore(?VdsoClockGettime, &vdso_clock_gettime, ptr, .monotonic);
     // Call into the VDSO if available
-    if (ptr) |fn_ptr| {
-        const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
-        return f(clk, ts);
-    }
+    if (ptr) |f| return f(clk, ts);
     return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
 }
 
@@ -1566,7 +1562,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
         .sparc, .sparc64 => syscall5(.rt_sigaction, sig, ksa_arg, oldksa_arg, @intFromPtr(ksa.restorer), mask_size),
         else => syscall4(.rt_sigaction, sig, ksa_arg, oldksa_arg, mask_size),
     };
-    if (getErrno(result) != .SUCCESS) return result;
+    if (E.init(result) != .SUCCESS) return result;
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
@@ -1613,18 +1609,18 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
-pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
+pub fn setsockopt(fd: i32, level: i32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
+        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
     }
-    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
+    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
 }
 
-pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
+pub fn getsockopt(fd: i32, level: i32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen) });
+        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen) });
     }
-    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen));
+    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
@@ -1648,29 +1644,29 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
             var size: i32 = 0;
             const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
             for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
-                if (iov.iov_len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.iov_len)))[1] != 0) {
+                if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (getErrno(r) != 0) return next_unsent;
+                        if (E.init(r) != 0) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
                     const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (getErrno(r) != 0) return r;
+                    if (E.init(r) != 0) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
                     msg.msg_len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.iov_len;
+                size += iov.len;
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (getErrno(r) != 0) return r;
+            if (E.init(r) != 0) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -1897,7 +1893,7 @@ pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
 
     switch (std.os.errno(rc)) {
         .SUCCESS => return,
-        else => |err| return std.os.unexpectedErrno(err),
+        else => |err| return std.posix.unexpectedErrno(err),
     }
 }
 
@@ -2268,13 +2264,609 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => @import("linux/errno/mips.zig").E,
-    .sparc, .sparcel, .sparc64 => @import("linux/errno/sparc.zig").E,
-    else => @import("linux/errno/generic.zig").E,
+    .mips, .mipsel => enum(u16) {
+        /// No error occurred.
+        SUCCESS = 0,
+
+        PERM = 1,
+        NOENT = 2,
+        SRCH = 3,
+        INTR = 4,
+        IO = 5,
+        NXIO = 6,
+        @"2BIG" = 7,
+        NOEXEC = 8,
+        BADF = 9,
+        CHILD = 10,
+        /// Also used for WOULDBLOCK.
+        AGAIN = 11,
+        NOMEM = 12,
+        ACCES = 13,
+        FAULT = 14,
+        NOTBLK = 15,
+        BUSY = 16,
+        EXIST = 17,
+        XDEV = 18,
+        NODEV = 19,
+        NOTDIR = 20,
+        ISDIR = 21,
+        INVAL = 22,
+        NFILE = 23,
+        MFILE = 24,
+        NOTTY = 25,
+        TXTBSY = 26,
+        FBIG = 27,
+        NOSPC = 28,
+        SPIPE = 29,
+        ROFS = 30,
+        MLINK = 31,
+        PIPE = 32,
+        DOM = 33,
+        RANGE = 34,
+
+        NOMSG = 35,
+        IDRM = 36,
+        CHRNG = 37,
+        L2NSYNC = 38,
+        L3HLT = 39,
+        L3RST = 40,
+        LNRNG = 41,
+        UNATCH = 42,
+        NOCSI = 43,
+        L2HLT = 44,
+        DEADLK = 45,
+        NOLCK = 46,
+        BADE = 50,
+        BADR = 51,
+        XFULL = 52,
+        NOANO = 53,
+        BADRQC = 54,
+        BADSLT = 55,
+        DEADLOCK = 56,
+        BFONT = 59,
+        NOSTR = 60,
+        NODATA = 61,
+        TIME = 62,
+        NOSR = 63,
+        NONET = 64,
+        NOPKG = 65,
+        REMOTE = 66,
+        NOLINK = 67,
+        ADV = 68,
+        SRMNT = 69,
+        COMM = 70,
+        PROTO = 71,
+        DOTDOT = 73,
+        MULTIHOP = 74,
+        BADMSG = 77,
+        NAMETOOLONG = 78,
+        OVERFLOW = 79,
+        NOTUNIQ = 80,
+        BADFD = 81,
+        REMCHG = 82,
+        LIBACC = 83,
+        LIBBAD = 84,
+        LIBSCN = 85,
+        LIBMAX = 86,
+        LIBEXEC = 87,
+        ILSEQ = 88,
+        NOSYS = 89,
+        LOOP = 90,
+        RESTART = 91,
+        STRPIPE = 92,
+        NOTEMPTY = 93,
+        USERS = 94,
+        NOTSOCK = 95,
+        DESTADDRREQ = 96,
+        MSGSIZE = 97,
+        PROTOTYPE = 98,
+        NOPROTOOPT = 99,
+        PROTONOSUPPORT = 120,
+        SOCKTNOSUPPORT = 121,
+        OPNOTSUPP = 122,
+        PFNOSUPPORT = 123,
+        AFNOSUPPORT = 124,
+        ADDRINUSE = 125,
+        ADDRNOTAVAIL = 126,
+        NETDOWN = 127,
+        NETUNREACH = 128,
+        NETRESET = 129,
+        CONNABORTED = 130,
+        CONNRESET = 131,
+        NOBUFS = 132,
+        ISCONN = 133,
+        NOTCONN = 134,
+        UCLEAN = 135,
+        NOTNAM = 137,
+        NAVAIL = 138,
+        ISNAM = 139,
+        REMOTEIO = 140,
+        SHUTDOWN = 143,
+        TOOMANYREFS = 144,
+        TIMEDOUT = 145,
+        CONNREFUSED = 146,
+        HOSTDOWN = 147,
+        HOSTUNREACH = 148,
+        ALREADY = 149,
+        INPROGRESS = 150,
+        STALE = 151,
+        CANCELED = 158,
+        NOMEDIUM = 159,
+        MEDIUMTYPE = 160,
+        NOKEY = 161,
+        KEYEXPIRED = 162,
+        KEYREVOKED = 163,
+        KEYREJECTED = 164,
+        OWNERDEAD = 165,
+        NOTRECOVERABLE = 166,
+        RFKILL = 167,
+        HWPOISON = 168,
+        DQUOT = 1133,
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
+    .sparc, .sparcel, .sparc64 => enum(u16) {
+        /// No error occurred.
+        SUCCESS = 0,
+
+        PERM = 1,
+        NOENT = 2,
+        SRCH = 3,
+        INTR = 4,
+        IO = 5,
+        NXIO = 6,
+        @"2BIG" = 7,
+        NOEXEC = 8,
+        BADF = 9,
+        CHILD = 10,
+        /// Also used for WOULDBLOCK
+        AGAIN = 11,
+        NOMEM = 12,
+        ACCES = 13,
+        FAULT = 14,
+        NOTBLK = 15,
+        BUSY = 16,
+        EXIST = 17,
+        XDEV = 18,
+        NODEV = 19,
+        NOTDIR = 20,
+        ISDIR = 21,
+        INVAL = 22,
+        NFILE = 23,
+        MFILE = 24,
+        NOTTY = 25,
+        TXTBSY = 26,
+        FBIG = 27,
+        NOSPC = 28,
+        SPIPE = 29,
+        ROFS = 30,
+        MLINK = 31,
+        PIPE = 32,
+        DOM = 33,
+        RANGE = 34,
+
+        INPROGRESS = 36,
+        ALREADY = 37,
+        NOTSOCK = 38,
+        DESTADDRREQ = 39,
+        MSGSIZE = 40,
+        PROTOTYPE = 41,
+        NOPROTOOPT = 42,
+        PROTONOSUPPORT = 43,
+        SOCKTNOSUPPORT = 44,
+        /// Also used for NOTSUP
+        OPNOTSUPP = 45,
+        PFNOSUPPORT = 46,
+        AFNOSUPPORT = 47,
+        ADDRINUSE = 48,
+        ADDRNOTAVAIL = 49,
+        NETDOWN = 50,
+        NETUNREACH = 51,
+        NETRESET = 52,
+        CONNABORTED = 53,
+        CONNRESET = 54,
+        NOBUFS = 55,
+        ISCONN = 56,
+        NOTCONN = 57,
+        SHUTDOWN = 58,
+        TOOMANYREFS = 59,
+        TIMEDOUT = 60,
+        CONNREFUSED = 61,
+        LOOP = 62,
+        NAMETOOLONG = 63,
+        HOSTDOWN = 64,
+        HOSTUNREACH = 65,
+        NOTEMPTY = 66,
+        PROCLIM = 67,
+        USERS = 68,
+        DQUOT = 69,
+        STALE = 70,
+        REMOTE = 71,
+        NOSTR = 72,
+        TIME = 73,
+        NOSR = 74,
+        NOMSG = 75,
+        BADMSG = 76,
+        IDRM = 77,
+        DEADLK = 78,
+        NOLCK = 79,
+        NONET = 80,
+        RREMOTE = 81,
+        NOLINK = 82,
+        ADV = 83,
+        SRMNT = 84,
+        COMM = 85,
+        PROTO = 86,
+        MULTIHOP = 87,
+        DOTDOT = 88,
+        REMCHG = 89,
+        NOSYS = 90,
+        STRPIPE = 91,
+        OVERFLOW = 92,
+        BADFD = 93,
+        CHRNG = 94,
+        L2NSYNC = 95,
+        L3HLT = 96,
+        L3RST = 97,
+        LNRNG = 98,
+        UNATCH = 99,
+        NOCSI = 100,
+        L2HLT = 101,
+        BADE = 102,
+        BADR = 103,
+        XFULL = 104,
+        NOANO = 105,
+        BADRQC = 106,
+        BADSLT = 107,
+        DEADLOCK = 108,
+        BFONT = 109,
+        LIBEXEC = 110,
+        NODATA = 111,
+        LIBBAD = 112,
+        NOPKG = 113,
+        LIBACC = 114,
+        NOTUNIQ = 115,
+        RESTART = 116,
+        UCLEAN = 117,
+        NOTNAM = 118,
+        NAVAIL = 119,
+        ISNAM = 120,
+        REMOTEIO = 121,
+        ILSEQ = 122,
+        LIBMAX = 123,
+        LIBSCN = 124,
+        NOMEDIUM = 125,
+        MEDIUMTYPE = 126,
+        CANCELED = 127,
+        NOKEY = 128,
+        KEYEXPIRED = 129,
+        KEYREVOKED = 130,
+        KEYREJECTED = 131,
+        OWNERDEAD = 132,
+        NOTRECOVERABLE = 133,
+        RFKILL = 134,
+        HWPOISON = 135,
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
+    else => enum(u16) {
+        /// No error occurred.
+        /// Same code used for `NSROK`.
+        SUCCESS = 0,
+        /// Operation not permitted
+        PERM = 1,
+        /// No such file or directory
+        NOENT = 2,
+        /// No such process
+        SRCH = 3,
+        /// Interrupted system call
+        INTR = 4,
+        /// I/O error
+        IO = 5,
+        /// No such device or address
+        NXIO = 6,
+        /// Arg list too long
+        @"2BIG" = 7,
+        /// Exec format error
+        NOEXEC = 8,
+        /// Bad file number
+        BADF = 9,
+        /// No child processes
+        CHILD = 10,
+        /// Try again
+        /// Also means: WOULDBLOCK: operation would block
+        AGAIN = 11,
+        /// Out of memory
+        NOMEM = 12,
+        /// Permission denied
+        ACCES = 13,
+        /// Bad address
+        FAULT = 14,
+        /// Block device required
+        NOTBLK = 15,
+        /// Device or resource busy
+        BUSY = 16,
+        /// File exists
+        EXIST = 17,
+        /// Cross-device link
+        XDEV = 18,
+        /// No such device
+        NODEV = 19,
+        /// Not a directory
+        NOTDIR = 20,
+        /// Is a directory
+        ISDIR = 21,
+        /// Invalid argument
+        INVAL = 22,
+        /// File table overflow
+        NFILE = 23,
+        /// Too many open files
+        MFILE = 24,
+        /// Not a typewriter
+        NOTTY = 25,
+        /// Text file busy
+        TXTBSY = 26,
+        /// File too large
+        FBIG = 27,
+        /// No space left on device
+        NOSPC = 28,
+        /// Illegal seek
+        SPIPE = 29,
+        /// Read-only file system
+        ROFS = 30,
+        /// Too many links
+        MLINK = 31,
+        /// Broken pipe
+        PIPE = 32,
+        /// Math argument out of domain of func
+        DOM = 33,
+        /// Math result not representable
+        RANGE = 34,
+        /// Resource deadlock would occur
+        DEADLK = 35,
+        /// File name too long
+        NAMETOOLONG = 36,
+        /// No record locks available
+        NOLCK = 37,
+        /// Function not implemented
+        NOSYS = 38,
+        /// Directory not empty
+        NOTEMPTY = 39,
+        /// Too many symbolic links encountered
+        LOOP = 40,
+        /// No message of desired type
+        NOMSG = 42,
+        /// Identifier removed
+        IDRM = 43,
+        /// Channel number out of range
+        CHRNG = 44,
+        /// Level 2 not synchronized
+        L2NSYNC = 45,
+        /// Level 3 halted
+        L3HLT = 46,
+        /// Level 3 reset
+        L3RST = 47,
+        /// Link number out of range
+        LNRNG = 48,
+        /// Protocol driver not attached
+        UNATCH = 49,
+        /// No CSI structure available
+        NOCSI = 50,
+        /// Level 2 halted
+        L2HLT = 51,
+        /// Invalid exchange
+        BADE = 52,
+        /// Invalid request descriptor
+        BADR = 53,
+        /// Exchange full
+        XFULL = 54,
+        /// No anode
+        NOANO = 55,
+        /// Invalid request code
+        BADRQC = 56,
+        /// Invalid slot
+        BADSLT = 57,
+        /// Bad font file format
+        BFONT = 59,
+        /// Device not a stream
+        NOSTR = 60,
+        /// No data available
+        NODATA = 61,
+        /// Timer expired
+        TIME = 62,
+        /// Out of streams resources
+        NOSR = 63,
+        /// Machine is not on the network
+        NONET = 64,
+        /// Package not installed
+        NOPKG = 65,
+        /// Object is remote
+        REMOTE = 66,
+        /// Link has been severed
+        NOLINK = 67,
+        /// Advertise error
+        ADV = 68,
+        /// Srmount error
+        SRMNT = 69,
+        /// Communication error on send
+        COMM = 70,
+        /// Protocol error
+        PROTO = 71,
+        /// Multihop attempted
+        MULTIHOP = 72,
+        /// RFS specific error
+        DOTDOT = 73,
+        /// Not a data message
+        BADMSG = 74,
+        /// Value too large for defined data type
+        OVERFLOW = 75,
+        /// Name not unique on network
+        NOTUNIQ = 76,
+        /// File descriptor in bad state
+        BADFD = 77,
+        /// Remote address changed
+        REMCHG = 78,
+        /// Can not access a needed shared library
+        LIBACC = 79,
+        /// Accessing a corrupted shared library
+        LIBBAD = 80,
+        /// .lib section in a.out corrupted
+        LIBSCN = 81,
+        /// Attempting to link in too many shared libraries
+        LIBMAX = 82,
+        /// Cannot exec a shared library directly
+        LIBEXEC = 83,
+        /// Illegal byte sequence
+        ILSEQ = 84,
+        /// Interrupted system call should be restarted
+        RESTART = 85,
+        /// Streams pipe error
+        STRPIPE = 86,
+        /// Too many users
+        USERS = 87,
+        /// Socket operation on non-socket
+        NOTSOCK = 88,
+        /// Destination address required
+        DESTADDRREQ = 89,
+        /// Message too long
+        MSGSIZE = 90,
+        /// Protocol wrong type for socket
+        PROTOTYPE = 91,
+        /// Protocol not available
+        NOPROTOOPT = 92,
+        /// Protocol not supported
+        PROTONOSUPPORT = 93,
+        /// Socket type not supported
+        SOCKTNOSUPPORT = 94,
+        /// Operation not supported on transport endpoint
+        /// This code also means `NOTSUP`.
+        OPNOTSUPP = 95,
+        /// Protocol family not supported
+        PFNOSUPPORT = 96,
+        /// Address family not supported by protocol
+        AFNOSUPPORT = 97,
+        /// Address already in use
+        ADDRINUSE = 98,
+        /// Cannot assign requested address
+        ADDRNOTAVAIL = 99,
+        /// Network is down
+        NETDOWN = 100,
+        /// Network is unreachable
+        NETUNREACH = 101,
+        /// Network dropped connection because of reset
+        NETRESET = 102,
+        /// Software caused connection abort
+        CONNABORTED = 103,
+        /// Connection reset by peer
+        CONNRESET = 104,
+        /// No buffer space available
+        NOBUFS = 105,
+        /// Transport endpoint is already connected
+        ISCONN = 106,
+        /// Transport endpoint is not connected
+        NOTCONN = 107,
+        /// Cannot send after transport endpoint shutdown
+        SHUTDOWN = 108,
+        /// Too many references: cannot splice
+        TOOMANYREFS = 109,
+        /// Connection timed out
+        TIMEDOUT = 110,
+        /// Connection refused
+        CONNREFUSED = 111,
+        /// Host is down
+        HOSTDOWN = 112,
+        /// No route to host
+        HOSTUNREACH = 113,
+        /// Operation already in progress
+        ALREADY = 114,
+        /// Operation now in progress
+        INPROGRESS = 115,
+        /// Stale NFS file handle
+        STALE = 116,
+        /// Structure needs cleaning
+        UCLEAN = 117,
+        /// Not a XENIX named type file
+        NOTNAM = 118,
+        /// No XENIX semaphores available
+        NAVAIL = 119,
+        /// Is a named type file
+        ISNAM = 120,
+        /// Remote I/O error
+        REMOTEIO = 121,
+        /// Quota exceeded
+        DQUOT = 122,
+        /// No medium found
+        NOMEDIUM = 123,
+        /// Wrong medium type
+        MEDIUMTYPE = 124,
+        /// Operation canceled
+        CANCELED = 125,
+        /// Required key not available
+        NOKEY = 126,
+        /// Key has expired
+        KEYEXPIRED = 127,
+        /// Key has been revoked
+        KEYREVOKED = 128,
+        /// Key was rejected by service
+        KEYREJECTED = 129,
+        // for robust mutexes
+        /// Owner died
+        OWNERDEAD = 130,
+        /// State not recoverable
+        NOTRECOVERABLE = 131,
+        /// Operation not possible due to RF-kill
+        RFKILL = 132,
+        /// Memory page has hardware error
+        HWPOISON = 133,
+        // nameserver query return codes
+        /// DNS server returned answer with no data
+        NSRNODATA = 160,
+        /// DNS server claims query was misformatted
+        NSRFORMERR = 161,
+        /// DNS server returned general failure
+        NSRSERVFAIL = 162,
+        /// Domain name not found
+        NSRNOTFOUND = 163,
+        /// DNS server does not implement requested operation
+        NSRNOTIMP = 164,
+        /// DNS server refused query
+        NSRREFUSED = 165,
+        /// Misformatted DNS query
+        NSRBADQUERY = 166,
+        /// Misformatted domain name
+        NSRBADNAME = 167,
+        /// Unsupported address family
+        NSRBADFAMILY = 168,
+        /// Misformatted DNS reply
+        NSRBADRESP = 169,
+        /// Could not contact DNS servers
+        NSRCONNREFUSED = 170,
+        /// Timeout while contacting DNS servers
+        NSRTIMEOUT = 171,
+        /// End of file
+        NSROF = 172,
+        /// Error reading file
+        NSRFILE = 173,
+        /// Out of memory
+        NSRNOMEM = 174,
+        /// Application terminated lookup
+        NSRDESTRUCTION = 175,
+        /// Domain name is too long
+        NSRQUERYDOMAINTOOLONG = 176,
+        /// Domain name is too long
+        NSRCNAMELOOP = 177,
+
+        _,
+
+        pub const init = errnoFromSyscall;
+    },
 };
 
 pub const pid_t = i32;
 pub const fd_t = i32;
+pub const socket_t = i32;
 pub const uid_t = u32;
 pub const gid_t = u32;
 pub const clock_t = isize;
@@ -2516,9 +3108,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else if (is_sparc) struct {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -2560,9 +3152,9 @@ pub const SIG = if (is_mips) struct {
     pub const PWR = LOST;
     pub const IO = SIG.POLL;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else struct {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
@@ -2603,9 +3195,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 };
 
 pub const kernel_rwf = u32;
@@ -3709,7 +4301,7 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*const fn (c_int) align(1) callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.C) void;
     const restorer = *const fn () callconv(.C) void;
 };
 
@@ -3736,8 +4328,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -4098,7 +4690,7 @@ const siginfo_fields_union = extern union {
         },
     },
     sigfault: extern struct {
-        addr: *anyopaque,
+        addr: *allowzero anyopaque,
         addr_lsb: i16,
         first: extern union {
             addr_bnd: extern struct {
@@ -4387,6 +4979,16 @@ pub const io_uring_cqe = extern struct {
         }
         return .SUCCESS;
     }
+
+    // On successful completion of the provided buffers IO request, the CQE flags field
+    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
+    // the upper 16-bits of the flags field.
+    pub fn buffer_id(self: io_uring_cqe) !u16 {
+        if (self.flags & IORING_CQE_F_BUFFER != IORING_CQE_F_BUFFER) {
+            return error.NoBufferSelected;
+        }
+        return @as(u16, @intCast(self.flags >> IORING_CQE_BUFFER_SHIFT));
+    }
 };
 
 // io_uring_cqe.flags
@@ -4667,8 +5269,12 @@ pub const io_uring_buf = extern struct {
     resv: u16,
 };
 
-// io_uring_buf_ring struct omitted
-// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+pub const io_uring_buf_ring = extern struct {
+    resv1: u64,
+    resv2: u32,
+    resv3: u16,
+    tail: u16,
+};
 
 /// argument for IORING_(UN)REGISTER_PBUF_RING
 pub const io_uring_buf_reg = extern struct {

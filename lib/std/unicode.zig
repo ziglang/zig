@@ -907,7 +907,7 @@ pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter(formatUtf8) {
     return .{ .data = utf8 };
 }
 
-test "fmtUtf8" {
+test fmtUtf8 {
     const expectFmt = testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf8("")});
     try expectFmt("foo", "{}", .{fmtUtf8("foo")});
@@ -934,7 +934,7 @@ fn utf16LeToUtf8ArrayListImpl(
     .cannot_encode_surrogate_half => Utf16LeToUtf8AllocError,
     .can_encode_surrogate_half => mem.Allocator.Error,
 })!void {
-    assert(result.capacity >= utf16le.len);
+    assert(result.unusedCapacitySlice().len >= utf16le.len);
 
     var remaining = utf16le;
     vectorized: {
@@ -979,7 +979,7 @@ fn utf16LeToUtf8ArrayListImpl(
 pub const Utf16LeToUtf8AllocError = mem.Allocator.Error || Utf16LeToUtf8Error;
 
 pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
-    try result.ensureTotalCapacityPrecise(utf16le.len);
+    try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
 }
 
@@ -1138,7 +1138,7 @@ test utf16LeToUtf8 {
 }
 
 fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, comptime surrogates: Surrogates) !void {
-    assert(result.capacity >= utf8.len);
+    assert(result.unusedCapacitySlice().len >= utf8.len);
 
     var remaining = utf8;
     vectorized: {
@@ -1176,7 +1176,7 @@ fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, com
 }
 
 pub fn utf8ToUtf16LeArrayList(result: *std.ArrayList(u16), utf8: []const u8) error{ InvalidUtf8, OutOfMemory }!void {
-    try result.ensureTotalCapacityPrecise(utf8.len);
+    try result.ensureUnusedCapacity(utf8.len);
     return utf8ToUtf16LeArrayListImpl(result, utf8, .cannot_encode_surrogate_half);
 }
 
@@ -1249,7 +1249,7 @@ pub fn utf8ToUtf16LeImpl(utf16le: []u16, utf8: []const u8, comptime surrogates: 
     return dest_index;
 }
 
-test "utf8ToUtf16Le" {
+test utf8ToUtf16Le {
     var utf16le: [128]u16 = undefined;
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
@@ -1351,6 +1351,64 @@ test utf8ToUtf16LeAllocZ {
     }
 }
 
+test "ArrayList functions on a re-used list" {
+    // utf8ToUtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf8ToUtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // utf16LeToUtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try utf16LeToUtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
+    }
+
+    // wtf8ToWtf16LeArrayList
+    {
+        var list = std.ArrayList(u16).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf8ToWtf16LeArrayList(&list, "hijklmnopqrstuvwyxz");
+
+        try testing.expectEqualSlices(u16, utf8ToUtf16LeStringLiteral("abcdefghijklmnopqrstuvwyxz"), list.items);
+    }
+
+    // wtf16LeToWtf8ArrayList
+    {
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+
+        const init_slice = "abcdefg";
+        try list.ensureTotalCapacityPrecise(init_slice.len);
+        list.appendSliceAssumeCapacity(init_slice);
+
+        try wtf16LeToWtf8ArrayList(&list, utf8ToUtf16LeStringLiteral("hijklmnopqrstuvwyxz"));
+
+        try testing.expectEqualStrings("abcdefghijklmnopqrstuvwyxz", list.items);
+    }
+}
+
 /// Converts a UTF-8 string literal into a UTF-16LE string literal.
 pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16LeLen(utf8) catch |err| @compileError(err):0]u16 {
     return comptime blk: {
@@ -1358,7 +1416,8 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
-        break :blk &utf16le;
+        const final = utf16le;
+        break :blk &final;
     };
 }
 
@@ -1430,7 +1489,7 @@ pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
     return .{ .data = utf16le };
 }
 
-test "fmtUtf16Le" {
+test fmtUtf16Le {
     const expectFmt = testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral(""))});
     try expectFmt("foo", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
@@ -1443,7 +1502,7 @@ test "fmtUtf16Le" {
     try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
 }
 
-test "utf8ToUtf16LeStringLiteral" {
+test utf8ToUtf16LeStringLiteral {
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x41),
@@ -1684,7 +1743,7 @@ pub const Wtf8Iterator = struct {
 };
 
 pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) mem.Allocator.Error!void {
-    try result.ensureTotalCapacityPrecise(utf16le.len);
+    try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .can_encode_surrogate_half);
 }
 
@@ -1713,7 +1772,7 @@ pub fn wtf16LeToWtf8(wtf8: []u8, wtf16le: []const u16) usize {
 }
 
 pub fn wtf8ToWtf16LeArrayList(result: *std.ArrayList(u16), wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }!void {
-    try result.ensureTotalCapacityPrecise(wtf8.len);
+    try result.ensureUnusedCapacity(wtf8.len);
     return utf8ToUtf16LeArrayListImpl(result, wtf8, .can_encode_surrogate_half);
 }
 

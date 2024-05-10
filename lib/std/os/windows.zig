@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
 const native_arch = builtin.cpu.arch;
+const UnexpectedError = std.posix.UnexpectedError;
 
 test {
     if (builtin.os.tag == .windows) {
@@ -42,6 +43,7 @@ pub const OpenError = error{
     WouldBlock,
     NetworkNotFound,
     AntivirusInterference,
+    BadPathName,
 };
 
 pub const OpenFileOptions = struct {
@@ -120,7 +122,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         );
         switch (rc) {
             .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_INVALID => return error.BadPathName,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
             .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
@@ -152,14 +154,149 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     }
 }
 
-pub const CreatePipeError = error{Unexpected};
+pub fn GetCurrentProcess() HANDLE {
+    const process_pseudo_handle: usize = @bitCast(@as(isize, -1));
+    return @ptrFromInt(process_pseudo_handle);
+}
 
+pub fn GetCurrentProcessId() DWORD {
+    return @truncate(@intFromPtr(teb().ClientId.UniqueProcess));
+}
+
+pub fn GetCurrentThread() HANDLE {
+    const thread_pseudo_handle: usize = @bitCast(@as(isize, -2));
+    return @ptrFromInt(thread_pseudo_handle);
+}
+
+pub fn GetCurrentThreadId() DWORD {
+    return @truncate(@intFromPtr(teb().ClientId.UniqueThread));
+}
+
+pub const CreatePipeError = error{ Unexpected, SystemResources };
+
+var npfs: ?HANDLE = null;
+
+/// A Zig wrapper around `NtCreateNamedPipeFile` and `NtCreateFile` syscalls.
+/// It implements similar behavior to `CreatePipe` and is meant to serve
+/// as a direct substitute for that call.
 pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
-    if (kernel32.CreatePipe(rd, wr, sattr, 0) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
+    // Up to NT 5.2 (Windows XP/Server 2003), `CreatePipe` would generate a pipe similar to:
+    //
+    //      \??\pipe\Win32Pipes.{pid}.{count}
+    //
+    // where `pid` is the process id and count is a incrementing counter.
+    // The implementation was changed after NT 6.0 (Vista) to open a handle to the Named Pipe File System
+    // and use that as the root directory for `NtCreateNamedPipeFile`.
+    // This object is visible under the NPFS but has no filename attached to it.
+    //
+    // This implementation replicates how `CreatePipe` works in modern Windows versions.
+    const opt_dev_handle = @atomicLoad(?HANDLE, &npfs, .seq_cst);
+    const dev_handle = opt_dev_handle orelse blk: {
+        const str = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\NamedPipe\\");
+        const len: u16 = @truncate(str.len * @sizeOf(u16));
+        const name = UNICODE_STRING{
+            .Length = len,
+            .MaximumLength = len,
+            .Buffer = @constCast(@ptrCast(str)),
+        };
+        const attrs = OBJECT_ATTRIBUTES{
+            .ObjectName = @constCast(&name),
+            .Length = @sizeOf(OBJECT_ATTRIBUTES),
+            .RootDirectory = null,
+            .Attributes = 0,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+
+        var iosb: IO_STATUS_BLOCK = undefined;
+        var handle: HANDLE = undefined;
+        switch (ntdll.NtCreateFile(
+            &handle,
+            GENERIC_READ | SYNCHRONIZE,
+            @constCast(&attrs),
+            &iosb,
+            null,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        )) {
+            .SUCCESS => {},
+            // Judging from the ReactOS sources this is technically possible.
+            .INSUFFICIENT_RESOURCES => return error.SystemResources,
+            .INVALID_PARAMETER => unreachable,
+            else => |e| return unexpectedStatus(e),
         }
+        if (@cmpxchgStrong(?HANDLE, &npfs, null, handle, .seq_cst, .seq_cst)) |xchg| {
+            CloseHandle(handle);
+            break :blk xchg.?;
+        } else break :blk handle;
+    };
+
+    const name = UNICODE_STRING{ .Buffer = null, .Length = 0, .MaximumLength = 0 };
+    var attrs = OBJECT_ATTRIBUTES{
+        .ObjectName = @constCast(&name),
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = dev_handle,
+        .Attributes = OBJ_CASE_INSENSITIVE,
+        .SecurityDescriptor = sattr.lpSecurityDescriptor,
+        .SecurityQualityOfService = null,
+    };
+    if (sattr.bInheritHandle != 0) attrs.Attributes |= OBJ_INHERIT;
+
+    // 120 second relative timeout in 100ns units.
+    const default_timeout: LARGE_INTEGER = (-120 * std.time.ns_per_s) / 100;
+    var iosb: IO_STATUS_BLOCK = undefined;
+    var read: HANDLE = undefined;
+    switch (ntdll.NtCreateNamedPipeFile(
+        &read,
+        GENERIC_READ | FILE_WRITE_ATTRIBUTES | SYNCHRONIZE,
+        &attrs,
+        &iosb,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_CREATE,
+        FILE_SYNCHRONOUS_IO_NONALERT,
+        FILE_PIPE_BYTE_STREAM_TYPE,
+        FILE_PIPE_BYTE_STREAM_MODE,
+        FILE_PIPE_QUEUE_OPERATION,
+        1,
+        4096,
+        4096,
+        @constCast(&default_timeout),
+    )) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => |e| return unexpectedStatus(e),
     }
+    errdefer CloseHandle(read);
+
+    attrs.RootDirectory = read;
+
+    var write: HANDLE = undefined;
+    switch (ntdll.NtCreateFile(
+        &write,
+        GENERIC_WRITE | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
+        &attrs,
+        &iosb,
+        null,
+        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_OPEN,
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+        null,
+        0,
+    )) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => |e| return unexpectedStatus(e),
+    }
+
+    rd.* = read;
+    wr.* = write;
 }
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
@@ -411,7 +548,7 @@ pub const GetQueuedCompletionStatusError = error{
     Cancelled,
     EOF,
     Timeout,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn GetQueuedCompletionStatusEx(
     completion_port: HANDLE,
@@ -1049,35 +1186,32 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @as(u64, @bitCast(result));
 }
 
-pub fn QueryObjectName(
-    handle: HANDLE,
-    out_buffer: []u16,
-) ![]u16 {
+pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) ![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
-    //buffer size is specified in bytes
+    // buffer size is specified in bytes
     const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
-    //last argument would return the length required for full_buffer, not exposed here
-    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
-    switch (rc) {
-        .SUCCESS => {
+    // last argument would return the length required for full_buffer, not exposed here
+    return switch (ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null)) {
+        .SUCCESS => blk: {
             // info.Name.Buffer from ObQueryNameString is documented to be null (and MaximumLength == 0)
             // if the object was "unnamed", not sure if this can happen for file handles
-            if (info.Name.MaximumLength == 0) return error.Unexpected;
+            if (info.Name.MaximumLength == 0) break :blk error.Unexpected;
             // resulting string length is specified in bytes
             const path_length_unterminated = @divExact(info.Name.Length, 2);
-            return info.Name.Buffer[0..path_length_unterminated];
+            break :blk info.Name.Buffer.?[0..path_length_unterminated];
         },
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_HANDLE => return error.InvalidHandle,
+        .ACCESS_DENIED => error.AccessDenied,
+        .INVALID_HANDLE => error.InvalidHandle,
         // triggered when the buffer is too small for the OBJECT_NAME_INFORMATION object (.INFO_LENGTH_MISMATCH),
         // or if the buffer is too small for the file path returned (.BUFFER_OVERFLOW, .BUFFER_TOO_SMALL)
-        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => return error.NameTooLong,
-        else => |e| return unexpectedStatus(e),
-    }
+        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => error.NameTooLong,
+        else => |e| unexpectedStatus(e),
+    };
 }
-test "QueryObjectName" {
+
+test QueryObjectName {
     if (builtin.os.tag != .windows)
         return;
 
@@ -1235,6 +1369,61 @@ pub fn GetFinalPathNameByHandle(
                     }
 
                     return out_buffer[0..total_len];
+                } else if (mountmgrIsVolumeName(symlink)) {
+                    // If the symlink is a volume GUID like \??\Volume{383da0b0-717f-41b6-8c36-00500992b58d},
+                    // then it is a volume mounted as a path rather than a drive letter. We need to
+                    // query the mount manager again to get the DOS path for the volume.
+
+                    // 49 is the maximum length accepted by mountmgrIsVolumeName
+                    const vol_input_size = @sizeOf(MOUNTMGR_TARGET_NAME) + (49 * 2);
+                    var vol_input_buf: [vol_input_size]u8 align(@alignOf(MOUNTMGR_TARGET_NAME)) = [_]u8{0} ** vol_input_size;
+                    // Note: If the path exceeds MAX_PATH, the Disk Management GUI doesn't accept the full path,
+                    // and instead if must be specified using a shortened form (e.g. C:\FOO~1\BAR~1\<...>).
+                    // However, just to be sure we can handle any path length, we use PATH_MAX_WIDE here.
+                    const min_output_size = @sizeOf(MOUNTMGR_VOLUME_PATHS) + (PATH_MAX_WIDE * 2);
+                    var vol_output_buf: [min_output_size]u8 align(@alignOf(MOUNTMGR_VOLUME_PATHS)) = undefined;
+
+                    var vol_input_struct: *MOUNTMGR_TARGET_NAME = @ptrCast(&vol_input_buf[0]);
+                    vol_input_struct.DeviceNameLength = @intCast(symlink.len * 2);
+                    @memcpy(@as([*]WCHAR, &vol_input_struct.DeviceName)[0..symlink.len], symlink);
+
+                    DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_DOS_VOLUME_PATH, &vol_input_buf, &vol_output_buf) catch |err| switch (err) {
+                        error.AccessDenied => return error.Unexpected,
+                        else => |e| return e,
+                    };
+                    const volume_paths_struct: *const MOUNTMGR_VOLUME_PATHS = @ptrCast(&vol_output_buf[0]);
+                    const volume_path = std.mem.sliceTo(@as(
+                        [*]const u16,
+                        &volume_paths_struct.MultiSz,
+                    )[0 .. volume_paths_struct.MultiSzLength / 2], 0);
+
+                    if (out_buffer.len < volume_path.len + file_name_u16.len) return error.NameTooLong;
+
+                    // `out_buffer` currently contains the memory of `file_name_u16`, so it can overlap with where
+                    // we want to place the filename before returning. Here are the possible overlapping cases:
+                    //
+                    // out_buffer:       [filename]
+                    //       dest: [___(a)___] [___(b)___]
+                    //
+                    // In the case of (a), we need to copy forwards, and in the case of (b) we need
+                    // to copy backwards. We also need to do this before copying the volume path because
+                    // it could overwrite the file_name_u16 memory.
+                    const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
+                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
+                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
+                    if (volume_path.len > file_name_index)
+                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
+                    else
+                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memcpy(out_buffer[0..volume_path.len], volume_path);
+                    const total_len = volume_path.len + file_name_u16.len;
+
+                    // Validate that DOS does not contain any spurious nul bytes.
+                    if (mem.indexOfScalar(u16, out_buffer[0..total_len], 0)) |_| {
+                        return error.BadPathName;
+                    }
+
+                    return out_buffer[0..total_len];
                 }
             }
 
@@ -1245,7 +1434,33 @@ pub fn GetFinalPathNameByHandle(
     }
 }
 
-test "GetFinalPathNameByHandle" {
+/// Equivalent to the MOUNTMGR_IS_VOLUME_NAME macro in mountmgr.h
+fn mountmgrIsVolumeName(name: []const u16) bool {
+    return (name.len == 48 or (name.len == 49 and name[48] == mem.nativeToLittle(u16, '\\'))) and
+        name[0] == mem.nativeToLittle(u16, '\\') and
+        (name[1] == mem.nativeToLittle(u16, '?') or name[1] == mem.nativeToLittle(u16, '\\')) and
+        name[2] == mem.nativeToLittle(u16, '?') and
+        name[3] == mem.nativeToLittle(u16, '\\') and
+        mem.startsWith(u16, name[4..], std.unicode.utf8ToUtf16LeStringLiteral("Volume{")) and
+        name[19] == mem.nativeToLittle(u16, '-') and
+        name[24] == mem.nativeToLittle(u16, '-') and
+        name[29] == mem.nativeToLittle(u16, '-') and
+        name[34] == mem.nativeToLittle(u16, '-') and
+        name[47] == mem.nativeToLittle(u16, '}');
+}
+
+test mountmgrIsVolumeName {
+    const L = std.unicode.utf8ToUtf16LeStringLiteral;
+    try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
+    try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
+    try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\")));
+    try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\")));
+    try std.testing.expect(!mountmgrIsVolumeName(L("\\\\.\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
+    try std.testing.expect(!mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}\\foo")));
+    try std.testing.expect(!mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58}")));
+}
+
+test GetFinalPathNameByHandle {
     if (builtin.os.tag != .windows)
         return;
 
@@ -1568,7 +1783,7 @@ pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: D
         .SUCCESS => return old_prot,
         .INVALID_ADDRESS => return error.InvalidAddress,
         // TODO: map errors
-        else => |rc| return std.os.windows.unexpectedStatus(rc),
+        else => |rc| return unexpectedStatus(rc),
     }
 }
 
@@ -1813,7 +2028,7 @@ pub fn SetFileTime(
 pub const LockFileError = error{
     SystemResources,
     WouldBlock,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn LockFile(
     FileHandle: HANDLE,
@@ -1850,7 +2065,7 @@ pub fn LockFile(
 
 pub const UnlockFileError = error{
     RangeNotLocked,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn UnlockFile(
     FileHandle: HANDLE,
@@ -2467,7 +2682,7 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
     }
 }
 
-test "ntToWin32Namespace" {
+test ntToWin32Namespace {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
     try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));
@@ -2539,8 +2754,8 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+pub fn unexpectedError(err: Win32Error) UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         const len = kernel32.FormatMessageW(
@@ -2561,14 +2776,14 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
+pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
     return unexpectedError(@as(Win32Error, @enumFromInt(@intFromEnum(err))));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
-pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
@@ -3014,29 +3229,29 @@ pub const OVERLAPPED_ENTRY = extern struct {
 
 pub const MAX_PATH = 260;
 
-// TODO issue #305
-pub const FILE_INFO_BY_HANDLE_CLASS = u32;
-pub const FileBasicInfo = 0;
-pub const FileStandardInfo = 1;
-pub const FileNameInfo = 2;
-pub const FileRenameInfo = 3;
-pub const FileDispositionInfo = 4;
-pub const FileAllocationInfo = 5;
-pub const FileEndOfFileInfo = 6;
-pub const FileStreamInfo = 7;
-pub const FileCompressionInfo = 8;
-pub const FileAttributeTagInfo = 9;
-pub const FileIdBothDirectoryInfo = 10;
-pub const FileIdBothDirectoryRestartInfo = 11;
-pub const FileIoPriorityHintInfo = 12;
-pub const FileRemoteProtocolInfo = 13;
-pub const FileFullDirectoryInfo = 14;
-pub const FileFullDirectoryRestartInfo = 15;
-pub const FileStorageInfo = 16;
-pub const FileAlignmentInfo = 17;
-pub const FileIdInfo = 18;
-pub const FileIdExtdDirectoryInfo = 19;
-pub const FileIdExtdDirectoryRestartInfo = 20;
+pub const FILE_INFO_BY_HANDLE_CLASS = enum(u32) {
+    FileBasicInfo = 0,
+    FileStandardInfo = 1,
+    FileNameInfo = 2,
+    FileRenameInfo = 3,
+    FileDispositionInfo = 4,
+    FileAllocationInfo = 5,
+    FileEndOfFileInfo = 6,
+    FileStreamInfo = 7,
+    FileCompressionInfo = 8,
+    FileAttributeTagInfo = 9,
+    FileIdBothDirectoryInfo = 10,
+    FileIdBothDirectoryRestartInfo = 11,
+    FileIoPriorityHintInfo = 12,
+    FileRemoteProtocolInfo = 13,
+    FileFullDirectoryInfo = 14,
+    FileFullDirectoryRestartInfo = 15,
+    FileStorageInfo = 16,
+    FileAlignmentInfo = 17,
+    FileIdInfo = 18,
+    FileIdExtdDirectoryInfo = 19,
+    FileIdExtdDirectoryRestartInfo = 20,
+};
 
 pub const BY_HANDLE_FILE_INFORMATION = extern struct {
     dwFileAttributes: DWORD,
@@ -3184,6 +3399,25 @@ pub const FILE_ATTRIBUTE_SPARSE_FILE = 0x200;
 pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
+
+pub const FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1ff;
+pub const FILE_GENERIC_READ = STANDARD_RIGHTS_READ | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE;
+pub const FILE_GENERIC_WRITE = STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA | SYNCHRONIZE;
+pub const FILE_GENERIC_EXECUTE = STANDARD_RIGHTS_EXECUTE | FILE_READ_ATTRIBUTES | FILE_EXECUTE | SYNCHRONIZE;
+
+// Flags for NtCreateNamedPipeFile
+// NamedPipeType
+pub const FILE_PIPE_BYTE_STREAM_TYPE = 0x0;
+pub const FILE_PIPE_MESSAGE_TYPE = 0x1;
+pub const FILE_PIPE_ACCEPT_REMOTE_CLIENTS = 0x0;
+pub const FILE_PIPE_REJECT_REMOTE_CLIENTS = 0x2;
+pub const FILE_PIPE_TYPE_VALID_MASK = 0x3;
+// CompletionMode
+pub const FILE_PIPE_QUEUE_OPERATION = 0x0;
+pub const FILE_PIPE_COMPLETE_OPERATION = 0x1;
+// ReadMode
+pub const FILE_PIPE_BYTE_STREAM_MODE = 0x0;
+pub const FILE_PIPE_MESSAGE_MODE = 0x1;
 
 // flags for CreateEvent
 pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
@@ -3386,7 +3620,7 @@ pub const GUID = extern struct {
     }
 };
 
-test "GUID" {
+test GUID {
     try std.testing.expectEqual(
         GUID{
             .Data1 = 0x01234567,
@@ -3519,7 +3753,15 @@ pub const SEC_LARGE_PAGES = 0x80000000;
 pub const HKEY = *opaque {};
 
 pub const HKEY_CLASSES_ROOT: HKEY = @ptrFromInt(0x80000000);
+pub const HKEY_CURRENT_USER: HKEY = @ptrFromInt(0x80000001);
 pub const HKEY_LOCAL_MACHINE: HKEY = @ptrFromInt(0x80000002);
+pub const HKEY_USERS: HKEY = @ptrFromInt(0x80000003);
+pub const HKEY_PERFORMANCE_DATA: HKEY = @ptrFromInt(0x80000004);
+pub const HKEY_PERFORMANCE_TEXT: HKEY = @ptrFromInt(0x80000050);
+pub const HKEY_PERFORMANCE_NLSTEXT: HKEY = @ptrFromInt(0x80000060);
+pub const HKEY_CURRENT_CONFIG: HKEY = @ptrFromInt(0x80000005);
+pub const HKEY_DYN_DATA: HKEY = @ptrFromInt(0x80000006);
+pub const HKEY_CURRENT_USER_LOCAL_SETTINGS: HKEY = @ptrFromInt(0x80000007);
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.
@@ -3686,6 +3928,7 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
 };
 
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
+pub const DISABLE_NEWLINE_AUTO_RETURN = 0x8;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
@@ -4094,7 +4337,7 @@ pub const KNONVOLATILE_CONTEXT_POINTERS = switch (native_arch) {
 
 pub const EXCEPTION_POINTERS = extern struct {
     ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *std.os.windows.CONTEXT,
+    ContextRecord: *CONTEXT,
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
@@ -4150,7 +4393,7 @@ pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
 pub const UNICODE_STRING = extern struct {
     Length: c_ushort,
     MaximumLength: c_ushort,
-    Buffer: [*]WCHAR,
+    Buffer: ?[*]WCHAR,
 };
 
 pub const ACTIVATION_CONTEXT_DATA = opaque {};
@@ -4175,7 +4418,11 @@ pub const THREAD_BASIC_INFORMATION = extern struct {
 };
 
 pub const TEB = extern struct {
-    Reserved1: [12]PVOID,
+    NtTib: NT_TIB,
+    EnvironmentPointer: PVOID,
+    ClientId: CLIENT_ID,
+    ActiveRpcHandle: PVOID,
+    ThreadLocalStoragePointer: PVOID,
     ProcessEnvironmentBlock: *PEB,
     Reserved2: [399]PVOID,
     Reserved3: [1952]u8,
@@ -4186,6 +4433,25 @@ pub const TEB = extern struct {
     Reserved6: [4]PVOID,
     TlsExpansionSlots: PVOID,
 };
+
+comptime {
+    // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
+    // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
+    assert(@offsetOf(TEB, "NtTib") == 0x00);
+    if (@sizeOf(usize) == 4) {
+        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
+        assert(@offsetOf(TEB, "ClientId") == 0x20);
+        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
+        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
+        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+    } else if (@sizeOf(usize) == 8) {
+        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
+        assert(@offsetOf(TEB, "ClientId") == 0x40);
+        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
+        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
+        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+    }
+}
 
 pub const EXCEPTION_REGISTRATION_RECORD = extern struct {
     Next: ?*EXCEPTION_REGISTRATION_RECORD,
@@ -4661,6 +4927,8 @@ pub const SYMLINK_FLAG_RELATIVE: ULONG = 0x1;
 pub const SYMBOLIC_LINK_FLAG_DIRECTORY: DWORD = 0x1;
 pub const SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE: DWORD = 0x2;
 
+pub const MOUNTMGRCONTROLTYPE = 0x0000006D;
+
 pub const MOUNTMGR_MOUNT_POINT = extern struct {
     SymbolicLinkNameOffset: ULONG,
     SymbolicLinkNameLength: USHORT,
@@ -4677,7 +4945,17 @@ pub const MOUNTMGR_MOUNT_POINTS = extern struct {
     NumberOfMountPoints: ULONG,
     MountPoints: [1]MOUNTMGR_MOUNT_POINT,
 };
-pub const IOCTL_MOUNTMGR_QUERY_POINTS: ULONG = 0x6d0008;
+pub const IOCTL_MOUNTMGR_QUERY_POINTS = CTL_CODE(MOUNTMGRCONTROLTYPE, 2, .METHOD_BUFFERED, FILE_ANY_ACCESS);
+
+pub const MOUNTMGR_TARGET_NAME = extern struct {
+    DeviceNameLength: USHORT,
+    DeviceName: [1]WCHAR,
+};
+pub const MOUNTMGR_VOLUME_PATHS = extern struct {
+    MultiSzLength: ULONG,
+    MultiSz: [1]WCHAR,
+};
+pub const IOCTL_MOUNTMGR_QUERY_DOS_VOLUME_PATH = CTL_CODE(MOUNTMGRCONTROLTYPE, 12, .METHOD_BUFFERED, FILE_ANY_ACCESS);
 
 pub const OBJECT_INFORMATION_CLASS = enum(c_int) {
     ObjectBasicInformation = 0,
