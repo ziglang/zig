@@ -1824,7 +1824,7 @@ pub fn SetConsoleCtrlHandler(handler_routine: ?HANDLER_ROUTINE, add: bool) !void
 }
 
 /// Flags used in the `GetConsoleMode` and `SetConsoleMode` API calls
-/// The `dword` field is to be directly used in calls to `GetConsoleMode` and `SetConsoleMode`
+/// The `dword` field is to be directly used in calls to `kernel32.GetConsoleMode` and `kernel32.SetConsoleMode`
 pub const ConsoleMode = packed union {
     /// The flags of a console's input buffer
     input: packed struct(DWORD) {
