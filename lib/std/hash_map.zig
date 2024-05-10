@@ -2378,16 +2378,15 @@ test "getOrPut allocation failure" {
 }
 
 test "std.hash_map rehash" {
-    var map = AutoHashMap(u32, u32).init(std.testing.allocator);
+    var map = AutoHashMap(usize, usize).init(std.testing.allocator);
     defer map.deinit();
 
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(0);
     const random = prng.random();
 
     const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
 
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
+    for (0..count) |i| {
         try map.put(i, i);
         if (i % 3 == 0) {
             try expectEqual(map.remove(i), true);
@@ -2398,8 +2397,7 @@ test "std.hash_map rehash" {
 
     try expectEqual(map.count(), count * 2 / 3);
 
-    i = 0;
-    while (i < count) : (i += 1) {
+    for (0..count) |i| {
         if (i % 3 == 0) {
             try expectEqual(map.get(i), null);
         } else {
