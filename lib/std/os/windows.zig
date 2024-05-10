@@ -2868,6 +2868,12 @@ pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
 
+pub const TCHAR = @compileError("Deprecated: choose between `CHAR` or `WCHAR` directly instead.");
+pub const LPTSTR = @compileError("Deprecated: choose between `LPSTR` or `LPWSTR` directly instead.");
+pub const LPCTSTR = @compileError("Deprecated: choose between `LPCSTR` or `LPCWSTR` directly instead.");
+pub const PTSTR = @compileError("Deprecated: choose between `PSTR` or `PWSTR` directly instead.");
+pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR` directly instead.");
+
 pub const TRUE = 1;
 pub const FALSE = 0;
 
