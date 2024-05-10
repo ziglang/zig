@@ -587,6 +587,31 @@ pub const Installation = struct {
 };
 
 const MsvcLibDir = struct {
+    fn findInstancesDirViaSetup(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
+        const vs_setup_key_path = "SOFTWARE\\Microsoft\\VisualStudio\\Setup";
+        const vs_setup_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, vs_setup_key_path) catch |err| switch (err) {
+            error.KeyNotFound => return error.PathNotFound,
+        };
+        defer vs_setup_key.closeKey();
+
+        const packages_path = vs_setup_key.getString(allocator, "", "CachePath") catch |err| switch (err) {
+            error.NotAString,
+            error.ValueNameNotFound,
+            error.StringNotFound,
+            => return error.PathNotFound,
+
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        defer allocator.free(packages_path);
+
+        if (!std.fs.path.isAbsolute(packages_path)) return error.PathNotFound;
+
+        const instances_path = try std.fs.path.join(allocator, &.{ packages_path, "_Instances" });
+        defer allocator.free(instances_path);
+
+        return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return error.PathNotFound;
+    }
+
     fn findInstancesDirViaCLSID(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
         const setup_configuration_clsid = "{177f0c4a-1cd3-4de7-a32c-71dbbb9fa36d}";
         const setup_config_key = RegistryWtf8.openKey(windows.HKEY_CLASSES_ROOT, "CLSID\\" ++ setup_configuration_clsid) catch |err| switch (err) {
@@ -603,6 +628,8 @@ const MsvcLibDir = struct {
             error.OutOfMemory => return error.OutOfMemory,
         };
         defer allocator.free(dll_path);
+
+        if (!std.fs.path.isAbsolute(dll_path)) return error.PathNotFound;
 
         var path_it = std.fs.path.componentIterator(dll_path) catch return error.PathNotFound;
         // the .dll filename
@@ -622,22 +649,40 @@ const MsvcLibDir = struct {
     }
 
     fn findInstancesDir(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
-        // First try to get the path from the .dll that would have been
+        // First, try getting the packages cache path from the registry.
+        // This only seems to exist when the path is different from the default.
+        method1: {
+            return findInstancesDirViaSetup(allocator) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.PathNotFound => break :method1,
+            };
+        }
+        // Otherwise, try to get the path from the .dll that would have been
         // loaded via COM for SetupConfiguration.
-        return findInstancesDirViaCLSID(allocator) catch |orig_err| {
-            // If that can't be found, fall back to manually appending
-            // `Microsoft\VisualStudio\Packages\_Instances` to %PROGRAMDATA%
+        method2: {
+            return findInstancesDirViaCLSID(allocator) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.PathNotFound => break :method2,
+            };
+        }
+        // If that can't be found, fall back to manually appending
+        // `Microsoft\VisualStudio\Packages\_Instances` to %PROGRAMDATA%
+        method3: {
             const program_data = std.process.getEnvVarOwned(allocator, "PROGRAMDATA") catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
-                else => return orig_err,
+                error.InvalidWtf8 => unreachable,
+                error.EnvironmentVariableNotFound => break :method3,
             };
             defer allocator.free(program_data);
+
+            if (!std.fs.path.isAbsolute(program_data)) break :method3;
 
             const instances_path = try std.fs.path.join(allocator, &.{ program_data, "Microsoft", "VisualStudio", "Packages", "_Instances" });
             defer allocator.free(instances_path);
 
-            return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch return orig_err;
-        };
+            return std.fs.openDirAbsolute(instances_path, .{ .iterate = true }) catch break :method3;
+        }
+        return error.PathNotFound;
     }
 
     /// Intended to be equivalent to `ISetupHelper.ParseVersion`
