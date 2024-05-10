@@ -6,6 +6,7 @@ const ArrayList = std.ArrayList;
 
 const Scanner = @import("./scanner.zig").Scanner;
 const Token = @import("./scanner.zig").Token;
+const TokenType = @import("./scanner.zig").TokenType;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Diagnostics = @import("./scanner.zig").Diagnostics;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
@@ -219,13 +220,13 @@ pub fn innerParse(
     options: ParseOptions,
 ) ParseError(@TypeOf(source.*))!T {
     errdefer source.saveDiagnostics();
-    errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T)) catch {};
+    errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T));
     switch (@typeInfo(T)) {
         .Bool => {
             return switch (try source.next()) {
                 .true => true,
                 .false => false,
-                else => error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "bool"),
             };
         },
         .Float, .ComptimeFloat => {
@@ -233,7 +234,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => return error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "float"),
             };
             return try std.fmt.parseFloat(T, slice);
         },
@@ -242,7 +243,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => return error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "int"),
             };
             return sliceToInt(T, slice);
         },
@@ -266,7 +267,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => return error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "enum (number or string)"),
             };
             return sliceToEnum(T, slice);
         },
@@ -277,15 +278,16 @@ pub fn innerParse(
 
             if (unionInfo.tag_type == null) @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
 
-            if (.object_begin != try source.next()) return error.UnexpectedToken;
+            switch (try source.next()) {
+                .object_begin => {},
+                else => |t| return typeError(allocator, options.diagnostics, t, "union (object with one field)"),
+            }
 
             var result: ?T = null;
             var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
-                else => {
-                    return error.UnexpectedToken;
-                },
+                else => return error.MissingField,
             };
 
             inline for (unionInfo.fields) |u_field| {
@@ -296,7 +298,10 @@ pub fn innerParse(
                     name_token = null;
                     if (u_field.type == void) {
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
-                        if (.object_begin != try source.next()) return error.UnexpectedToken;
+                        switch (try source.next()) {
+                            .object_begin => {},
+                            else => |t| return typeError(allocator, options.diagnostics, t, "void payload ('{}')"),
+                        }
                         if (.object_end != try source.next()) return error.UnknownField;
                         result = @unionInit(T, u_field.name, {});
                     } else {
@@ -310,21 +315,25 @@ pub fn innerParse(
                 return error.UnknownField;
             }
 
-            if (.object_end != try source.next()) return error.UnexpectedToken;
+            if (.object_end != try source.next()) return error.UnknownField;
 
             return result.?;
         },
 
         .Struct => |structInfo| {
             if (structInfo.is_tuple) {
-                if (.array_begin != try source.next()) return error.UnexpectedToken;
+                switch (try source.next()) {
+                    .array_begin => {},
+                    else => |t| return typeError(allocator, options.diagnostics, t, "tuple (array of values)"),
+                }
 
                 var r: T = undefined;
                 inline for (0..structInfo.fields.len) |i| {
+                    if (.array_end == try source.peekNextTokenType()) return error.LengthMismatch;
                     r[i] = try innerParse(structInfo.fields[i].type, allocator, source, options);
                 }
 
-                if (.array_end != try source.next()) return error.UnexpectedToken;
+                if (.array_end != try source.next()) return error.LengthMismatch;
 
                 return r;
             }
@@ -333,7 +342,10 @@ pub fn innerParse(
                 return T.jsonParse(allocator, source, options);
             }
 
-            if (.object_begin != try source.next()) return error.UnexpectedToken;
+            switch (try source.next()) {
+                .object_begin => {},
+                else => |t| return typeError(allocator, options.diagnostics, t, "struct ('{...}')"),
+            }
 
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
@@ -354,7 +366,7 @@ pub fn innerParse(
                         // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
                         // (Recursing into innerParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
-                        errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T) ++ "." ++ field.name) catch {};
+                        errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T) ++ "." ++ field.name);
                         name_token = null;
                         if (fields_seen[i]) {
                             switch (options.duplicate_field_behavior) {
@@ -393,7 +405,7 @@ pub fn innerParse(
                     return internalParseArray(T, arrayInfo.child, arrayInfo.len, allocator, source, options);
                 },
                 .string => {
-                    if (arrayInfo.child != u8) return error.UnexpectedToken;
+                    if (arrayInfo.child != u8) return typeError(allocator, options.diagnostics, .string, "array");
                     // Fixed-length string.
 
                     var r: T = undefined;
@@ -437,7 +449,7 @@ pub fn innerParse(
                     return r;
                 },
 
-                else => return error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "array"),
             }
         },
 
@@ -446,7 +458,7 @@ pub fn innerParse(
                 .array_begin => {
                     return internalParseArray(T, vecInfo.child, vecInfo.len, allocator, source, options);
                 },
-                else => return error.UnexpectedToken,
+                else => |t| return typeError(allocator, options.diagnostics, t, "array"),
             }
         },
 
@@ -485,7 +497,7 @@ pub fn innerParse(
                             return try arraylist.toOwnedSlice();
                         },
                         .string => {
-                            if (ptrInfo.child != u8) return error.UnexpectedToken;
+                            if (ptrInfo.child != u8) return typeError(allocator, options.diagnostics, .string, "array");
 
                             // Dynamic length string.
                             if (ptrInfo.sentinel) |sentinel_ptr| {
@@ -507,7 +519,7 @@ pub fn innerParse(
                                 }
                             }
                         },
-                        else => return error.UnexpectedToken,
+                        else => |t| return typeError(allocator, options.diagnostics, t, "array"),
                     }
                 },
                 else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
@@ -531,12 +543,65 @@ fn internalParseArray(
     var r: T = undefined;
     var i: usize = 0;
     while (i < len) : (i += 1) {
+        if (.array_end == try source.peekNextTokenType()) return error.LengthMismatch;
         r[i] = try innerParse(Child, allocator, source, options);
     }
 
-    if (.array_end != try source.next()) return error.UnexpectedToken;
+    if (.array_end != try source.next()) return error.LengthMismatch;
 
     return r;
+}
+
+fn coerceToTokenType(token: anytype) TokenType {
+    if (@TypeOf(token) == TokenType) return token;
+    return switch (@as(std.meta.Tag(Token), token)) {
+        // Coerce Token tag into TokenType
+        .object_begin => .object_begin,
+        .array_begin => .array_begin,
+
+        .true => .true,
+        .false => .false,
+        .null => .null,
+
+        .number,
+        .partial_number,
+        .allocated_number,
+        => .number,
+
+        .string,
+        .partial_string,
+        .partial_string_escaped_1,
+        .partial_string_escaped_2,
+        .partial_string_escaped_3,
+        .partial_string_escaped_4,
+        .allocated_string,
+        => .string,
+
+        .object_end => .object_end,
+        .array_end => .array_end,
+        .end_of_document => .end_of_document,
+    };
+}
+fn typeError(allocator: Allocator, diagnostics: ?*Diagnostics, token: anytype, expected: []const u8) error{UnexpectedToken} {
+    if (diagnostics) |diag| {
+        if (std.fmt.allocPrint(allocator, "expected: {s}, found: {s}", .{
+            expected,
+            switch (coerceToTokenType(token)) {
+                .object_begin => "'{'",
+                .array_begin => "'['",
+                .true, .false => "bool",
+                .null => "null",
+                .number => "number",
+                .string => "string",
+                .object_end => unreachable, // type errors happen at the start of a value.
+                .array_end => unreachable, // type errors happen at the start of a value.
+                .end_of_document => unreachable, // type errors happen at the start of a value.
+            },
+        })) |s| {
+            diag.recordContext(allocator, s) catch {};
+        } else |_| {}
+    }
+    return error.UnexpectedToken;
 }
 
 /// This is an internal function called recursively

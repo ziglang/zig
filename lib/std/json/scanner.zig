@@ -227,7 +227,7 @@ pub const Diagnostics = struct {
     /// file_name if non-null will be printed in a line with the line and column numbers;
     /// it is purely aesthetic and is not touched on any actual file system.
     pub fn dump(self: *const @This(), writer: anytype, err: anyerror, file_name: ?[]const u8) !void {
-        try writer.print("{s}:{}:{}: {s}\n", .{file_name orelse "<json>", self.getLine(), self.getColumn(), @errorName(err)});
+        try writer.print("{s}:{}:{}: {s}\n", .{ file_name orelse "<json>", self.getLine(), self.getColumn(), @errorName(err) });
 
         // Show a "line" of context, or in case of very long lines, just an excerpt of the line.
         // (Very long lines are common in minified JSON such as in an HTTP API or other machine-to-machine contexts.)
@@ -258,7 +258,7 @@ pub const Diagnostics = struct {
             }
             end += 1;
         }
-        try writer.print("{s}{s}{s}\n", .{start_elipsis, self.current_input[start..end], end_elipsis});
+        try writer.print("{s}{s}{s}\n", .{ start_elipsis, self.current_input[start..end], end_elipsis });
         try writer.writeByteNTimes(' ', start_elipsis.len + self.cursor_in_current_input - start);
         try writer.writeAll("^\n");
 
@@ -268,9 +268,9 @@ pub const Diagnostics = struct {
     }
 };
 
-pub inline fn maybeRecordDiagnosticContext(allocator: Allocator, maybe_diagnostics: ?*Diagnostics, context: []const u8) Allocator.Error!void {
+pub inline fn maybeRecordDiagnosticContext(allocator: Allocator, maybe_diagnostics: ?*Diagnostics, context: []const u8) void {
     if (maybe_diagnostics) |diag| {
-        try diag.recordContext(allocator, context);
+        diag.recordContext(allocator, context) catch {};
     }
 }
 
