@@ -1,4 +1,4 @@
-pub fn panicNew(comptime cause: std.builtin.PanicCause, _: std.builtin.PanicData(cause)) noreturn {
+pub fn panicNew(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
     if (cause == .mismatched_for_loop_capture_lengths) {
         std.process.exit(0);
     }

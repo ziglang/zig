@@ -1,4 +1,4 @@
-pub fn panicNew(comptime cause: std.builtin.PanicCause, _: std.builtin.PanicData(cause)) noreturn {
+pub fn panicNew(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
     if (cause == .returned_noreturn) {
         std.process.exit(0);
     }

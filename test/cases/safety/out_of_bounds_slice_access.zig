@@ -1,4 +1,4 @@
-pub fn panicNew(comptime cause: std.builtin.PanicCause, _: std.builtin.PanicData(cause)) noreturn {
+pub fn panicNew(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
     if (cause == .accessed_out_of_bounds) {
         std.process.exit(0);
     }
