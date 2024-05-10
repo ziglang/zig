@@ -21722,12 +21722,13 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
     try sema.resolveTypeFields(stack_trace_ty);
     const ptr_stack_trace_ty = try mod.singleMutPtrType(stack_trace_ty);
     const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
-
-    if (sema.owner_func_index != .none and
-        ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn and
-        block.ownerModule().error_tracing)
-    {
-        return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
+    if (sema.mod.backendSupportsFeature(.error_return_trace)) {
+        if (sema.owner_func_index != .none and
+            ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn and
+            block.ownerModule().error_tracing)
+        {
+            return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
+        }
     }
     return Air.internedToRef((try mod.intern(.{ .opt = .{
         .ty = opt_ptr_stack_trace_ty.toIntern(),
