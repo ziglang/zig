@@ -805,11 +805,7 @@ pub const Block = struct {
 
     fn addUnreachable(block: *Block, src: LazySrcLoc, safety_check: bool) !void {
         if (safety_check and block.wantSafety()) {
-            if (Package.Module.runtime_safety.reached_unreachable != .none) {
-                try RuntimeSafety.panicReachedUnreachable(block.sema, block, src, .reached_unreachable);
-            } else {
-                try block.sema.safetyPanic(block, src, .unreach);
-            }
+            try RuntimeSafety.panicReachedUnreachable(block.sema, block, src, .reached_unreachable);
         } else {
             _ = try block.addNoOp(.unreach);
         }
@@ -4490,12 +4486,7 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             if (arg_len == .none) continue;
             if (i == len_idx) continue;
             const ok = try block.addBinOp(.cmp_eq, len, arg_len);
-
-            if (Package.Module.runtime_safety.mismatched_for_loop_capture_lengths != .none) {
-                try RuntimeSafety.checkMismatchedForLoopCaptureLengths(sema, block, src, len, arg_len, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
-            }
+            try RuntimeSafety.checkMismatchedForLoopCaptureLengths(sema, block, src, len, arg_len, ok);
         }
     }
 
@@ -5900,11 +5891,7 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
-    if (Package.Module.runtime_safety.message != .none) {
-        try RuntimeSafety.panicWithMsg(sema, block, src, coerced_msg, .@"@panic");
-    } else {
-        try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
-    }
+    try RuntimeSafety.panicWithMsg(sema, block, src, coerced_msg, .@"@panic");
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -8039,11 +8026,7 @@ fn analyzeCall(
                     else => {},
                 }
             }
-            if (Package.Module.runtime_safety.returned_noreturn != .none) {
-                try RuntimeSafety.panicReachedUnreachable(sema, block, call_src, .returned_noreturn);
-            } else {
-                try sema.safetyPanic(block, call_src, .noreturn_returned);
-            }
+            try RuntimeSafety.panicReachedUnreachable(sema, block, call_src, .returned_noreturn);
             return .unreachable_value;
         }
         if (func_ty_info.return_type == .noreturn_type) {
@@ -8832,11 +8815,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const zero_val = Air.internedToRef((try mod.intValue(err_int_ty, 0)).toIntern());
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bool_and, is_lt_len, is_non_zero);
-        if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
-            try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, Type.anyerror, err_int_ty, operand, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
-        }
+        try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, Type.anyerror, err_int_ty, operand, ok);
     }
     return block.addInst(.{
         .tag = .bitcast,
@@ -9029,11 +9008,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         mod.backendSupportsFeature(.is_named_enum_value))
     {
         const ok = try block.addUnOp(.is_named_enum_value, result);
-        if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
-            try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, dest_ty, operand, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
-        }
+        try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, dest_ty, operand, ok);
     }
     return result;
 }
@@ -9110,11 +9085,7 @@ fn analyzeOptionalPayloadPtr(
     try sema.requireRuntimeBlock(block, src, null);
     if (safety_check and block.wantSafety()) {
         const is_non_null = try block.addUnOp(.is_non_null_ptr, optional_ptr);
-        if (Package.Module.runtime_safety.accessed_null_value != .none) {
-            try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
-        } else {
-            try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
-        }
+        try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
     }
 
     if (initializing) {
@@ -9174,11 +9145,7 @@ fn zirOptionalPayload(
     try sema.requireRuntimeBlock(block, src, null);
     if (safety_check and block.wantSafety()) {
         const is_non_null = try block.addUnOp(.is_non_null, operand);
-        if (Package.Module.runtime_safety.accessed_null_value != .none) {
-            try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
-        } else {
-            try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
-        }
+        try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
     }
     return block.addTyOp(.optional_payload, result_ty, operand);
 }
@@ -9230,11 +9197,7 @@ fn analyzeErrUnionPayload(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod))
     {
-        if (Package.Module.runtime_safety.unwrapped_error != .none) {
-            try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err, .is_non_err);
-        } else {
-            try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
-        }
+        try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
 
     return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
@@ -9317,11 +9280,7 @@ fn analyzeErrUnionPayloadPtr(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu))
     {
-        if (Package.Module.runtime_safety.unwrapped_error != .none) {
-            try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
-        } else {
-            try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
-        }
+        try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
 
     if (initializing) {
@@ -10526,11 +10485,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
-                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
-                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
-                }
+                try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
             }
         }
 
@@ -10592,11 +10547,7 @@ fn intCast(
                     break :ok is_in_range;
                 };
                 // TODO negative_to_unsigned?
-                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
-                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
-                }
+                try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
             } else {
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
@@ -10612,11 +10563,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
                     break :ok is_in_range;
                 };
-                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
-                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
-                }
+                try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
             }
         } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
             // no shrinkage, yes sign loss
@@ -10639,11 +10586,7 @@ fn intCast(
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
-            if (Package.Module.runtime_safety.cast_to_unsigned_from_negative != .none) {
-                try RuntimeSafety.checkCastToUnsignedFromNegative(sema, block, src, dest_ty, operand_ty, operand, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .negative_to_unsigned);
-            }
+            try RuntimeSafety.checkCastToUnsignedFromNegative(sema, block, src, dest_ty, operand_ty, operand, ok);
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -12524,11 +12467,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
-            if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
-                try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, operand_ty, operand, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .corrupt_switch);
-            }
+            try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, operand_ty, operand, ok);
         }
 
         return spa.resolveProngComptime(
@@ -13153,11 +13092,7 @@ fn analyzeSwitchRuntimeBlock(
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
-            if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
-                try RuntimeSafety.checkCastToEnumFromInvalid(sema, &case_block, src, operand_ty, operand, ok);
-            } else {
-                try sema.addSafetyCheck(&case_block, src, ok, .corrupt_switch);
-            }
+            try RuntimeSafety.checkCastToEnumFromInvalid(sema, &case_block, src, operand_ty, operand, ok);
         }
 
         const analyze_body = if (union_originally and !special.is_inline)
@@ -13189,11 +13124,7 @@ fn analyzeSwitchRuntimeBlock(
             // that it is unreachable.
             if (case_block.wantSafety()) {
                 try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
-                if (Package.Module.runtime_safety.corrupt_switch != .none) {
-                    try RuntimeSafety.panicReachedUnreachable(sema, &case_block, src, .corrupt_switch);
-                } else {
-                    try sema.safetyPanic(&case_block, src, .corrupt_switch);
-                }
+                try RuntimeSafety.panicReachedUnreachable(sema, &case_block, src, .corrupt_switch);
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
@@ -13875,28 +13806,14 @@ fn maybeErrorUnwrap(
             .as_node => try sema.zirAsNode(block, inst),
             .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
-                if (Package.Module.runtime_safety.unwrapped_error != .none) {
-                    try RuntimeSafety.panicUnwrappedError(sema, block, operand_src, operand);
-                } else {
-                    if (mod.comp.formatted_panics) {
-                        const panic_fn = try sema.getBuiltin("panicUnwrapError");
-                        const err_return_trace = try sema.getErrorReturnTrace(block);
-                        const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
-                        try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
-                    } else {
-                        try sema.safetyPanic(block, operand_src, .unwrap_error);
-                    }
-                }
+                try RuntimeSafety.panicUnwrappedError(sema, block, operand_src, operand);
                 return true;
             },
             .panic => {
                 const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
                 const msg_inst = try sema.resolveInst(inst_data.operand);
+                try RuntimeSafety.panicWithMsg(sema, block, operand_src, msg_inst, .@"safety check");
 
-                const panic_fn = try sema.getBuiltin("panic");
-                const err_return_trace = try sema.getErrorReturnTrace(block);
-                const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
-                try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
                 return true;
             },
             else => unreachable,
@@ -14238,11 +14155,7 @@ fn zirShl(
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            if (Package.Module.runtime_safety.shift_amt_overflowed != .none) {
-                try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, lhs_ty, rhs, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
-            }
+            try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, lhs_ty, rhs, ok);
         }
 
         if (air_tag == .shl_exact) {
@@ -14271,11 +14184,7 @@ fn zirShl(
             const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
-                try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, new_rhs, no_ov, air_tag);
-            } else {
-                try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
-            }
+            try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, new_rhs, no_ov, air_tag);
             return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
         }
     }
@@ -14395,11 +14304,7 @@ fn zirShr(
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            if (Package.Module.runtime_safety.shift_amt_overflowed != .none) {
-                try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, scalar_ty, rhs, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
-            }
+            try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, lhs_ty, rhs, ok);
         }
 
         if (air_tag == .shr_exact) {
@@ -14416,11 +14321,7 @@ fn zirShr(
                 });
             } else try block.addBinOp(.cmp_eq, lhs, back);
 
-            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
-                try RuntimeSafety.checkArithmeticOverflow(sema, block, src, scalar_ty, lhs, rhs, ok, air_tag);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .shr_overflow);
-            }
+            try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, rhs, ok, air_tag);
         }
     }
     return result;
@@ -15554,11 +15455,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :ok is_in_range;
             }
         };
-        if (Package.Module.runtime_safety.div_with_remainder != .none) {
-            try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_exact);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .exact_division_remainder);
-        }
+        try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_exact);
         return result;
     }
 
@@ -15866,11 +15763,7 @@ fn addDivIntOverflowSafety(
         }
         assert(ok != .none);
     }
-    if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, .div_trunc)) {
-        try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_trunc);
-    } else {
-        try sema.addSafetyCheck(block, src, ok, .integer_overflow);
-    }
+    try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_trunc);
 }
 
 fn addDivByZeroSafety(
@@ -15909,11 +15802,7 @@ fn addDivByZeroSafety(
         const zero = Air.internedToRef(scalar_zero.toIntern());
         break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
     };
-    if (Package.Module.runtime_safety.divided_by_zero != .none) {
-        try RuntimeSafety.checkDivisionByZero(sema, block, src, ok);
-    } else {
-        try sema.addSafetyCheck(block, src, ok, .divide_by_zero);
-    }
+    try RuntimeSafety.checkDivisionByZero(sema, block, src, ok);
 }
 
 fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst.Tag) Air.Inst.Tag {
@@ -21407,11 +21296,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety() and sema.mod.backendSupportsFeature(.is_named_enum_value)) {
         const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
-        if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
-            try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, enum_ty, casted_operand, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
-        }
+        try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, enum_ty, casted_operand, ok);
     }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
@@ -22705,11 +22590,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         if (!is_vector) {
             if (block.wantSafety()) {
                 const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, operand, Air.internedToRef((try mod.floatValue(operand_ty, 0.0)).toIntern()));
-                if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-                }
+                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
             }
             return Air.internedToRef((try mod.intValue(dest_ty, 0)).toIntern());
         }
@@ -22719,11 +22600,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 const idx_ref = try mod.intRef(Type.usize, i);
                 const elem_ref = try block.addBinOp(.array_elem_val, operand, idx_ref);
                 const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, elem_ref, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 0.0)).toIntern()));
-                if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, elem_ref, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-                }
+                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, elem_ref, ok);
             }
         }
         return Air.internedToRef(try mod.intern(.{ .aggregate = .{
@@ -22739,11 +22616,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_ty, 1.0)).toIntern()));
             const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
-                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-            }
+            try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
         }
         return result;
     }
@@ -22759,11 +22632,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 1.0)).toIntern()));
             const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
-                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, old_elem, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-            }
+            try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, old_elem, ok);
         }
         new_elem.* = result;
     }
@@ -22873,22 +22742,14 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag(mod) == .Fn)) {
             if (!ptr_ty.isAllowzeroPtr(mod)) {
                 const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
-                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_non_zero);
-                } else {
-                    try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
-                }
+                try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_non_zero);
             }
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_aligned);
-                } else {
-                    try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
-                }
+                try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_aligned);
             }
         }
         return block.addBitCast(dest_ty, operand_coerced);
@@ -22901,22 +22762,14 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             const elem_coerced = try block.addBinOp(.array_elem_val, operand_coerced, idx_ref);
             if (!ptr_ty.isAllowzeroPtr(mod)) {
                 const is_non_zero = try block.addBinOp(.cmp_neq, elem_coerced, .zero_usize);
-                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_non_zero);
-                } else {
-                    try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
-                }
+                try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_non_zero);
             }
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, elem_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_aligned);
-                } else {
-                    try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
-                }
+                try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_aligned);
             }
         }
     }
@@ -23069,29 +22922,17 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
             const is_zero = try block.addBinOp(.cmp_eq, err_int, zero_err);
             if (disjoint) {
                 // Error must be zero.
-                if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, is_zero);
-                } else {
-                    try sema.addSafetyCheck(block, src, is_zero, .invalid_error_code);
-                }
+                try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, is_zero);
             } else {
                 // Error must be in destination set or zero.
                 const has_value = try block.addTyOp(.error_set_has_value, dest_ty, err_code);
                 const ok = try block.addBinOp(.bool_or, has_value, is_zero);
-                if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
-                    try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, ok);
-                } else {
-                    try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
-                }
+                try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, ok);
             }
         } else {
             const err_int_inst = try block.addBitCast(err_int_ty, operand);
             const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
-            if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
-                try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
-            }
+            try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
         }
     }
     return block.addBitCast(base_dest_ty, operand);
@@ -23463,11 +23304,7 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
-        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .cast_to_null);
-        }
+        try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
     }
 
     if (block.wantSafety() and
@@ -23484,11 +23321,7 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_aligned);
         } else is_aligned;
-        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
-        }
+        try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
     }
 
     // If we're going from an array pointer to a slice, this will only be the pointer part!
@@ -25766,11 +25599,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            if (Package.Module.runtime_safety.mismatched_memcpy_argument_lengths != .none) {
-                try RuntimeSafety.checkMismatchedMemcpyArgumentLengths(sema, block, src, dest_len, src_len, ok);
-            } else {
-                try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
-            }
+            try RuntimeSafety.checkMismatchedMemcpyArgumentLengths(sema, block, src, dest_len, src_len, ok);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25863,11 +25692,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     } else if (dest_len == .none and len_val == null) {
         // Change the dest to a slice, since its type must have the length.
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
-        if (std.builtin.RuntimeSafety.analyze_slice2) {
-            new_dest_ptr = try RuntimeSafety.analyzeSlice2(sema, block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .none, dest_src, dest_src, dest_src, .unneeded, .slice_end);
-        } else {
-            new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
-        }
+        new_dest_ptr = try analyzeSlice2(sema, block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .none, dest_src, dest_src, dest_src, .unneeded, .slice_end);
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
         if (new_src_ptr_ty.isSlice(mod)) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
@@ -25916,11 +25741,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
         const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
         const ok = try block.addBinOp(.bool_or, ok1, ok2);
-        if (Package.Module.runtime_safety.memcpy_argument_aliasing != .none) {
-            try RuntimeSafety.checkAliasingMemcpyArguments(sema, block, src, raw_dest_ptr, dest_plus_len, raw_src_ptr, src_plus_len, ok);
-        } else {
-            try sema.addSafetyCheck(block, src, ok, .memcpy_alias);
-        }
+        try RuntimeSafety.checkAliasingMemcpyArguments(sema, block, src, raw_dest_ptr, dest_plus_len, raw_src_ptr, src_plus_len, ok);
     }
 
     _ = try block.addInst(.{
@@ -28533,11 +28354,7 @@ fn unionFieldPtr(
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
         const active_tag = try block.addTyOp(.get_union_tag, Type.fromInterned(union_obj.enum_tag_ty), union_val);
-        if (Package.Module.runtime_safety.accessed_inactive_field != .none) {
-            try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
-        } else {
-            try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
-        }
+        try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
     }
     if (field_ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
@@ -28611,11 +28428,7 @@ fn unionFieldVal(
         const wanted_tag_val = try zcu.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
         const wanted_tag = Air.internedToRef(wanted_tag_val.toIntern());
         const active_tag = try block.addTyOp(.get_union_tag, Type.fromInterned(union_obj.enum_tag_ty), union_byval);
-        if (Package.Module.runtime_safety.accessed_inactive_field != .none) {
-            try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
-        } else {
-            try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
-        }
+        try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
     }
     if (field_ty.zigTypeTag(zcu) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
@@ -28980,11 +28793,7 @@ fn elemValArray(
         if (maybe_index_val == null) {
             const len_inst = try mod.intRef(Type.usize, array_len);
             const cmp_op: Air.Inst.Tag = if (array_sent != null) .cmp_lte else .cmp_lt;
-            if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
-                try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
-            } else {
-                try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
-            }
+            try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
         }
     }
 
@@ -29052,11 +28861,7 @@ fn elemPtrArray(
     if (oob_safety and block.wantSafety() and offset == null) {
         const len_inst = try mod.intRef(Type.usize, array_len);
         const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
-        if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
-            try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
-        } else {
-            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
-        }
+        try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
     }
 
     return block.addPtrElemPtr(array_ptr, elem_index, elem_ptr_ty);
@@ -29114,11 +28919,7 @@ fn elemValSlice(
         else
             try block.addTyOp(.slice_len, Type.usize, slice);
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
-        if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
-            try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
-        } else {
-            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
-        }
+        try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
     }
     try sema.queueFullTypeResolution(sema.typeOf(slice));
     return block.addBinOp(.slice_elem_val, slice, elem_index);
@@ -29178,11 +28979,7 @@ fn elemPtrSlice(
             break :len try block.addTyOp(.slice_len, Type.usize, slice);
         };
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
-        if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
-            try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
-        } else {
-            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
-        }
+        try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
     }
     return block.addSliceElemPtr(slice, elem_index, elem_ptr_ty);
 }
@@ -31401,11 +31198,7 @@ fn coerceCompatiblePtrs(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
-        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
-            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, inst_src, dest_ty, ptr_int, ok);
-        } else {
-            try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
-        }
+        try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, inst_src, dest_ty, ptr_int, ok);
     }
     const new_ptr = try sema.bitCast(block, dest_ty, inst, inst_src, null);
     try sema.checkKnownAllocPtr(block, inst, new_ptr);
