@@ -44,6 +44,8 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+/// If true and URL points to a Git repository, will use the latest commit.
+use_latest_commit: bool,
 
 // Above this are fields provided as inputs to `run`.
 // Below this are fields populated by `run`.
@@ -59,6 +61,8 @@ actual_hash: Manifest.Digest,
 has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
+/// If `use_latest_commit` was true, this will be the commit that was used.
+latest_commit: ?git.Oid,
 
 // This field is used by the CLI only, untouched by this file.
 
@@ -699,6 +703,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .use_latest_commit = false,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
@@ -707,6 +712,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .actual_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
+                .latest_commit = undefined,
 
                 .module = null,
             };
@@ -994,7 +1000,9 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             }
             return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
         };
-        if (uri.fragment == null) {
+        if (f.use_latest_commit) {
+            f.latest_commit = want_oid;
+        } else if (uri.fragment == null) {
             const notes_len = 1;
             try eb.addRootErrorMessage(.{
                 .msg = try eb.addString("url field is missing an explicit ref"),
