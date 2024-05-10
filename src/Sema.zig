@@ -17167,7 +17167,8 @@ fn analyzeArithmetic(
 
     const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
     const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
-    const runtime_src: LazySrcLoc, const air_tag: Air.Inst.Tag, const air_tag_safe: Air.Inst.Tag = rs: {
+
+    const runtime_src: LazySrcLoc, const air_tag: Air.Inst.Tag = rs: {
         switch (zir_tag) {
             .add, .add_unsafe => {
                 // For integers:intAddSat
@@ -17214,8 +17215,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try Value.floatAdd(lhs_val, rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ rhs_src, air_tag, .add_safe };
-                } else break :rs .{ lhs_src, air_tag, .add_safe };
+                    } else break :rs .{ rhs_src, air_tag };
+                } else break :rs .{ lhs_src, air_tag };
             },
             .addwrap => {
                 // Integers only; floats are checked above.
@@ -17235,8 +17236,8 @@ fn analyzeArithmetic(
                     }
                     if (maybe_lhs_val) |lhs_val| {
                         return Air.internedToRef((try sema.numberAddWrapScalar(lhs_val, rhs_val, resolved_type)).toIntern());
-                    } else break :rs .{ lhs_src, .add_wrap, .add_wrap };
-                } else break :rs .{ rhs_src, .add_wrap, .add_wrap };
+                    } else break :rs .{ lhs_src, .add_wrap };
+                } else break :rs .{ rhs_src, .add_wrap };
             },
             .add_sat => {
                 // Integers only; floats are checked above.
@@ -17268,11 +17269,9 @@ fn analyzeArithmetic(
                     } else break :rs .{
                         lhs_src,
                         .add_sat,
-                        .add_sat,
                     };
                 } else break :rs .{
                     rhs_src,
-                    .add_sat,
                     .add_sat,
                 };
             },
@@ -17316,8 +17315,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try Value.floatSub(lhs_val, rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ rhs_src, air_tag, .sub_safe };
-                } else break :rs .{ lhs_src, air_tag, .sub_safe };
+                    } else break :rs .{ rhs_src, air_tag };
+                } else break :rs .{ lhs_src, air_tag };
             },
             .subwrap => {
                 // Integers only; floats are checked above.
@@ -17337,8 +17336,8 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         return Air.internedToRef((try sema.numberSubWrapScalar(lhs_val, rhs_val, resolved_type)).toIntern());
-                    } else break :rs .{ rhs_src, .sub_wrap, .sub_wrap };
-                } else break :rs .{ lhs_src, .sub_wrap, .sub_wrap };
+                    } else break :rs .{ rhs_src, .sub_wrap };
+                } else break :rs .{ lhs_src, .sub_wrap };
             },
             .sub_sat => {
                 // Integers only; floats are checked above.
@@ -17363,8 +17362,8 @@ fn analyzeArithmetic(
                             try lhs_val.intSubSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return Air.internedToRef(val.toIntern());
-                    } else break :rs .{ rhs_src, .sub_sat, .sub_sat };
-                } else break :rs .{ lhs_src, .sub_sat, .sub_sat };
+                    } else break :rs .{ rhs_src, .sub_sat };
+                } else break :rs .{ lhs_src, .sub_sat };
             },
             .mul => {
                 // For integers:
@@ -17458,8 +17457,8 @@ fn analyzeArithmetic(
                         } else {
                             return Air.internedToRef((try lhs_val.floatMul(rhs_val, resolved_type, sema.arena, mod)).toIntern());
                         }
-                    } else break :rs .{ lhs_src, air_tag, .mul_safe };
-                } else break :rs .{ rhs_src, air_tag, .mul_safe };
+                    } else break :rs .{ lhs_src, air_tag };
+                } else break :rs .{ rhs_src, air_tag };
             },
             .mulwrap => {
                 // Integers only; floats are handled above.
@@ -17503,8 +17502,8 @@ fn analyzeArithmetic(
                             return mod.undefRef(resolved_type);
                         }
                         return Air.internedToRef((try lhs_val.numberMulWrap(rhs_val, resolved_type, sema.arena, mod)).toIntern());
-                    } else break :rs .{ lhs_src, .mul_wrap, .mul_wrap };
-                } else break :rs .{ rhs_src, .mul_wrap, .mul_wrap };
+                    } else break :rs .{ lhs_src, .mul_wrap };
+                } else break :rs .{ rhs_src, .mul_wrap };
             },
             .mul_sat => {
                 // Integers only; floats are checked above.
@@ -17554,8 +17553,8 @@ fn analyzeArithmetic(
                             try lhs_val.intMulSat(rhs_val, resolved_type, sema.arena, mod);
 
                         return Air.internedToRef(val.toIntern());
-                    } else break :rs .{ lhs_src, .mul_sat, .mul_sat };
-                } else break :rs .{ rhs_src, .mul_sat, .mul_sat };
+                    } else break :rs .{ lhs_src, .mul_sat };
+                } else break :rs .{ rhs_src, .mul_sat };
             },
             else => unreachable,
         }
@@ -17563,53 +17562,39 @@ fn analyzeArithmetic(
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
-    if (block.wantSafety() and want_safety and scalar_tag == .Int) {
-        if (mod.backendSupportsFeature(.safety_checked_instructions)) {
-            if (air_tag != air_tag_safe) {
-                _ = try sema.preparePanicId(block, .integer_overflow);
-            }
-            return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
-        } else {
-            const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
-                .add => .add_with_overflow,
-                .sub => .sub_with_overflow,
-                .mul => .mul_with_overflow,
-                else => null,
-            };
-            if (maybe_op_ov) |op_ov_tag| {
-                const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
-                const op_ov = try block.addInst(.{
-                    .tag = op_ov_tag,
-                    .data = .{ .ty_pl = .{
-                        .ty = Air.internedToRef(op_ov_tuple_ty.toIntern()),
-                        .payload = try sema.addExtra(Air.Bin{
-                            .lhs = casted_lhs,
-                            .rhs = casted_rhs,
-                        }),
-                    } },
-                });
-                const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
-                const any_ov_bit = if (resolved_type.zigTypeTag(mod) == .Vector)
-                    try block.addInst(.{
-                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = ov_bit,
-                            .operation = .Or,
-                        } },
-                    })
-                else
-                    ov_bit;
-                const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
-                const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
-
-                if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, air_tag)) {
-                    try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, no_ov, air_tag);
-                } else {
-                    try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
-                }
-                return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
-            }
-        }
+    if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
+        const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
+            .add => .add_with_overflow,
+            .sub => .sub_with_overflow,
+            .mul => .mul_with_overflow,
+            else => break :blk,
+        };
+        const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
+        const op_ov = try block.addInst(.{
+            .tag = op_ov_tag,
+            .data = .{ .ty_pl = .{
+                .ty = Air.internedToRef(op_ov_tuple_ty.toIntern()),
+                .payload = try sema.addExtra(Air.Bin{
+                    .lhs = casted_lhs,
+                    .rhs = casted_rhs,
+                }),
+            } },
+        });
+        const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+        const any_ov_bit = if (resolved_type.zigTypeTag(mod) == .Vector)
+            try block.addInst(.{
+                .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
+                .data = .{ .reduce = .{
+                    .operand = ov_bit,
+                    .operation = .Or,
+                } },
+            })
+        else
+            ov_bit;
+        const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
+        const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+        try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, no_ov, air_tag);
+        return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
     }
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
