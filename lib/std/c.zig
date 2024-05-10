@@ -35,7 +35,7 @@ pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
 pub usingnamespace switch (native_os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
-    .macos, .ios, .tvos, .watchos => @import("c/darwin.zig"),
+    .macos, .ios, .tvos, .watchos, .visionos => @import("c/darwin.zig"),
     .freebsd, .kfreebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
     .dragonfly => @import("c/dragonfly.zig"),
@@ -63,7 +63,7 @@ pub const pthread_mutex_t = switch (native_os) {
             else => @compileError("unsupported ABI"),
         };
     },
-    .macos, .ios, .tvos, .watchos => extern struct {
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         sig: c_long = 0x32AAABA7,
         data: [data_len]u8 = [_]u8{0} ** data_len,
 
@@ -113,7 +113,7 @@ pub const pthread_cond_t = switch (native_os) {
     .linux => extern struct {
         data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
     },
-    .macos, .ios, .tvos, .watchos => extern struct {
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         sig: c_long = 0x3CB0B1BB,
         data: [data_len]u8 = [_]u8{0} ** data_len,
         const data_len = if (@sizeOf(usize) == 8) 40 else 24;
@@ -166,7 +166,7 @@ pub const pthread_rwlock_t = switch (native_os) {
             data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
         },
     },
-    .macos, .ios, .tvos, .watchos => extern struct {
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         sig: c_long = 0x2DA8B3B4,
         data: [192]u8 = [_]u8{0} ** 192,
     },
@@ -214,7 +214,7 @@ pub const AT = switch (native_os) {
         /// Remove directory instead of unlinking file
         pub const REMOVEDIR = 0x200;
     },
-    .macos, .ios, .tvos, .watchos => struct {
+    .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const FDCWD = -2;
         /// Use effective ids in access check
         pub const EACCESS = 0x0010;
@@ -458,7 +458,7 @@ pub const O = switch (native_os) {
         DIRECTORY: bool = false,
         _: u10 = 0,
     },
-    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u32) {
         ACCMODE: std.posix.ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
@@ -620,7 +620,7 @@ pub const MAP = switch (native_os) {
         NORESERVE: bool = false,
         _: u27 = 0,
     },
-    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u32) {
         TYPE: enum(u4) {
             SHARED = 0x01,
             PRIVATE = 0x02,
@@ -685,7 +685,7 @@ pub const cc_t = u8;
 /// Indices into the `cc` array in the `termios` struct.
 pub const V = switch (native_os) {
     .linux => linux.V,
-    .macos, .ios, .tvos, .watchos, .netbsd, .openbsd => enum {
+    .macos, .ios, .tvos, .watchos, .visionos, .netbsd, .openbsd => enum {
         EOF,
         EOL,
         EOL2,
@@ -784,7 +784,7 @@ pub const V = switch (native_os) {
 
 pub const NCCS = switch (native_os) {
     .linux => linux.NCCS,
-    .macos, .ios, .tvos, .watchos, .freebsd, .kfreebsd, .netbsd, .openbsd, .dragonfly => 20,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .kfreebsd, .netbsd, .openbsd, .dragonfly => 20,
     .haiku => 11,
     .solaris, .illumos => 19,
     .emscripten, .wasi => 32,
@@ -793,7 +793,7 @@ pub const NCCS = switch (native_os) {
 
 pub const termios = switch (native_os) {
     .linux => linux.termios,
-    .macos, .ios, .tvos, .watchos => extern struct {
+    .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
@@ -843,7 +843,7 @@ pub const termios = switch (native_os) {
 
 pub const tc_iflag_t = switch (native_os) {
     .linux => linux.tc_iflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u64) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u64) {
         IGNBRK: bool = false,
         BRKINT: bool = false,
         IGNPAR: bool = false,
@@ -953,7 +953,7 @@ pub const tc_iflag_t = switch (native_os) {
 
 pub const tc_oflag_t = switch (native_os) {
     .linux => linux.tc_oflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u64) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u64) {
         OPOST: bool = false,
         ONLCR: bool = false,
         OXTABS: bool = false,
@@ -1050,7 +1050,7 @@ pub const CSIZE = switch (native_os) {
 
 pub const tc_cflag_t = switch (native_os) {
     .linux => linux.tc_cflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u64) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u64) {
         CIGNORE: bool = false,
         _1: u5 = 0,
         CSTOPB: bool = false,
@@ -1186,7 +1186,7 @@ pub const tc_cflag_t = switch (native_os) {
 
 pub const tc_lflag_t = switch (native_os) {
     .linux => linux.tc_lflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u64) {
+    .macos, .ios, .tvos, .watchos, .visionos => packed struct(u64) {
         ECHOKE: bool = false,
         ECHOE: bool = false,
         ECHOK: bool = false,
@@ -1312,7 +1312,7 @@ pub const tc_lflag_t = switch (native_os) {
 
 pub const speed_t = switch (native_os) {
     .linux => linux.speed_t,
-    .macos, .ios, .tvos, .watchos, .openbsd => enum(u64) {
+    .macos, .ios, .tvos, .watchos, .visionos, .openbsd => enum(u64) {
         B0 = 0,
         B50 = 50,
         B75 = 75,
@@ -1535,7 +1535,7 @@ pub const fstatat = switch (native_os) {
 };
 
 pub const getdirentries = switch (native_os) {
-    .macos, .ios, .tvos, .watchos => private.__getdirentries64,
+    .macos, .ios, .tvos, .watchos, .visionos => private.__getdirentries64,
     else => private.getdirentries,
 };
 
@@ -1569,7 +1569,7 @@ pub const readdir = switch (native_os) {
 };
 
 pub const realpath = switch (native_os) {
-    .macos, .ios, .tvos, .watchos => private.@"realpath$DARWIN_EXTSN",
+    .macos, .ios, .tvos, .watchos, .visionos => private.@"realpath$DARWIN_EXTSN",
     else => private.realpath,
 };
 

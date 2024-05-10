@@ -706,7 +706,7 @@ pub const StackIterator = struct {
         const unwind_state = &self.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
         switch (native_os) {
-            .macos, .ios, .watchos, .tvos => {
+            .macos, .ios, .watchos, .tvos, .visionos => {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
@@ -2132,7 +2132,7 @@ pub const DebugInfo = struct {
 };
 
 pub const ModuleDebugInfo = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
         mapped_memory: []align(mem.page_size) const u8,

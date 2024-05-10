@@ -1559,7 +1559,7 @@ pub fn setup_buf_ring(fd: posix.fd_t, entries: u16, group_id: u16) !*align(mem.p
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
-    const mmap_size = entries * @sizeOf(linux.io_uring_buf);
+    const mmap_size = @as(usize, entries) * @sizeOf(linux.io_uring_buf);
     const mmap = try posix.mmap(
         null,
         mmap_size,

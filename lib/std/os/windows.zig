@@ -3928,6 +3928,7 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
 };
 
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
+pub const DISABLE_NEWLINE_AUTO_RETURN = 0x8;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;

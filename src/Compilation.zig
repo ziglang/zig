@@ -5280,7 +5280,7 @@ pub fn addCCArgs(
                     // doesn't matter which one gets overridden.
                     argv.appendAssumeCapacity("-Wno-overriding-option");
                 },
-                .ios, .tvos, .watchos => switch (target.cpu.arch) {
+                .ios => switch (target.cpu.arch) {
                     // Pass the proper -m<os>-version-min argument for darwin.
                     .x86, .x86_64 => {
                         const ver = target.os.version_range.semver.min;

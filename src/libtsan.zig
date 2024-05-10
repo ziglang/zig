@@ -125,7 +125,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     }
 
     const platform_tsan_sources = switch (target.os.tag) {
-        .ios, .macos, .watchos, .tvos => &darwin_tsan_sources,
+        .ios, .macos, .watchos, .tvos, .visionos => &darwin_tsan_sources,
         .windows => &windows_tsan_sources,
         else => &unix_tsan_sources,
     };

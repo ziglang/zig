@@ -4432,7 +4432,7 @@ fn runOrTestHotSwap(
     }
 
     switch (builtin.target.os.tag) {
-        .macos, .ios, .tvos, .watchos => {
+        .macos, .ios, .tvos, .watchos, .visionos => {
             const PosixSpawn = @import("DarwinPosixSpawn.zig");
 
             var attr = try PosixSpawn.Attr.init();
