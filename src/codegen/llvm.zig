@@ -4376,7 +4376,7 @@ pub const Object = struct {
             .int => try o.builder.castConst(
                 .inttoptr,
                 try o.builder.intConst(try o.lowerType(Type.usize), offset),
-                .ptr,
+                try o.lowerType(Type.fromInterned(ptr.ty)),
             ),
             .eu_payload => |eu_ptr| try o.lowerPtr(
                 eu_ptr,
