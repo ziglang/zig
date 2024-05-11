@@ -38,22 +38,8 @@ const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
-const callee_preserved_regs = abi.callee_preserved_regs;
-/// General Purpose
-const gp = abi.RegisterClass.gp;
-/// Function Args
-const fa = abi.RegisterClass.fa;
-/// Function Returns
-const fr = abi.RegisterClass.fr;
-/// Temporary Use
-const tp = abi.RegisterClass.tp;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
-
-const RegisterView = enum(u1) {
-    caller,
-    callee,
-};
 
 gpa: Allocator,
 air: Air,
@@ -919,9 +905,23 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     return result;
 }
 
+const required_features = [_]Target.riscv.Feature{
+    .d,
+    .m,
+};
+
 fn gen(self: *Self) !void {
     const mod = self.bin_file.comp.module.?;
     const fn_info = mod.typeToFunc(self.fn_type).?;
+
+    inline for (required_features) |feature| {
+        if (!self.hasFeature(feature)) {
+            return self.fail(
+                "target missing required feature {s}",
+                .{@tagName(feature)},
+            );
+        }
+    }
 
     if (fn_info.cc != .Naked) {
         try self.addPseudoNone(.pseudo_dbg_prologue_end);
@@ -1454,9 +1454,9 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     }
 
     var save_reg_list = Mir.RegisterList{};
-    for (callee_preserved_regs) |reg| {
+    for (abi.Registers.all_preserved) |reg| {
         if (self.register_manager.isRegAllocated(reg)) {
-            save_reg_list.push(&callee_preserved_regs, reg);
+            save_reg_list.push(&abi.Registers.all_preserved, reg);
         }
     }
 
@@ -1600,6 +1600,33 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !FrameIndex {
     }));
 }
 
+fn typeRegClass(self: *Self, ty: Type) abi.RegisterClass {
+    const zcu = self.bin_file.comp.module.?;
+    return switch (ty.zigTypeTag(zcu)) {
+        .Float => .float,
+        .Vector => @panic("TODO: typeRegClass for Vectors"),
+        inline else => .int,
+    };
+}
+
+fn regGeneralClassForType(self: *Self, ty: Type) RegisterManager.RegisterBitSet {
+    const zcu = self.bin_file.comp.module.?;
+    return switch (ty.zigTypeTag(zcu)) {
+        .Float => abi.Registers.Float.general_purpose,
+        .Vector => @panic("TODO: regGeneralClassForType for Vectors"),
+        else => abi.Registers.Integer.general_purpose,
+    };
+}
+
+fn regTempClassForType(self: *Self, ty: Type) RegisterManager.RegisterBitSet {
+    const zcu = self.bin_file.comp.module.?;
+    return switch (ty.zigTypeTag(zcu)) {
+        .Float => abi.Registers.Float.temporary,
+        .Vector => @panic("TODO: regTempClassForType for Vectors"),
+        else => abi.Registers.Integer.temporary,
+    };
+}
+
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const zcu = self.bin_file.comp.module.?;
     const elem_ty = self.typeOfIndex(inst);
@@ -1608,11 +1635,15 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(zcu)});
     };
 
-    if (reg_ok) {
-        if (abi_size <= 8) {
-            if (self.register_manager.tryAllocReg(inst, gp)) |reg| {
-                return .{ .register = reg };
-            }
+    const min_size: u32 = switch (elem_ty.zigTypeTag(zcu)) {
+        .Float => 4,
+        .Vector => @panic("allocRegOrMem Vector"),
+        else => 8,
+    };
+
+    if (reg_ok and abi_size <= min_size) {
+        if (self.register_manager.tryAllocReg(inst, self.regGeneralClassForType(elem_ty))) |reg| {
+            return .{ .register = reg };
         }
     }
 
@@ -1623,9 +1654,27 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
 /// Allocates a register from the general purpose set and returns the Register and the Lock.
 ///
 /// Up to the caller to unlock the register later.
-fn allocReg(self: *Self) !struct { Register, RegisterLock } {
-    const reg = try self.register_manager.allocReg(null, gp);
+fn allocReg(self: *Self, reg_class: abi.RegisterClass) !struct { Register, RegisterLock } {
+    if (reg_class == .float and !self.hasFeature(.f))
+        std.debug.panic("allocReg class == float where F isn't enabled", .{});
+
+    const class = switch (reg_class) {
+        .int => abi.Registers.Integer.general_purpose,
+        .float => abi.Registers.Float.general_purpose,
+    };
+
+    const reg = try self.register_manager.allocReg(null, class);
     const lock = self.register_manager.lockRegAssumeUnused(reg);
+    return .{ reg, lock };
+}
+
+/// Similar to `allocReg` but will copy the MCValue into the Register unless `operand` is already
+/// a register, in which case it will return a possible lock to that register.
+fn promoteReg(self: *Self, ty: Type, operand: MCValue) !struct { Register, ?RegisterLock } {
+    if (operand == .register) return .{ operand.register, self.register_manager.lockReg(operand.register) };
+
+    const reg, const lock = try self.allocReg(self.typeRegClass(ty));
+    try self.genSetReg(ty, reg, operand);
     return .{ reg, lock };
 }
 
@@ -1635,7 +1684,7 @@ fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Regi
             .immediate => |imm| {
                 // Optimisation: if index MCValue is an immediate, we can multiply in `comptime`
                 // and set the register directly to the scaled offset as an immediate.
-                const reg = try self.register_manager.allocReg(null, gp);
+                const reg = try self.register_manager.allocReg(null, self.regGeneralClassForType(index_ty));
                 try self.genSetReg(index_ty, reg, .{ .immediate = imm * elem_size });
                 break :blk reg;
             },
@@ -1671,7 +1720,8 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
-    const reg = try self.register_manager.allocReg(null, tp);
+    log.debug("copyToTmpRegister ty: {}", .{ty.fmt(self.bin_file.comp.module.?)});
+    const reg = try self.register_manager.allocReg(null, self.regTempClassForType(ty));
     try self.genSetReg(ty, reg, mcv);
     return reg;
 }
@@ -1680,7 +1730,8 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// `reg_owner` is the instruction that gets associated with the register in the register table.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner, gp);
+    const ty = self.typeOfIndex(reg_owner);
+    const reg = try self.register_manager.allocReg(reg_owner, self.regGeneralClassForType(ty));
     try self.genSetReg(self.typeOfIndex(reg_owner), reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1797,7 +1848,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                     if (self.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
                     operand.register
                 else
-                    try self.register_manager.allocReg(inst, gp);
+                    (try self.allocRegOrMem(inst, true)).register;
 
                 _ = try self.addInst(.{
                     .tag = .pseudo,
@@ -1843,7 +1894,7 @@ fn airMinMax(
         const lhs_reg, const lhs_lock = blk: {
             if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
-            const lhs_reg, const lhs_lock = try self.allocReg();
+            const lhs_reg, const lhs_lock = try self.allocReg(.int);
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
             break :blk .{ lhs_reg, lhs_lock };
         };
@@ -1852,16 +1903,16 @@ fn airMinMax(
         const rhs_reg, const rhs_lock = blk: {
             if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
-            const rhs_reg, const rhs_lock = try self.allocReg();
+            const rhs_reg, const rhs_lock = try self.allocReg(.int);
             try self.genSetReg(rhs_ty, rhs_reg, rhs);
             break :blk .{ rhs_reg, rhs_lock };
         };
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const mask_reg, const mask_lock = try self.allocReg();
+        const mask_reg, const mask_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(mask_lock);
 
-        const result_reg, const result_lock = try self.allocReg();
+        const result_reg, const result_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(result_lock);
 
         _ = try self.addInst(.{
@@ -1955,20 +2006,6 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-/// For all your binary operation needs, this function will generate
-/// the corresponding Mir instruction(s). Returns the location of the
-/// result.
-///
-/// If the binary operation itself happens to be an Air instruction,
-/// pass the corresponding index in the inst parameter. That helps
-/// this function do stuff like reusing operands.
-///
-/// This function does not do any lowering to Mir itself, but instead
-/// looks at the lhs and rhs and determines which kind of lowering
-/// would be best suitable and then delegates the lowering to other
-/// functions.
-///
-/// `maybe_inst` **needs** to be a bin_op, make sure of that.
 fn binOp(
     self: *Self,
     tag: Air.Inst.Tag,
@@ -1991,11 +2028,18 @@ fn binOp(
         .cmp_lt,
         .cmp_lte,
         => {
+            assert(lhs_ty.eql(rhs_ty, zcu));
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .Float => return self.fail("TODO binary operations on floats", .{}),
+                .Float => {
+                    const float_bits = lhs_ty.floatBits(zcu.getTarget());
+                    if (float_bits <= 32) {
+                        return self.binOpFloat(tag, lhs, lhs_ty, rhs, rhs_ty);
+                    } else {
+                        return self.fail("TODO: binary operations for  floats with bits > 32", .{});
+                    }
+                },
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int, .Enum, .ErrorSet => {
-                    assert(lhs_ty.eql(rhs_ty, zcu));
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
                         return self.binOpRegister(tag, lhs, lhs_ty, rhs, rhs_ty);
@@ -2071,14 +2115,7 @@ fn binOp(
         else => return self.fail("TODO binOp {}", .{tag}),
     }
 }
-/// Don't call this function directly. Use binOp instead.
-///
-/// Calling this function signals an intention to generate a Mir
-/// instruction of the form
-///
-///     op dest, lhs, rhs
-///
-/// Asserts that generating an instruction of that form is possible.
+
 fn binOpRegister(
     self: *Self,
     tag: Air.Inst.Tag,
@@ -2087,25 +2124,13 @@ fn binOpRegister(
     rhs: MCValue,
     rhs_ty: Type,
 ) !MCValue {
-    const lhs_reg, const lhs_lock = blk: {
-        if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
-
-        const lhs_reg, const lhs_lock = try self.allocReg();
-        try self.genSetReg(lhs_ty, lhs_reg, lhs);
-        break :blk .{ lhs_reg, lhs_lock };
-    };
+    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
     defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const rhs_reg, const rhs_lock = blk: {
-        if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
-
-        const rhs_reg, const rhs_lock = try self.allocReg();
-        try self.genSetReg(rhs_ty, rhs_reg, rhs);
-        break :blk .{ rhs_reg, rhs_lock };
-    };
+    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dest_reg, const dest_lock = try self.allocReg();
+    const dest_reg, const dest_lock = try self.allocReg(.int);
     defer self.register_manager.unlockReg(dest_lock);
 
     const mir_tag: Mir.Inst.Tag = switch (tag) {
@@ -2184,7 +2209,50 @@ fn binOpRegister(
         else => unreachable,
     }
 
-    // generate the struct for OF checks
+    return MCValue{ .register = dest_reg };
+}
+
+fn binOpFloat(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    lhs: MCValue,
+    lhs_ty: Type,
+    rhs: MCValue,
+    rhs_ty: Type,
+) !MCValue {
+    const zcu = self.bin_file.comp.module.?;
+    const float_bits = lhs_ty.floatBits(zcu.getTarget());
+
+    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .add => if (float_bits == 32) .fadds else .faddd,
+        .cmp_eq => if (float_bits == 32) .feqs else .feqd,
+        else => return self.fail("TODO: binOpFloat mir_tag {s}", .{@tagName(tag)}),
+    };
+
+    const return_class: abi.RegisterClass = switch (tag) {
+        .add => .float,
+        .cmp_eq => .int,
+        else => unreachable,
+    };
+
+    const dest_reg, const dest_lock = try self.allocReg(return_class);
+    defer self.register_manager.unlockReg(dest_lock);
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .ops = .rrr,
+        .data = .{ .r_type = .{
+            .rd = dest_reg,
+            .rs1 = lhs_reg,
+            .rs2 = rhs_reg,
+        } },
+    });
 
     return MCValue{ .register = dest_reg };
 }
@@ -2279,7 +2347,7 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
             const shift_amount: u6 = @intCast(Type.usize.bitSize(zcu) - int_info.bits);
 
-            const shift_reg, const shift_lock = try self.allocReg();
+            const shift_reg, const shift_lock = try self.allocReg(.int);
             defer self.register_manager.unlockReg(shift_lock);
 
             _ = try self.addInst(.{
@@ -2357,25 +2425,13 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const result_mcv = try self.allocRegOrMem(inst, false);
         const offset = result_mcv.load_frame;
 
-        const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
-
-            const lhs_reg, const lhs_lock = try self.allocReg();
-            try self.genSetReg(lhs_ty, lhs_reg, lhs);
-            break :blk .{ lhs_reg, lhs_lock };
-        };
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
-
-            const rhs_reg, const rhs_lock = try self.allocReg();
-            try self.genSetReg(rhs_ty, rhs_reg, rhs);
-            break :blk .{ rhs_reg, rhs_lock };
-        };
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dest_reg, const dest_lock = try self.allocReg();
+        const dest_reg, const dest_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(dest_lock);
 
         switch (int_info.signedness) {
@@ -2503,17 +2559,11 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                                         1...8 => {
                                             const max_val = std.math.pow(u16, 2, int_info.bits) - 1;
 
-                                            const overflow_reg, const overflow_lock = try self.allocReg();
-                                            defer self.register_manager.unlockReg(overflow_lock);
-
-                                            const add_reg, const add_lock = blk: {
-                                                if (dest == .register) break :blk .{ dest.register, null };
-
-                                                const add_reg, const add_lock = try self.allocReg();
-                                                try self.genSetReg(lhs_ty, add_reg, dest);
-                                                break :blk .{ add_reg, add_lock };
-                                            };
+                                            const add_reg, const add_lock = try self.promoteReg(lhs_ty, lhs);
                                             defer if (add_lock) |lock| self.register_manager.unlockReg(lock);
+
+                                            const overflow_reg, const overflow_lock = try self.allocReg(.int);
+                                            defer self.register_manager.unlockReg(overflow_lock);
 
                                             _ = try self.addInst(.{
                                                 .tag = .andi,
@@ -2595,25 +2645,13 @@ fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
-
-            const lhs_reg, const lhs_lock = try self.allocReg();
-            try self.genSetReg(lhs_ty, lhs_reg, lhs);
-            break :blk .{ lhs_reg, lhs_lock };
-        };
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
-
-            const rhs_reg, const rhs_lock = try self.allocReg();
-            try self.genSetReg(rhs_ty, rhs_reg, rhs);
-            break :blk .{ rhs_reg, rhs_lock };
-        };
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dest_reg, const dest_lock = try self.allocReg();
+        const dest_reg, const dest_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(dest_lock);
 
         _ = try self.addInst(.{
@@ -2640,25 +2678,13 @@ fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
-
-            const lhs_reg, const lhs_lock = try self.allocReg();
-            try self.genSetReg(lhs_ty, lhs_reg, lhs);
-            break :blk .{ lhs_reg, lhs_lock };
-        };
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
-
-            const rhs_reg, const rhs_lock = try self.allocReg();
-            try self.genSetReg(rhs_ty, rhs_reg, rhs);
-            break :blk .{ rhs_reg, rhs_lock };
-        };
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dest_reg, const dest_lock = try self.allocReg();
+        const dest_reg, const dest_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(dest_lock);
 
         _ = try self.addInst(.{
@@ -3102,7 +3128,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
         const elem_ty = array_ty.childType(zcu);
         const elem_abi_size = elem_ty.abiSize(zcu);
 
-        const addr_reg, const addr_reg_lock = try self.allocReg();
+        const addr_reg, const addr_reg_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(addr_reg_lock);
 
         switch (array_mcv) {
@@ -3211,46 +3237,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_ty = self.typeOf(ty_op.operand);
-
-        const dest_reg = try self.register_manager.allocReg(inst, gp);
-
-        const source_reg, const source_lock = blk: {
-            if (operand == .register) break :blk .{ operand.register, null };
-
-            const source_reg, const source_lock = try self.allocReg();
-            try self.genSetReg(operand_ty, source_reg, operand);
-            break :blk .{ source_reg, source_lock };
-        };
-        defer if (source_lock) |lock| self.register_manager.unlockReg(lock);
-
-        // TODO: the B extension for RISCV should have the ctz instruction, and we should use it.
-
-        try self.ctz(source_reg, dest_reg, operand_ty);
-
-        break :result .{ .register = dest_reg };
-    };
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn ctz(self: *Self, src: Register, dst: Register, ty: Type) !void {
-    const zcu = self.bin_file.comp.module.?;
-    const length = (ty.abiSize(zcu) * 8) - 1;
-
-    const count_reg, const count_lock = try self.allocReg();
-    defer self.register_manager.unlockReg(count_lock);
-
-    const len_reg, const len_lock = try self.allocReg();
-    defer self.register_manager.unlockReg(len_lock);
-
-    try self.genSetReg(Type.usize, count_reg, .{ .immediate = 0 });
-    try self.genSetReg(Type.usize, len_reg, .{ .immediate = length });
-
-    _ = src;
-    _ = dst;
-
+    _ = ty_op;
     return self.fail("TODO: finish ctz", .{});
 }
 
@@ -3267,38 +3254,18 @@ fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
         const ty = self.typeOf(ty_op.operand);
         const scalar_ty = ty.scalarType(zcu);
         const operand = try self.resolveInst(ty_op.operand);
+        _ = operand;
 
         switch (scalar_ty.zigTypeTag(zcu)) {
             .Int => if (ty.zigTypeTag(zcu) == .Vector) {
                 return self.fail("TODO implement airAbs for {}", .{ty.fmt(zcu)});
             } else {
-                const int_bits = ty.intInfo(zcu).bits;
-
-                if (int_bits > 32) {
-                    return self.fail("TODO: airAbs for larger than 32 bits", .{});
-                }
-
-                // promote the src into a register
-                const src_mcv = try self.copyToNewRegister(inst, operand);
-                // temp register for shift
-                const temp_reg = try self.register_manager.allocReg(inst, gp);
-
-                _ = try self.addInst(.{
-                    .tag = .abs,
-                    .ops = .rri,
-                    .data = .{
-                        .i_type = .{
-                            .rs1 = src_mcv.register,
-                            .rd = temp_reg,
-                            .imm12 = Immediate.s(int_bits - 1),
-                        },
-                    },
-                });
-
-                break :result src_mcv;
+                return self.fail("TODO: implement airAbs for Int", .{});
             },
             else => return self.fail("TODO: implement airAbs {}", .{scalar_ty.fmt(zcu)}),
         }
+
+        break :result .{.unreach};
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3317,15 +3284,24 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
             return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
         }
 
-        const dest_reg = try self.register_manager.allocReg(null, gp);
-        try self.genSetReg(ty, dest_reg, operand);
-
-        const dest_mcv: MCValue = .{ .register = dest_reg };
+        const dest_mcv = try self.copyToNewRegister(inst, operand);
+        const dest_reg = dest_mcv.register;
 
         switch (int_bits) {
             16 => {
-                const temp = try self.binOp(.shr, dest_mcv, ty, .{ .immediate = 8 }, Type.u8);
-                assert(temp == .register);
+                const temp_reg, const temp_lock = try self.allocReg(.int);
+                defer self.register_manager.unlockReg(temp_lock);
+
+                _ = try self.addInst(.{
+                    .tag = .srli,
+                    .ops = .rri,
+                    .data = .{ .i_type = .{
+                        .imm12 = Immediate.s(8),
+                        .rd = temp_reg,
+                        .rs1 = dest_reg,
+                    } },
+                });
+
                 _ = try self.addInst(.{
                     .tag = .slli,
                     .ops = .rri,
@@ -3341,7 +3317,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
                     .data = .{ .r_type = .{
                         .rd = dest_reg,
                         .rs1 = dest_reg,
-                        .rs2 = temp.register,
+                        .rs2 = temp_reg,
                     } },
                 });
             },
@@ -3360,11 +3336,12 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .unreach
     else
-        return self.fail("TODO implement airUnaryMath for {}", .{self.target.cpu.arch});
+        return self.fail("TODO implementairUnaryMath {s} for {}", .{ @tagName(tag), self.target.cpu.arch });
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -3640,7 +3617,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             @intCast(field_bit_size),
                         );
 
-                        const dst_reg, const dst_lock = try self.allocReg();
+                        const dst_reg, const dst_lock = try self.allocReg(.int);
                         const dst_mcv = MCValue{ .register = dst_reg };
                         defer self.register_manager.unlockReg(dst_lock);
 
@@ -3658,7 +3635,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         break :dst dst_mcv;
                     };
                     if (field_abi_size * 8 > field_bit_size and dst_mcv.isMemory()) {
-                        const tmp_reg, const tmp_lock = try self.allocReg();
+                        const tmp_reg, const tmp_lock = try self.allocReg(.int);
                         defer self.register_manager.unlockReg(tmp_lock);
 
                         const hi_mcv =
@@ -3972,7 +3949,7 @@ fn genCall(
                 }
             } else {
                 assert(self.typeOf(callee).zigTypeTag(zcu) == .Pointer);
-                const addr_reg, const addr_lock = try self.allocReg();
+                const addr_reg, const addr_lock = try self.allocReg(.int);
                 defer self.register_manager.unlockReg(addr_lock);
                 try self.genSetReg(Type.usize, addr_reg, .{ .air_ref = callee });
 
@@ -4072,32 +4049,49 @@ fn airCmp(self: *Self, inst: Air.Inst.Index) !void {
         const rhs = try self.resolveInst(bin_op.rhs);
         const lhs_ty = self.typeOf(bin_op.lhs);
 
-        const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => unreachable, // Handled by cmp_vector.
-            .Enum => lhs_ty.intTagType(zcu),
-            .Int => lhs_ty,
-            .Bool => Type.u1,
-            .Pointer => Type.usize,
-            .ErrorSet => Type.u16,
-            .Optional => blk: {
-                const payload_ty = lhs_ty.optionalChild(zcu);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    break :blk Type.u1;
-                } else if (lhs_ty.isPtrLikeOptional(zcu)) {
-                    break :blk Type.usize;
+        switch (lhs_ty.zigTypeTag(zcu)) {
+            .Int,
+            .Enum,
+            .Bool,
+            .Pointer,
+            .ErrorSet,
+            .Optional,
+            => {
+                const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
+                    .Enum => lhs_ty.intTagType(zcu),
+                    .Int => lhs_ty,
+                    .Bool => Type.u1,
+                    .Pointer => Type.usize,
+                    .ErrorSet => Type.u16,
+                    .Optional => blk: {
+                        const payload_ty = lhs_ty.optionalChild(zcu);
+                        if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                            break :blk Type.u1;
+                        } else if (lhs_ty.isPtrLikeOptional(zcu)) {
+                            break :blk Type.usize;
+                        } else {
+                            return self.fail("TODO riscv cmp non-pointer optionals", .{});
+                        }
+                    },
+                    else => unreachable,
+                };
+
+                const int_info = int_ty.intInfo(zcu);
+                if (int_info.bits <= 64) {
+                    break :result try self.binOp(tag, lhs, int_ty, rhs, int_ty);
                 } else {
-                    return self.fail("TODO riscv cmp non-pointer optionals", .{});
+                    return self.fail("TODO riscv cmp for ints > 64 bits", .{});
                 }
             },
-            .Float => return self.fail("TODO riscv cmp floats", .{}),
-            else => unreachable,
-        };
+            .Float => {
+                const float_bits = lhs_ty.floatBits(self.target.*);
+                if (float_bits > 32) {
+                    return self.fail("TODO: airCmp float > 32 bits", .{});
+                }
 
-        const int_info = int_ty.intInfo(zcu);
-        if (int_info.bits <= 64) {
-            break :result try self.binOp(tag, lhs, int_ty, rhs, int_ty);
-        } else {
-            return self.fail("TODO riscv cmp for ints > 64 bits", .{});
+                break :result try self.binOpFloat(tag, lhs, lhs_ty, rhs, lhs_ty);
+            },
+            else => unreachable,
         }
     };
 
@@ -4716,25 +4710,13 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = Type.bool;
         const rhs_ty = Type.bool;
 
-        const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
-
-            const lhs_reg, const lhs_lock = try self.allocReg();
-            try self.genSetReg(lhs_ty, lhs_reg, lhs);
-            break :blk .{ lhs_reg, lhs_lock };
-        };
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
-
-            const rhs_reg, const rhs_lock = try self.allocReg();
-            try self.genSetReg(rhs_ty, rhs_reg, rhs);
-            break :blk .{ rhs_reg, rhs_lock };
-        };
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const result_reg, const result_lock = try self.allocReg();
+        const result_reg, const result_lock = try self.allocReg(.int);
         defer self.register_manager.unlockReg(result_lock);
 
         _ = try self.addInst(.{
@@ -4881,7 +4863,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirResult(inst, result);
 }
 
-/// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
+/// Sets the value of `dst_mcv` to the value of `src_mcv`.
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
     const zcu = self.bin_file.comp.module.?;
 
@@ -4890,7 +4872,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
 
     if (!dst_mcv.isMutable()) {
         // panic so we can see the trace
-        return self.fail("tried to genCopy immutable: {s}", .{@tagName(dst_mcv)});
+        return std.debug.panic("tried to genCopy immutable: {s}", .{@tagName(dst_mcv)});
     }
 
     switch (dst_mcv) {
@@ -4924,13 +4906,12 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
         ),
         .memory => return self.fail("TODO: genCopy memory", .{}),
         .register_pair => |dst_regs| {
-            const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = switch (src_mcv) {
+            const src_info: ?struct { addr_reg: Register, addr_lock: ?RegisterLock } = switch (src_mcv) {
                 .register_pair, .memory, .indirect, .load_frame => null,
                 .load_symbol => src: {
-                    const src_addr_reg, const src_addr_lock = try self.allocReg();
+                    const src_addr_reg, const src_addr_lock = try self.promoteReg(Type.usize, src_mcv.address());
                     errdefer self.register_manager.unlockReg(src_addr_lock);
 
-                    try self.genSetReg(Type.usize, src_addr_reg, src_mcv.address());
                     break :src .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
                 },
                 .air_ref => |src_ref| return self.genCopy(
@@ -4940,7 +4921,12 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 ),
                 else => unreachable,
             };
-            defer if (src_info) |info| self.register_manager.unlockReg(info.addr_lock);
+
+            defer if (src_info) |info| {
+                if (info.addr_lock) |lock| {
+                    self.register_manager.unlockReg(lock);
+                }
+            };
 
             var part_disp: i32 = 0;
             for (dst_regs, try self.splitType(ty), 0..) |dst_reg, dst_ty, part_i| {
@@ -4966,7 +4952,7 @@ fn genInlineMemcpy(
     src_ptr: MCValue,
     len: MCValue,
 ) !void {
-    const regs = try self.register_manager.allocRegs(4, .{null} ** 4, tp);
+    const regs = try self.register_manager.allocRegs(4, .{null} ** 4, abi.Registers.Integer.temporary);
     const locks = self.register_manager.lockRegsAssumeUnused(4, regs);
     defer for (locks) |lock| self.register_manager.unlockReg(lock);
 
@@ -5060,9 +5046,7 @@ fn genInlineMemcpy(
     _ = try self.addInst(.{
         .tag = .pseudo,
         .ops = .pseudo_j,
-        .data = .{
-            .inst = first_inst,
-        },
+        .data = .{ .inst = first_inst },
     });
 }
 
@@ -5072,7 +5056,7 @@ fn genInlineMemset(
     src_value: MCValue,
     len: MCValue,
 ) !void {
-    const regs = try self.register_manager.allocRegs(3, .{null} ** 3, tp);
+    const regs = try self.register_manager.allocRegs(3, .{null} ** 3, abi.Registers.Integer.temporary);
     const locks = self.register_manager.lockRegsAssumeUnused(3, regs);
     defer for (locks) |lock| self.register_manager.unlockReg(lock);
 
@@ -5153,6 +5137,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
     if (abi_size > 8) return std.debug.panic("tried to set reg with size {}", .{abi_size});
 
+    const dst_reg_class = reg.class();
+
     switch (src_mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
@@ -5163,6 +5149,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
         },
         .immediate => |unsigned_x| {
+            assert(dst_reg_class == .int);
+
             const x: i64 = @bitCast(unsigned_x);
             if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
                 _ = try self.addInst(.{
@@ -5200,7 +5188,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 // TODO: use a more advanced myriad seq to do this without a reg.
                 // see: https://github.com/llvm/llvm-project/blob/081a66ffacfe85a37ff775addafcf3371e967328/llvm/lib/Target/RISCV/MCTargetDesc/RISCVMatInt.cpp#L224
 
-                const temp, const temp_lock = try self.allocReg();
+                const temp, const temp_lock = try self.allocReg(.int);
                 defer self.register_manager.unlockReg(temp_lock);
 
                 const lo32: i32 = @truncate(x);
@@ -5235,6 +5223,19 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             // If the registers are the same, nothing to do.
             if (src_reg.id() == reg.id())
                 return;
+
+            const src_reg_class = src_reg.class();
+
+            if (src_reg_class == .float) {
+                if (dst_reg_class == .float) {
+                    return self.fail("TODO: genSetReg float -> float", .{});
+                }
+
+                assert(dst_reg_class == .int); // a bit of future proofing
+
+                // to move from float -> int, we use FMV.X.W
+                return self.fail("TODO: genSetReg float -> int", .{});
+            }
 
             // mv reg, src_reg
             _ = try self.addInst(.{
@@ -5309,11 +5310,19 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             });
         },
         .indirect => |reg_off| {
+            const float_class = dst_reg_class == .float;
+
             const load_tag: Mir.Inst.Tag = switch (abi_size) {
-                1 => .lb,
-                2 => .lh,
-                4 => .lw,
-                8 => .ld,
+                1 => if (float_class)
+                    unreachable // Zig does not support 8-bit floats
+                else
+                    .lb,
+                2 => if (float_class)
+                    return self.fail("TODO: genSetReg indirect 16-bit float", .{})
+                else
+                    .lh,
+                4 => if (float_class) .flw else .lw,
+                8 => if (float_class) .fld else .ld,
                 else => return std.debug.panic("TODO: genSetReg for size {d}", .{abi_size}),
             };
 
@@ -5336,15 +5345,18 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 .tag = .pseudo,
                 .ops = .pseudo_load_symbol,
                 .data = .{ .payload = try self.addExtra(Mir.LoadSymbolPayload{
-                    .register = reg.id(),
+                    .register = reg.encodeId(),
                     .atom_index = atom_index,
                     .sym_index = sym_off.sym,
                 }) },
             });
         },
         .load_symbol => {
-            try self.genSetReg(ty, reg, src_mcv.address());
-            try self.genSetReg(ty, reg, .{ .indirect = .{ .reg = reg } });
+            const addr_reg, const addr_lock = try self.allocReg(.int);
+            defer self.register_manager.unlockReg(addr_lock);
+
+            try self.genSetReg(ty, addr_reg, src_mcv.address());
+            try self.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
         },
         .air_ref => |ref| try self.genSetReg(ty, reg, try self.resolveInst(ref)),
         else => return self.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
@@ -5386,7 +5398,8 @@ fn genSetMem(
         => switch (abi_size) {
             0 => {},
             1, 2, 4, 8 => {
-                const src_reg = try self.copyToTmpRegister(ty, src_mcv);
+                // no matter what type, it should use an integer register
+                const src_reg = try self.copyToTmpRegister(Type.usize, src_mcv);
                 const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
                 defer self.register_manager.unlockReg(src_lock);
 
@@ -5460,10 +5473,8 @@ fn genSetMem(
         .immediate => {
             // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
             // a register allocation.
-            const reg, const reg_lock = try self.allocReg();
-            defer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetReg(ty, reg, src_mcv);
+            const reg, const reg_lock = try self.promoteReg(ty, src_mcv);
+            defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
 
             return self.genSetMem(base, disp, ty, .{ .register = reg });
         },
@@ -5632,7 +5643,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
                 assert(len != 0); // prevented by Sema
                 try self.store(dst_ptr, src_val, elem_ptr_ty, elem_ty);
 
-                const second_elem_ptr_reg, const second_elem_ptr_lock = try self.allocReg();
+                const second_elem_ptr_reg, const second_elem_ptr_lock = try self.allocReg(.int);
                 defer self.register_manager.unlockReg(second_elem_ptr_lock);
 
                 const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
@@ -5677,7 +5688,7 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
     const err_lock = self.register_manager.lockRegAssumeUnused(err_reg);
     defer self.register_manager.unlockReg(err_lock);
 
-    const addr_reg, const addr_lock = try self.allocReg();
+    const addr_reg, const addr_lock = try self.allocReg(.int);
     defer self.register_manager.unlockReg(addr_lock);
 
     // this is now the base address of the error name table
@@ -5691,13 +5702,13 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO: riscv non-elf", .{});
     }
 
-    const start_reg, const start_lock = try self.allocReg();
+    const start_reg, const start_lock = try self.allocReg(.int);
     defer self.register_manager.unlockReg(start_lock);
 
-    const end_reg, const end_lock = try self.allocReg();
+    const end_reg, const end_lock = try self.allocReg(.int);
     defer self.register_manager.unlockReg(end_lock);
 
-    // const tmp_reg, const tmp_lock = try self.allocReg();
+    // const tmp_reg, const tmp_lock = try self.allocReg(.int);
     // defer self.register_manager.unlockReg(tmp_lock);
 
     // we move the base address forward by the following formula: base + (errno * 8)
@@ -6025,16 +6036,16 @@ fn resolveCallingConventionValues(
 
                 for (classes) |class| switch (class) {
                     .integer => {
-                        const ret_int_reg = abi.function_ret_regs[ret_int_reg_i];
+                        const ret_int_reg = abi.Registers.Integer.function_ret_regs[ret_int_reg_i];
                         ret_int_reg_i += 1;
 
                         ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_int_reg });
                         ret_tracking_i += 1;
                     },
                     .memory => {
-                        const ret_int_reg = abi.function_ret_regs[ret_int_reg_i];
+                        const ret_int_reg = abi.Registers.Integer.function_ret_regs[ret_int_reg_i];
                         ret_int_reg_i += 1;
-                        const ret_indirect_reg = abi.function_arg_regs[param_int_reg_i];
+                        const ret_indirect_reg = abi.Registers.Integer.function_arg_regs[param_int_reg_i];
                         param_int_reg_i += 1;
 
                         ret_tracking[ret_tracking_i] = .{
@@ -6069,7 +6080,7 @@ fn resolveCallingConventionValues(
 
                 for (classes) |class| switch (class) {
                     .integer => {
-                        const param_int_regs = abi.function_arg_regs;
+                        const param_int_regs = abi.Registers.Integer.function_arg_regs;
                         if (param_int_reg_i >= param_int_regs.len) break;
 
                         const param_int_reg = param_int_regs[param_int_reg_i];
@@ -6079,7 +6090,7 @@ fn resolveCallingConventionValues(
                         arg_mcv_i += 1;
                     },
                     .memory => {
-                        const param_int_regs = abi.function_arg_regs;
+                        const param_int_regs = abi.Registers.Integer.function_arg_regs;
 
                         const param_int_reg = param_int_regs[param_int_reg_i];
                         param_int_reg_i += 1;

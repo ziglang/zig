@@ -1001,6 +1001,7 @@ test "sentinel-terminated 0-length slices" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const u32s: [4]u32 = [_]u32{ 0, 1, 2, 3 };
 

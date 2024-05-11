@@ -14,7 +14,7 @@ result_relocs_len: u8 = undefined,
 result_insts: [
     @max(
         1, // non-pseudo instruction
-        abi.callee_preserved_regs.len, // spill / restore regs,
+        abi.Registers.all_preserved.len, // spill / restore regs,
     )
 ]Instruction = undefined,
 result_relocs: [1]Reloc = undefined,
@@ -71,11 +71,24 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 switch (inst.ops) {
                     .pseudo_load_rm => {
-                        const tag: Encoding.Mnemonic = switch (rm.m.mod.size()) {
-                            .byte => .lb,
-                            .hword => .lh,
-                            .word => .lw,
-                            .dword => .ld,
+                        const dest_reg = rm.r;
+                        const dest_reg_class = dest_reg.class();
+                        const float = dest_reg_class == .float;
+
+                        const src_size = rm.m.mod.size();
+
+                        const tag: Encoding.Mnemonic = if (!float)
+                            switch (src_size) {
+                                .byte => .lb,
+                                .hword => .lh,
+                                .word => .lw,
+                                .dword => .ld,
+                            }
+                        else switch (src_size) {
+                            .byte => unreachable, // Zig does not support 8-bit floats
+                            .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
+                            .word => .flw,
+                            .dword => .fld,
                         };
 
                         try lower.emit(tag, &.{
@@ -85,11 +98,25 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         });
                     },
                     .pseudo_store_rm => {
-                        const tag: Encoding.Mnemonic = switch (rm.m.mod.size()) {
-                            .byte => .sb,
-                            .hword => .sh,
-                            .word => .sw,
-                            .dword => .sd,
+                        const src_reg = rm.r;
+                        const src_reg_class = src_reg.class();
+                        const float = src_reg_class == .float;
+
+                        // TODO: do we actually need this? are all stores not usize?
+                        const dest_size = rm.m.mod.size();
+
+                        const tag: Encoding.Mnemonic = if (!float)
+                            switch (dest_size) {
+                                .byte => .sb,
+                                .hword => .sh,
+                                .word => .sw,
+                                .dword => .sd,
+                            }
+                        else switch (dest_size) {
+                            .byte => unreachable, // Zig does not support 8-bit floats
+                            .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
+                            .word => .fsw,
+                            .dword => .fsd,
                         };
 
                         try lower.emit(tag, &.{
@@ -336,16 +363,19 @@ fn pushPopRegList(lower: *Lower, comptime spilling: bool, reg_list: Mir.Register
     var reg_i: u31 = 0;
     while (it.next()) |i| {
         const frame = lower.mir.frame_locs.get(@intFromEnum(bits.FrameIndex.spill_frame));
+        const reg = abi.Registers.all_preserved[i];
+        const reg_class = reg.class();
+        const is_float_reg = reg_class == .float;
 
         if (spilling) {
-            try lower.emit(.sd, &.{
+            try lower.emit(if (is_float_reg) .fsd else .sd, &.{
                 .{ .reg = frame.base },
-                .{ .reg = abi.callee_preserved_regs[i] },
+                .{ .reg = abi.Registers.all_preserved[i] },
                 .{ .imm = Immediate.s(frame.disp + reg_i) },
             });
         } else {
-            try lower.emit(.ld, &.{
-                .{ .reg = abi.callee_preserved_regs[i] },
+            try lower.emit(if (is_float_reg) .fld else .ld, &.{
+                .{ .reg = abi.Registers.all_preserved[i] },
                 .{ .reg = frame.base },
                 .{ .imm = Immediate.s(frame.disp + reg_i) },
             });

@@ -20,86 +20,67 @@ pub const Inst = struct {
     pub const Index = u32;
 
     pub const Tag = enum(u16) {
-        /// Add immediate. Uses i_type payload.
-        addi,
 
-        /// Add immediate and produce a sign-extended result.
-        ///
-        /// Uses i-type payload.
+        // base extension
+        addi,
         addiw,
 
         jalr,
         lui,
-        mv,
 
         @"and",
+        andi,
+
         xor,
+        @"or",
 
         ebreak,
         ecall,
         unimp,
 
-        /// OR instruction. Uses r_type payload.
-        @"or",
-
-        /// Addition
         add,
-        /// Subtraction
         sub,
-        /// Multiply, uses r_type. Needs the M extension.
-        mul,
-
-        /// Absolute Value, uses i_type payload.
-        abs,
 
         sltu,
         slt,
 
-        /// Immediate Logical Right Shift, uses i_type payload
         srli,
-        /// Immediate Logical Left Shift, uses i_type payload
         slli,
-        /// Immediate Arithmetic Right Shift, uses i_type payload.
         srai,
-        /// Register Logical Left Shift, uses r_type payload
         sllw,
-        /// Register Logical Right Shit, uses r_type payload
         srlw,
 
-        /// Jumps, but stores the address of the instruction following the
-        /// jump in `rd`.
-        ///
-        /// Uses j_type payload.
         jal,
 
-        /// Immediate AND, uses i_type payload
-        andi,
-
-        /// Branch if equal, Uses b_type
         beq,
-        /// Branch if not equal, Uses b_type
         bne,
 
-        /// Generates a NO-OP, uses nop payload
         nop,
 
-        /// Load double (64 bits), uses i_type payload
         ld,
-        /// Load word (32 bits), uses i_type payload
         lw,
-        /// Load half (16 bits), uses i_type payload
         lh,
-        /// Load byte (8 bits), uses i_type payload
         lb,
 
-        /// Store double (64 bits), uses s_type payload
         sd,
-        /// Store word (32 bits), uses s_type payload
         sw,
-        /// Store half (16 bits), uses s_type payload
         sh,
-        /// Store byte (8 bits), uses s_type payload
         sb,
+
+        // M extension
+        mul,
+
+        // F extension (32-bit float)
+        fadds,
+        flw,
+        fsw,
+        feqs,
+
+        // D extension (64-bit float)
+        faddd,
+        fld,
+        fsd,
+        feqd,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.

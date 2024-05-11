@@ -238,62 +238,81 @@ fn classifyStruct(
     }
 }
 
-pub const callee_preserved_regs = [_]Register{
-    // .s0 is ommited to be used as a frame pointer
-    .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
-};
-
-pub const function_arg_regs = [_]Register{
-    .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7,
-};
-
-pub const function_ret_regs = [_]Register{
-    .a0, .a1,
-};
-
-pub const temporary_regs = [_]Register{
-    .t0, .t1, .t2, .t3, .t4, .t5, .t6,
-};
-
-const allocatable_registers = callee_preserved_regs ++ function_arg_regs ++ temporary_regs;
+const allocatable_registers = Registers.Integer.all_regs ++ Registers.Float.all_regs;
 pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
-pub const RegisterClass = struct {
-    pub const gp: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = 0,
-            .end = callee_preserved_regs.len,
-        }, true);
-        break :blk set;
+
+pub const RegisterClass = enum {
+    int,
+    float,
+};
+
+pub const Registers = struct {
+    pub const all_preserved = Integer.callee_preserved_regs ++ Float.callee_preserved_regs;
+
+    pub const Integer = struct {
+        // zig fmt: off
+        pub const general_purpose = initRegBitSet(0,                                                 callee_preserved_regs.len);
+        pub const function_arg    = initRegBitSet(callee_preserved_regs.len,                         function_arg_regs.len);
+        pub const function_ret    = initRegBitSet(callee_preserved_regs.len,                         function_ret_regs.len);
+        pub const temporary       = initRegBitSet(callee_preserved_regs.len + function_arg_regs.len, temporary_regs.len);
+        // zig fmt: on
+
+        pub const callee_preserved_regs = [_]Register{
+            // .s0 is omitted to be used as the frame pointer register
+            .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
+        };
+
+        pub const function_arg_regs = [_]Register{
+            .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7,
+        };
+
+        pub const function_ret_regs = [_]Register{
+            .a0, .a1,
+        };
+
+        pub const temporary_regs = [_]Register{
+            .t0, .t1, .t2, .t3, .t4, .t5, .t6,
+        };
+
+        pub const all_regs = callee_preserved_regs ++ function_arg_regs ++ temporary_regs;
     };
 
-    pub const fa: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = callee_preserved_regs.len,
-            .end = callee_preserved_regs.len + function_arg_regs.len,
-        }, true);
-        break :blk set;
-    };
+    pub const Float = struct {
+        // zig fmt: off
+        pub const general_purpose = initRegBitSet(Integer.all_regs.len,                                                     callee_preserved_regs.len);
+        pub const function_arg    = initRegBitSet(Integer.all_regs.len + callee_preserved_regs.len,                         function_arg_regs.len);
+        pub const function_ret    = initRegBitSet(Integer.all_regs.len + callee_preserved_regs.len,                         function_ret_regs.len);
+        pub const temporary       = initRegBitSet(Integer.all_regs.len + callee_preserved_regs.len + function_arg_regs.len, temporary_regs.len);
+        // zig fmt: on
 
-    pub const fr: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = callee_preserved_regs.len,
-            .end = callee_preserved_regs.len + function_ret_regs.len,
-        }, true);
-        break :blk set;
-    };
+        pub const callee_preserved_regs = [_]Register{
+            .fs0, .fs1, .fs2, .fs3, .fs4, .fs5, .fs6, .fs7, .fs8, .fs9, .fs10, .fs11,
+        };
 
-    pub const tp: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
-        set.setRangeValue(.{
-            .start = callee_preserved_regs.len + function_arg_regs.len,
-            .end = callee_preserved_regs.len + function_arg_regs.len + temporary_regs.len,
-        }, true);
-        break :blk set;
+        pub const function_arg_regs = [_]Register{
+            .fa0, .fa1, .fa2, .fa3, .fa4, .fa5, .fa6, .fa7,
+        };
+
+        pub const function_ret_regs = [_]Register{
+            .fa0, .fa1,
+        };
+
+        pub const temporary_regs = [_]Register{
+            .ft0, .ft1, .ft2, .ft3, .ft4, .ft5, .ft6, .ft7, .ft8, .ft9, .ft10, .ft11,
+        };
+
+        pub const all_regs = callee_preserved_regs ++ function_arg_regs ++ temporary_regs;
     };
 };
+
+fn initRegBitSet(start: usize, length: usize) RegisterBitSet {
+    var set = RegisterBitSet.initEmpty();
+    set.setRangeValue(.{
+        .start = start,
+        .end = start + length,
+    }, true);
+    return set;
+}
