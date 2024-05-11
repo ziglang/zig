@@ -39100,17 +39100,11 @@ const RuntimeSafety = struct {
                 });
             }
             const param_types: []InternPool.Index = func_ty_info.param_types.get(&sema.mod.intern_pool);
-            if (param_types.len >= 1) {
-                sema.mod.safety.panic_cause_ty = try sema.getBuiltinType("PanicCause");
-                sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
-                sema.mod.safety.panic_fn_id_arg_ty = param_types[0];
-            }
-            if (param_types.len == 2) {
-                sema.mod.safety.panic_data_fn_inst = try sema.getBuiltin("PanicData");
-                sema.mod.safety.panic_fn_data_arg_ty = param_types[1];
-            }
-            if (param_types.len > 2) {
-                std.debug.panic("'builtin.panic': expected at most 2 parameters, found '{}'", .{
+            sema.mod.safety.panic_cause_ty = try sema.getBuiltinType("PanicCause");
+            sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
+            sema.mod.safety.panic_data_fn_inst = try sema.getBuiltin("PanicData");
+            if (param_types.len != 2) {
+                std.debug.panic("'builtin.panic': expected 2 parameters, found '{}'", .{
                     func_ty_info.param_types.len,
                 });
             }
