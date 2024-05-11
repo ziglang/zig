@@ -3592,7 +3592,7 @@ fn genCall(
 
                             _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                             const got_addr = sym.zigGotAddress(elf_file);
-                            try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
+                            try self.genSetReg(Type.usize, .ra, .{ .memory = @intCast(got_addr) });
 
                             _ = try self.addInst(.{
                                 .tag = .jalr,
