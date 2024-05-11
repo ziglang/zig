@@ -298,8 +298,6 @@ test "comptime @ptrCast with packed struct leaves value unmodified" {
 }
 
 test "@ptrCast restructures comptime-only array" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     {
         const a3a2: [3][2]comptime_int = .{
             .{ 1, 2 },
@@ -342,8 +340,6 @@ test "@ptrCast restructures comptime-only array" {
 }
 
 test "@ptrCast restructures sliced comptime-only array" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const a3a2: [4][2]comptime_int = .{
         .{ 1, 2 },
         .{ 3, 4 },

@@ -763,8 +763,6 @@ test "matching captures causes opaque equivalence" {
 }
 
 test "reify enum where fields refers to part of array" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const fields: [3]std.builtin.Type.EnumField = .{
         .{ .name = "foo", .value = 0 },
         .{ .name = "bar", .value = 1 },
