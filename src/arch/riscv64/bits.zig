@@ -2,6 +2,9 @@ const std = @import("std");
 const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
+const Target = std.Target;
+
+const Module = @import("../../Module.zig");
 const Encoding = @import("Encoding.zig");
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");
@@ -227,11 +230,13 @@ pub const Register = enum(u8) {
         return @as(u8, reg.id());
     }
 
-    pub fn bitSize(reg: Register) u32 {
+    pub fn bitSize(reg: Register, zcu: Module) u32 {
+        const features = zcu.getTarget().cpu.features;
+
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => 64,
-            @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => 32,
+            @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => if (Target.riscv.featureSetHas(features, .d)) 64 else 32,
             else => unreachable,
             // zig fmt: on
         };

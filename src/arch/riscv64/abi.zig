@@ -7,7 +7,7 @@ const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Module.zig");
 const assert = std.debug.assert;
 
-pub const Class = enum { memory, byval, integer, double_integer, fields, none };
+pub const Class = enum { memory, byval, integer, double_integer, fields };
 
 pub fn classifyType(ty: Type, mod: *Module) Class {
     const target = mod.getTarget();
@@ -93,11 +93,13 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
     }
 }
 
+pub const SystemClass = enum { integer, float, memory, none };
+
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
-    var result = [1]Class{.none} ** 8;
-    const memory_class = [_]Class{
+pub fn classifySystem(ty: Type, zcu: *Module) [8]SystemClass {
+    var result = [1]SystemClass{.none} ** 8;
+    const memory_class = [_]SystemClass{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
@@ -138,6 +140,18 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]Class {
                 return result;
             }
             unreachable; // support > 128 bit int arguments
+        },
+        .Float => {
+            const target = zcu.getTarget();
+            const features = target.cpu.features;
+
+            const float_bits = ty.floatBits(zcu.getTarget());
+            const float_reg_size: u32 = if (std.Target.riscv.featureSetHas(features, .d)) 64 else 32;
+            if (float_bits <= float_reg_size) {
+                result[0] = .float;
+                return result;
+            }
+            unreachable; // support split float args
         },
         .ErrorUnion => {
             const payload_ty = ty.errorUnionPayload(zcu);

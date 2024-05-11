@@ -5226,13 +5226,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
             const src_reg_class = src_reg.class();
 
-            if (src_reg_class == .float) {
-                if (dst_reg_class == .float) {
-                    return self.fail("TODO: genSetReg float -> float", .{});
-                }
-
-                assert(dst_reg_class == .int); // a bit of future proofing
-
+            if (src_reg_class == .float and dst_reg_class == .int) {
                 // to move from float -> int, we use FMV.X.W
                 return self.fail("TODO: genSetReg float -> int", .{});
             }
@@ -6031,6 +6025,7 @@ fn resolveCallingConventionValues(
             } else {
                 var ret_tracking: [2]InstTracking = undefined;
                 var ret_tracking_i: usize = 0;
+                var ret_float_reg_i: usize = 0;
 
                 const classes = mem.sliceTo(&abi.classifySystem(ret_ty, zcu), .none);
 
@@ -6040,6 +6035,13 @@ fn resolveCallingConventionValues(
                         ret_int_reg_i += 1;
 
                         ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_int_reg });
+                        ret_tracking_i += 1;
+                    },
+                    .float => {
+                        const ret_float_reg = abi.Registers.Float.function_ret_regs[ret_float_reg_i];
+                        ret_float_reg_i += 1;
+
+                        ret_tracking[ret_tracking_i] = InstTracking.init(.{ .register = ret_float_reg });
                         ret_tracking_i += 1;
                     },
                     .memory => {
@@ -6076,6 +6078,8 @@ fn resolveCallingConventionValues(
                 var arg_mcv: [2]MCValue = undefined;
                 var arg_mcv_i: usize = 0;
 
+                var param_float_reg_i: usize = 0;
+
                 const classes = mem.sliceTo(&abi.classifySystem(ty, zcu), .none);
 
                 for (classes) |class| switch (class) {
@@ -6087,6 +6091,16 @@ fn resolveCallingConventionValues(
                         param_int_reg_i += 1;
 
                         arg_mcv[arg_mcv_i] = .{ .register = param_int_reg };
+                        arg_mcv_i += 1;
+                    },
+                    .float => {
+                        const param_float_regs = abi.Registers.Float.function_arg_regs;
+                        if (param_float_reg_i >= param_float_regs.len) break;
+
+                        const param_float_reg = param_float_regs[param_float_reg_i];
+                        param_float_reg_i += 1;
+
+                        arg_mcv[arg_mcv_i] = .{ .register = param_float_reg };
                         arg_mcv_i += 1;
                     },
                     .memory => {
@@ -6118,9 +6132,8 @@ fn resolveCallingConventionValues(
     return result;
 }
 
-/// TODO support scope overrides. Also note this logic is duplicated with `Module.wantSafety`.
 fn wantSafety(self: *Self) bool {
-    return switch (self.bin_file.comp.root_mod.optimize_mode) {
+    return switch (self.mod.optimize_mode) {
         .Debug => true,
         .ReleaseSafe => true,
         .ReleaseFast => false,

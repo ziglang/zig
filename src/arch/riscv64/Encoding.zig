@@ -124,115 +124,119 @@ pub const Mnemonic = enum {
     fsd,
     fsw,
 
+    fsgnjns,
+
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
             // zig fmt: off
 
             // OP
 
-            .add    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000000 } } },
-            .sub    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0100000 } } }, 
+            .add     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000000 } } },
+            .sub     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0100000 } } }, 
 
-            .@"and" => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b111, .funct7 = 0b0000000 } } },
-            .@"or"  => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b110, .funct7 = 0b0000000 } } },
-            .xor    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b100, .funct7 = 0b0000000 } } },
+            .@"and"  => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b111, .funct7 = 0b0000000 } } },
+            .@"or"   => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b110, .funct7 = 0b0000000 } } },
+            .xor     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b100, .funct7 = 0b0000000 } } },
 
-            .sltu   => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b011, .funct7 = 0b0000000 } } },
-            .slt    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b010, .funct7 = 0b0000000 } } },
+            .sltu    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b011, .funct7 = 0b0000000 } } },
+            .slt     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b010, .funct7 = 0b0000000 } } },
 
-            .mul    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000001 } } },
+            .mul     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000001 } } },
 
 
             // OP_IMM
 
-            .addi   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .andi   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b111 } } },
-            .xori   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b100 } } },
+            .addi    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .andi    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b111 } } },
+            .xori    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b100 } } },
             
-            .sltiu  => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .sltiu   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b011 } } },
 
-            .slli   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .srli   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101 } } },
-            .srai   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101, .offset = 1 << 10 } } },
+            .slli    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            .srli    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101 } } },
+            .srai    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101, .offset = 1 << 10 } } },
 
 
             // OP_FP
 
-            .fadds  => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .S, .rm = 0b111 } } },
-            .faddd  => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .D, .rm = 0b111 } } },
+            .fadds   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .S, .rm = 0b111 } } },
+            .faddd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .D, .rm = 0b111 } } },
 
-            .feqs   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .S, .rm = 0b010 } } },
-            .feqd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .D, .rm = 0b010 } } },
+            .feqs    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .S, .rm = 0b010 } } },
+            .feqd    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .D, .rm = 0b010 } } },
+
+            .fsgnjns => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .S, .rm = 0b000 } } },
 
             // LOAD
 
-            .ld     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .lw     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .lwu    => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b110 } } },
-            .lh     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .lhu    => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b101 } } },
-            .lb     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .lbu    => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b100 } } },
+            .ld      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .lw      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .lwu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b110 } } },
+            .lh      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            .lhu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b101 } } },
+            .lb      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .lbu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b100 } } },
 
 
             // STORE
 
-            .sd     => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .sw     => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .sh     => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .sb     => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .sd      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .sw      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .sh      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            .sb      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
 
 
             // LOAD_FP
 
-            .fld    => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .flw    => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .flw     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
 
             // STORE_FP
 
-            .fsd    => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .fsw    => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .fsw     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
 
 
             // JALR
 
-            .jalr   => .{ .opcode = .JALR, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .jalr    => .{ .opcode = .JALR, .data = .{ .fo = .{ .funct3 = 0b000 } } },
 
 
             // OP_32
 
-            .sllw   => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000000 } } },
+            .sllw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000000 } } },
 
 
             // LUI
 
-            .lui    => .{ .opcode = .LUI, .data = .{ .none = {} } },
+            .lui     => .{ .opcode = .LUI, .data = .{ .none = {} } },
 
 
             // AUIPC
 
-            .auipc  => .{ .opcode = .AUIPC, .data = .{ .none = {} } },
+            .auipc   => .{ .opcode = .AUIPC, .data = .{ .none = {} } },
 
 
             // JAL
 
-            .jal    => .{ .opcode = .JAL, .data = .{ .none = {} } },
+            .jal     => .{ .opcode = .JAL, .data = .{ .none = {} } },
 
 
             // BRANCH
 
-            .beq    => .{ .opcode = .BRANCH, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .beq     => .{ .opcode = .BRANCH, .data = .{ .fo = .{ .funct3 = 0b000 } } },
 
 
             // SYSTEM
 
-            .ecall  => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .ebreak => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .ecall   => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .ebreak  => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
            
 
             // NONE
             
-            .unimp  => .{ .opcode = .NONE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .unimp   => .{ .opcode = .NONE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
 
 
             // zig fmt: on
@@ -308,6 +312,7 @@ pub const InstEnc = enum {
             .faddd,
             .feqs,
             .feqd,
+            .fsgnjns,
             => .R,
 
             .ecall,

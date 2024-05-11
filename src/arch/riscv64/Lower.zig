@@ -132,11 +132,27 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_mv => {
                 const rr = inst.data.rr;
 
-                try lower.emit(.addi, &.{
-                    .{ .reg = rr.rd },
-                    .{ .reg = rr.rs },
-                    .{ .imm = Immediate.s(0) },
-                });
+                const dst_class = rr.rd.class();
+                const src_class = rr.rs.class();
+
+                assert(dst_class == src_class);
+
+                switch (dst_class) {
+                    .float => {
+                        try lower.emit(.fsgnjns, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = rr.rs },
+                            .{ .reg = rr.rs },
+                        });
+                    },
+                    .int => {
+                        try lower.emit(.addi, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = rr.rs },
+                            .{ .imm = Immediate.s(0) },
+                        });
+                    },
+                }
             },
 
             .pseudo_ret => {
