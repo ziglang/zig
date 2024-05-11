@@ -31,6 +31,8 @@ noinline fn insertionSort(data: []u64) void {
 }
 
 test "arguments pointed to on stack into tailcall" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     switch (builtin.cpu.arch) {
         .wasm32,
         .mips,

@@ -11132,6 +11132,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             }
                             return o.builder.structType(.normal, types[0..types_len]);
                         },
+                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11389,6 +11390,7 @@ const ParamTypeIterator = struct {
                             it.llvm_index += it.types_len - 1;
                             return .multiple_llvm_types;
                         },
+                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
