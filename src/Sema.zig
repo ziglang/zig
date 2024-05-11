@@ -11034,7 +11034,6 @@ const feature_prevent_inval_ptr: bool = true;
 /// TODO: This is technically a concern, but is not worth the effort/cost.
 const feature_prevent_impossible_sent: bool = true;
 
-///
 fn analyzeSlice2(
     sema: *Sema,
     block: *Block,
@@ -38826,16 +38825,129 @@ fn maybeDerefSliceAsArray(
     return sema.pointerDeref(block, src, casted_ptr, ptr_ty);
 }
 
-pub const bitCastVal = @import("Sema/bitcast.zig").bitCast;
-pub const bitCastSpliceVal = @import("Sema/bitcast.zig").bitCastSplice;
+/// Returns the number of `elem_ty` stored by type `val_ty`.
+/// `val_ty` == `elem_ty`                       => 1
+/// `val_ty` == `@Vector(len, elem_ty)`         => @typeInfo(val_ty).Vector.len
+/// `val_ty` == `[len]elem_ty`                  => @typeInfo(val_ty).Array.len
+/// `val_ty` == `[len]@Vector(len, elem_ty)`    => @typeInfo(val_ty).Array.len *
+///                                                @typeInfo(@typeInfo(val_ty).Array.child).Vector.len
+fn reinterpretLength(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    elem_ty: Type,
+    val_ty: Type,
+) !u64 {
+    if (elem_ty.ip_index == val_ty.ip_index) {
+        return 1;
+    }
+    if (val_ty.isArrayOrVector(sema.mod)) {
+        const val_ty_tag: std.builtin.TypeId = val_ty.zigTypeTag(sema.mod);
+        const child_ty: Type = Type.elemType2(val_ty, sema.mod);
+        if (val_ty_tag == .Array) {
+            return val_ty.arrayLen(sema.mod) * try sema.reinterpretLength(block, src, elem_ty, child_ty);
+        }
+        if (val_ty_tag == .Vector) {
+            return val_ty.vectorLen(sema.mod) * try sema.reinterpretLength(block, src, elem_ty, child_ty);
+        }
+    }
+    return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
+        val_ty.fmt(sema.mod),
+        elem_ty.fmt(sema.mod),
+    });
+}
+/// Returns the number of remaining elements of `elem_ty` in the declaration
+/// containing `ptr_val`.
+fn reinterpretLengthOfContainingDecl(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ptr_val: Value,
+    elem_ty: Type,
+) !?u64 {
+    const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
+    switch (ptr_key.base_addr) {
+        .arr_elem => |elem| if (try reinterpretLengthOfContainingDecl(sema, block, src, Value.fromInterned(elem.base), elem_ty)) |elems| {
+            const child_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
+            if (child_ty.ip_index != elem_ty.ip_index) {
+                return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
+                    child_ty.fmt(sema.mod),
+                    elem_ty.fmt(sema.mod),
+                });
+            }
+            return elems - elem.index;
+        },
+        .comptime_alloc => |comptime_alloc| {
+            const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
+            return try reinterpretLength(sema, block, src, elem_ty, val_ty);
+        },
+        .anon_decl => |anon_decl| {
+            const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
+            return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
+        },
+        .decl => |decl| {
+            const decl_ptr: *Decl = sema.mod.declPtr(decl);
+            const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
+            return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
+        },
+        inline .eu_payload, .opt_payload, .field, .comptime_field => |_, tag| {
+            return sema.fail(block, src, "TODO: handle comptime slice manyptr without runtime bits for '{}'", .{tag});
+        },
+        .int => {},
+    }
+    return null;
+}
+/// Returns the number of remaining bytes (from the pointer byte offset) in the
+/// declaration containing `ptr_val`.
+fn abiSizeOfContainingDecl(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ptr_val: Value,
+) !?u64 {
+    const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
+    switch (ptr_key.base_addr) {
+        .decl => |decl| {
+            const decl_ptr: *Decl = sema.mod.declPtr(decl);
+            const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
+            return try sema.typeAbiSize(decl_ty) - ptr_key.byte_offset;
+        },
+        .anon_decl => |anon_decl| {
+            const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
+            return try sema.typeAbiSize(decl_ty) - ptr_key.byte_offset;
+        },
+        .field => |field| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(field.base))) |memsz| {
+            const container_ty: Type = Type.childType(Type.fromInterned(sema.mod.intern_pool.typeOf(field.base)), sema.mod);
+            const field_offset: u64 = container_ty.structFieldOffset(field.index, sema.mod);
+            return (memsz - field_offset) - ptr_key.byte_offset;
+        },
+        .arr_elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
+            const child_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
+            const child_ty_size: u64 = try sema.typeAbiSize(child_ty);
+            return (memsz - (child_ty_size * elem.index)) - ptr_key.byte_offset;
+        },
+        .comptime_field => |comptime_field| {
+            const field_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(comptime_field));
+            return try sema.typeAbiSize(field_ty) - ptr_key.byte_offset;
+        },
+        .comptime_alloc => |comptime_alloc| {
+            const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
+            return try sema.typeAbiSize(val_ty) - ptr_key.byte_offset;
+        },
+        inline .eu_payload, .opt_payload => |_, tag| {
+            return sema.fail(block, src, "TODO: handle comptime slice manyptr with runtime bits for '{}'", .{tag});
+        },
+        .int => {},
+    }
+    return null;
+}
 
-const loadComptimePtr = @import("Sema/comptime_ptr_access.zig").loadComptimePtr;
-const ComptimeLoadResult = @import("Sema/comptime_ptr_access.zig").ComptimeLoadResult;
-const storeComptimePtr = @import("Sema/comptime_ptr_access.zig").storeComptimePtr;
-const ComptimeStoreResult = @import("Sema/comptime_ptr_access.zig").ComptimeStoreResult;
-
-pub const RuntimeSafety = struct {
-    pub const PanicCause = union(std.builtin.PanicId) {
+const RuntimeSafety = struct {
+    const Cast = struct {
+        to: Type,
+        from: Type,
+    };
+    const PanicCause = union(std.builtin.PanicId) {
         message,
         unwrapped_error,
         returned_noreturn,
@@ -38868,25 +38980,149 @@ pub const RuntimeSafety = struct {
         cast_to_ptr_from_invalid: Alignment,
         cast_to_int_from_invalid: Cast,
         cast_to_unsigned_from_negative: Cast,
-        pub const Cast = struct {
-            to: Type,
-            from: Type,
-        };
     };
-    fn preparePanicCause(sema: *Sema, cause: PanicCause) CompileError!Air.Inst.Ref {
-        if (sema.mod.safety.panic_cause_ty.ip_index == .none) {
-            sema.mod.safety.panic_cause_ty = try sema.getBuiltinType("PanicCause");
-            sema.mod.safety.panic_fn_inst = try sema.getBuiltin("panicNew");
-            sema.mod.safety.panic_extra_fn_inst = try sema.getBuiltin("PanicData");
-            sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
+
+    /// Required to test values. Otherwise do nothing.
+    /// 1. User must enable the testing the panic condition.
+    /// 2. Backend must support testing the panic condition.
+    fn wantRuntimeSafetyCondition(sema: *Sema, panic_id: std.builtin.PanicId) bool {
+        return and switch (panic_id) {
+            .corrupt_switch => sema.mod.backendSupportsFeature(.is_named_enum_value),
+            .cast_to_error_from_invalid => sema.mod.backendSupportsFeature(.error_set_has_value),
+            .cast_to_enum_from_invalid => sema.mod.backendSupportsFeature(.is_named_enum_value),
+            else => true,
+        };
+    }
+    /// Required to call panic handler function. Otherwise trap.
+    fn haveRuntimeSafetyPanic(sema: *Sema, block: *Sema.Block) !bool {
+        const ret: bool = sema.mod.backendSupportsFeature(.panic_fn);
+        if (!ret) _ = try block.addNoOp(.trap);
+        return ret;
+    }
+    /// Required to call special panic handler function with context data.
+    /// 1. User must enable formatted panics for the panic cause.
+    /// 2. Backend must support formatted panics.
+    /// 3. Panic definition must allow the data type.
+    fn wantRuntimeSafetyPanicData(sema: *Sema) bool {
+        return sema.mod.safety.panic_fn_id_arg_ty ==
+            sema.mod.safety.panic_cause_ty.ip_index and
+            sema.mod.safety.panic_fn_data_arg_ty != .none and
+            sema.mod.comp.formatted_panics and
+            sema.mod.backendSupportsFeature(.safety_check_formatted);
+    }
+
+    fn preparePanicData(
+        sema: *Sema,
+        fail_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
+        panic_cause_inst: Air.Inst.Ref,
+        args: []const Air.Inst.Ref,
+    ) !Air.Inst.Ref {
+        if (!wantRuntimeSafetyPanicData(sema)) {
+            return try fail_block.addAggregateInit(try callPanicData(sema, fail_block, src, panic_cause_inst), args);
+        } else {
+            return .void_value;
         }
-        // TODO: Remove this.
-        sema.branch_count -|= 1;
+    }
+    fn callPanicData(
+        sema: *Sema,
+        block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
+        panic_cause_inst: Air.Inst.Ref,
+    ) Module.CompileError!Type {
+        const branch_count: u32 = sema.branch_count;
+        defer sema.branch_count = branch_count;
+        const res: Air.Inst.Ref = try sema.analyzeCall(
+            block,
+            sema.mod.safety.panic_data_fn_inst,
+            sema.typeOf(sema.mod.safety.panic_data_fn_inst),
+            src,
+            src,
+            .auto,
+            false,
+            .{ .resolved = .{ .src = src, .args = &.{panic_cause_inst} } },
+            null,
+            .call,
+        );
+        return Air.Inst.Ref.toType(res);
+    }
+    fn callPanicFn(
+        sema: *Sema,
+        block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
+        args: []const Air.Inst.Ref,
+        op: CallOperation,
+    ) !void {
+        const branch_count: u32 = sema.branch_count;
+        defer sema.branch_count = branch_count;
+        const res: Air.Inst.Ref = try sema.analyzeCall(
+            block,
+            sema.mod.safety.panic_fn_inst,
+            sema.typeOf(sema.mod.safety.panic_fn_inst),
+            src,
+            src,
+            .auto,
+            false,
+            .{ .resolved = .{ .src = src, .args = args } },
+            null,
+            op,
+        );
+        assert(sema.typeOf(res).ip_index == .noreturn_type);
+    }
+
+    fn prepareRuntimeSafety(sema: *Sema) !void {
+        if (sema.mod.safety.panic_fn_inst == .none) {
+            const panic_fn_inst: Air.Inst.Ref = try sema.getBuiltin("panicNew");
+            const callee_ty: Type = sema.typeOf(panic_fn_inst);
+            const callee_ty_tag: std.builtin.TypeId = callee_ty.zigTypeTag(sema.mod);
+            const panic_fn_ty: Type = blk: {
+                if (callee_ty_tag == .Fn) {
+                    break :blk callee_ty;
+                }
+                if (callee_ty_tag == .Pointer) {
+                    const ptr_info: InternPool.Key.PtrType = callee_ty.ptrInfo(sema.mod);
+                    if (ptr_info.flags.size == .One and
+                        Type.fromInterned(ptr_info.child).zigTypeTag(sema.mod) == .Fn)
+                    {
+                        break :blk Type.fromInterned(ptr_info.child);
+                    }
+                }
+                std.debug.panic("'builtin.panic' must be a function or function pointer, is '{}'", .{
+                    callee_ty.fmt(sema.mod),
+                });
+            };
+            sema.mod.safety.panic_fn_inst = panic_fn_inst;
+            const func_ty_info: InternPool.Key.FuncType = sema.mod.typeToFunc(panic_fn_ty).?;
+            if (func_ty_info.return_type != .noreturn_type) {
+                std.debug.panic("'builtin.panic': expected return type 'noreturn', found '{}'", .{
+                    Type.fromInterned(func_ty_info.return_type).fmt(sema.mod),
+                });
+            }
+            const param_types: []InternPool.Index = func_ty_info.param_types.get(&sema.mod.intern_pool);
+            if (param_types.len >= 1) {
+                sema.mod.safety.panic_cause_ty = try sema.getBuiltinType("PanicCause");
+                sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
+                sema.mod.safety.panic_fn_id_arg_ty = param_types[0];
+            }
+            if (param_types.len == 2) {
+                sema.mod.safety.panic_data_fn_inst = try sema.getBuiltin("PanicData");
+                sema.mod.safety.panic_fn_data_arg_ty = param_types[1];
+            }
+            if (param_types.len > 2) {
+                std.debug.panic("'builtin.panic': expected at most 2 parameters, found '{}'", .{
+                    func_ty_info.param_types.len,
+                });
+            }
+        }
+    }
+    fn preparePanicCause(sema: *Sema, cause: PanicCause) !Air.Inst.Ref {
+        try prepareRuntimeSafety(sema);
         const panic_id_ty: Type = sema.mod.safety.panic_cause_ty.unionTagType(sema.mod).?;
+        const tag_val: Value = try sema.mod.enumValueFieldIndex(panic_id_ty, @intFromEnum(cause));
         return Air.internedToRef(try sema.mod.intern(.{
             .un = .{
                 .ty = Type.toIntern(sema.mod.safety.panic_cause_ty),
-                .tag = Value.toIntern(try sema.mod.enumValueFieldIndex(panic_id_ty, @intFromEnum(cause))),
+                .tag = Value.toIntern(tag_val),
                 .val = switch (cause) {
                     // These panic causes each instantiate a single function.
                     .message,
@@ -38904,7 +39140,11 @@ pub const RuntimeSafety = struct {
                     .mismatched_for_loop_capture_lengths,
                     .mismatched_null_sentinel,
                     => .void_value,
-                    // These panic causes are generic on the type of one operand.
+                    // These panic causes are generic depending on the type of
+                    // one operand.
+                    //
+                    // If panic data is disabled these each instantiate a single
+                    // function.
                     .accessed_inactive_field,
                     .mismatched_sentinel,
                     .shl_overflowed,
@@ -38919,30 +39159,37 @@ pub const RuntimeSafety = struct {
                     .div_overflowed,
                     .cast_to_enum_from_invalid,
                     => |payload| operand_ty: {
-                        if (wantPanicCause(sema, cause) != .none) {
+                        if (wantRuntimeSafetyPanicData(sema)) {
                             break :operand_ty Type.toIntern(payload);
                         } else {
                             break :operand_ty InternPool.Index.void_type;
                         }
                     },
-                    // This panic cause is generic on pointer (operand) alignment.
+                    // This panic cause is generic depending on pointer
+                    // alignment.
+                    //
+                    // If panic data is disabled all pointers instantiate a
+                    // single function.
                     .cast_to_ptr_from_invalid => |alignment| ptr_align: {
-                        if (wantPanicCause(sema, cause) != .none) {
-                            const alignment_int: u64 = Alignment.toByteUnits(alignment) orelse 0;
+                        if (wantRuntimeSafetyPanicData(sema)) {
+                            const alignment_int: u64 = InternPool.Alignment.toByteUnits(alignment) orelse 0;
                             const ptr_align_val: Value = try sema.mod.intValue(Type.comptime_int, alignment_int);
                             break :ptr_align Value.toIntern(ptr_align_val);
                         } else {
                             break :ptr_align InternPool.Index.zero_usize;
                         }
                     },
-                    // These panic causes are generic on the source and
-                    // destination types of a cast operation.
+                    // These panic causes are generic depending on the source
+                    // and destination types of a cast operation.
+                    //
+                    // If panic data is disabled each type of invalid cast
+                    // instantiates a single function.
                     .cast_truncated_data,
                     .cast_to_int_from_invalid,
                     .cast_to_error_from_invalid,
                     .cast_to_unsigned_from_negative,
                     => |payload| cast_ty: {
-                        if (wantPanicCause(sema, cause) != .none) {
+                        if (wantRuntimeSafetyPanicData(sema)) {
                             break :cast_ty try sema.mod.intern(.{ .aggregate = .{
                                 .ty = Type.toIntern(sema.mod.safety.panic_cast_ty),
                                 .storage = .{ .elems = &.{ Type.toIntern(payload.to), Type.toIntern(payload.from) } },
@@ -38958,7 +39205,8 @@ pub const RuntimeSafety = struct {
             },
         }));
     }
-    fn failBlock(sema: *Sema, parent_block: *Block) Block {
+
+    fn failBlock(sema: *Sema, parent_block: *Sema.Block) Sema.Block {
         return .{
             .parent = parent_block,
             .sema = sema,
@@ -38969,223 +39217,238 @@ pub const RuntimeSafety = struct {
             .is_comptime = false,
         };
     }
-    fn preparePanicExtraType(
+
+    // This logic may optimise code generated for arithmetic runtime safety in
+    // case of bit-shifts. The trade is large and there may be cases where this
+    // is worse.
+    //
+    // This logic requires that all bit-shift RHS operands coerce to either
+    // `u16` or a vector of `u16`. Insanity? Perhaps, but the type variety of
+    // bit-shift RHS operands can produce a lot of otherwise identical generic
+    // `panic` functions.
+    //
+    // ATTENTION: This coercion comes at a high cost for vector bit-shifts, and
+    //            questions whether this combination of operands should even
+    //            allow panic data at all.
+    fn coerceShiftRHSOperand(
         sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
-        panic_cause_inst: Air.Inst.Ref,
-    ) CompileError!Type {
-        const args_info: CallArgsInfo = .{ .resolved = .{ .src = src, .args = &.{panic_cause_inst} } };
-        return Air.Inst.Ref.toType(try sema.analyzeCall(
-            parent_block,
-            sema.mod.safety.panic_extra_fn_inst,
-            sema.typeOf(sema.mod.safety.panic_extra_fn_inst),
-            src,
-            src,
-            .compile_time,
-            false,
-            args_info,
-            null,
-            .@"@call",
-        ));
-    }
-    /// ATTENTION: Remove this behaviour as soon as possible.
-    const feature_allow_slice_to_sentinel: bool = true;
-    /// ATTENTION: Remove this behaviour as soon as possible.
-    const feature_allow_limited_slice_of_undefined: bool = true;
-    /// TODO: This option makes += 1 and -= 1 separate panic causes from
-    ///       `add_overflowed` and `sub_overflowed`. The effect is to make
-    ///       increment and decrement slightly more efficient, because all operands
-    ///       are known at compile time.
-    const feature_separate_inc_dec: bool = false;
-    /// TODO: Complete this feature. This prevents using pointer-to-many to create
-    ///       pointers out of bounds of the containing declaration. In other words,
-    ///       replaces a potential panic (in ReleaseSafe) or UB (in ReleaseFast)
-    ///       with a compile error.
-    ///
-    ///       [] Do something about error union and optional payloads. Current
-    ///          behaviour matches master (do nothing).
-    ///
-    const feature_prevent_inval_ptr: bool = true;
-    /// TODO: This is technically a concern, but is not worth the effort/cost.
-    const feature_prevent_impossible_sent: bool = true;
-    fn wantPanicCause(
-        _: *Sema,
-        panic_cause: std.builtin.PanicId,
-    ) std.builtin.RuntimeSafety.Setting {
-        @setRuntimeSafety(false);
-        return @enumFromInt(@as(u2, @truncate(@as(u64, @bitCast(Package.Module.runtime_safety)) >> @intCast(@intFromEnum(panic_cause) << 1))));
-    }
-    fn bestGenericIntType(sema: *Sema, resolved_ty: Type) Type {
-        var return_ty: Type = resolved_ty;
-        if (Type.bitSize(resolved_ty) <= Type.bitSize(Type.usize)) {
-            const int_ty_key: InternPool.Key.IntType = InternPool.indexToKey(Type.toIntern(return_ty)).int_type;
-            return_ty = sema.mod.intType(int_ty_key.signedness, @intCast(Type.bitSize(Type.usize)));
+        block: *Block,
+        src: std.zig.LazySrcLoc,
+        rhs: Air.Inst.Ref,
+    ) !Air.Inst.Ref {
+        if (!wantRuntimeSafetyPanicData(sema)) {
+            return .void_value;
         }
-        return return_ty;
-    }
-    fn resolveArithOverflowedPanicImpl(
-        _: *Sema,
-        tag: Air.Inst.Tag,
-    ) !std.builtin.RuntimeSafety.Setting {
-        switch (tag) {
-            .mul => return Package.Module.runtime_safety.mul_overflowed,
-            .add => return Package.Module.runtime_safety.add_overflowed,
-            .sub => return Package.Module.runtime_safety.sub_overflowed,
-            else => return Package.Module.runtime_safety.div_overflowed,
-            .shl_exact => return Package.Module.runtime_safety.shl_overflowed,
-            .shr_exact => return Package.Module.runtime_safety.shr_overflowed,
-            .div_exact => return Package.Module.runtime_safety.div_with_remainder,
+        const rhs_ty: Type = sema.typeOf(rhs);
+        if (!rhs_ty.isVector(sema.mod)) {
+            return sema.coerce(block, Type.u16, rhs, src);
         }
+        const vector_ty: Type = try sema.mod.vectorType(.{
+            .len = rhs_ty.vectorLen(sema.mod),
+            .child = Type.toIntern(Type.u16),
+        });
+        return sema.coerce(block, vector_ty, rhs, src);
     }
-    fn resolveArithOverflowedPanicCause(
-        _: *Sema,
+
+    /// This optimises addition and subtraction operations
+    fn addSubSafeOptimized(
+        sema: *Sema,
+        block: *Block,
+        src: std.zig.LazySrcLoc,
+        air_tag: Air.Inst.Tag,
         resolved_ty: Type,
-        tag: Air.Inst.Tag,
-    ) !PanicCause {
-        switch (tag) {
-            .mul => return .{ .mul_overflowed = resolved_ty },
-            .add => return .{ .add_overflowed = resolved_ty },
-            .sub => return .{ .sub_overflowed = resolved_ty },
-            else => return .{ .div_overflowed = resolved_ty },
-            .shl_exact => return .{ .shl_overflowed = resolved_ty },
-            .shr_exact => return .{ .shr_overflowed = resolved_ty },
-            .div_exact => return .{ .div_with_remainder = resolved_ty },
+        casted_lhs: Air.Inst.Ref,
+        casted_rhs: Air.Inst.Ref,
+    ) !Air.Inst.Ref {
+        if (resolved_ty.zigTypeTag(sema.mod) == .Vector) {
+            return .none;
+        }
+        const casted_rhs_val: Value =
+            try sema.resolveValue(casted_rhs) orelse return .none;
+        const max_int: Value = try resolved_ty.maxInt(sema.mod, resolved_ty);
+        const min_int: Value = try resolved_ty.minInt(sema.mod, resolved_ty);
+        var ov: ?usize = null;
+        const cmp_op: Air.Inst.Tag, const bound_inst: Air.Inst.Ref = blk: {
+            switch (air_tag) {
+                .add => if (try casted_rhs_val.compareAllWithZeroAdvanced(.lt, sema)) {
+                    const casted_rhs_add_1: Value = try sema.intAdd(casted_rhs_val, try sema.mod.intValue(resolved_ty, 1), resolved_ty, &ov);
+                    const lb: Value = try sema.intSub(min_int, casted_rhs_add_1, resolved_ty, &ov);
+                    const cmp_op: Air.Inst.Tag = if (try casted_rhs_add_1.compareAllWithZeroAdvanced(.eq, sema)) .cmp_neq else .cmp_gt;
+                    break :blk .{ cmp_op, Air.internedToRef(Value.toIntern(lb)) };
+                } else {
+                    const casted_rhs_sub_1: Value = try sema.intSub(casted_rhs_val, try sema.mod.intValue(resolved_ty, 1), resolved_ty, &ov);
+                    const ub: Value = try sema.intSub(max_int, casted_rhs_sub_1, resolved_ty, &ov);
+                    const cmp_op: Air.Inst.Tag = if (try casted_rhs_sub_1.compareAllWithZeroAdvanced(.eq, sema)) .cmp_neq else .cmp_lt;
+                    break :blk .{ cmp_op, Air.internedToRef(Value.toIntern(ub)) };
+                },
+                .sub => if (try casted_rhs_val.compareAllWithZeroAdvanced(.lt, sema)) {
+                    const casted_rhs_add_1: Value = try sema.intAdd(casted_rhs_val, try sema.mod.intValue(resolved_ty, 1), resolved_ty, &ov);
+                    const ub: Value = try sema.intAdd(max_int, casted_rhs_add_1, resolved_ty, &ov);
+                    const cmp_op: Air.Inst.Tag = if (try casted_rhs_add_1.compareAllWithZeroAdvanced(.eq, sema)) .cmp_neq else .cmp_lt;
+                    break :blk .{ cmp_op, Air.internedToRef(Value.toIntern(ub)) };
+                } else {
+                    const casted_rhs_sub_1: Value = try sema.intSub(casted_rhs_val, try sema.mod.intValue(resolved_ty, 1), resolved_ty, &ov);
+                    const lb: Value = try sema.intAdd(min_int, casted_rhs_sub_1, resolved_ty, &ov);
+                    const cmp_op: Air.Inst.Tag = if (try casted_rhs_sub_1.compareAllWithZeroAdvanced(.eq, sema)) .cmp_neq else .cmp_gt;
+                    break :blk .{ cmp_op, Air.internedToRef(Value.toIntern(lb)) };
+                },
+                else => return .none,
+            }
+        };
+        if (ov != null) {
+            return .none;
+        }
+        const ok: Air.Inst.Ref = try block.addBinOp(cmp_op, casted_lhs, bound_inst);
+        try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_ty, casted_lhs, casted_rhs, ok, air_tag);
+        return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+    }
+
+    // This function is used by `returned_noreturn`, `corrupt_switch`, and
+    // `reached_unreachable`. The `corrupt_switch` panic cause is now reserved
+    // for unreachable prongs. Most former `corrupt_switch` causes have been
+    // changed to `cast_to_enum_from_invalid`, however this is still an
+    // inadequate classification.
+    fn panicReachedUnreachable(
+        sema: *Sema,
+        parent_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
+        comptime id: std.builtin.PanicId,
+    ) !void {
+        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, id);
+            try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
         }
     }
     fn panicWithMsg(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         msg_inst: Air.Inst.Ref,
-        op: CallOperation,
+        op: Sema.CallOperation,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .message);
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, msg_inst }, op);
-    }
-    fn panicReachedUnreachable(
-        sema: *Sema,
-        parent_block: *Sema.Block,
-        src: LazySrcLoc,
-        comptime id: std.builtin.PanicId,
-    ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, id);
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .message);
+            const panic_data_inst: Air.Inst.Ref = try sema.coerce(parent_block, Type.slice_const_u8, msg_inst, src);
+            try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, op);
+        }
     }
     fn panicCastToEnumFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_enum_from_invalid == .extra) operand else .void_value;
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
     }
     fn panicUnwrappedError(
         sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
-        operand: Air.Inst.Ref,
+        parent_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
+        err: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
-        var fail_block: Block = failBlock(sema, parent_block);
-        defer fail_block.instructions.deinit(sema.gpa);
-        const st: Air.Inst.Ref = try sema.getErrorReturnTrace(&fail_block);
-        const err: Air.Inst.Ref = try parent_block.addTyOp(.unwrap_errunion_err, Type.anyerror, operand);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.unwrapped_error == .extra)
-            try parent_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ err, st })
-        else
-            .void_value;
-        try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, parent_block) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
+                const st: Air.Inst.Ref = try sema.getErrorReturnTrace(parent_block);
+                break :blk try parent_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause_inst), &.{ st, err });
+            } else .void_value;
+            try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
     }
     fn checkAccessNullValue(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_null_value);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_null_value);
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkUnwrappedError(
         sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
+        parent_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
         operand: Air.Inst.Ref,
         unwrap_err_tag: Air.Inst.Tag,
         is_non_err_tag: Air.Inst.Tag,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
         const cond: Air.Inst.Ref = try parent_block.addUnOp(is_non_err_tag, operand);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const err: Air.Inst.Ref = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
-        const st: Air.Inst.Ref = try sema.getErrorReturnTrace(&fail_block);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.unwrapped_error == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ err, st })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
+                const st: Air.Inst.Ref = try sema.getErrorReturnTrace(&fail_block);
+                const err: Air.Inst.Ref = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
+                break :blk try fail_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause_inst), &.{ st, err });
+            } else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkDivisionByZero(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .divided_by_zero);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .divided_by_zero);
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkAccessOutOfBounds(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_idx: Air.Inst.Ref,
         src_len: Air.Inst.Ref,
         cmp_op: Air.Inst.Tag,
     ) !void {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(cmp_op, dest_idx, src_len);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_bounds);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.accessed_out_of_bounds == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ dest_idx, src_len })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_bounds);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_idx, src_len });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkAccessOutOfOrder(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_start: Air.Inst.Ref,
         dest_end: Air.Inst.Ref,
     ) !void {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_lte, dest_start, dest_end);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.accessed_out_of_order == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ dest_start, dest_end })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkAccessOutOfOrderExtra(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_start: Air.Inst.Ref,
         dest_end: Air.Inst.Ref,
         src_len: Air.Inst.Ref,
@@ -39196,1131 +39459,288 @@ pub const RuntimeSafety = struct {
             try sema.bitCast(parent_block, Type.u1, try parent_block.addBinOp(.cmp_lte, dest_start, dest_end), src, null),
             try sema.bitCast(parent_block, Type.u1, try parent_block.addBinOp(cmp_op, dest_end, src_len), src, null),
         ), src, null);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order_extra);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.accessed_out_of_order == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ dest_start, dest_end, src_len })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order_extra);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end, src_len });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkAliasingMemcpyArguments(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_start: Air.Inst.Ref,
         dest_finish: Air.Inst.Ref,
         src_start: Air.Inst.Ref,
         src_finish: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .memcpy_argument_aliasing);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.memcpy_argument_aliasing == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ dest_start, dest_finish, src_start, src_finish })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .memcpy_argument_aliasing);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{
+                try fail_block.addUnOp(.int_from_ptr, dest_start), try fail_block.addUnOp(.int_from_ptr, dest_finish),
+                try fail_block.addUnOp(.int_from_ptr, src_start),  try fail_block.addUnOp(.int_from_ptr, src_finish),
+            });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkMismatchedMemcpyArgumentLengths(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_len: Air.Inst.Ref,
         src_len: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_memcpy_argument_lengths);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.mismatched_memcpy_argument_lengths == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ dest_len, src_len })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_memcpy_argument_lengths);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_len, src_len });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkMismatchedForLoopCaptureLengths(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         loop_len: Air.Inst.Ref,
         arg_len: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_for_loop_capture_lengths);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.mismatched_for_loop_capture_lengths == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ loop_len, arg_len })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_for_loop_capture_lengths);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ loop_len, arg_len });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkAccessInactiveUnionField(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         active_tag: Air.Inst.Ref,
         wanted_tag: Air.Inst.Ref,
     ) !void {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .accessed_inactive_field = sema.typeOf(active_tag) });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.accessed_inactive_field == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ active_tag, wanted_tag })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .accessed_inactive_field = sema.typeOf(active_tag) });
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ active_tag, wanted_tag });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkMismatchedSentinel(
         sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
+        parent_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
         elem_ty: Type,
         expected: Air.Inst.Ref,
         elem_ptr: Air.Inst.Ref,
     ) !void {
         const found: Air.Inst.Ref = try parent_block.addTyOp(.load, elem_ty, elem_ptr);
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, expected, found);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .mismatched_sentinel = elem_ty });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.mismatched_sentinel == .extra)
-            try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ expected, found })
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .mismatched_sentinel = elem_ty });
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ expected, found });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkMismatchedNullTerminator(
         sema: *Sema,
-        parent_block: *Block,
-        src: LazySrcLoc,
+        parent_block: *Sema.Block,
+        src: std.zig.LazySrcLoc,
         elem_ty: Type,
         elem_ptr: Air.Inst.Ref,
     ) !void {
         const found: Air.Inst.Ref = try parent_block.addTyOp(.load, elem_ty, elem_ptr);
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, .zero_u8, found);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_null_sentinel);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.mismatched_sentinel == .extra) found else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_null_sentinel);
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) found else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkShiftAmountOverflow(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         resolved_ty: Type,
         shift_amt: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .shift_amt_overflowed = resolved_ty });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.shift_amt_overflowed == .extra) shift_amt else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .shift_amt_overflowed = resolved_ty });
+            const panic_data_inst: Air.Inst.Ref = try coerceShiftRHSOperand(sema, &fail_block, src, shift_amt);
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkArithmeticOverflow(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         resolved_ty: Type,
         lhs: Air.Inst.Ref,
         rhs: Air.Inst.Ref,
         cond: Air.Inst.Ref,
         tag: Air.Inst.Tag,
     ) !void {
-        const panic_cause: PanicCause = try resolveArithOverflowedPanicCause(sema, resolved_ty, tag);
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (wantPanicCause(sema, panic_cause) == .extra) switch (panic_cause) {
-            .inc_overflowed, .dec_overflowed => lhs,
-            else => try fail_block.addAggregateInit(try preparePanicExtraType(sema, parent_block, src, panic_cause_inst), &.{ lhs, rhs }),
-        } else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause: PanicCause = switch (tag) {
+                .mul => .{ .mul_overflowed = resolved_ty },
+                .add => .{ .add_overflowed = resolved_ty },
+                .sub => .{ .sub_overflowed = resolved_ty },
+                else => .{ .div_overflowed = resolved_ty },
+                .shl_exact => .{ .shl_overflowed = resolved_ty },
+                .shr_exact => .{ .shr_overflowed = resolved_ty },
+                .div_exact => .{ .div_with_remainder = resolved_ty },
+            };
+            const casted_rhs: Air.Inst.Ref = switch (tag) {
+                .shl_exact, .shr_exact => try coerceShiftRHSOperand(sema, &fail_block, src, rhs),
+                else => rhs,
+            };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ lhs, casted_rhs });
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkCastToEnumFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_enum_from_invalid == .extra)
-            try parent_block.addBitCast(Type.intTagType(dest_ty, sema.mod), operand)
-        else
-            .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const int_ty: Type = Type.intTagType(dest_ty, sema.mod);
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) try parent_block.addBitCast(int_ty, operand) else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkCastToErrorFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_error_from_invalid == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
-    fn checkCastToPointerFromInvalid(
+    pub fn checkCastToPointerFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema) });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_ptr_from_invalid == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const alignment: InternPool.Alignment = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema);
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = alignment });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkCastToIntFromInvalid(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_int_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_int_from_invalid == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_int_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkCastTruncatedData(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_truncated_data = .{ .to = dest_ty, .from = operand_ty } });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_truncated_data == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_truncated_data = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
     fn checkCastToUnsignedFromNegative(
         sema: *Sema,
         parent_block: *Sema.Block,
-        src: LazySrcLoc,
+        src: std.zig.LazySrcLoc,
         dest_ty: Type,
         operand_ty: Type,
         operand: Air.Inst.Ref,
         cond: Air.Inst.Ref,
     ) !void {
-        const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_unsigned_from_negative = .{ .to = dest_ty, .from = operand_ty } });
-        var fail_block: Block = failBlock(sema, parent_block);
+        var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        const panic_data_inst: Air.Inst.Ref = if (Package.Module.runtime_safety.cast_to_unsigned_from_negative == .extra) operand else .void_value;
-        try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_unsigned_from_negative = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
+            try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+        }
         try sema.addSafetyCheckExtra(parent_block, cond, &fail_block);
     }
-    pub fn zirSliceStart(sema: *Sema, block: *Sema.Block, inst: Zir.Inst.Index) !Air.Inst.Ref {
-        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const src: LazySrcLoc = inst_data.src();
-        const extra: Zir.Inst.SliceStart = sema.code.extraData(Zir.Inst.SliceStart, inst_data.payload_index).data;
-        const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
-        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
-        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
-        return analyzeSlice2(sema, block, src, array_ptr, start, .none, .none, .none, ptr_src, start_src, end_src, .unneeded, .slice_start);
-    }
-    pub fn zirSliceEnd(sema: *Sema, block: *Sema.Block, inst: Zir.Inst.Index) !Air.Inst.Ref {
-        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const src: LazySrcLoc = inst_data.src();
-        const extra: Zir.Inst.SliceEnd = sema.code.extraData(Zir.Inst.SliceEnd, inst_data.payload_index).data;
-        const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
-        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
-        const end: Air.Inst.Ref = try sema.resolveInst(extra.end);
-        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
-        return analyzeSlice2(sema, block, src, array_ptr, start, end, .none, .none, ptr_src, start_src, end_src, .unneeded, .slice_end);
-    }
-    pub fn zirSliceSentinel(sema: *Sema, block: *Sema.Block, inst: Zir.Inst.Index) !Air.Inst.Ref {
-        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const src = inst_data.src();
-        const extra: Zir.Inst.SliceSentinel = sema.code.extraData(Zir.Inst.SliceSentinel, inst_data.payload_index).data;
-        const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
-        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
-        const end: Air.Inst.Ref = if (extra.end == .none) .none else try sema.resolveInst(extra.end);
-        const sentinel: Air.Inst.Ref = try sema.resolveInst(extra.sentinel);
-        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
-        const sentinel_src: LazySrcLoc = .{ .node_offset_slice_sentinel = inst_data.src_node };
-        return analyzeSlice2(sema, block, src, array_ptr, start, end, .none, sentinel, ptr_src, start_src, end_src, sentinel_src, .slice_sentinel);
-    }
-    pub fn zirSliceLength(sema: *Sema, block: *Sema.Block, inst: Zir.Inst.Index) !Air.Inst.Ref {
-        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const src = inst_data.src();
-        const extra: Zir.Inst.SliceLength = sema.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
-        const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const len: Air.Inst.Ref = try sema.resolveInst(extra.len);
-        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = extra.start_src_node_offset };
-        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
-        const sentinel: Air.Inst.Ref = if (extra.sentinel == .none) .none else try sema.resolveInst(extra.sentinel);
-        const sentinel_src: LazySrcLoc = if (sentinel == .none) .unneeded else .{ .node_offset_slice_sentinel = inst_data.src_node };
-        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
-        const end: Air.Inst.Ref = try sema.analyzeArithmetic(block, .addwrap, start, len, src, start_src, end_src, false);
-        return analyzeSlice2(sema, block, src, array_ptr, start, end, len, sentinel, ptr_src, start_src, end_src, sentinel_src, .slice_length);
-    }
-    const SliceAnalysis = packed struct(u32) {
-        // TODO: Add `mem_len` for length of containing decl? This is
-        //       modeled by the test suite.
-        src_ptr: State,
-        src_len: State,
-        src_sent: State,
-        dest_ptr: State,
-        dest_start: State,
-        dest_end: State,
-        dest_len: State,
-        dest_sent: State,
-        start_le_len: State,
-        start_le_end: State,
-        end_le_len: State,
-        eq_sentinel: State,
-        ptr_ne_null: State,
-        _: u6 = 0,
-        const State = enum(u2) {
-            unknown = 0,
-            variable = 1,
-            known = 2,
-            fn min(arg1: State, arg2: State) State {
-                return @enumFromInt(@min(@intFromEnum(arg1), @intFromEnum(arg2)));
-            }
-        };
-        // TODO: Remove `slice_sentinel`. Make `slice_start` and `slice_end` behave
-        //       like `slice_length` if possible (sentinel optional). Clearly
-        //       indicating the base syntax is significant for the simplicity of
-        //       `Sema.analyzeSlice2`.
-        const Op = enum(u32) {
-            slice_start = @intFromEnum(Zir.Inst.Tag.slice_start),
-            slice_end = @intFromEnum(Zir.Inst.Tag.slice_end),
-            slice_sentinel = @intFromEnum(Zir.Inst.Tag.slice_sentinel),
-            slice_length = @intFromEnum(Zir.Inst.Tag.slice_length),
-        };
-    };
-    /// Returns the number of `elem_ty` stored by type `val_ty`.
-    /// `val_ty` == `elem_ty`                   => 1
-    /// `val_ty` == `@Vector(len, elem_ty)`     => @typeInfo(val_ty).Vector.len
-    /// `val_ty` == `[len]elem_ty`              => @typeInfo(val_ty).Array.len
-    fn reinterpretLength(
-        sema: *Sema,
-        block: *Block,
-        src: LazySrcLoc,
-        elem_ty: Type,
-        val_ty: Type,
-    ) !u64 {
-        if (elem_ty.ip_index == val_ty.ip_index) {
-            return 1;
-        }
-        if (val_ty.isArrayOrVector(sema.mod)) {
-            const val_ty_tag: std.builtin.TypeId = val_ty.zigTypeTag(sema.mod);
-            const child_ty: Type = Type.elemType2(val_ty, sema.mod);
-            if (elem_ty.ip_index != child_ty.ip_index) {
-                return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
-                    child_ty.fmt(sema.mod),
-                    elem_ty.fmt(sema.mod),
-                });
-            }
-            if (val_ty_tag == .Array) {
-                return val_ty.arrayLen(sema.mod);
-            }
-            if (val_ty_tag == .Vector) {
-                return val_ty.vectorLen(sema.mod);
-            }
-        }
-        return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
-            val_ty.fmt(sema.mod),
-            elem_ty.fmt(sema.mod),
-        });
-    }
-    /// Returns the number of remaining elements of `elem_ty` in the declaration
-    /// containing `ptr_val`.
-    fn reinterpretLengthOfContainingDecl(
-        sema: *Sema,
-        block: *Block,
-        src: LazySrcLoc,
-        ptr_val: Value,
-        elem_ty: Type,
-    ) !?u64 {
-        const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
-        switch (ptr_key.base_addr) {
-            .arr_elem => |elem| if (try reinterpretLengthOfContainingDecl(sema, block, src, Value.fromInterned(elem.base), elem_ty)) |elems| {
-                const child_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
-                if (child_ty.ip_index != elem_ty.ip_index) {
-                    return sema.fail(block, src, "type '{}' cannot be reinterpreted as type '{}'", .{
-                        child_ty.fmt(sema.mod),
-                        elem_ty.fmt(sema.mod),
-                    });
-                }
-                return elems - elem.index;
-            },
-            .comptime_alloc => |comptime_alloc| {
-                const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
-                return try reinterpretLength(sema, block, src, elem_ty, val_ty);
-            },
-            .anon_decl => |anon_decl| {
-                const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
-                return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
-            },
-            .decl => |decl| {
-                const decl_ptr: *Decl = sema.mod.declPtr(decl);
-                const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
-                return try reinterpretLength(sema, block, src, elem_ty, decl_ty);
-            },
-            inline .eu_payload, .opt_payload, .field, .comptime_field => |_, tag| {
-                return sema.fail(block, src, "TODO: handle comptime slice manyptr without runtime bits for '{}'", .{tag});
-            },
-            .int => {},
-        }
-        return null;
-    }
-    /// Returns the number of remaining bytes in the declaration containing
-    /// `ptr_val`.
-    fn abiSizeOfContainingDecl(
-        sema: *Sema,
-        block: *Block,
-        src: LazySrcLoc,
-        ptr_val: Value,
-    ) !?u64 {
-        const ptr_key: InternPool.Key.Ptr = sema.mod.intern_pool.indexToKey(Value.toIntern(ptr_val)).ptr;
-        switch (ptr_key.base_addr) {
-            .decl => |decl| {
-                const decl_ptr: *Decl = sema.mod.declPtr(decl);
-                const decl_ty: Type = (try decl_ptr.valueOrFail()).typeOf(sema.mod);
-                return try sema.typeAbiSize(decl_ty) - ptr_key.byte_offset;
-            },
-            .anon_decl => |anon_decl| {
-                const decl_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(anon_decl.val));
-                return try sema.typeAbiSize(decl_ty) - ptr_key.byte_offset;
-            },
-            .field => |field| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(field.base))) |memsz| {
-                const container_ty: Type = Type.childType(Type.fromInterned(sema.mod.intern_pool.typeOf(field.base)), sema.mod);
-                const field_offset: u64 = container_ty.structFieldOffset(field.index, sema.mod);
-                return (memsz - field_offset) - ptr_key.byte_offset;
-            },
-            .arr_elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
-                const child_ty: Type = Type.elemType2(Type.fromInterned(sema.mod.intern_pool.typeOf(elem.base)), sema.mod);
-                const child_ty_size: u64 = try sema.typeAbiSize(child_ty);
-                return (memsz - (child_ty_size * elem.index)) - ptr_key.byte_offset;
-            },
-            .comptime_field => |comptime_field| {
-                const field_ty: Type = Type.fromInterned(sema.mod.intern_pool.typeOf(comptime_field));
-                return try sema.typeAbiSize(field_ty) - ptr_key.byte_offset;
-            },
-            .comptime_alloc => |comptime_alloc| {
-                const val_ty: Type = sema.getComptimeAlloc(comptime_alloc).val.typeOf(sema.mod);
-                return try sema.typeAbiSize(val_ty) - ptr_key.byte_offset;
-            },
-            inline .eu_payload, .opt_payload => |_, tag| {
-                return sema.fail(block, src, "TODO: handle comptime slice manyptr with runtime bits for '{}'", .{tag});
-            },
-            .int => {},
-        }
-        return null;
-    }
-    /// WIP Replacement for `Sema.analyzeSlice`.
-    pub fn analyzeSlice2(
-        sema: *Sema,
-        block: *Block,
-        src: LazySrcLoc,
-        operand: Air.Inst.Ref,
-        dest_start: Air.Inst.Ref,
-        uncasted_dest_end_opt: Air.Inst.Ref,
-        uncasted_dest_len_opt: Air.Inst.Ref,
-        dest_sent_opt: Air.Inst.Ref,
-        operand_src: LazySrcLoc,
-        dest_start_src: LazySrcLoc,
-        dest_end_src: LazySrcLoc,
-        dest_sent_src: LazySrcLoc,
-        kind: SliceAnalysis.Op,
-    ) !Air.Inst.Ref {
-        var src_ptr_ty: Type = sema.typeOf(operand);
-        if (src_ptr_ty.zigTypeTag(sema.mod) != .Pointer) {
-            return sema.fail(block, src, "expected pointer operand, found '{}'", .{src_ptr_ty.fmt(sema.mod)});
-        }
-        var src_ptr: Air.Inst.Ref = operand;
-        var src_ptr_ty_size: std.builtin.Type.Pointer.Size = .One;
-        //
-        // SIMPLIFY POINTER OPERAND:
-        //
-        // *[src_len]T      From slice of array, correct by default.
-        var ptr_child_ty: Type = src_ptr_ty.childType(sema.mod);
-        var ptr_child_ty_tag: std.builtin.TypeId = ptr_child_ty.zigTypeTag(sema.mod);
-        const elem_ty: Type = if (ptr_child_ty_tag == .Pointer) blk: {
-            var ptr_child_child_ty: Type = ptr_child_ty.childType(sema.mod);
-            // *[]T             From slice of slice:
-            //                  ;; ptr_child_ty = []T
-            //                  ;; ptr_size     => Slice
-            //
-            // *[*]T            From slice of pointer-to-many:
-            //                  ;; ptr_child_ty = [*]T
-            //                  ;; ptr_size     => Many (C)
-            //
-            src_ptr_ty_size = ptr_child_ty.ptrSize(sema.mod);
-            src_ptr = try sema.analyzeLoad(block, src, src_ptr, operand_src);
-            if (src_ptr_ty_size != .One) break :blk ptr_child_child_ty;
-            // **T              From slice of pointer-to-one:
-            //                  ;; src_ptr_ty   => *T
-            //                  ;; elem_ty      = T
-            src_ptr_ty = ptr_child_ty;
-            ptr_child_ty_tag = ptr_child_child_ty.zigTypeTag(sema.mod);
-            if (ptr_child_ty_tag != .Array) break :blk ptr_child_child_ty;
-            // **[src_len]T     From slice of pointer-to-one array.
-            //                  ;; src_ptr_ty   => *[src_len]T
-            //                  ;; ptr_child_ty => [src_len]T
-            //                  ;; elem_ty      => T
-            ptr_child_ty = src_ptr_ty.childType(sema.mod);
-            break :blk ptr_child_ty.childType(sema.mod);
-        } else if (ptr_child_ty_tag == .Array) blk: {
-            break :blk ptr_child_ty.childType(sema.mod);
-        } else {
-            return sema.fail(block, src, "slice of non-array type '{}'", .{ptr_child_ty.fmt(sema.mod)});
-        };
-        // [*]const T   ;; Used to compute the start pointer by pointer arithmetic.
-        const many_ptr_ty: Type = try sema.mod.manyConstPtrType(elem_ty);
-        // *const T     ;; Used to refer to the element at the sentinel index.
-        const elem_ptr_ty: Type = try sema.mod.singleConstPtrType(elem_ty);
-        // This property is used a lot later to avoid behaviour which is only
-        // intended for input pointers where the length is allowed known.
-        const src_ptr_explicit_len: bool = src_ptr_ty_size == .One or src_ptr_ty_size == .Slice;
-        // This is used to determine whether testing for length overflow by
-        // sentinel length extension is within contract. This is not marked
-        // for deletion because a special syntax for slice-to-sentinel would
-        // use the same logic.
-        const src_ptr_ty_is_allowzero: bool = src_ptr_ty.ptrInfo(sema.mod).flags.is_allowzero;
-        // Initial state of values and safety checks (4 bytes):
-        var sa: SliceAnalysis = SliceAnalysis{
-            .src_ptr = .variable,
-            .src_len = .unknown,
-            .src_sent = .unknown,
-            .dest_ptr = .variable,
-            .dest_start = .variable,
-            .dest_end = .unknown,
-            .dest_len = .unknown,
-            .dest_sent = .unknown,
-            .start_le_len = .unknown,
-            .start_le_end = .unknown,
-            .end_le_len = .unknown,
-            .eq_sentinel = .unknown,
-            .ptr_ne_null = .unknown,
-        };
-        // The base pointer is not optional so `unknown` means it is undefined.
-        const src_ptr_val: Value = blk: {
-            if (try sema.resolveValue(src_ptr)) |val| {
-                sa.src_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
-                break :blk val;
-            }
-            break :blk Value.undef;
-        };
-        const src_sent_val: Value = blk: {
-            // This value is never usable by pointer sizes `C` and `Many`.
-            if (!src_ptr_explicit_len) {
-                break :blk Value.undef;
-            }
-            if (ptr_child_ty.sentinel(sema.mod)) |val| {
-                sa.src_sent = .known;
-                break :blk val;
-            }
-            break :blk Value.undef;
-        };
-        // Try to extract any upper bound from the input pointer.
-        // * Use the type information `Array.len` if Array.
-        // * Use the value `ptr.len` if Slice.
-        // * Use the base/parent type and offset if comptime-known `Many` or `C`.
-        const src_len: Air.Inst.Ref = switch (src_ptr_ty_size) {
-            .One => if (ptr_child_ty_tag == .Array)
-                try sema.mod.intRef(Type.usize, ptr_child_ty.arrayLen(sema.mod))
-            else
-                Air.Inst.Ref.one_usize,
-            .Slice => if (sa.src_ptr == .unknown)
-                Air.Inst.Ref.zero_usize
-            else
-                try sema.analyzeSliceLen(block, operand_src, src_ptr),
-            .C, .Many => blk: {
-                // This safety measure is a work-in-progress.
-                if (feature_prevent_inval_ptr and sa.src_ptr == .known) {
-                    const elem_size: u64 = try sema.typeAbiSize(elem_ty);
-                    if (elem_size == 0) {
-                        if (try reinterpretLengthOfContainingDecl(sema, block, src, src_ptr_val, elem_ty)) |idx_int| {
-                            break :blk try sema.mod.intRef(Type.usize, try sema.usizeCast(block, src, idx_int));
-                        }
-                    } else {
-                        if (try abiSizeOfContainingDecl(sema, block, src, src_ptr_val)) |memsz_int| {
-                            break :blk try sema.mod.intRef(Type.usize, try sema.usizeCast(block, src, memsz_int / elem_size));
-                        }
-                    }
-                }
-                break :blk .none;
-            },
-        };
-        // Attempt to resolve the pointer length.
-        const src_len_val: Value = blk: {
-            if (src_len != .none) {
-                sa.src_len = .variable;
-                if (try sema.resolveDefinedValue(block, operand_src, src_len)) |val| {
-                    sa.src_len = .known;
-                    break :blk val;
-                }
-            }
-            break :blk Value.undef;
-        };
-        // The start index is not optional, so `unknown` means that start is
-        // equivalent to `Value.zero_usize`.
-        const dest_start_val: Value = blk: {
-            if (try sema.resolveDefinedValue(block, dest_start_src, dest_start)) |val| {
-                sa.dest_start = if (try sema.compareAll(val, .eq, Value.zero_usize, Type.usize)) .unknown else .known;
-                break :blk val;
-            }
-            break :blk Value.undef;
-        };
-        // Coerce end operand.
-        const dest_end: Air.Inst.Ref = blk: {
-            if (uncasted_dest_end_opt != .none) {
-                break :blk try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
-            }
-            break :blk .none;
-        };
-        // Attempt to resolve the value of the end index.
-        const dest_end_val: Value = blk: {
-            if (dest_end != .none) {
-                sa.dest_end = .variable;
-                if (try sema.resolveDefinedValue(block, dest_end_src, dest_end)) |val| {
-                    sa.dest_end = .known;
-                    break :blk val;
-                }
-            }
-            break :blk Value.undef;
-        };
-        // Deduce the length of the destination slice and attempt to resolve the
-        // result (with values preferred in this order):
-        //
-        // * Use 0 if `src_ptr` is known to be `undefined`.
-        // * Use `dest_len` if provided.
-        // * Use `dest_end - dest_start` if `dest_end` is provided (or simply `dest_end` if `dest_start` is known to be 0).
-        // * Use `src_len - dest_start` if `src_len` is provided (or simply `src_len` if `dest_start` is known to be 0).
-        // * Destination length is undefined.
-        //
-        // (`analyzeArithmetic` has the same optimisation for `zero_*` inputs)
-        // (`subwrap` is used below to avoid unclear compile errors from other functions)
-        //
-        const dest_len: Air.Inst.Ref = blk: {
-            if (uncasted_dest_len_opt != .none) {
-                break :blk try sema.coerce(block, Type.usize, uncasted_dest_len_opt, dest_end_src);
-            }
-            if (uncasted_dest_end_opt != .none) {
-                if (sa.dest_start != .unknown) {
-                    break :blk try sema.analyzeArithmetic(block, .subwrap, dest_end, dest_start, src, dest_end_src, dest_start_src, false);
-                }
-                break :blk dest_end;
-            }
-            if (src_len != .none) {
-                if (sa.dest_start != .unknown) {
-                    break :blk try sema.analyzeArithmetic(block, .subwrap, src_len, dest_start, src, operand_src, dest_start_src, false);
-                }
-                break :blk src_len;
-            }
-            break :blk .none;
-        };
-        // Attempt to resolve the value of the destination length.
-        const dest_len_val: Value = blk: {
-            if (dest_len != .none) {
-                sa.dest_len = .variable;
-                if (try sema.resolveDefinedValue(block, src, dest_len)) |val| {
-                    sa.dest_len = .known;
-                    break :blk val;
-                }
-            }
-            break :blk Value.undef;
-        };
-        // Attempt to resolve the value of the destination sentinel.
-        const dest_sent_val: Value = blk: {
-            if (dest_sent_opt != .none) {
-                if (!elem_ty.allowsSentinel(sema.mod)) {
-                    return sema.fail(block, src, "sentinel not allowed for slice of non-scalar type '{}'", .{
-                        elem_ty.fmt(sema.mod),
-                    });
-                }
-                sa.dest_sent = .known;
-                const dest_sent: Air.Inst.Ref = try sema.coerce(block, elem_ty, dest_sent_opt, dest_sent_src);
-                if (try sema.resolveDefinedValue(block, dest_sent_src, dest_sent)) |val| {
-                    break :blk val;
-                }
-                return sema.fail(block, dest_sent_src, "destination sentinel must be comptime-known", .{});
-            }
-            break :blk Value.undef;
-        };
-        // Variants such as ptr[0..] and ptr[0..][0..1] are allowed for *T.
-        if (src_ptr_ty_size == .One and ptr_child_ty_tag != .Array) {
-            if (sa.dest_start == .variable) {
-                return sema.fail(block, dest_start_src, "start index of slice of pointer-to-one must be comptime-known", .{});
-            }
-            if (sa.dest_end == .variable) {
-                return sema.fail(block, dest_end_src, "end index of slice of pointer-to-one must be comptime-known", .{});
-            }
-        }
-        // ATTENTION: Remove with `feature_allow_limited_slice_of_undefined`.
-        //            Clarify behaviour of slices of constant undefined
-        //            pointers. This is far too much logic to enable a foot-gun.
-        if (sa.src_ptr == .unknown) {
-            if (!feature_allow_limited_slice_of_undefined) {
-                return sema.fail(block, src, "slice of undefined pointer causes undefined behaviour", .{});
-            }
-            if (sa.dest_len == .known) {
-                if (try sema.compareAll(dest_len_val, .neq, Value.zero_comptime_int, Type.comptime_int)) {
-                    return sema.fail(block, src, "non-zero length slice of undefined pointer", .{});
-                }
-            } else {
-                return sema.fail(block, src, "slice of undefined pointer with runtime length causes undefined behaviour", .{});
-            }
-            if (sa.dest_sent == .known) {
-                return sema.fail(block, src, "sentinel not allowed for slice of undefined pointer", .{});
-            }
-        }
-        //
-        // COMPUTE NEW POINTER `.ptr`
-        //
-        const new_ptr: Air.Inst.Ref = switch (src_ptr_ty_size) {
-            .Many, .C => src_ptr,
-            .Slice => try sema.analyzeSlicePtr(block, operand_src, src_ptr, sema.typeOf(src_ptr)),
-            .One => blk: {
-                var ptr_ty_key: InternPool.Key.PtrType = sema.mod.intern_pool.indexToKey(Type.toIntern(src_ptr_ty)).ptr_type;
-                ptr_ty_key.child = Type.toIntern(elem_ty);
-                ptr_ty_key.flags.size = .Many;
-                break :blk try sema.coerceCompatiblePtrs(block, try sema.ptrType(ptr_ty_key), src_ptr, operand_src);
-            },
-        };
-        const dest_ptr: Air.Inst.Ref = blk: {
-            if (sa.dest_start != .unknown) {
-                break :blk try sema.analyzePtrArithmetic(block, src, new_ptr, dest_start, .ptr_add, operand_src, dest_start_src);
-            }
-            break :blk new_ptr;
-        };
-        // Attempt to resolve the value of the destination pointer. The return
-        // pointer is not optional, so the `unknown` state is for the special
-        // case @as([*]T, undefined).
-        const dest_ptr_val: Value = blk: {
-            if (try sema.resolveValue(dest_ptr)) |val| {
-                sa.dest_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
-                break :blk val;
-            }
-            break :blk Value.undef;
-        };
-        //
-        // SAFETY CHECKS:
-        //
-        // Determine bounds checks:
-        if (feature_allow_limited_slice_of_undefined and sa.src_ptr == .unknown) {
-            // ATTENTION: Remove this (no-op) branch with `feature_allow_limited_slice_of_undefined`
-            //            Skip bounds checks if source pointer is known to be
-            //            undefined.
-        } else {
-            sa.start_le_end = sa.dest_start.min(sa.dest_end);
-            sa.start_le_len = sa.dest_start.min(sa.src_len);
-            sa.end_le_len = sa.dest_end.min(sa.src_len);
-        }
-        // Optimise `slice_length` and `slice_end` to only check `start_le_len`
-        // at compile time. It is impossible for `dest_end` to be in bounds if
-        // `dest_start` is out of bounds. For `slice_length` this is an innate
-        // property of the syntax. For `slice_end`, this is guaranteed by
-        // `start_le_end`.
-        //
-        // A compile time check is desirable because `dest_len` might be
-        // runtime-known, meaning `dest_end` is also runtime-known.
-        if (uncasted_dest_end_opt != .none and sa.start_le_len == .variable) {
-            sa.start_le_len = .unknown;
-        }
-        // This should never happen, but there is no harm leaving the compile-time
-        // check active while testing.
-        if (kind == .slice_length and sa.start_le_end == .variable) {
-            sa.start_le_end = .unknown;
-        }
-        // Determine nullptr check:
-        if (src_ptr_ty_size == .C) {
-            sa.ptr_ne_null = sa.src_ptr;
-        }
-        // Determine sentinel check:
-        if (uncasted_dest_end_opt != .none) {
-            sa.eq_sentinel = sa.src_ptr.min(sa.dest_end).min(sa.dest_sent);
-        } else if (uncasted_dest_len_opt != .none) {
-            sa.eq_sentinel = sa.dest_ptr.min(sa.dest_len).min(sa.dest_sent);
-        } else if (src_ptr_ty_size == .One or src_ptr_ty_size == .Slice) {
-            if (sa.dest_sent == .known and sa.src_sent == .unknown) {
-                return sema.fail(block, dest_sent_src, "sentinel index always out of bounds", .{});
-            }
-            if (sa.dest_sent == .known) {
-                sa.eq_sentinel = sa.src_ptr.min(sa.src_len);
-            }
-        }
-        //
-        // OTHER VALUES:
-        //
-        // Attempt to resolve a pointer to the destination sentinel element:
-        const actual_sent_ptr_val: Value = blk: {
-            if (sa.eq_sentinel == .known) {
-                var idx_val: Value = src_len_val;
-                var ptr_inst: Air.Inst.Ref = new_ptr;
-                if (uncasted_dest_end_opt != .none) {
-                    idx_val = dest_end_val;
-                }
-                if (uncasted_dest_len_opt != .none and sa.dest_len == .known) {
-                    ptr_inst = dest_ptr;
-                    idx_val = dest_len_val;
-                }
-                if (try sema.resolveValue(ptr_inst)) |ptr_val| {
-                    const many_ptr_val: Value = try sema.mod.getCoerced(ptr_val, many_ptr_ty);
-                    const idx: usize = try sema.usizeCast(block, src, idx_val.toUnsignedInt(sema.mod));
-                    break :blk try many_ptr_val.ptrElem(idx, sema);
-                }
-            }
-            break :blk Value.undef;
-        };
-        // ATTENTION: Remove `feature_allow_slice_to_sentinel`.
-        //            Compute sentinel-extended source pointer length.
-        const src_len2: Air.Inst.Ref = blk: {
-            // `slice_start` preserves the source sentinel for all source
-            // pointer sizes with an explicit length. The length can never be
-            // extended.
-            if (kind == .slice_start and src_ptr_explicit_len) {
-                break :blk src_len;
-            }
-            if (feature_allow_slice_to_sentinel and
-                sa.src_sent == .known and
-                sa.dest_sent == .unknown)
-            {
-                break :blk try sema.analyzeArithmetic(block, .add, src_len, .one, src, operand_src, dest_sent_src, src_ptr_ty_is_allowzero);
-            }
-            break :blk src_len;
-        };
-        // ATTENTION: Remove with `feature_allow_slice_to_sentinel`.
-        //            Attempt to resolve sentinel-extended source pointer length.
-        const src_len2_val: Value = blk: {
-            if (src_len2 != .none) {
-                if (try sema.resolveDefinedValue(block, operand_src, src_len2)) |val| {
-                    break :blk val;
-                }
-            }
-            break :blk Value.undef;
-        };
-        //
-        // COMPILE-TIME SAFETY CHECKS:
-        //
-        // Execute comptime bounds checks:
-        if (sa.end_le_len == .known) {
-            if (sa.dest_sent == .known and sa.src_sent == .unknown and
-                !try sema.compareScalar(dest_end_val, .lt, src_len2_val, Type.usize))
-            {
-                if (try sema.compareScalar(dest_end_val, .eq, src_len2_val, Type.usize)) {
-                    if (!src_ptr_explicit_len) {
-                        return sema.fail(block, dest_end_src, "slice sentinel out of bounds of reinterpreted memory: end {}(+1), length {}", .{
-                            dest_end_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    } else {
-                        return sema.fail(block, dest_end_src, "slice sentinel out of bounds: end {}(+1), length {}", .{
-                            dest_end_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    }
-                } else {
-                    if (!src_ptr_explicit_len) {
-                        return sema.fail(block, dest_end_src, "slice end out of bounds of reinterpreted memory: end {}(+1), length {}", .{
-                            dest_end_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    } else {
-                        return sema.fail(block, dest_end_src, "slice end out of bounds: end {}(+1), length {}", .{
-                            dest_end_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    }
-                }
-            } else if (!try sema.compareScalar(dest_end_val, .lte, src_len2_val, Type.usize)) {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_end_src, "slice end out of bounds of reinterpreted memory: end {}, length {}", .{
-                        dest_end_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                } else {
-                    return sema.fail(block, dest_end_src, "slice end out of bounds: end {}, length {}", .{
-                        dest_end_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                }
-            }
-        }
-        if (sa.start_le_end == .known) {
-            if (!try sema.compareScalar(dest_start_val, .lte, dest_end_val, Type.usize)) {
-                return sema.fail(block, dest_start_src, "bounds out of order: start {}, end {}", .{
-                    dest_start_val.fmtValue(sema.mod, sema),
-                    dest_end_val.fmtValue(sema.mod, sema),
-                });
-            }
-        }
-        if (sa.start_le_len == .known) {
-            if (sa.dest_sent == .known and sa.src_sent == .unknown and
-                !try sema.compareScalar(dest_start_val, .lt, src_len2_val, Type.usize))
-            {
-                if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
-                    if (!src_ptr_explicit_len) {
-                        return sema.fail(block, dest_start_src, "slice sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                            dest_start_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    } else {
-                        return sema.fail(block, dest_start_src, "slice sentinel out of bounds: start {}(+1), length {}", .{
-                            dest_start_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    }
-                } else {
-                    if (!src_ptr_explicit_len) {
-                        return sema.fail(block, dest_start_src, "slice start out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                            dest_start_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    } else {
-                        return sema.fail(block, dest_start_src, "slice start out of bounds: start {}(+1), length {}", .{
-                            dest_start_val.fmtValue(sema.mod, sema),
-                            src_len2_val.fmtValue(sema.mod, sema),
-                        });
-                    }
-                }
-            } else if (!try sema.compareScalar(dest_start_val, .lte, src_len2_val, Type.usize)) {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_start_src, "slice start out of bounds of reinterpreted memory: start {}, length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                } else {
-                    return sema.fail(block, dest_start_src, "slice start out of bounds: start {}, length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                }
-            }
-        }
-        // Execute comptime nullptr check:
-        if (sa.ptr_ne_null == .known) {
-            if (src_ptr_val.isNull(sema.mod)) {
-                return sema.fail(block, operand_src, "slice of null pointer", .{});
-            }
-        }
-        // Attempt comptime sentinel check else fallback to runtime check:
-        if (sa.eq_sentinel == .known) {
-            if (try sema.pointerDeref(block, src, actual_sent_ptr_val, elem_ptr_ty)) |actual_sent_val| {
-                if (!dest_sent_val.eql(actual_sent_val, elem_ty, sema.mod)) {
-                    return sema.fail(block, dest_sent_src, "mismatched sentinel: expected {}, found {}", .{
-                        dest_sent_val.fmtValue(sema.mod, sema),
-                        actual_sent_val.fmtValue(sema.mod, sema),
-                    });
-                }
-            } else {
-                sa.eq_sentinel = .variable;
-            }
-        }
-        // TODO: Removing `slice_start` (with sentinel) would make this unreachable.
-        if (feature_prevent_impossible_sent and !src_ptr_explicit_len and
-            sa.dest_start == .known and
-            sa.dest_sent == .known and
-            sa.src_len == .known)
-        {
-            if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
-                return sema.fail(block, dest_sent_src, "sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                    dest_start_val.fmtValue(sema.mod, sema),
-                    src_len2_val.fmtValue(sema.mod, sema),
-                });
-            }
-        }
-        if (sa.src_ptr == .variable) try sema.requireRuntimeBlock(block, src, operand_src);
-        if (sa.dest_start == .variable) try sema.requireRuntimeBlock(block, src, dest_start_src);
-        if (sa.dest_end == .variable or
-            sa.dest_len == .variable) try sema.requireRuntimeBlock(block, src, dest_end_src);
-        if (feature_prevent_inval_ptr and src_ptr_explicit_len) {
-            // TODO: Remove the false branch if `feature_prevent_inval_ptr` is
-            //       declined. The purpose is to disable all runtime safety
-            //       checks for slices without explicit lengths, as this would
-            //       create an inconsistent behaviour for constant
-            //       pointers-to-many.
-        } else {
-            if (sa.end_le_len == .variable) sa.end_le_len = .unknown;
-            if (sa.start_le_len == .variable) sa.start_le_len = .unknown;
-            if (sa.start_le_end == .variable) sa.start_le_end = .unknown;
-        }
-        //
-        // RUNTIME SAFETY CHECKS:
-        //
-        if (!block.is_comptime and block.wantSafety()) {
-            // Execute bounds checks:
-            if (Package.Module.runtime_safety.accessed_out_of_order != .none) {
-                const cmp_op: Air.Inst.Tag = if (sa.dest_sent == .known and sa.src_sent == .unknown) .cmp_lt else .cmp_lte;
-                if (sa.start_le_len == .variable) {
-                    try checkAccessOutOfOrder(sema, block, src, dest_start, src_len2);
-                }
-                if (sa.start_le_end == .variable and sa.end_le_len == .variable) {
-                    try checkAccessOutOfOrderExtra(sema, block, src, dest_start, dest_end, src_len2, cmp_op);
-                } else if (sa.start_le_end == .variable) {
-                    try checkAccessOutOfOrder(sema, block, src, dest_start, dest_end);
-                } else if (sa.end_le_len == .variable) {
-                    try checkAccessOutOfBounds(sema, block, src, dest_end, src_len2, cmp_op);
-                }
-            }
-            // Execute nullptr check:
-            if (Package.Module.runtime_safety.accessed_null_value != .none) {
-                if (sa.ptr_ne_null == .variable) {
-                    const ok: Air.Inst.Ref = try sema.analyzeIsNull(block, operand_src, src_ptr, true);
-                    try checkAccessNullValue(sema, block, src, ok);
-                }
-            }
-            // Execute sentinel check:
-            if (Package.Module.runtime_safety.mismatched_sentinel != .none) {
-                if (sa.eq_sentinel == .variable) {
-                    const actual_sent_ptr: Air.Inst.Ref = try block.addPtrElemPtr(dest_ptr, dest_len, elem_ptr_ty);
-                    if (elem_ty.ip_index == Type.u8.ip_index and dest_sent_val.eql(Value.zero_u8, Type.u8, sema.mod)) {
-                        try checkMismatchedNullTerminator(sema, block, src, elem_ty, actual_sent_ptr);
-                    } else {
-                        const dest_sent: Air.Inst.Ref = Air.internedToRef(Value.toIntern(dest_sent_val));
-                        try checkMismatchedSentinel(sema, block, src, elem_ty, dest_sent, actual_sent_ptr);
-                    }
-                }
-            }
-        }
-        //
-        // TYPE INFORMATION:
-        //
-        // Deciding whether the return type is allowed to assert a sentinel value:
-        const dest_sent_ip: InternPool.Index = blk: {
-            if (sa.dest_sent == .known) {
-                break :blk Value.toIntern(dest_sent_val);
-            }
-            if (kind == .slice_start) {
-                if (sa.src_sent == .known) {
-                    sa.dest_sent = .known;
-                    break :blk Value.toIntern(src_sent_val);
-                }
-            } else if (sa.src_sent == .known and
-                sa.src_len.min(sa.dest_end) == .known and
-                try sema.compareScalar(src_len_val, .eq, dest_end_val, Type.usize))
-            {
-                sa.dest_sent = .known;
-                break :blk Value.toIntern(src_sent_val);
-            }
-            break :blk .none;
-        };
-        const dest_ptr_ty: Type = sema.typeOf(dest_ptr);
-        const dest_ptr_ty_info: InternPool.Key.PtrType = dest_ptr_ty.ptrInfo(sema.mod);
-        const dest_ptr_ty_is_allowzero: bool = dest_ptr_ty_info.flags.is_allowzero and src_ptr_ty_size != .C;
-        // TODO: Tidy up once `feature_prevent_inval_ptr` is confirmed. This
-        //       behaviour should emerge earlier.
-        //       Never attempt to use a derived length to define the destination
-        //       type for pointer sizes Many and C for `slice_start` and
-        //       `slice_sentinel` (start).
-        const dest_ptr_ty_omit_len: bool = !src_ptr_explicit_len and uncasted_dest_end_opt == .none;
-        const dest_ptr_ty_want_sent: bool = src_ptr_ty_size != .C or sa.dest_sent == .known;
-        // Factors determining pointer size:
-        // * The destination length is known at compile time
-        //   => pointer-to-one Array
-        //
-        // * The source pointer size is C and the operation is `slice_sentinel` (start)
-        //   => pointer-to-many with sentinel
-        //
-        const dest_ptr_size: std.builtin.Type.Pointer.Size = blk: {
-            const size_before_sent: std.builtin.Type.Pointer.Size = if (dest_ptr_ty_omit_len)
-                src_ptr_ty_size
-            else switch (sa.dest_len) {
-                .known => .One,
-                .variable => .Slice,
-                .unknown => src_ptr_ty_size,
-            };
-            if (dest_ptr_ty_want_sent and
-                size_before_sent == .C)
-            {
-                break :blk .Many;
-            } else {
-                break :blk size_before_sent;
-            }
-        };
-        //
-        // RETURN TYPE:
-        //
-        const dest_ptr_flags: InternPool.Key.PtrType.Flags = .{
-            .size = dest_ptr_size,
-            .alignment = dest_ptr_ty_info.flags.alignment,
-            .is_const = dest_ptr_ty_info.flags.is_const,
-            .is_volatile = dest_ptr_ty_info.flags.is_volatile,
-            .is_allowzero = dest_ptr_ty_is_allowzero,
-            .address_space = dest_ptr_ty_info.flags.address_space,
-        };
-        const return_ty: Type = switch (dest_ptr_size) {
-            .One => try sema.ptrType(.{
-                .child = Type.toIntern(try sema.mod.arrayType(.{
-                    .child = Type.toIntern(elem_ty),
-                    .len = (try dest_len_val.getUnsignedIntAdvanced(sema.mod, sema)).?,
-                    .sentinel = dest_sent_ip,
-                })),
-                .flags = dest_ptr_flags,
-            }),
-            .Slice, .Many, .C => try sema.ptrType(.{
-                .child = Type.toIntern(elem_ty),
-                .sentinel = dest_sent_ip,
-                .flags = dest_ptr_flags,
-            }),
-        };
-        //
-        // RESULT:
-        //
-        if (dest_ptr_size != .Slice) {
-            // Returning a new constant pointer:
-            if (sa.dest_ptr == .known) {
-                // const interned_val: Value = Value.fromInterned((try dest_ptr_val.intern(dest_ptr_ty, sema.mod)));
-                const casted_val: Value = try sema.mod.getCoerced(dest_ptr_val, return_ty);
-                return Air.internedToRef(Value.toIntern(casted_val));
-            }
-            // Returning a regular pointer:
-            return block.addBitCast(return_ty, dest_ptr);
-        }
-        // Creating and returning a slice:
-        return block.addInst(.{ .tag = .slice, .data = .{ .ty_pl = .{
-            .ty = Air.internedToRef(Type.toIntern(return_ty)),
-            .payload = try sema.addExtra(Air.Bin{ .lhs = dest_ptr, .rhs = dest_len }),
-        } } });
-    }
 };
+
+pub const bitCastVal = @import("Sema/bitcast.zig").bitCast;
+pub const bitCastSpliceVal = @import("Sema/bitcast.zig").bitCastSplice;
+
+const loadComptimePtr = @import("Sema/comptime_ptr_access.zig").loadComptimePtr;
+const ComptimeLoadResult = @import("Sema/comptime_ptr_access.zig").ComptimeLoadResult;
+const storeComptimePtr = @import("Sema/comptime_ptr_access.zig").storeComptimePtr;
+const ComptimeStoreResult = @import("Sema/comptime_ptr_access.zig").ComptimeStoreResult;
