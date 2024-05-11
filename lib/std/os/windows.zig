@@ -2868,6 +2868,12 @@ pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
 
+pub const TCHAR = @compileError("Deprecated: choose between `CHAR` or `WCHAR` directly instead.");
+pub const LPTSTR = @compileError("Deprecated: choose between `LPSTR` or `LPWSTR` directly instead.");
+pub const LPCTSTR = @compileError("Deprecated: choose between `LPCSTR` or `LPCWSTR` directly instead.");
+pub const PTSTR = @compileError("Deprecated: choose between `PSTR` or `PWSTR` directly instead.");
+pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR` directly instead.");
+
 pub const TRUE = 1;
 pub const FALSE = 0;
 
@@ -3928,6 +3934,7 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
 };
 
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
+pub const DISABLE_NEWLINE_AUTO_RETURN = 0x8;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;

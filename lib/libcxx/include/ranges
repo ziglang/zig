@@ -320,17 +320,24 @@ namespace std::ranges {
   class zip_view;        // C++23
 
   template<class... Views>
-    inline constexpr bool enable_borrowed_range<zip_view<Views...>> =    // C++23
+    inline constexpr bool enable_borrowed_range<zip_view<Views...>> =       // C++23
       (enable_borrowed_range<Views> && ...);
 
-  namespace views { inline constexpr unspecified zip = unspecified; }    // C++23
+  namespace views { inline constexpr unspecified zip = unspecified; }       // C++23
 
   // [range.as.rvalue]
   template <view V>
     requires input_range<V>
-  class as_rvalue_view; // since C++23
+  class as_rvalue_view;                                                     // C++23
 
-  namespace views { inline constexpr unspecified as_rvalue ) unspecified; } // since C++23
+  namespace views { inline constexpr unspecified as_rvalue ) unspecified; } // C++23
+
+  [range.chunk.by]
+  template<forward_range V, indirect_binary_predicate<iterator_t<V>, iterator_t<V>> Pred>
+    requires view<V> && is_object_v<Pred>
+  class chunk_by_view;                                                      // C++23
+
+  namespace views { inline constexpr unspecified chunk_by = unspecified; }  // C++23
 }
 
 namespace std {
@@ -373,6 +380,7 @@ namespace std {
 #include <__ranges/access.h>
 #include <__ranges/all.h>
 #include <__ranges/as_rvalue_view.h>
+#include <__ranges/chunk_by_view.h>
 #include <__ranges/common_view.h>
 #include <__ranges/concepts.h>
 #include <__ranges/counted.h>
@@ -409,7 +417,7 @@ namespace std {
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#include <__ranges/istream_view.h>
+#  include <__ranges/istream_view.h>
 #endif
 
 // standard-mandated includes
@@ -429,6 +437,7 @@ namespace std {
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <cstdlib>
+#  include <iosfwd>
 #  include <type_traits>
 #endif
 

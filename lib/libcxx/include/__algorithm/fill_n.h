@@ -22,21 +22,17 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // fill_n isn't specialized for std::memset, because the compiler already optimizes the loop to a call to std::memset.
 
 template <class _OutputIterator, class _Size, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-__fill_n(_OutputIterator __first, _Size __n, const _Tp& __value)
-{
-    for (; __n > 0; ++__first, (void) --__n)
-        *__first = __value;
-    return __first;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+__fill_n(_OutputIterator __first, _Size __n, const _Tp& __value) {
+  for (; __n > 0; ++__first, (void)--__n)
+    *__first = __value;
+  return __first;
 }
 
 template <class _OutputIterator, class _Size, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-fill_n(_OutputIterator __first, _Size __n, const _Tp& __value)
-{
-   return _VSTD::__fill_n(__first, _VSTD::__convert_to_integral(__n), __value);
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+fill_n(_OutputIterator __first, _Size __n, const _Tp& __value) {
+  return std::__fill_n(__first, std::__convert_to_integral(__n), __value);
 }
 
 _LIBCPP_END_NAMESPACE_STD

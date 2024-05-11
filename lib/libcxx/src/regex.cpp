@@ -12,75 +12,67 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-static
-const char*
-make_error_type_string(regex_constants::error_type ecode)
-{
-    switch (ecode)
-    {
-    case regex_constants::error_collate:
-        return "The expression contained an invalid collating element name.";
-    case regex_constants::error_ctype:
-        return "The expression contained an invalid character class name.";
-    case regex_constants::error_escape:
-        return "The expression contained an invalid escaped character, or a "
-               "trailing escape.";
-    case regex_constants::error_backref:
-        return "The expression contained an invalid back reference.";
-    case regex_constants::error_brack:
-        return "The expression contained mismatched [ and ].";
-    case regex_constants::error_paren:
-        return "The expression contained mismatched ( and ).";
-    case regex_constants::error_brace:
-        return "The expression contained mismatched { and }.";
-    case regex_constants::error_badbrace:
-        return "The expression contained an invalid range in a {} expression.";
-    case regex_constants::error_range:
-        return "The expression contained an invalid character range, "
-               "such as [b-a] in most encodings.";
-    case regex_constants::error_space:
-        return "There was insufficient memory to convert the expression into "
-               "a finite state machine.";
-    case regex_constants::error_badrepeat:
-        return "One of *?+{ was not preceded by a valid regular expression.";
-    case regex_constants::error_complexity:
-        return "The complexity of an attempted match against a regular "
-               "expression exceeded a pre-set level.";
-    case regex_constants::error_stack:
-        return "There was insufficient memory to determine whether the regular "
-               "expression could match the specified character sequence.";
-    case regex_constants::__re_err_grammar:
-        return "An invalid regex grammar has been requested.";
-    case regex_constants::__re_err_empty:
-        return "An empty regex is not allowed in the POSIX grammar.";
-    case regex_constants::__re_err_parse:
-        return "The parser did not consume the entire regular expression.";
-    default:
-        break;
-    }
-    return "Unknown error type";
+static const char* make_error_type_string(regex_constants::error_type ecode) {
+  switch (ecode) {
+  case regex_constants::error_collate:
+    return "The expression contained an invalid collating element name.";
+  case regex_constants::error_ctype:
+    return "The expression contained an invalid character class name.";
+  case regex_constants::error_escape:
+    return "The expression contained an invalid escaped character, or a "
+           "trailing escape.";
+  case regex_constants::error_backref:
+    return "The expression contained an invalid back reference.";
+  case regex_constants::error_brack:
+    return "The expression contained mismatched [ and ].";
+  case regex_constants::error_paren:
+    return "The expression contained mismatched ( and ).";
+  case regex_constants::error_brace:
+    return "The expression contained mismatched { and }.";
+  case regex_constants::error_badbrace:
+    return "The expression contained an invalid range in a {} expression.";
+  case regex_constants::error_range:
+    return "The expression contained an invalid character range, "
+           "such as [b-a] in most encodings.";
+  case regex_constants::error_space:
+    return "There was insufficient memory to convert the expression into "
+           "a finite state machine.";
+  case regex_constants::error_badrepeat:
+    return "One of *?+{ was not preceded by a valid regular expression.";
+  case regex_constants::error_complexity:
+    return "The complexity of an attempted match against a regular "
+           "expression exceeded a pre-set level.";
+  case regex_constants::error_stack:
+    return "There was insufficient memory to determine whether the regular "
+           "expression could match the specified character sequence.";
+  case regex_constants::__re_err_grammar:
+    return "An invalid regex grammar has been requested.";
+  case regex_constants::__re_err_empty:
+    return "An empty regex is not allowed in the POSIX grammar.";
+  case regex_constants::__re_err_parse:
+    return "The parser did not consume the entire regular expression.";
+  default:
+    break;
+  }
+  return "Unknown error type";
 }
 
 regex_error::regex_error(regex_constants::error_type ecode)
-    : runtime_error(make_error_type_string(ecode)),
-      __code_(ecode)
-{}
+    : runtime_error(make_error_type_string(ecode)), __code_(ecode) {}
 
 regex_error::~regex_error() throw() {}
 
 namespace {
 
-struct collationnames
-{
-    const char* elem_;
-    char char_;
+struct collationnames {
+  const char* elem_;
+  char char_;
 };
 
 #if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
 // EBCDIC IBM-1047
 // Sorted via the EBCDIC collating sequence
-const collationnames collatenames[] =
-{
+const collationnames collatenames[] = {
     {"a", 0x81},
     {"alert", 0x2f},
     {"ampersand", 0x50},
@@ -191,12 +183,10 @@ const collationnames collatenames[] =
     {"W", 0xe6},
     {"X", 0xe7},
     {"Y", 0xe8},
-    {"Z", 0xe9}
-};
+    {"Z", 0xe9}};
 #else
 // ASCII
-const collationnames collatenames[] =
-{
+const collationnames collatenames[] = {
     {"A", 0x41},
     {"B", 0x42},
     {"C", 0x43},
@@ -307,130 +297,103 @@ const collationnames collatenames[] =
     {"x", 0x78},
     {"y", 0x79},
     {"z", 0x7a},
-    {"zero", 0x30}
-};
+    {"zero", 0x30}};
 #endif
 
-struct classnames
-{
-    const char* elem_;
-    regex_traits<char>::char_class_type mask_;
+struct classnames {
+  const char* elem_;
+  regex_traits<char>::char_class_type mask_;
 };
 
-const classnames ClassNames[] =
-{
-    {"alnum",  ctype_base::alnum},
-    {"alpha",  ctype_base::alpha},
-    {"blank",  ctype_base::blank},
-    {"cntrl",  ctype_base::cntrl},
-    {"d",      ctype_base::digit},
-    {"digit",  ctype_base::digit},
-    {"graph",  ctype_base::graph},
-    {"lower",  ctype_base::lower},
-    {"print",  ctype_base::print},
-    {"punct",  ctype_base::punct},
-    {"s",      ctype_base::space},
-    {"space",  ctype_base::space},
-    {"upper",  ctype_base::upper},
-    {"w",      regex_traits<char>::__regex_word},
-    {"xdigit", ctype_base::xdigit}
+const classnames ClassNames[] = {
+    {"alnum", ctype_base::alnum},
+    {"alpha", ctype_base::alpha},
+    {"blank", ctype_base::blank},
+    {"cntrl", ctype_base::cntrl},
+    {"d", ctype_base::digit},
+    {"digit", ctype_base::digit},
+    {"graph", ctype_base::graph},
+    {"lower", ctype_base::lower},
+    {"print", ctype_base::print},
+    {"punct", ctype_base::punct},
+    {"s", ctype_base::space},
+    {"space", ctype_base::space},
+    {"upper", ctype_base::upper},
+    {"w", regex_traits<char>::__regex_word},
+    {"xdigit", ctype_base::xdigit}};
+
+struct use_strcmp {
+  bool operator()(const collationnames& x, const char* y) { return strcmp(x.elem_, y) < 0; }
+  bool operator()(const classnames& x, const char* y) { return strcmp(x.elem_, y) < 0; }
 };
 
-struct use_strcmp
-{
-    bool operator()(const collationnames& x, const char* y)
-        {return strcmp(x.elem_, y) < 0;}
-    bool operator()(const classnames& x, const char* y)
-        {return strcmp(x.elem_, y) < 0;}
-};
+} // namespace
 
+string __get_collation_name(const char* s) {
+  const collationnames* i = std::lower_bound(begin(collatenames), end(collatenames), s, use_strcmp());
+  string r;
+  if (i != end(collatenames) && strcmp(s, i->elem_) == 0)
+    r = char(i->char_);
+  return r;
 }
 
-string
-__get_collation_name(const char* s)
-{
-    const collationnames* i =
-            _VSTD::lower_bound(begin(collatenames), end(collatenames), s, use_strcmp());
-    string r;
-    if (i != end(collatenames) && strcmp(s, i->elem_) == 0)
-        r = char(i->char_);
-    return r;
-}
-
-regex_traits<char>::char_class_type
-__get_classname(const char* s, bool __icase)
-{
-    const classnames* i =
-            _VSTD::lower_bound(begin(ClassNames), end(ClassNames), s, use_strcmp());
-    regex_traits<char>::char_class_type r = 0;
-    if (i != end(ClassNames) && strcmp(s, i->elem_) == 0)
-    {
-        r = i->mask_;
-        if (r == regex_traits<char>::__regex_word)
-            r |= ctype_base::alnum | ctype_base::upper | ctype_base::lower;
-        else if (__icase)
-        {
-            if (r & (ctype_base::lower | ctype_base::upper))
-                r |= ctype_base::alpha;
-        }
+regex_traits<char>::char_class_type __get_classname(const char* s, bool __icase) {
+  const classnames* i                   = std::lower_bound(begin(ClassNames), end(ClassNames), s, use_strcmp());
+  regex_traits<char>::char_class_type r = 0;
+  if (i != end(ClassNames) && strcmp(s, i->elem_) == 0) {
+    r = i->mask_;
+    if (r == regex_traits<char>::__regex_word)
+      r |= ctype_base::alnum | ctype_base::upper | ctype_base::lower;
+    else if (__icase) {
+      if (r & (ctype_base::lower | ctype_base::upper))
+        r |= ctype_base::alpha;
     }
-    return r;
+  }
+  return r;
 }
 
 template <>
-void
-__match_any_but_newline<char>::__exec(__state& __s) const
-{
-    if (__s.__current_ != __s.__last_)
-    {
-        switch (*__s.__current_)
-        {
-        case '\r':
-        case '\n':
-            __s.__do_ = __state::__reject;
-            __s.__node_ = nullptr;
-            break;
-        default:
-            __s.__do_ = __state::__accept_and_consume;
-            ++__s.__current_;
-            __s.__node_ = this->first();
-            break;
-        }
+void __match_any_but_newline<char>::__exec(__state& __s) const {
+  if (__s.__current_ != __s.__last_) {
+    switch (*__s.__current_) {
+    case '\r':
+    case '\n':
+      __s.__do_   = __state::__reject;
+      __s.__node_ = nullptr;
+      break;
+    default:
+      __s.__do_ = __state::__accept_and_consume;
+      ++__s.__current_;
+      __s.__node_ = this->first();
+      break;
     }
-    else
-    {
-        __s.__do_ = __state::__reject;
-        __s.__node_ = nullptr;
-    }
+  } else {
+    __s.__do_   = __state::__reject;
+    __s.__node_ = nullptr;
+  }
 }
 
 template <>
-void
-__match_any_but_newline<wchar_t>::__exec(__state& __s) const
-{
-    if (__s.__current_ != __s.__last_)
-    {
-        switch (*__s.__current_)
-        {
-        case '\r':
-        case '\n':
-        case 0x2028:
-        case 0x2029:
-            __s.__do_ = __state::__reject;
-            __s.__node_ = nullptr;
-            break;
-        default:
-            __s.__do_ = __state::__accept_and_consume;
-            ++__s.__current_;
-            __s.__node_ = this->first();
-            break;
-        }
+void __match_any_but_newline<wchar_t>::__exec(__state& __s) const {
+  if (__s.__current_ != __s.__last_) {
+    switch (*__s.__current_) {
+    case '\r':
+    case '\n':
+    case 0x2028:
+    case 0x2029:
+      __s.__do_   = __state::__reject;
+      __s.__node_ = nullptr;
+      break;
+    default:
+      __s.__do_ = __state::__accept_and_consume;
+      ++__s.__current_;
+      __s.__node_ = this->first();
+      break;
     }
-    else
-    {
-        __s.__do_ = __state::__reject;
-        __s.__node_ = nullptr;
-    }
+  } else {
+    __s.__do_   = __state::__reject;
+    __s.__node_ = nullptr;
+  }
 }
 
 _LIBCPP_END_NAMESPACE_STD

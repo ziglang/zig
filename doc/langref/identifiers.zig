@@ -6,8 +6,8 @@ pub extern "c" fn @"error"() void;
 pub extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
 
 const Color = enum {
-  red,
-  @"really red",
+    red,
+    @"really red",
 };
 const color: Color = .@"really red";
 

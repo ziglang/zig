@@ -13,7 +13,7 @@ const native_endian = builtin.cpu.arch.endian();
 pub const page_size = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => 64 * 1024,
     .aarch64 => switch (builtin.os.tag) {
-        .macos, .ios, .watchos, .tvos => 16 * 1024,
+        .macos, .ios, .watchos, .tvos, .visionos => 16 * 1024,
         else => 4 * 1024,
     },
     .sparc64 => 8 * 1024,
@@ -638,6 +638,8 @@ test lessThan {
 const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
+    // The RISC-V does not support vectors.
+    .stage2_riscv64 => false,
     else => true,
 };
 

@@ -5,6 +5,13 @@ const mem = @import("std").mem;
 // array literal
 const message = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
 
+// alternative initialization using result location
+const alt_message: [5]u8 = .{ 'h', 'e', 'l', 'l', 'o' };
+
+comptime {
+    assert(mem.eql(u8, &message, &alt_message));
+}
+
 // get the size of an array
 comptime {
     assert(message.len == 5);

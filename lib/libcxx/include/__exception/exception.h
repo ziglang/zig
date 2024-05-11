@@ -72,7 +72,8 @@ public:
 class _LIBCPP_EXPORTED_FROM_ABI exception {
 public:
   _LIBCPP_HIDE_FROM_ABI exception() _NOEXCEPT {}
-  _LIBCPP_HIDE_FROM_ABI exception(const exception&) _NOEXCEPT = default;
+  _LIBCPP_HIDE_FROM_ABI exception(const exception&) _NOEXCEPT            = default;
+  _LIBCPP_HIDE_FROM_ABI exception& operator=(const exception&) _NOEXCEPT = default;
 
   virtual ~exception() _NOEXCEPT;
   virtual const char* what() const _NOEXCEPT;
@@ -81,6 +82,8 @@ public:
 class _LIBCPP_EXPORTED_FROM_ABI bad_exception : public exception {
 public:
   _LIBCPP_HIDE_FROM_ABI bad_exception() _NOEXCEPT {}
+  _LIBCPP_HIDE_FROM_ABI bad_exception(const bad_exception&) _NOEXCEPT            = default;
+  _LIBCPP_HIDE_FROM_ABI bad_exception& operator=(const bad_exception&) _NOEXCEPT = default;
   ~bad_exception() _NOEXCEPT override;
   const char* what() const _NOEXCEPT override;
 };

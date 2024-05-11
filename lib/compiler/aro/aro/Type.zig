@@ -1116,7 +1116,7 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
 
         .bit_int => @min(
             std.math.ceilPowerOfTwoPromote(u16, (ty.data.int.bits + 7) / 8),
-            comp.target.maxIntAlignment(),
+            16, // comp.target.maxIntAlignment(), please use your own logic for this value as it is implementation-defined
         ),
 
         .float => comp.target.c_type_alignment(.float),
@@ -1142,12 +1142,14 @@ pub fn alignof(ty: Type, comp: *const Compilation) u29 {
     };
 }
 
+pub const QualHandling = enum { standard, preserve_quals };
+
 /// Canonicalize a possibly-typeof() type. If the type is not a typeof() type, simply
 /// return it. Otherwise, determine the actual qualified type.
 /// The `qual_handling` parameter can be used to return the full set of qualifiers
 /// added by typeof() operations, which is useful when determining the elemType of
 /// arrays and pointers.
-pub fn canonicalize(ty: Type, qual_handling: enum { standard, preserve_quals }) Type {
+pub fn canonicalize(ty: Type, qual_handling: QualHandling) Type {
     var cur = ty;
     if (cur.specifier == .attributed) {
         cur = cur.data.attributed.base;

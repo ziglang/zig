@@ -5977,6 +5977,8 @@ pub fn atomicPtrAlignment(
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
+
+        .spirv => @panic("TODO what should this value be?"),
     };
 
     const int_ty = switch (ty.zigTypeTag(mod)) {

@@ -29,7 +29,7 @@ const DylibSymlinkInfo = struct {
     name_only_filename: []const u8,
 };
 
-pub const base_id = .install_artifact;
+pub const base_id: Step.Id = .install_artifact;
 
 pub const Options = struct {
     /// Which installation directory to put the main output file into.
@@ -52,7 +52,7 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *InstallArtifact {
-    const self = owner.allocator.create(InstallArtifact) catch @panic("OOM");
+    const install_artifact = owner.allocator.create(InstallArtifact) catch @panic("OOM");
     const dest_dir: ?InstallDir = switch (options.dest_dir) {
         .disabled => null,
         .default => switch (artifact.kind) {
@@ -62,7 +62,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         },
         .override => |o| o,
     };
-    self.* = .{
+    install_artifact.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = owner.fmt("install {s}", .{artifact.name}),
@@ -104,28 +104,28 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
         .artifact = artifact,
     };
 
-    self.step.dependOn(&artifact.step);
+    install_artifact.step.dependOn(&artifact.step);
 
-    if (self.dest_dir != null) self.emitted_bin = artifact.getEmittedBin();
-    if (self.pdb_dir != null) self.emitted_pdb = artifact.getEmittedPdb();
+    if (install_artifact.dest_dir != null) install_artifact.emitted_bin = artifact.getEmittedBin();
+    if (install_artifact.pdb_dir != null) install_artifact.emitted_pdb = artifact.getEmittedPdb();
     // https://github.com/ziglang/zig/issues/9698
-    //if (self.h_dir != null) self.emitted_h = artifact.getEmittedH();
-    if (self.implib_dir != null) self.emitted_implib = artifact.getEmittedImplib();
+    //if (install_artifact.h_dir != null) install_artifact.emitted_h = artifact.getEmittedH();
+    if (install_artifact.implib_dir != null) install_artifact.emitted_implib = artifact.getEmittedImplib();
 
-    return self;
+    return install_artifact;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
-    const self: *InstallArtifact = @fieldParentPtr("step", step);
+    const install_artifact: *InstallArtifact = @fieldParentPtr("step", step);
     const b = step.owner;
     const cwd = fs.cwd();
 
     var all_cached = true;
 
-    if (self.dest_dir) |dest_dir| {
-        const full_dest_path = b.getInstallPath(dest_dir, self.dest_sub_path);
-        const full_src_path = self.emitted_bin.?.getPath2(b, step);
+    if (install_artifact.dest_dir) |dest_dir| {
+        const full_dest_path = b.getInstallPath(dest_dir, install_artifact.dest_sub_path);
+        const full_src_path = install_artifact.emitted_bin.?.getPath2(b, step);
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_dest_path, @errorName(err),
@@ -133,15 +133,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
         all_cached = all_cached and p == .fresh;
 
-        if (self.dylib_symlinks) |dls| {
+        if (install_artifact.dylib_symlinks) |dls| {
             try Step.Compile.doAtomicSymLinks(step, full_dest_path, dls.major_only_filename, dls.name_only_filename);
         }
 
-        self.artifact.installed_path = full_dest_path;
+        install_artifact.artifact.installed_path = full_dest_path;
     }
 
-    if (self.implib_dir) |implib_dir| {
-        const full_src_path = self.emitted_implib.?.getPath2(b, step);
+    if (install_artifact.implib_dir) |implib_dir| {
+        const full_src_path = install_artifact.emitted_implib.?.getPath2(b, step);
         const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(full_src_path));
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -151,8 +151,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
 
-    if (self.pdb_dir) |pdb_dir| {
-        const full_src_path = self.emitted_pdb.?.getPath2(b, step);
+    if (install_artifact.pdb_dir) |pdb_dir| {
+        const full_src_path = install_artifact.emitted_pdb.?.getPath2(b, step);
         const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(full_src_path));
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
@@ -162,8 +162,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         all_cached = all_cached and p == .fresh;
     }
 
-    if (self.h_dir) |h_dir| {
-        if (self.emitted_h) |emitted_h| {
+    if (install_artifact.h_dir) |h_dir| {
+        if (install_artifact.emitted_h) |emitted_h| {
             const full_src_path = emitted_h.getPath2(b, step);
             const full_h_path = b.getInstallPath(h_dir, fs.path.basename(full_src_path));
             const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
@@ -174,7 +174,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             all_cached = all_cached and p == .fresh;
         }
 
-        for (self.artifact.installed_headers.items) |installation| switch (installation) {
+        for (install_artifact.artifact.installed_headers.items) |installation| switch (installation) {
             .file => |file| {
                 const full_src_path = file.source.getPath2(b, step);
                 const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);

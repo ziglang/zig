@@ -26,44 +26,43 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS reference_wrapper : public __weak_result_type<_Tp>
-{
+class _LIBCPP_TEMPLATE_VIS reference_wrapper : public __weak_result_type<_Tp> {
 public:
-    // types
-    typedef _Tp type;
+  // types
+  typedef _Tp type;
+
 private:
-    type* __f_;
+  type* __f_;
 
-    static void __fun(_Tp&) _NOEXCEPT;
-    static void __fun(_Tp&&) = delete;
+  static void __fun(_Tp&) _NOEXCEPT;
+  static void __fun(_Tp&&) = delete;
 
 public:
-    template <class _Up, class = __enable_if_t<!__is_same_uncvref<_Up, reference_wrapper>::value, decltype(__fun(std::declval<_Up>())) > >
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-    reference_wrapper(_Up&& __u) _NOEXCEPT_(noexcept(__fun(std::declval<_Up>()))) {
-        type& __f = static_cast<_Up&&>(__u);
-        __f_ = _VSTD::addressof(__f);
-    }
+  template <
+      class _Up,
+      class = __enable_if_t<!__is_same_uncvref<_Up, reference_wrapper>::value, decltype(__fun(std::declval<_Up>())) > >
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference_wrapper(_Up&& __u)
+      _NOEXCEPT_(noexcept(__fun(std::declval<_Up>()))) {
+    type& __f = static_cast<_Up&&>(__u);
+    __f_      = std::addressof(__f);
+  }
 
-    // access
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-    operator type&() const _NOEXCEPT {return *__f_;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-    type& get() const _NOEXCEPT {return *__f_;}
+  // access
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 operator type&() const _NOEXCEPT { return *__f_; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 type& get() const _NOEXCEPT { return *__f_; }
 
-    // invoke
-    template <class... _ArgTypes>
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-    typename __invoke_of<type&, _ArgTypes...>::type
-    operator() (_ArgTypes&&... __args) const
+  // invoke
+  template <class... _ArgTypes>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 typename __invoke_of<type&, _ArgTypes...>::type
+  operator()(_ArgTypes&&... __args) const
 #if _LIBCPP_STD_VER >= 17
-        // Since is_nothrow_invocable requires C++17 LWG3764 is not backported
-        // to earlier versions.
-        noexcept(is_nothrow_invocable_v<_Tp&, _ArgTypes...>)
+      // Since is_nothrow_invocable requires C++17 LWG3764 is not backported
+      // to earlier versions.
+      noexcept(is_nothrow_invocable_v<_Tp&, _ArgTypes...>)
 #endif
-    {
-        return std::__invoke(get(), std::forward<_ArgTypes>(__args)...);
-    }
+  {
+    return std::__invoke(get(), std::forward<_ArgTypes>(__args)...);
+  }
 };
 
 #if _LIBCPP_STD_VER >= 17
@@ -72,39 +71,31 @@ reference_wrapper(_Tp&) -> reference_wrapper<_Tp>;
 #endif
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-reference_wrapper<_Tp>
-ref(_Tp& __t) _NOEXCEPT
-{
-    return reference_wrapper<_Tp>(__t);
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference_wrapper<_Tp> ref(_Tp& __t) _NOEXCEPT {
+  return reference_wrapper<_Tp>(__t);
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-reference_wrapper<_Tp>
-ref(reference_wrapper<_Tp> __t) _NOEXCEPT
-{
-    return __t;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference_wrapper<_Tp>
+ref(reference_wrapper<_Tp> __t) _NOEXCEPT {
+  return __t;
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-reference_wrapper<const _Tp>
-cref(const _Tp& __t) _NOEXCEPT
-{
-    return reference_wrapper<const _Tp>(__t);
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference_wrapper<const _Tp> cref(const _Tp& __t) _NOEXCEPT {
+  return reference_wrapper<const _Tp>(__t);
 }
 
 template <class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-reference_wrapper<const _Tp>
-cref(reference_wrapper<_Tp> __t) _NOEXCEPT
-{
-    return __t;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 reference_wrapper<const _Tp>
+cref(reference_wrapper<_Tp> __t) _NOEXCEPT {
+  return __t;
 }
 
-template <class _Tp> void ref(const _Tp&&) = delete;
-template <class _Tp> void cref(const _Tp&&) = delete;
+template <class _Tp>
+void ref(const _Tp&&) = delete;
+template <class _Tp>
+void cref(const _Tp&&) = delete;
 
 _LIBCPP_END_NAMESPACE_STD
 

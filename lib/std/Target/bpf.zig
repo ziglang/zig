@@ -70,4 +70,11 @@ pub const cpu = struct {
             .alu32,
         }),
     };
+    pub const v4 = CpuModel{
+        .name = "v4",
+        .llvm_name = "v4",
+        .features = featureSet(&[_]Feature{
+            .alu32,
+        }),
+    };
 };

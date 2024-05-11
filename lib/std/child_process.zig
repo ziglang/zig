@@ -31,10 +31,23 @@ pub const ChildProcess = struct {
 
     allocator: mem.Allocator,
 
+    /// The writing end of the child process's standard input pipe.
+    /// Usage requires `stdin_behavior == StdIo.Pipe`.
+    /// Available after calling `spawn()`.
     stdin: ?File,
+
+    /// The reading end of the child process's standard output pipe.
+    /// Usage requires `stdout_behavior == StdIo.Pipe`.
+    /// Available after calling `spawn()`.
     stdout: ?File,
+
+    /// The reading end of the child process's standard error pipe.
+    /// Usage requires `stderr_behavior == StdIo.Pipe`.
+    /// Available after calling `spawn()`.
     stderr: ?File,
 
+    /// Terminated state of the child process.
+    /// Available after calling `wait()`.
     term: ?(SpawnError!Term),
 
     argv: []const []const u8,
@@ -159,10 +172,23 @@ pub const ChildProcess = struct {
         Unknown: u32,
     };
 
+    /// Behavior of the child process's standard input, output, and error
+    /// streams.
     pub const StdIo = enum {
+        /// Inherit the stream from the parent process.
         Inherit,
+
+        /// Pass a null stream to the child process.
+        /// This is /dev/null on POSIX and NUL on Windows.
         Ignore,
+
+        /// Create a pipe for the stream.
+        /// The corresponding field (`stdout`, `stderr`, or `stdin`)
+        /// will be assigned a `File` object that can be used
+        /// to read from or write to the pipe.
         Pipe,
+
+        /// Close the stream after the child process spawns.
         Close,
     };
 

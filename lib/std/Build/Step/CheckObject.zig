@@ -12,7 +12,7 @@ const CheckObject = @This();
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
 
-pub const base_id = .check_object;
+pub const base_id: Step.Id = .check_object;
 
 step: Step,
 source: std.Build.LazyPath,
@@ -26,10 +26,10 @@ pub fn create(
     obj_format: std.Target.ObjectFormat,
 ) *CheckObject {
     const gpa = owner.allocator;
-    const self = gpa.create(CheckObject) catch @panic("OOM");
-    self.* = .{
+    const check_object = gpa.create(CheckObject) catch @panic("OOM");
+    check_object.* = .{
         .step = Step.init(.{
-            .id = .check_file,
+            .id = base_id,
             .name = "CheckObject",
             .owner = owner,
             .makeFn = make,
@@ -38,8 +38,8 @@ pub fn create(
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,
     };
-    self.source.addStepDependencies(&self.step);
-    return self;
+    check_object.source.addStepDependencies(&check_object.step);
+    return check_object;
 }
 
 const SearchPhrase = struct {
@@ -268,36 +268,36 @@ const Check = struct {
         return check;
     }
 
-    fn extract(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn extract(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .extract,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn exact(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn exact(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .exact,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn contains(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn contains(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .contains,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn notPresent(self: *Check, phrase: SearchPhrase) void {
-        self.actions.append(.{
+    fn notPresent(check: *Check, phrase: SearchPhrase) void {
+        check.actions.append(.{
             .tag = .not_present,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
-    fn computeCmp(self: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
-        self.actions.append(.{
+    fn computeCmp(check: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
+        check.actions.append(.{
             .tag = .compute_cmp,
             .phrase = phrase,
             .expected = expected,
@@ -328,246 +328,246 @@ const Check = struct {
 };
 
 /// Creates a new empty sequence of actions.
-fn checkStart(self: *CheckObject, kind: Check.Kind) void {
-    const new_check = Check.create(self.step.owner.allocator, kind);
-    self.checks.append(new_check) catch @panic("OOM");
+fn checkStart(check_object: *CheckObject, kind: Check.Kind) void {
+    const check = Check.create(check_object.step.owner.allocator, kind);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 /// Adds an exact match phrase to the latest created Check.
-pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
-    self.checkExactInner(phrase, null);
+pub fn checkExact(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkExactInner(phrase, null);
 }
 
 /// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkExactInner(phrase, lazy_path);
+pub fn checkExactPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkExactInner(phrase, lazy_path);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.exact(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkExactInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.exact(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds a fuzzy match phrase to the latest created Check.
-pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
-    self.checkContainsInner(phrase, null);
+pub fn checkContains(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkContainsInner(phrase, null);
 }
 
 /// Like `checkContains()` but takes an additional argument `lazy_path` which will be
 /// resolved to a full search query in `make()`.
 pub fn checkContainsPath(
-    self: *CheckObject,
+    check_object: *CheckObject,
     phrase: []const u8,
     lazy_path: std.Build.LazyPath,
 ) void {
-    self.checkContainsInner(phrase, lazy_path);
+    check_object.checkContainsInner(phrase, lazy_path);
 }
 
-fn checkContainsInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.contains(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkContainsInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.contains(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds an exact match phrase with variable extractor to the latest created Check.
-pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
-    self.checkExtractInner(phrase, null);
+pub fn checkExtract(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkExtractInner(phrase, null);
 }
 
 /// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExtractLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkExtractInner(phrase, lazy_path);
+pub fn checkExtractLazyPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkExtractInner(phrase, lazy_path);
 }
 
-fn checkExtractInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.extract(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkExtractInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.extract(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds another searched phrase to the latest created Check
 /// however ensures there is no matching phrase in the output.
-pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
-    self.checkNotPresentInner(phrase, null);
+pub fn checkNotPresent(check_object: *CheckObject, phrase: []const u8) void {
+    check_object.checkNotPresentInner(phrase, null);
 }
 
 /// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkNotPresentLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
-    self.checkNotPresentInner(phrase, lazy_path);
+pub fn checkNotPresentLazyPath(check_object: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    check_object.checkNotPresentInner(phrase, lazy_path);
 }
 
-fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
-    assert(self.checks.items.len > 0);
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+fn checkNotPresentInner(check_object: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
+    assert(check_object.checks.items.len > 0);
+    const last = &check_object.checks.items[check_object.checks.items.len - 1];
+    last.notPresent(.{ .string = check_object.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Creates a new check checking in the file headers (section, program headers, etc.).
-pub fn checkInHeaders(self: *CheckObject) void {
-    self.checkStart(.headers);
+pub fn checkInHeaders(check_object: *CheckObject) void {
+    check_object.checkStart(.headers);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
 /// file.
-pub fn checkInSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.symtab_label,
         .elf => ElfDumper.symtab_label,
         .wasm => WasmDumper.symtab_label,
         .coff => @panic("TODO symtab for coff"),
         else => @panic("TODO other file formats"),
     };
-    self.checkStart(.symtab);
-    self.checkExact(label);
+    check_object.checkStart(.symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld rebase opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldRebase(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldRebase(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_rebase_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_rebase);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_rebase);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld weak bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldWeakBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldWeakBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_weak_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_weak_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_weak_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dyld lazy bind opcodes contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInDyldLazyBind(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDyldLazyBind(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.dyld_lazy_bind_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dyld_lazy_bind);
-    self.checkExact(label);
+    check_object.checkStart(.dyld_lazy_bind);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically exports info contents parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInExports(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInExports(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.exports_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.exports);
-    self.checkExact(label);
+    check_object.checkStart(.exports);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically indirect symbol table parsed and dumped
 /// from the object file.
 /// This check is target-dependent and applicable to MachO only.
-pub fn checkInIndirectSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInIndirectSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .macho => MachODumper.indirect_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.indirect_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.indirect_symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dynamic symbol table parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
-pub fn checkInDynamicSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDynamicSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.dynamic_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dynamic_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.dynamic_symtab);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically dynamic section parsed and dumped from the object
 /// file.
 /// This check is target-dependent and applicable to ELF only.
-pub fn checkInDynamicSection(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInDynamicSection(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart(.dynamic_section);
-    self.checkExact(label);
+    check_object.checkStart(.dynamic_section);
+    check_object.checkExact(label);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the archive
 /// file.
-pub fn checkInArchiveSymtab(self: *CheckObject) void {
-    const label = switch (self.obj_format) {
+pub fn checkInArchiveSymtab(check_object: *CheckObject) void {
+    const label = switch (check_object.obj_format) {
         .elf => ElfDumper.archive_symtab_label,
         else => @panic("TODO other file formats"),
     };
-    self.checkStart(.archive_symtab);
-    self.checkExact(label);
+    check_object.checkStart(.archive_symtab);
+    check_object.checkExact(label);
 }
 
-pub fn dumpSection(self: *CheckObject, name: [:0]const u8) void {
-    const new_check = Check.dumpSection(self.step.owner.allocator, name);
-    self.checks.append(new_check) catch @panic("OOM");
+pub fn dumpSection(check_object: *CheckObject, name: [:0]const u8) void {
+    const check = Check.dumpSection(check_object.step.owner.allocator, name);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 /// Creates a new standalone, singular check which allows running simple binary operations
 /// on the extracted variables. It will then compare the reduced program with the value of
 /// the expected variable.
 pub fn checkComputeCompare(
-    self: *CheckObject,
+    check_object: *CheckObject,
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.step.owner.allocator, .compute_compare);
-    new_check.computeCmp(.{ .string = self.step.owner.dupe(program) }, expected);
-    self.checks.append(new_check) catch @panic("OOM");
+    var check = Check.create(check_object.step.owner.allocator, .compute_compare);
+    check.computeCmp(.{ .string = check_object.step.owner.dupe(program) }, expected);
+    check_object.checks.append(check) catch @panic("OOM");
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const gpa = b.allocator;
-    const self: *CheckObject = @fieldParentPtr("step", step);
+    const check_object: *CheckObject = @fieldParentPtr("step", step);
 
-    const src_path = self.source.getPath(b);
+    const src_path = check_object.source.getPath2(b, step);
     const contents = fs.cwd().readFileAllocOptions(
         gpa,
         src_path,
-        self.max_bytes,
+        check_object.max_bytes,
         null,
         @alignOf(u64),
         null,
     ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
     var vars = std.StringHashMap(u64).init(gpa);
-    for (self.checks.items) |chk| {
+    for (check_object.checks.items) |chk| {
         if (chk.kind == .compute_compare) {
             assert(chk.actions.items.len == 1);
             const act = chk.actions.items[0];
@@ -587,7 +587,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             continue;
         }
 
-        const output = switch (self.obj_format) {
+        const output = switch (check_object.obj_format) {
             .macho => try MachODumper.parseAndDump(step, chk, contents),
             .elf => try ElfDumper.parseAndDump(step, chk, contents),
             .coff => return step.fail("TODO coff parser", .{}),
@@ -1597,8 +1597,8 @@ const MachODumper = struct {
             },
         },
 
-        inline fn rankByTag(self: Export) u3 {
-            return switch (self.tag) {
+        inline fn rankByTag(@"export": Export) u3 {
+            return switch (@"export".tag) {
                 .@"export" => 1,
                 .reexport => 2,
                 .stub_resolver => 3,

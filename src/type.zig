@@ -883,6 +883,7 @@ pub const Type = struct {
         strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiAlignmentAdvanced {
         const target = mod.getTarget();
+        const use_llvm = mod.comp.config.use_llvm;
         const ip = &mod.intern_pool;
 
         const opt_sema = switch (strat) {
@@ -895,7 +896,7 @@ pub const Type = struct {
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(int_type.bits, target) };
+                    return .{ .scalar = intAbiAlignment(int_type.bits, target, use_llvm) };
                 },
                 .ptr_type, .anyframe_type => {
                     return .{ .scalar = ptrAbiAlignment(target) };
@@ -941,7 +942,7 @@ pub const Type = struct {
                 .error_set_type, .inferred_error_set_type => {
                     const bits = mod.errorSetBits();
                     if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target) };
+                    return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
                 },
 
                 // represents machine code; not a pointer
@@ -962,7 +963,7 @@ pub const Type = struct {
 
                     .usize,
                     .isize,
-                    => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
+                    => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target, use_llvm) },
 
                     .export_options,
                     .extern_options,
@@ -1001,7 +1002,7 @@ pub const Type = struct {
                     .anyerror, .adhoc_inferred_error_set => {
                         const bits = mod.errorSetBits();
                         if (bits == 0) return AbiAlignmentAdvanced{ .scalar = .@"1" };
-                        return .{ .scalar = intAbiAlignment(bits, target) };
+                        return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
                     },
 
                     .void,
@@ -1216,6 +1217,7 @@ pub const Type = struct {
         strat: AbiAlignmentAdvancedStrat,
     ) Module.CompileError!AbiSizeAdvanced {
         const target = mod.getTarget();
+        const use_llvm = mod.comp.config.use_llvm;
         const ip = &mod.intern_pool;
 
         switch (ty.toIntern()) {
@@ -1224,7 +1226,7 @@ pub const Type = struct {
             else => switch (ip.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
-                    return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target, use_llvm) };
                 },
                 .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                     .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
@@ -1286,7 +1288,7 @@ pub const Type = struct {
                 .error_set_type, .inferred_error_set_type => {
                     const bits = mod.errorSetBits();
                     if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
-                    return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target, use_llvm) };
                 },
 
                 .error_union_type => |error_union_type| {
@@ -1384,7 +1386,7 @@ pub const Type = struct {
                     .anyerror, .adhoc_inferred_error_set => {
                         const bits = mod.errorSetBits();
                         if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
-                        return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
+                        return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target, use_llvm) };
                     },
 
                     .prefetch_options => unreachable, // missing call to resolveTypeFields
@@ -1533,15 +1535,126 @@ pub const Type = struct {
         return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
     }
 
-    pub fn intAbiSize(bits: u16, target: Target) u64 {
-        return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
+    pub fn intAbiSize(bits: u16, target: Target, use_llvm: bool) u64 {
+        return intAbiAlignment(bits, target, use_llvm).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
     }
 
-    pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
-        return Alignment.fromByteUnits(@min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            target.maxIntAlignment(),
-        ));
+    pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
+        return switch (target.cpu.arch) {
+            .x86 => switch (bits) {
+                0 => .none,
+                1...8 => .@"1",
+                9...16 => .@"2",
+                17...64 => .@"4",
+                else => .@"16",
+            },
+            .x86_64 => switch (bits) {
+                0 => .none,
+                1...8 => .@"1",
+                9...16 => .@"2",
+                17...32 => .@"4",
+                33...64 => .@"8",
+                else => switch (target_util.zigBackend(target, use_llvm)) {
+                    .stage2_x86_64 => .@"8",
+                    else => .@"16",
+                },
+            },
+            else => return Alignment.fromByteUnits(@min(
+                std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
+                maxIntAlignment(target, use_llvm),
+            )),
+        };
+    }
+
+    pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
+        return switch (target.cpu.arch) {
+            .avr => 1,
+            .msp430 => 2,
+            .xcore => 4,
+
+            .arm,
+            .armeb,
+            .thumb,
+            .thumbeb,
+            .hexagon,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .r600,
+            .amdgcn,
+            .riscv32,
+            .sparc,
+            .sparcel,
+            .s390x,
+            .lanai,
+            .wasm32,
+            .wasm64,
+            => 8,
+
+            // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
+            // is a relevant number in three cases:
+            // 1. Different machine code instruction when loading into SIMD register.
+            // 2. The C ABI wants 16 for extern structs.
+            // 3. 16-byte cmpxchg needs 16-byte alignment.
+            // Same logic for powerpc64, mips64, sparc64.
+            .powerpc64,
+            .powerpc64le,
+            .mips64,
+            .mips64el,
+            .sparc64,
+            => switch (target.ofmt) {
+                .c => 16,
+                else => 8,
+            },
+
+            .x86_64 => switch (target_util.zigBackend(target, use_llvm)) {
+                .stage2_x86_64 => 8,
+                else => 16,
+            },
+
+            // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+            .x86,
+            .aarch64,
+            .aarch64_be,
+            .aarch64_32,
+            .riscv64,
+            .bpfel,
+            .bpfeb,
+            .nvptx,
+            .nvptx64,
+            => 16,
+
+            // Below this comment are unverified but based on the fact that C requires
+            // int128_t to be 16 bytes aligned, it's a safe default.
+            .spu_2,
+            .csky,
+            .arc,
+            .m68k,
+            .tce,
+            .tcele,
+            .le32,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .renderscript32,
+            .spirv,
+            .spirv32,
+            .shave,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .renderscript64,
+            .ve,
+            .spirv64,
+            .dxil,
+            .loongarch32,
+            .loongarch64,
+            .xtensa,
+            => 16,
+        };
     }
 
     pub fn bitSize(ty: Type, mod: *Module) u64 {
@@ -2802,6 +2915,13 @@ pub const Type = struct {
 
     pub fn isVector(ty: Type, mod: *const Module) bool {
         return ty.zigTypeTag(mod) == .Vector;
+    }
+
+    /// Returns 0 if not a vector, otherwise returns @bitSizeOf(Element) * vector_len.
+    pub fn totalVectorBits(ty: Type, zcu: *Zcu) u64 {
+        if (!ty.isVector(zcu)) return 0;
+        const v = zcu.intern_pool.indexToKey(ty.toIntern()).vector_type;
+        return v.len * Type.fromInterned(v.child).bitSize(zcu);
     }
 
     pub fn isArrayOrVector(ty: Type, mod: *const Module) bool {

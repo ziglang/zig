@@ -31,6 +31,7 @@ namespace std {
 
     public:
       template<class T> consteval basic_format_string(const T& s);
+      basic_format_string(runtime-format-string<charT> s) noexcept : str(s.str) {}   // since C++26
 
       constexpr basic_string_view<charT> get() const noexcept { return str; }
     };
@@ -40,6 +41,24 @@ namespace std {
   template<class... Args>
     using wformat_string =                                      // since C++23, exposition only before C++23
       basic_format_string<wchar_t, type_identity_t<Args>...>;
+
+  template<class charT> struct runtime-format-string {          // since C++26, exposition-only
+  private:
+    basic_string_view<charT> str;                               // exposition-only
+
+  public:
+    runtime-format-string(basic_string_view<charT> s) noexcept : str(s) {}
+
+    runtime-format-string(const runtime-format-string&) = delete;
+    runtime-format-string& operator=(const runtime-format-string&) = delete;
+  };
+
+  runtime-format-string<char> runtime_format(string_view fmt) noexcept {
+    return fmt;
+  }
+  runtime-format-string<wchar_t> runtime_format(wstring_view fmt) noexcept {
+    return fmt;
+  }
 
   // [format.functions], formatting functions
   template<class... Args>
@@ -158,10 +177,10 @@ namespace std {
 
   template<class Context = format_context, class... Args>
     format-arg-store<Context, Args...>
-      make_format_args(Args&&... args);
+      make_format_args(Args&... args);
   template<class... Args>
     format-arg-store<wformat_context, Args...>
-      make_wformat_args(Args&&... args);
+      make_wformat_args(Args&... args);
 
   // [format.error], class format_error
   class format_error;

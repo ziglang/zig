@@ -44,14 +44,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 
-// TODO(clang-15): in the Standard, it's a `constexpr bool` variable, not a concept, but constexpr variables don't
-// short-circuit properly on Clang 15 (fixed in later versions), so use a concept as a workaround.
 template <class _Container>
-concept __reservable_container = sized_range<_Container> && requires(_Container& __c, range_size_t<_Container> __n) {
-  __c.reserve(__n);
-  { __c.capacity() } -> same_as<decltype(__n)>;
-  { __c.max_size() } -> same_as<decltype(__n)>;
-};
+constexpr bool __reservable_container =
+    sized_range<_Container> && requires(_Container& __c, range_size_t<_Container> __n) {
+      __c.reserve(__n);
+      { __c.capacity() } -> same_as<decltype(__n)>;
+      { __c.max_size() } -> same_as<decltype(__n)>;
+    };
 
 template <class _Container, class _Ref>
 constexpr bool __container_insertable = requires(_Container& __c, _Ref&& __ref) {
@@ -208,13 +207,11 @@ _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr auto to(_Args&&... __args)
   static_assert(
       !is_volatile_v<_Container>, "The target container cannot be volatile-qualified, please remove the volatile");
 
-  auto __to_func = []<input_range _Range, class... _Tail>(_Range && __range, _Tail && ... __tail)
+  auto __to_func = []<input_range _Range, class... _Tail>(_Range&& __range, _Tail&&... __tail)
     requires requires { //
       /**/ ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...);
     }
-  {
-    return ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...);
-  };
+  { return ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...); };
 
   return __range_adaptor_closure_t(std::__bind_back(__to_func, std::forward<_Args>(__args)...));
 }

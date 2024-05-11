@@ -52,18 +52,17 @@ fn getMangle(c: *Context) u32 {
     return c.mangle_count;
 }
 
-/// Convert a clang source location to a file:line:column string
-fn locStr(c: *Context, loc: TokenIndex) ![]const u8 {
-    _ = c;
-    _ = loc;
-    // const spelling_loc = c.source_manager.getSpellingLoc(loc);
-    // const filename_c = c.source_manager.getFilename(spelling_loc);
-    // const filename = if (filename_c) |s| try c.str(s) else @as([]const u8, "(no file)");
+/// Convert an aro TokenIndex to a 'file:line:column' string
+fn locStr(c: *Context, tok_idx: TokenIndex) ![]const u8 {
+    const token_loc = c.tree.tokens.items(.loc)[tok_idx];
+    const source = c.comp.getSource(token_loc.id);
+    const line_col = source.lineCol(token_loc);
+    const filename = source.path;
 
-    // const line = c.source_manager.getSpellingLineNumber(spelling_loc);
-    // const column = c.source_manager.getSpellingColumnNumber(spelling_loc);
-    // return std.fmt.allocPrint(c.arena, "{s}:{d}:{d}", .{ filename, line, column });
-    return "somewhere";
+    const line = source.physicalLine(token_loc);
+    const col = line_col.col;
+
+    return std.fmt.allocPrint(c.arena, "{s}:{d}:{d}", .{ filename, line, col });
 }
 
 fn maybeSuppressResult(c: *Context, used: ResultUsed, result: ZigNode) TransError!ZigNode {
@@ -184,26 +183,30 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
     const node_data = c.tree.nodes.items(.data);
     for (c.tree.root_decls) |node| {
         const data = node_data[@intFromEnum(node)];
-        const decl_name = switch (node_tags[@intFromEnum(node)]) {
+        switch (node_tags[@intFromEnum(node)]) {
             .typedef => @panic("TODO"),
 
-            .static_assert,
             .struct_decl_two,
             .union_decl_two,
             .struct_decl,
             .union_decl,
-            => blk: {
-                const ty = node_types[@intFromEnum(node)];
-                const name_id = ty.data.record.name;
-                break :blk c.mapper.lookup(name_id);
-            },
-
+            .struct_forward_decl,
+            .union_forward_decl,
             .enum_decl_two,
             .enum_decl,
-            => blk: {
-                const ty = node_types[@intFromEnum(node)];
-                const name_id = ty.data.@"enum".name;
-                break :blk c.mapper.lookup(name_id);
+            .enum_forward_decl,
+            => {
+                const raw_ty = node_types[@intFromEnum(node)];
+                const ty = raw_ty.canonicalize(.standard);
+                const name_id = if (ty.isRecord()) ty.data.record.name else ty.data.@"enum".name;
+                const decl_name = c.mapper.lookup(name_id);
+                const container_prefix = if (ty.is(.@"struct")) "struct" else if (ty.is(.@"union")) "union" else "enum";
+                const prefixed_name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_prefix, decl_name });
+                // `decl_name` and `prefixed_name` are the preferred names for this type.
+                // However, we can name it anything else if necessary, so these are "weak names".
+                try c.weak_global_names.ensureUnusedCapacity(c.gpa, 2);
+                c.weak_global_names.putAssumeCapacity(decl_name, {});
+                c.weak_global_names.putAssumeCapacity(prefixed_name, {});
             },
 
             .fn_proto,
@@ -215,80 +218,256 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
             .inline_fn_def,
             .inline_static_fn_def,
             .@"var",
+            .extern_var,
             .static_var,
             .threadlocal_var,
-            .threadlocal_static_var,
-            .extern_var,
             .threadlocal_extern_var,
-            => c.tree.tokSlice(data.decl.name),
-            else => unreachable,
-        };
-        try c.global_names.put(c.gpa, decl_name, {});
-    }
-}
-
-fn transTopLevelDecls(c: *Context) !void {
-    const node_tags = c.tree.nodes.items(.tag);
-    const node_data = c.tree.nodes.items(.data);
-    for (c.tree.root_decls) |node| {
-        const data = node_data[@intFromEnum(node)];
-        switch (node_tags[@intFromEnum(node)]) {
-            .typedef => {
-                try transTypeDef(c, &c.global_scope.base, node);
-            },
-
-            .static_assert,
-            .struct_decl_two,
-            .union_decl_two,
-            .struct_decl,
-            .union_decl,
-            => {
-                try transRecordDecl(c, &c.global_scope.base, node);
-            },
-
-            .enum_decl_two => {
-                var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
-                var field_count: u8 = 0;
-                if (fields[0] != .none) field_count += 1;
-                if (fields[1] != .none) field_count += 1;
-                try transEnumDecl(c, &c.global_scope.base, node, fields[0..field_count]);
-            },
-            .enum_decl => {
-                const fields = c.tree.data[data.range.start..data.range.end];
-                try transEnumDecl(c, &c.global_scope.base, node, fields);
-            },
-
-            .fn_proto,
-            .static_fn_proto,
-            .inline_fn_proto,
-            .inline_static_fn_proto,
-            .fn_def,
-            .static_fn_def,
-            .inline_fn_def,
-            .inline_static_fn_def,
-            => {
-                try transFnDecl(c, node);
-            },
-
-            .@"var",
-            .static_var,
-            .threadlocal_var,
             .threadlocal_static_var,
-            .extern_var,
-            .threadlocal_extern_var,
             => {
-                try transVarDecl(c, node, null);
+                const decl_name = c.tree.tokSlice(data.decl.name);
+                try c.global_names.put(c.gpa, decl_name, {});
             },
             else => unreachable,
         }
     }
 }
 
+fn transTopLevelDecls(c: *Context) !void {
+    for (c.tree.root_decls) |node| {
+        try transDecl(c, &c.global_scope.base, node);
+    }
+}
+
+fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
+    const node_tags = c.tree.nodes.items(.tag);
+    const node_data = c.tree.nodes.items(.data);
+    const data = node_data[@intFromEnum(decl)];
+    switch (node_tags[@intFromEnum(decl)]) {
+        .typedef => {
+            try transTypeDef(c, scope, decl);
+        },
+
+        .struct_decl_two,
+        .union_decl_two,
+        => {
+            var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
+            var field_count: u2 = 0;
+            if (fields[0] != .none) field_count += 1;
+            if (fields[1] != .none) field_count += 1;
+            try transRecordDecl(c, scope, decl, fields[0..field_count]);
+        },
+        .struct_decl,
+        .union_decl,
+        => {
+            const fields = c.tree.data[data.range.start..data.range.end];
+            try transRecordDecl(c, scope, decl, fields);
+        },
+
+        .enum_decl_two => {
+            var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
+            var field_count: u8 = 0;
+            if (fields[0] != .none) field_count += 1;
+            if (fields[1] != .none) field_count += 1;
+            try transEnumDecl(c, scope, decl, fields[0..field_count]);
+        },
+        .enum_decl => {
+            const fields = c.tree.data[data.range.start..data.range.end];
+            try transEnumDecl(c, scope, decl, fields);
+        },
+
+        .enum_field_decl,
+        .record_field_decl,
+        .indirect_record_field_decl,
+        .struct_forward_decl,
+        .union_forward_decl,
+        .enum_forward_decl,
+        => return,
+
+        .fn_proto,
+        .static_fn_proto,
+        .inline_fn_proto,
+        .inline_static_fn_proto,
+        .fn_def,
+        .static_fn_def,
+        .inline_fn_def,
+        .inline_static_fn_def,
+        => {
+            try transFnDecl(c, decl);
+        },
+
+        .@"var",
+        .extern_var,
+        .static_var,
+        .threadlocal_var,
+        .threadlocal_extern_var,
+        .threadlocal_static_var,
+        => {
+            try transVarDecl(c, decl, null);
+        },
+        else => unreachable,
+    }
+}
+
 fn transTypeDef(_: *Context, _: *Scope, _: NodeIndex) Error!void {
     @panic("TODO");
 }
-fn transRecordDecl(_: *Context, _: *Scope, _: NodeIndex) Error!void {
-    @panic("TODO");
+
+fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
+    var cur_name = want_name;
+
+    if (!c.weak_global_names.contains(want_name)) {
+        // This type wasn't noticed by the name detection pass, so nothing has been treating this as
+        // a weak global name. We must mangle it to avoid conflicts with locals.
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+
+    while (c.global_names.contains(cur_name)) {
+        cur_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ want_name, c.getMangle() });
+    }
+    return cur_name;
+}
+
+fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nodes: []const NodeIndex) Error!void {
+    const node_types = c.tree.nodes.items(.ty);
+    const raw_record_ty = node_types[@intFromEnum(record_node)];
+    const record_decl = raw_record_ty.getRecord().?;
+    if (c.decl_table.get(@intFromPtr(record_decl))) |_|
+        return; // Avoid processing this decl twice
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
+
+    const container_kind: ZigTag = if (raw_record_ty.is(.@"union")) .@"union" else .@"struct";
+    const container_kind_name: []const u8 = @tagName(container_kind);
+
+    var is_unnamed = false;
+    var bare_name: []const u8 = c.mapper.lookup(record_decl.name);
+    var name = bare_name;
+
+    if (c.unnamed_typedefs.get(@intFromPtr(record_decl))) |typedef_name| {
+        bare_name = typedef_name;
+        name = typedef_name;
+    } else {
+        if (raw_record_ty.isAnonymousRecord(c.comp)) {
+            bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
+            is_unnamed = true;
+        }
+        name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ container_kind_name, bare_name });
+        if (toplevel and !is_unnamed) {
+            name = try mangleWeakGlobalName(c, name);
+        }
+    }
+    if (!toplevel) name = try bs.makeMangledName(c, name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(record_decl), name);
+
+    const is_pub = toplevel and !is_unnamed;
+    const init_node = blk: {
+        var fields = try std.ArrayList(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
+        defer fields.deinit();
+
+        // TODO: Add support for flexible array field functions
+        var functions = std.ArrayList(ZigNode).init(c.gpa);
+        defer functions.deinit();
+
+        var unnamed_field_count: u32 = 0;
+
+        // If a record doesn't have any attributes that would affect the alignment and
+        // layout, then we can just use a simple `extern` type. If it does have attributes,
+        // then we need to inspect the layout and assign an `align` value for each field.
+        const has_alignment_attributes = record_decl.field_attributes != null or
+            raw_record_ty.hasAttribute(.@"packed") or
+            raw_record_ty.hasAttribute(.aligned);
+        const head_field_alignment: ?c_uint = headFieldAlignment(record_decl);
+
+        // Iterate over field nodes so that we translate any type decls included in this record decl.
+        // TODO: Move this logic into `fn transType()` instead of handling decl translation here.
+        for (field_nodes) |field_node| {
+            const field_raw_ty = node_types[@intFromEnum(field_node)];
+            if (field_raw_ty.isEnumOrRecord()) try transDecl(c, scope, field_node);
+        }
+
+        for (record_decl.fields, 0..) |field, field_index| {
+            const field_loc = field.name_tok;
+
+            // Demote record to opaque if it contains a bitfield
+            if (!field.isRegularField()) {
+                try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl), {});
+                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :blk ZigTag.opaque_literal.init();
+            }
+
+            var field_name = c.mapper.lookup(field.name);
+            if (!field.isNamed()) {
+                field_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{unnamed_field_count});
+                unnamed_field_count += 1;
+            }
+            const field_type = transType(c, scope, field.ty, .preserve_quals, field_loc) catch |err| switch (err) {
+                error.UnsupportedType => {
+                    try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl), {});
+                    try warn(c, scope, 0, "{s} demoted to opaque type - unable to translate type of field {s}", .{
+                        container_kind_name,
+                        field_name,
+                    });
+                    break :blk ZigTag.opaque_literal.init();
+                },
+                else => |e| return e,
+            };
+
+            const field_alignment = if (has_alignment_attributes)
+                alignmentForField(record_decl, head_field_alignment, field_index)
+            else
+                null;
+
+            // C99 introduced designated initializers for structs. Omitted fields are implicitly
+            // initialized to zero. Some C APIs are designed with this in mind. Defaulting to zero
+            // values for translated struct fields permits Zig code to comfortably use such an API.
+            const default_value = if (container_kind == .@"struct")
+                try ZigTag.std_mem_zeroes.create(c.arena, field_type)
+            else
+                null;
+
+            fields.appendAssumeCapacity(.{
+                .name = field_name,
+                .type = field_type,
+                .alignment = field_alignment,
+                .default_value = default_value,
+            });
+        }
+
+        const record_payload = try c.arena.create(ast.Payload.Record);
+        record_payload.* = .{
+            .base = .{ .tag = container_kind },
+            .data = .{
+                .layout = .@"extern",
+                .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
+                .functions = try c.arena.dupe(ZigNode, functions.items),
+                .variables = &.{},
+            },
+        };
+        break :blk ZigNode.initPayload(&record_payload.base);
+    };
+
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+    payload.* = .{
+        .base = .{ .tag = ([2]ZigTag{ .var_simple, .pub_var_simple })[@intFromBool(is_pub)] },
+        .data = .{
+            .name = name,
+            .init = init_node,
+        },
+    };
+    const node = ZigNode.initPayload(&payload.base);
+    if (toplevel) {
+        try addTopLevelDecl(c, name, node);
+        // Only add the alias if the name is available *and* it was caught by
+        // name detection. Don't bother performing a weak mangle, since a
+        // mangled name is of no real use here.
+        if (!is_unnamed and !c.global_names.contains(bare_name) and c.weak_global_names.contains(bare_name))
+            try c.alias_list.append(.{ .alias = bare_name, .name = name });
+    } else {
+        try scope.appendNode(node);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
+    }
 }
 
 fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
@@ -419,7 +598,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
                 enum_val_name = try bs.makeMangledName(c, enum_val_name);
             }
 
-            const enum_const_type_node: ?ZigNode = transType(c, scope, field.ty, field.name_tok) catch |err| switch (err) {
+            const enum_const_type_node: ?ZigNode = transType(c, scope, field.ty, .standard, field.name_tok) catch |err| switch (err) {
                 error.UnsupportedType => null,
                 else => |e| return e,
             };
@@ -439,7 +618,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
             }
         }
 
-        break :blk transType(c, scope, ty.data.@"enum".tag_ty, 0) catch |err| switch (err) {
+        break :blk transType(c, scope, ty.data.@"enum".tag_ty, .standard, 0) catch |err| switch (err) {
             error.UnsupportedType => {
                 return failDecl(c, 0, name, "unable to translate enum integer type", .{});
             },
@@ -472,8 +651,8 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
     }
 }
 
-fn transType(c: *Context, scope: *Scope, raw_ty: Type, source_loc: TokenIndex) TypeError!ZigNode {
-    const ty = raw_ty.canonicalize(.standard);
+fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualHandling, source_loc: TokenIndex) TypeError!ZigNode {
+    const ty = raw_ty.canonicalize(qual_handling);
     switch (ty.specifier) {
         .void => return ZigTag.type.create(c.arena, "anyopaque"),
         .bool => return ZigTag.type.create(c.arena, "bool"),
@@ -496,16 +675,152 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, source_loc: TokenIndex) T
         .long_double => return ZigTag.type.create(c.arena, "c_longdouble"),
         .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
+        .@"enum" => @panic("TODO"),
+        .pointer,
+        .unspecified_variable_len_array,
+        .array,
+        .static_array,
+        .incomplete_array,
+        => @panic("TODO"),
         .func,
         .var_args_func,
         .old_style_func,
-        => return transFnType(c, scope, raw_ty, ty, source_loc, .{}),
+        => return transFnType(c, scope, ty, ty, source_loc, .{}),
+        .@"struct",
+        .@"union",
+        => {
+            var trans_scope = scope;
+            if (ty.isAnonymousRecord(c.comp)) {
+                const record_decl = ty.data.record;
+                const name_id = c.mapper.lookup(record_decl.name);
+                if (c.weak_global_names.contains(name_id)) trans_scope = &c.global_scope.base;
+            }
+            const name = c.decl_table.get(@intFromPtr(ty.data.record)).?;
+            return ZigTag.identifier.create(c.arena, name);
+        },
+        .attributed,
+        .typeof_type,
+        .typeof_expr,
+        => unreachable,
         else => return error.UnsupportedType,
     }
 }
 
-fn zigAlignment(bit_alignment: u29) u32 {
-    return bit_alignment / 8;
+/// Look ahead through the fields of the record to determine what the alignment of the record
+/// would be without any align/packed/etc. attributes. This helps us determine whether or not
+/// the fields with 0 offset need an `align` qualifier. Strictly speaking, we could just
+/// pedantically assign those fields the same alignment as the parent's pointer alignment,
+/// but this helps the generated code to be a little less verbose.
+fn headFieldAlignment(record_decl: *const Type.Record) ?c_uint {
+    const bits_per_byte = 8;
+    const parent_ptr_alignment_bits = record_decl.type_layout.pointer_alignment_bits;
+    const parent_ptr_alignment = parent_ptr_alignment_bits / bits_per_byte;
+    var max_field_alignment_bits: u64 = 0;
+    for (record_decl.fields) |field| {
+        if (field.ty.getRecord()) |field_record_decl| {
+            const child_record_alignment = field_record_decl.type_layout.field_alignment_bits;
+            if (child_record_alignment > max_field_alignment_bits)
+                max_field_alignment_bits = child_record_alignment;
+        } else {
+            const field_size = field.layout.size_bits;
+            if (field_size > max_field_alignment_bits)
+                max_field_alignment_bits = field_size;
+        }
+    }
+    if (max_field_alignment_bits != parent_ptr_alignment_bits) {
+        return parent_ptr_alignment;
+    } else {
+        return null;
+    }
+}
+
+/// This function returns a ?c_uint to match Clang's behaviour of using c_uint.
+/// This can be changed to a u29 after the Clang frontend for translate-c is removed.
+fn alignmentForField(
+    record_decl: *const Type.Record,
+    head_field_alignment: ?c_uint,
+    field_index: usize,
+) ?c_uint {
+    const fields = record_decl.fields;
+    assert(fields.len != 0);
+    const field = fields[field_index];
+
+    const bits_per_byte = 8;
+    const parent_ptr_alignment_bits = record_decl.type_layout.pointer_alignment_bits;
+    const parent_ptr_alignment = parent_ptr_alignment_bits / bits_per_byte;
+
+    // bitfields aren't supported yet. Until support is added, records with bitfields
+    // should be demoted to opaque, and this function shouldn't be called for them.
+    if (!field.isRegularField()) {
+        @panic("TODO: add bitfield support for records");
+    }
+
+    const field_offset_bits: u64 = field.layout.offset_bits;
+    const field_size_bits: u64 = field.layout.size_bits;
+
+    // Fields with zero width always have an alignment of 1
+    if (field_size_bits == 0) {
+        return 1;
+    }
+
+    // Fields with 0 offset inherit the parent's pointer alignment.
+    if (field_offset_bits == 0) {
+        return head_field_alignment;
+    }
+
+    // Records have a natural alignment when used as a field, and their size is
+    // a multiple of this alignment value. For all other types, the natural alignment
+    // is their size.
+    const field_natural_alignment_bits: u64 = if (field.ty.getRecord()) |record| record.type_layout.field_alignment_bits else field_size_bits;
+    const rem_bits = field_offset_bits % field_natural_alignment_bits;
+
+    // If there's a remainder, then the alignment is smaller than the field's
+    // natural alignment
+    if (rem_bits > 0) {
+        const rem_alignment = rem_bits / bits_per_byte;
+        if (rem_alignment > 0 and std.math.isPowerOfTwo(rem_alignment)) {
+            const actual_alignment = @min(rem_alignment, parent_ptr_alignment);
+            return @as(c_uint, @truncate(actual_alignment));
+        } else {
+            return 1;
+        }
+    }
+
+    // A field may have an offset which positions it to be naturally aligned, but the
+    // parent's pointer alignment determines if this is actually true, so we take the minimum
+    // value.
+    // For example, a float field (4 bytes wide) with a 4 byte offset is positioned to have natural
+    // alignment, but if the parent pointer alignment is 2, then the actual alignment of the
+    // float is 2.
+    const field_natural_alignment: u64 = field_natural_alignment_bits / bits_per_byte;
+    const offset_alignment = field_offset_bits / bits_per_byte;
+    const possible_alignment = @min(parent_ptr_alignment, offset_alignment);
+    if (possible_alignment == field_natural_alignment) {
+        return null;
+    } else if (possible_alignment < field_natural_alignment) {
+        if (std.math.isPowerOfTwo(possible_alignment)) {
+            return possible_alignment;
+        } else {
+            return 1;
+        }
+    } else { // possible_alignment > field_natural_alignment
+        // Here, the field is positioned be at a higher alignment than it's natural alignment. This means we
+        // need to determine whether it's a specified alignment. We can determine that from the padding preceding
+        // the field.
+        const padding_from_prev_field: u64 = blk: {
+            if (field_offset_bits != 0) {
+                const previous_field = fields[field_index - 1];
+                break :blk (field_offset_bits - previous_field.layout.offset_bits) - previous_field.layout.size_bits;
+            } else {
+                break :blk 0;
+            }
+        };
+        if (padding_from_prev_field < field_natural_alignment_bits) {
+            return null;
+        } else {
+            return possible_alignment;
+        }
+    }
 }
 
 const FnProtoContext = struct {
@@ -536,7 +851,7 @@ fn transFnType(
         else
             c.mapper.lookup(param_info.name);
 
-        const type_node = try transType(c, scope, param_ty, param_info.name_tok);
+        const type_node = try transType(c, scope, param_ty, .standard, param_info.name_tok);
         param_node.* = .{
             .is_noalias = is_noalias,
             .name = param_name,
@@ -551,7 +866,7 @@ fn transFnType(
         break :blk null;
     };
 
-    const alignment = if (raw_ty.requestedAlignment(c.comp)) |alignment| zigAlignment(alignment) else null;
+    const alignment: ?c_uint = raw_ty.requestedAlignment(c.comp) orelse null;
 
     const explicit_callconv = null;
     // const explicit_callconv = if ((ctx.is_inline or ctx.is_export or ctx.is_extern) and ctx.cc == .C) null else ctx.cc;
@@ -565,7 +880,7 @@ fn transFnType(
                 // convert primitive anyopaque to actual void (only for return type)
                 break :blk ZigTag.void_type.init();
             } else {
-                break :blk transType(c, scope, return_ty, source_loc) catch |err| switch (err) {
+                break :blk transType(c, scope, return_ty, .standard, source_loc) catch |err| switch (err) {
                     error.UnsupportedType => {
                         try warn(c, scope, source_loc, "unsupported function proto return type", .{});
                         return err;
@@ -642,7 +957,7 @@ fn transExpr(c: *Context, node: NodeIndex, result_used: ResultUsed) TransError!Z
         // TODO handle other values
         const int = try transCreateNodeAPInt(c, val);
         const as_node = try ZigTag.as.create(c.arena, .{
-            .lhs = try transType(c, undefined, ty, undefined),
+            .lhs = try transType(c, undefined, ty, .standard, undefined),
             .rhs = int,
         });
         return maybeSuppressResult(c, result_used, as_node);

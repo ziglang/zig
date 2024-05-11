@@ -16,6 +16,7 @@ test "thingy" {}
 
 test thingy {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (thingy(1, 2) != 3) unreachable;
 }
