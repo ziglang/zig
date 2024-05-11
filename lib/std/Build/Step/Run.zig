@@ -709,7 +709,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
         }
 
-        return runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
+        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
+        try step.writeManifest(&man);
+        return;
     };
 
     // We do not know the final output paths yet, use temp paths to run the command.
