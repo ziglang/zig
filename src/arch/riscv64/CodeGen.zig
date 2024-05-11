@@ -1841,7 +1841,7 @@ fn airMinMax(
         if (int_info.bits > 64) return self.fail("TODO: > 64 bit @min", .{});
 
         const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, null };
+            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
             const lhs_reg, const lhs_lock = try self.allocReg();
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -1850,7 +1850,7 @@ fn airMinMax(
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, null };
+            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
             const rhs_reg, const rhs_lock = try self.allocReg();
             try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -2088,7 +2088,7 @@ fn binOpRegister(
     rhs_ty: Type,
 ) !MCValue {
     const lhs_reg, const lhs_lock = blk: {
-        if (lhs == .register) break :blk .{ lhs.register, null };
+        if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
         const lhs_reg, const lhs_lock = try self.allocReg();
         try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -2097,7 +2097,7 @@ fn binOpRegister(
     defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const rhs_reg, const rhs_lock = blk: {
-        if (rhs == .register) break :blk .{ rhs.register, null };
+        if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
         const rhs_reg, const rhs_lock = try self.allocReg();
         try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -2358,7 +2358,7 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const offset = result_mcv.load_frame;
 
         const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, null };
+            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
             const lhs_reg, const lhs_lock = try self.allocReg();
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -2367,7 +2367,7 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, null };
+            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
             const rhs_reg, const rhs_lock = try self.allocReg();
             try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -2596,7 +2596,7 @@ fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(bin_op.rhs);
 
         const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, null };
+            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
             const lhs_reg, const lhs_lock = try self.allocReg();
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -2605,7 +2605,7 @@ fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, null };
+            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
             const rhs_reg, const rhs_lock = try self.allocReg();
             try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -2641,7 +2641,7 @@ fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(bin_op.rhs);
 
         const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, null };
+            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
             const lhs_reg, const lhs_lock = try self.allocReg();
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -2650,7 +2650,7 @@ fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, null };
+            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
             const rhs_reg, const rhs_lock = try self.allocReg();
             try self.genSetReg(rhs_ty, rhs_reg, rhs);
@@ -4717,7 +4717,7 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = Type.bool;
 
         const lhs_reg, const lhs_lock = blk: {
-            if (lhs == .register) break :blk .{ lhs.register, null };
+            if (lhs == .register) break :blk .{ lhs.register, self.register_manager.lockReg(lhs.register) };
 
             const lhs_reg, const lhs_lock = try self.allocReg();
             try self.genSetReg(lhs_ty, lhs_reg, lhs);
@@ -4726,7 +4726,7 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const rhs_reg, const rhs_lock = blk: {
-            if (rhs == .register) break :blk .{ rhs.register, null };
+            if (rhs == .register) break :blk .{ rhs.register, self.register_manager.lockReg(rhs.register) };
 
             const rhs_reg, const rhs_lock = try self.allocReg();
             try self.genSetReg(rhs_ty, rhs_reg, rhs);

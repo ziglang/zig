@@ -216,7 +216,6 @@ fn poll() void {
 
 test "switch on global mutable var isn't constant-folded" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     while (state < 2) {
         poll();
