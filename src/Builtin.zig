@@ -16,7 +16,6 @@ strip: bool,
 code_model: std.builtin.CodeModel,
 omit_frame_pointer: bool,
 wasi_exec_model: std.builtin.WasiExecModel,
-runtime_safety: std.builtin.RuntimeSafety,
 
 pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
     var buffer = std.ArrayList(u8).init(allocator);
@@ -191,7 +190,6 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         \\pub const strip_debug_info = {};
         \\pub const code_model = std.builtin.CodeModel.{p_};
         \\pub const omit_frame_pointer = {};
-        \\pub const runtime_safety: std.builtin.RuntimeSafety = @bitCast(@as(u64, {}));
         \\
     , .{
         std.zig.fmtId(@tagName(target.ofmt)),
@@ -206,7 +204,6 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         opts.strip,
         std.zig.fmtId(@tagName(opts.code_model)),
         opts.omit_frame_pointer,
-        @as(u64, @bitCast(opts.runtime_safety)),
     });
 
     if (target.os.tag == .wasi) {
