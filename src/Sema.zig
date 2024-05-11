@@ -17562,6 +17562,10 @@ fn analyzeArithmetic(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
+        const res: Air.Inst.Ref = try RuntimeSafety.addSubSafeOptimized(sema, block, src, air_tag, resolved_type, casted_lhs, casted_rhs);
+        if (res != .none) {
+            return res;
+        }
         const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
             .add => .add_with_overflow,
             .sub => .sub_with_overflow,
@@ -39004,10 +39008,7 @@ const RuntimeSafety = struct {
     /// 2. Backend must support formatted panics.
     /// 3. Panic definition must allow the data type.
     fn wantRuntimeSafetyPanicData(sema: *Sema) bool {
-        return sema.mod.safety.panic_fn_id_arg_ty ==
-            sema.mod.safety.panic_cause_ty.ip_index and
-            sema.mod.safety.panic_fn_data_arg_ty != .none and
-            sema.mod.comp.formatted_panics and
+        return sema.mod.comp.formatted_panics and
             sema.mod.backendSupportsFeature(.safety_check_formatted);
     }
 
@@ -39018,7 +39019,7 @@ const RuntimeSafety = struct {
         panic_cause_inst: Air.Inst.Ref,
         args: []const Air.Inst.Ref,
     ) !Air.Inst.Ref {
-        if (!wantRuntimeSafetyPanicData(sema)) {
+        if (wantRuntimeSafetyPanicData(sema)) {
             return try fail_block.addAggregateInit(try callPanicData(sema, fail_block, src, panic_cause_inst), args);
         } else {
             return .void_value;
@@ -39038,7 +39039,7 @@ const RuntimeSafety = struct {
             sema.typeOf(sema.mod.safety.panic_data_fn_inst),
             src,
             src,
-            .auto,
+            .compile_time,
             false,
             .{ .resolved = .{ .src = src, .args = &.{panic_cause_inst} } },
             null,
@@ -39074,8 +39075,8 @@ const RuntimeSafety = struct {
         if (sema.mod.safety.panic_fn_inst == .none) {
             const panic_fn_inst: Air.Inst.Ref = try sema.getBuiltin("panicNew");
             const callee_ty: Type = sema.typeOf(panic_fn_inst);
-            const callee_ty_tag: std.builtin.TypeId = callee_ty.zigTypeTag(sema.mod);
             const panic_fn_ty: Type = blk: {
+                const callee_ty_tag: std.builtin.TypeId = callee_ty.zigTypeTag(sema.mod);
                 if (callee_ty_tag == .Fn) {
                     break :blk callee_ty;
                 }
