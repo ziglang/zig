@@ -1497,8 +1497,6 @@ fn buildOutputType(
                         mod_opts.strip = true;
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
                         mod_opts.strip = false;
-                    } else if (RuntimeSafety.parseAllSafety(&args_iter, arg)) {
-                        //
                     } else if (mem.eql(u8, arg, "-gdwarf32")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
