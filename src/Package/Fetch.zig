@@ -61,7 +61,9 @@ actual_hash: Manifest.Digest,
 has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
-/// If `use_latest_commit` was true, this will be the commit that was used.
+/// If `use_latest_commit` was true, this will be set to the commit that was used.
+/// If the resource pointed to by the location is not a Git-repository, this
+/// will be left unchanged.
 latest_commit: ?git.Oid,
 
 // This field is used by the CLI only, untouched by this file.
@@ -712,7 +714,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .actual_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
-                .latest_commit = undefined,
+                .latest_commit = null,
 
                 .module = null,
             };

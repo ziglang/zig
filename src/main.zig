@@ -5106,7 +5106,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .actual_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
-                    .latest_commit = undefined,
+                    .latest_commit = null,
 
                     .module = build_mod,
                 };
@@ -7009,7 +7009,7 @@ fn cmdFetch(
         .actual_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
-        .latest_commit = undefined,
+        .latest_commit = null,
 
         .module = null,
     };
