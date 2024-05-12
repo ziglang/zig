@@ -888,12 +888,6 @@ pub const Cast = struct {
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub fn PanicData(comptime cause: PanicCause) type {
-    if (cause == .message) {
-        return []const u8;
-    }
-    if (@field(builtin.runtime_safety, @tagName(cause)) != .extra) {
-        return void;
-    }
     switch (cause) {
         .message => {
             return []const u8;
@@ -944,18 +938,32 @@ pub fn PanicData(comptime cause: PanicCause) type {
         => |val_type| {
             return struct { lhs: val_type, rhs: val_type };
         },
+        .shl_overflowed,
+        .shr_overflowed,
+        => |int_type| {
+            switch (@typeInfo(int_type)) {
+                .Vector => |info| {
+                    return struct { value: int_type, shift_amt: @Vector(info.len, u16) };
+                },
+                else => {
+                    return struct { value: int_type, shift_amt: u16 };
+                },
+            }
+        },
+        .shift_amt_overflowed => |int_type| {
+            switch (@typeInfo(int_type)) {
+                .Vector => |info| {
+                    return @Vector(info.len, u16);
+                },
+                else => {
+                    return u16;
+                },
+            }
+        },
         .inc_overflowed,
         .dec_overflowed,
         => |val_type| {
             return val_type;
-        },
-        .shl_overflowed,
-        .shr_overflowed,
-        => |int_type| {
-            return struct { value: int_type, shift_amt: u16 };
-        },
-        .shift_amt_overflowed => {
-            return u16;
         },
         .cast_to_ptr_from_invalid => {
             return usize;
@@ -969,11 +977,11 @@ pub fn PanicData(comptime cause: PanicCause) type {
         .cast_to_unsigned_from_negative => |int_types| {
             return int_types.from;
         },
-        .cast_to_enum_from_invalid => |enum_type| {
-            return @typeInfo(enum_type).Enum.tag_type;
-        },
         .cast_to_error_from_invalid => |error_type| {
             return error_type.from;
+        },
+        .cast_to_enum_from_invalid => |enum_type| {
+            return @typeInfo(enum_type).Enum.tag_type;
         },
     }
 }
