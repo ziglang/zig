@@ -987,12 +987,10 @@ pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicImp
 /// The backend/os logic is not here, because this function is a combination
 /// of all the special handler functions `panic*`, which also never checked
 /// the backend/os before attempting to write error messages.
-fn panicImpl(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
+fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
-    if (cause != .message and
-        @field(builtin.runtime_safety, @tagName(cause)) == .check)
-    {
+    if (@TypeOf(data) == void) {
         std.debug.panicImpl(@tagName(cause), null, @returnAddress());
     }
     switch (cause) {
@@ -1014,79 +1012,84 @@ fn panicImpl(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
         .corrupt_switch => @call(.auto, std.debug.panicImpl, .{
             "corrupt switch", null, @returnAddress(),
         }),
-        .unwrapped_error => @call(.never_inline, std.debug.panicUnwrappedError, .{
-            data.err, data.st, @returnAddress(),
+        .unwrapped_error => @call(.auto, std.debug.panicUnwrappedError, .{
+            data.st, data.err, @returnAddress(),
         }),
-        .accessed_out_of_bounds => @call(.never_inline, std.debug.panicAccessedOutOfBounds, .{
+        .accessed_out_of_bounds => @call(.auto, std.debug.panicAccessedOutOfBounds, .{
             data.index, data.length, @returnAddress(),
         }),
-        .accessed_out_of_order => @call(.never_inline, std.debug.panicAccessedOutOfOrder, .{
+        .accessed_out_of_order => @call(.auto, std.debug.panicAccessedOutOfOrder, .{
             data.start, data.end, @returnAddress(),
         }),
-        .accessed_out_of_order_extra => @call(.never_inline, std.debug.panicAccessedOutOfOrderExtra, .{
+        .accessed_out_of_order_extra => @call(.auto, std.debug.panicAccessedOutOfOrderExtra, .{
             data.start, data.end, data.length, @returnAddress(),
         }),
-        .accessed_inactive_field => @call(.never_inline, std.debug.panicAccessedInactiveField, .{
+        .accessed_inactive_field => @call(.auto, std.debug.panicAccessedInactiveField, .{
             @tagName(data.expected), @tagName(data.found), @returnAddress(),
         }),
-        .memcpy_argument_aliasing => @call(.never_inline, std.debug.panicMemcpyArgumentAliasing, .{
+        .memcpy_argument_aliasing => @call(.auto, std.debug.panicMemcpyArgumentAliasing, .{
             data.dest_start, data.dest_end, data.src_start, data.src_end, @returnAddress(),
         }),
-        .mismatched_memcpy_argument_lengths => @call(.never_inline, std.debug.panicMismatchedMemcpyLengths, .{
+        .mismatched_memcpy_argument_lengths => @call(.auto, std.debug.panicMismatchedMemcpyLengths, .{
             data.dest_len, data.src_len, @returnAddress(),
         }),
-        .mismatched_for_loop_capture_lengths => @call(.never_inline, std.debug.panicMismatchedForLoopCaptureLengths, .{
+        .mismatched_for_loop_capture_lengths => @call(.auto, std.debug.panicMismatchedForLoopCaptureLengths, .{
             data.loop_len, data.capture_len, @returnAddress(),
         }),
-        .mismatched_null_sentinel => @call(.never_inline, std.debug.panicMismatchedNullSentinel, .{
+        .mismatched_null_sentinel => @call(.auto, std.debug.panicMismatchedNullSentinel, .{
             data, @returnAddress(),
         }),
-        .cast_to_enum_from_invalid => |enum_type| @call(.never_inline, std.debug.panicCastToTagFromInvalid, .{
+        .cast_to_enum_from_invalid => |enum_type| @call(.auto, std.debug.panicCastToTagFromInvalid, .{
             std.meta.BestNum(@typeInfo(enum_type).Enum.tag_type), @typeName(enum_type), data, @returnAddress(),
         }),
-        .cast_to_error_from_invalid => |error_type| @call(.never_inline, std.debug.panicCastToErrorFromInvalid, .{
+        .cast_to_error_from_invalid => |error_type| @call(.auto, std.debug.panicCastToErrorFromInvalid, .{
             error_type.from, @typeName(error_type.to), data, @returnAddress(),
         }),
-        .mul_overflowed,
-        .add_overflowed,
-        .sub_overflowed,
-        .div_overflowed,
-        => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).combined, .{
-            cause, @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        .mul_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).mul, .{
+            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        }),
+        .add_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).add, .{
+            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        }),
+        .sub_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).sub, .{
+            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        }),
+        .div_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).div, .{
+            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .inc_overflowed, .dec_overflowed => {},
-        .shl_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
-            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(int_type, 0)), @returnAddress(),
+        .shl_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
+            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
         }),
-        .shr_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shr, .{
-            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(int_type, 0)), @returnAddress(),
+        .shr_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shr, .{
+            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
         }),
-        .shift_amt_overflowed => |int_type| @call(.never_inline, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shiftRhs, .{
+        .shift_amt_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(@TypeOf(data))).shiftRhs, .{
             @typeName(int_type), @bitSizeOf(int_type), data, @returnAddress(),
         }),
-        .div_with_remainder => |num_type| @call(.never_inline, std.debug.panicExactDivisionWithRemainder, .{
+        .div_with_remainder => |num_type| @call(.auto, std.debug.panicExactDivisionWithRemainder, .{
             std.meta.BestNum(num_type), data.lhs, data.rhs, @returnAddress(),
         }),
-        .mismatched_sentinel => |elem_type| @call(.never_inline, std.debug.panicMismatchedSentinel, .{
+        .mismatched_sentinel => |elem_type| @call(.auto, std.debug.panicMismatchedSentinel, .{
             std.meta.BestNum(elem_type), @typeName(elem_type),
             data.expected,               data.actual,
             @returnAddress(),
         }),
-        .cast_to_ptr_from_invalid => |alignment| @call(.never_inline, std.debug.panicCastToPointerFromInvalid, .{
+        .cast_to_ptr_from_invalid => |alignment| @call(.auto, std.debug.panicCastToPointerFromInvalid, .{
             data, alignment, @returnAddress(),
         }),
-        .cast_to_unsigned_from_negative => |int_types| @call(.never_inline, std.debug.panicCastToUnsignedFromNegative, .{
+        .cast_to_unsigned_from_negative => |int_types| @call(.auto, std.debug.panicCastToUnsignedFromNegative, .{
             std.meta.BestNum(int_types.to),   @typeName(int_types.to),
             std.meta.BestNum(int_types.from), @typeName(int_types.from),
             data,                             @returnAddress(),
         }),
-        .cast_to_int_from_invalid => |num_types| @call(.never_inline, std.debug.panicCastToIntFromInvalid, .{
+        .cast_to_int_from_invalid => |num_types| @call(.auto, std.debug.panicCastToIntFromInvalid, .{
             std.meta.BestNum(num_types.to),     @typeName(num_types.to),
             std.meta.BestNum(num_types.from),   @typeName(num_types.from),
             std.meta.bestExtrema(num_types.to), data,
             @returnAddress(),
         }),
-        .cast_truncated_data => |num_types| @call(.never_inline, std.debug.panicCastTruncatedData, .{
+        .cast_truncated_data => |num_types| @call(.auto, std.debug.panicCastTruncatedData, .{
             std.meta.BestNum(num_types.to),     @typeName(num_types.to),
             std.meta.BestNum(num_types.from),   @typeName(num_types.from),
             std.meta.bestExtrema(num_types.to), data,
