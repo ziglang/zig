@@ -1717,7 +1717,6 @@ test "peer type resolution: float and comptime-known fixed-width integer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const i: u8 = 100;
     var f: f32 = 1.234;
@@ -2586,7 +2585,6 @@ test "@intFromBool on vector" {
 
 test "numeric coercions with undefined" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const from: i32 = undefined;
     var to: f32 = from;

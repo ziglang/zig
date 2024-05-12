@@ -2075,6 +2075,7 @@ fn binOp(
         .add,
         .sub,
         .mul,
+        .div_float,
         .cmp_eq,
         .cmp_neq,
         .cmp_gt,
@@ -2086,10 +2087,11 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .Float => {
                     const float_bits = lhs_ty.floatBits(zcu.getTarget());
-                    if (float_bits <= 32) {
+                    const float_reg_bits: u32 = if (self.hasFeature(.d)) 64 else 32;
+                    if (float_bits <= float_reg_bits) {
                         return self.binOpFloat(tag, lhs, lhs_ty, rhs, rhs_ty);
                     } else {
-                        return self.fail("TODO: binary operations for  floats with bits > 32", .{});
+                        return self.fail("TODO: binary operations for floats with bits > {d}", .{float_reg_bits});
                     }
                 },
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
@@ -2255,6 +2257,7 @@ fn binOpRegister(
                             .cmp_lte => .lte,
                             else => unreachable,
                         },
+                        .size = self.memSize(lhs_ty),
                     },
                 },
             });
@@ -2285,28 +2288,90 @@ fn binOpFloat(
 
     const mir_tag: Mir.Inst.Tag = switch (tag) {
         .add => if (float_bits == 32) .fadds else .faddd,
-        .cmp_eq => if (float_bits == 32) .feqs else .feqd,
+        .sub => if (float_bits == 32) .fsubs else .fsubd,
+        .mul => if (float_bits == 32) .fmuls else .fmuld,
+        .div_float => if (float_bits == 32) .fdivs else .fdivd,
+
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        .cmp_lte,
+        => .pseudo,
+
         else => return self.fail("TODO: binOpFloat mir_tag {s}", .{@tagName(tag)}),
     };
 
     const return_class: abi.RegisterClass = switch (tag) {
-        .add => .float,
-        .cmp_eq => .int,
+        .add,
+        .sub,
+        .mul,
+        .div_float,
+        => .float,
+
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        .cmp_lte,
+        => .int,
         else => unreachable,
     };
 
     const dest_reg, const dest_lock = try self.allocReg(return_class);
     defer self.register_manager.unlockReg(dest_lock);
 
-    _ = try self.addInst(.{
-        .tag = mir_tag,
-        .ops = .rrr,
-        .data = .{ .r_type = .{
-            .rd = dest_reg,
-            .rs1 = lhs_reg,
-            .rs2 = rhs_reg,
-        } },
-    });
+    switch (tag) {
+        .add,
+        .sub,
+        .mul,
+        .div_float,
+        => {
+            _ = try self.addInst(.{
+                .tag = mir_tag,
+                .ops = .rrr,
+                .data = .{ .r_type = .{
+                    .rd = dest_reg,
+                    .rs1 = lhs_reg,
+                    .rs2 = rhs_reg,
+                } },
+            });
+        },
+
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        .cmp_lte,
+        => {
+            _ = try self.addInst(.{
+                .tag = .pseudo,
+                .ops = .pseudo_compare,
+                .data = .{
+                    .compare = .{
+                        .rd = dest_reg,
+                        .rs1 = lhs_reg,
+                        .rs2 = rhs_reg,
+                        .op = switch (tag) {
+                            .cmp_eq => .eq,
+                            .cmp_neq => .neq,
+                            .cmp_gt => .gt,
+                            .cmp_gte => .gte,
+                            .cmp_lt => .lt,
+                            .cmp_lte => .lte,
+                            else => unreachable,
+                        },
+                        .size = self.memSize(lhs_ty),
+                    },
+                },
+            });
+        },
+
+        else => unreachable,
+    }
 
     return MCValue{ .register = dest_reg };
 }
@@ -2360,7 +2425,27 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airMul(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement mul for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+
+        break :result try self.binOp(.mul, lhs, lhs_ty, rhs, rhs_ty);
+    };
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+
+        break :result try self.binOp(.div_float, lhs, lhs_ty, rhs, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2670,12 +2755,6 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement airShlWithOverflow for {}", .{self.target.cpu.arch});
-}
-
-fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airRem(self: *Self, inst: Air.Inst.Index) !void {
@@ -3742,6 +3821,9 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         const arg_ty = self.typeOfIndex(inst);
 
         const dst_mcv = try self.allocRegOrMem(inst, false);
+
+        log.debug("airArg {} -> {}", .{ src_mcv, dst_mcv });
+
         try self.genCopy(arg_ty, dst_mcv, src_mcv);
 
         try self.genArgDbgInfo(inst, src_mcv);
@@ -4135,10 +4217,10 @@ fn airCmp(self: *Self, inst: Air.Inst.Index) !void {
             },
             .Float => {
                 const float_bits = lhs_ty.floatBits(self.target.*);
-                if (float_bits > 32) {
-                    return self.fail("TODO: airCmp float > 32 bits", .{});
+                const float_reg_size: u32 = if (self.hasFeature(.d)) 64 else 32;
+                if (float_bits > float_reg_size) {
+                    return self.fail("TODO: airCmp float > 64/32 bits", .{});
                 }
-
                 break :result try self.binOpFloat(tag, lhs, lhs_ty, rhs, lhs_ty);
             },
             else => unreachable,
@@ -6141,6 +6223,8 @@ fn resolveCallingConventionValues(
                 };
             }
 
+            var param_float_reg_i: usize = 0;
+
             for (param_types, result.args) |ty, *arg| {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     assert(cc == .Unspecified);
@@ -6150,8 +6234,6 @@ fn resolveCallingConventionValues(
 
                 var arg_mcv: [2]MCValue = undefined;
                 var arg_mcv_i: usize = 0;
-
-                var param_float_reg_i: usize = 0;
 
                 const classes = mem.sliceTo(&abi.classifySystem(ty, zcu), .none);
 

@@ -111,20 +111,45 @@ pub const Mnemonic = enum {
     ebreak,
     unimp,
 
-    // float mnemonics
+    // F extension (32-bit float)
     fadds,
-    faddd,
+    fsubs,
+    fmuls,
+    fdivs,
 
-    feqs,
-    feqd,
+    fmins,
+    fmaxs,
 
-    fld,
+    fsqrts,
+
     flw,
-
-    fsd,
     fsw,
 
+    feqs,
+    flts,
+    fles,
+
     fsgnjns,
+
+    // D extension (64-bit float)
+    faddd,
+    fsubd,
+    fmuld,
+    fdivd,
+
+    fmind,
+    fmaxd,
+
+    fsqrtd,
+
+    fld,
+    fsd,
+
+    feqd,
+    fltd,
+    fled,
+
+    fsgnjnd,
 
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
@@ -163,39 +188,66 @@ pub const Mnemonic = enum {
             .fadds   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .S, .rm = 0b111 } } },
             .faddd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00000, .fmt = .D, .rm = 0b111 } } },
 
+            .fsubs   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00001, .fmt = .S, .rm = 0b111 } } },
+            .fsubd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00001, .fmt = .D, .rm = 0b111 } } },
+
+            .fmuls   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00010, .fmt = .S, .rm = 0b111 } } },
+            .fmuld   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00010, .fmt = .D, .rm = 0b111 } } },
+
+            .fdivs   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00011, .fmt = .S, .rm = 0b111 } } },
+            .fdivd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00011, .fmt = .D, .rm = 0b111 } } },
+
+            .fmins   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00101, .fmt = .S, .rm = 0b000 } } },
+            .fmind   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00101, .fmt = .D, .rm = 0b000 } } },
+
+            .fmaxs   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00101, .fmt = .S, .rm = 0b001 } } },
+            .fmaxd   => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00101, .fmt = .D, .rm = 0b001 } } },
+
+            .fsqrts  => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b01011, .fmt = .S, .rm = 0b111 } } },
+            .fsqrtd  => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b01011, .fmt = .D, .rm = 0b111 } } },
+
+            .fles    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .S, .rm = 0b000 } } },
+            .fled    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .D, .rm = 0b000 } } },
+
+            .flts    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .S, .rm = 0b001 } } },
+            .fltd    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .D, .rm = 0b001 } } },
+
             .feqs    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .S, .rm = 0b010 } } },
             .feqd    => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b10100, .fmt = .D, .rm = 0b010 } } },
 
             .fsgnjns => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .S, .rm = 0b000 } } },
+            .fsgnjnd => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .D, .rm = 0b000 } } },
+
 
             // LOAD
 
-            .ld      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .lw      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .lwu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b110 } } },
-            .lh      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .lhu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b101 } } },
             .lb      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .lh      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            .lw      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .ld      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b011 } } },
             .lbu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b100 } } },
+            .lhu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b101 } } },
+            .lwu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b110 } } },
 
 
             // STORE
-
-            .sd      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .sw      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .sh      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            
             .sb      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .sh      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b001 } } },
+            .sw      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .sd      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b011 } } },
 
 
             // LOAD_FP
 
-            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
             .flw     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            
 
             // STORE_FP
 
-            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
             .fsw     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
+            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
 
 
             // JALR
@@ -310,9 +362,36 @@ pub const InstEnc = enum {
 
             .fadds,
             .faddd,
+
+            .fsubs,
+            .fsubd,
+
+            .fmuls,
+            .fmuld,
+
+            .fdivs,
+            .fdivd,
+
+            .fmins,
+            .fmind,
+
+            .fmaxs,
+            .fmaxd,
+
+            .fsqrts,
+            .fsqrtd,
+
+            .fles,
+            .fled,
+
+            .flts,
+            .fltd,
+
             .feqs,
             .feqd,
+
             .fsgnjns,
+            .fsgnjnd,
             => .R,
 
             .ecall,

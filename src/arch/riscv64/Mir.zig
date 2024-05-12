@@ -72,15 +72,39 @@ pub const Inst = struct {
 
         // F extension (32-bit float)
         fadds,
+        fsubs,
+        fmuls,
+        fdivs,
+
+        fmins,
+        fmaxs,
+
+        fsqrts,
+
         flw,
         fsw,
+
         feqs,
+        flts,
+        fles,
 
         // D extension (64-bit float)
         faddd,
+        fsubd,
+        fmuld,
+        fdivd,
+
+        fmind,
+        fmaxd,
+
+        fsqrtd,
+
         fld,
         fsd,
+
         feqd,
+        fltd,
+        fled,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
@@ -182,6 +206,7 @@ pub const Inst = struct {
                 lt,
                 lte,
             },
+            size: Memory.Size,
         },
 
         reloc: struct {

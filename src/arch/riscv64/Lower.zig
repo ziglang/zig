@@ -139,7 +139,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 switch (dst_class) {
                     .float => {
-                        try lower.emit(.fsgnjns, &.{
+                        try lower.emit(if (lower.hasFeature(.d)) .fsgnjnd else .fsgnjns, &.{
                             .{ .reg = rr.rd },
                             .{ .reg = rr.rs },
                             .{ .reg = rr.rs },
@@ -176,9 +176,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_load_symbol => {
                 const payload = inst.data.payload;
                 const data = lower.mir.extraData(Mir.LoadSymbolPayload, payload).data;
+                const dst_reg: bits.Register = @enumFromInt(data.register);
+                assert(dst_reg.class() == .int);
 
                 try lower.emit(.lui, &.{
-                    .{ .reg = @enumFromInt(data.register) },
+                    .{ .reg = dst_reg },
                     .{ .imm = lower.reloc(.{ .load_symbol_reloc = .{
                         .atom_index = data.atom_index,
                         .sym_index = data.sym_index,
@@ -187,14 +189,16 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 // the above reloc implies this one
                 try lower.emit(.addi, &.{
-                    .{ .reg = @enumFromInt(data.register) },
-                    .{ .reg = @enumFromInt(data.register) },
+                    .{ .reg = dst_reg },
+                    .{ .reg = dst_reg },
                     .{ .imm = Immediate.s(0) },
                 });
             },
 
             .pseudo_lea_rm => {
                 const rm = inst.data.rm;
+                assert(rm.r.class() == .int);
+
                 const frame = rm.m.toFrameLoc(lower.mir);
 
                 try lower.emit(.addi, &.{
@@ -212,78 +216,135 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const rs1 = compare.rs1;
                 const rs2 = compare.rs2;
 
-                switch (op) {
-                    .eq => {
-                        try lower.emit(.xor, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs1 },
-                            .{ .reg = rs2 },
-                        });
+                const class = rs1.class();
+                const size = compare.size.bitSize();
 
-                        try lower.emit(.sltiu, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rd },
-                            .{ .imm = Immediate.s(1) },
-                        });
-                    },
-                    .neq => {
-                        try lower.emit(.xor, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs1 },
-                            .{ .reg = rs2 },
-                        });
+                switch (class) {
+                    .int => switch (op) {
+                        .eq => {
+                            try lower.emit(.xor, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
 
-                        try lower.emit(.sltu, &.{
-                            .{ .reg = rd },
-                            .{ .reg = .zero },
-                            .{ .reg = rd },
-                        });
-                    },
-                    .gt => {
-                        try lower.emit(.sltu, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs1 },
-                            .{ .reg = rs2 },
-                        });
-                    },
-                    .gte => {
-                        try lower.emit(.sltu, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs1 },
-                            .{ .reg = rs2 },
-                        });
+                            try lower.emit(.sltiu, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rd },
+                                .{ .imm = Immediate.s(1) },
+                            });
+                        },
+                        .neq => {
+                            try lower.emit(.xor, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
 
-                        try lower.emit(.xori, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rd },
-                            .{ .imm = Immediate.s(1) },
-                        });
-                    },
-                    .lt => {
-                        try lower.emit(.slt, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs1 },
-                            .{ .reg = rs2 },
-                        });
-                    },
-                    .lte => {
-                        try lower.emit(.slt, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rs2 },
-                            .{ .reg = rs1 },
-                        });
+                            try lower.emit(.sltu, &.{
+                                .{ .reg = rd },
+                                .{ .reg = .zero },
+                                .{ .reg = rd },
+                            });
+                        },
+                        .gt => {
+                            try lower.emit(.sltu, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                        },
+                        .gte => {
+                            try lower.emit(.sltu, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
 
-                        try lower.emit(.xori, &.{
-                            .{ .reg = rd },
-                            .{ .reg = rd },
-                            .{ .imm = Immediate.s(1) },
-                        });
+                            try lower.emit(.xori, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rd },
+                                .{ .imm = Immediate.s(1) },
+                            });
+                        },
+                        .lt => {
+                            try lower.emit(.slt, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                        },
+                        .lte => {
+                            try lower.emit(.slt, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs2 },
+                                .{ .reg = rs1 },
+                            });
+
+                            try lower.emit(.xori, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rd },
+                                .{ .imm = Immediate.s(1) },
+                            });
+                        },
+                    },
+                    .float => switch (op) {
+                        // eq
+                        .eq => {
+                            try lower.emit(if (size == 64) .feqd else .feqs, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                        },
+                        // !(eq)
+                        .neq => {
+                            try lower.emit(if (size == 64) .feqd else .feqs, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                            try lower.emit(.xori, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rd },
+                                .{ .imm = Immediate.s(1) },
+                            });
+                        },
+                        .lt => {
+                            try lower.emit(if (size == 64) .fltd else .flts, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                        },
+                        .lte => {
+                            try lower.emit(if (size == 64) .fled else .fles, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs1 },
+                                .{ .reg = rs2 },
+                            });
+                        },
+                        .gt => {
+                            try lower.emit(if (size == 64) .fltd else .flts, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs2 },
+                                .{ .reg = rs1 },
+                            });
+                        },
+                        .gte => {
+                            try lower.emit(if (size == 64) .fled else .fles, &.{
+                                .{ .reg = rd },
+                                .{ .reg = rs2 },
+                                .{ .reg = rs1 },
+                            });
+                        },
                     },
                 }
             },
 
             .pseudo_not => {
                 const rr = inst.data.rr;
+                assert(rr.rs.class() == .int and rr.rd.class() == .int);
 
                 try lower.emit(.xori, &.{
                     .{ .reg = rr.rd },
@@ -406,6 +467,12 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     assert(lower.err_msg == null);
     lower.err_msg = try ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;
+}
+
+fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
+    const target = lower.bin_file.comp.module.?.getTarget();
+    const features = target.cpu.features;
+    return std.Target.riscv.featureSetHas(features, feature);
 }
 
 const Lower = @This();
