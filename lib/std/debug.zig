@@ -2942,7 +2942,7 @@ pub fn panicUnwrappedError(st: ?*std.builtin.StackTrace, err: anyerror, ret_addr
     var buf: [256]u8 = undefined;
     buf[0..28].* = "attempted to discard error: ".*;
     const ptr: [*]u8 = cpyEquTrunc(buf[28..][0..64], @errorName(err));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], st, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], st, ret_addr);
 }
 pub fn panicAccessedOutOfBounds(index: usize, length: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -2952,7 +2952,7 @@ pub fn panicAccessedOutOfBounds(index: usize, length: usize, ret_addr: usize) no
     var ptr: [*]u8 = formatIntDec(buf[6..][0..32], index);
     ptr[0..25].* = " out of bounds of length ".*;
     ptr = formatIntDec(ptr[25..][0..32], length);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicAccessedOutOfOrder(start: usize, end: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -2962,7 +2962,7 @@ pub fn panicAccessedOutOfOrder(start: usize, end: usize, ret_addr: usize) noretu
     var ptr: [*]u8 = formatIntDec(buf[12..][0..32], start);
     ptr[0..26].* = " is larger than end index ".*;
     ptr = formatIntDec(ptr[26..][0..32], end);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicAccessedOutOfOrderExtra(start: usize, end: usize, length: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -2980,7 +2980,7 @@ pub fn panicAccessedOutOfOrderExtra(start: usize, end: usize, length: usize, ret
         ptr[0..23].* = " is larger than length ".*;
         ptr = formatIntDec(ptr[23..][0..32], length);
     }
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicMemcpyArgumentAliasing(dest_start: usize, dest_end: usize, src_start: usize, src_end: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -2995,7 +2995,7 @@ pub fn panicMemcpyArgumentAliasing(dest_start: usize, dest_end: usize, src_start
     ptr[0..2].* = " (".*;
     ptr = formatIntDec(ptr[2..][0..32], min -% max);
     ptr[0..7].* = " bytes)".*;
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 7) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr + 7) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicMismatchedMemcpyLengths(dest_len: usize, src_len: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -3005,7 +3005,7 @@ pub fn panicMismatchedMemcpyLengths(dest_len: usize, src_len: usize, ret_addr: u
     var ptr: [*]u8 = formatIntDec(buf[68..][0..32], dest_len);
     ptr[0..9].* = ", source ".*;
     ptr = formatIntDec(ptr[9..][0..32], src_len);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicMismatchedForLoopCaptureLengths(loop_len: usize, capture_len: usize, ret_addr: usize) noreturn {
     @setCold(true);
@@ -3015,7 +3015,7 @@ pub fn panicMismatchedForLoopCaptureLengths(loop_len: usize, capture_len: usize,
     var ptr: [*]u8 = formatIntDec(buf[56..][0..32], loop_len);
     ptr[0..12].* = ", exception ".*;
     ptr = formatIntDec(ptr[12..][0..32], capture_len);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicMismatchedNullSentinel(value: u8, ret_addr: usize) noreturn {
     @setCold(true);
@@ -3023,7 +3023,7 @@ pub fn panicMismatchedNullSentinel(value: u8, ret_addr: usize) noreturn {
     var buf: [128]u8 = undefined; // max_len: 28 + 32 = 60
     buf[0..28].* = "mismatched null terminator: ".*;
     const ptr: [*]u8 = formatIntDec(buf[28..][0..32], @as(usize, value));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastToPointerFromInvalid(
     address: usize,
@@ -3047,7 +3047,7 @@ pub fn panicCastToPointerFromInvalid(
         ptr[0..40].* = "cast to null pointer without 'allowzero'".*;
         ptr += 40;
     }
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastToTagFromInvalid(
     comptime Integer: type,
@@ -3062,7 +3062,7 @@ pub fn panicCastToTagFromInvalid(
     var ptr: [*]u8 = cpyEquTrunc(buf[9..][0..64], type_name);
     ptr[0..21].* = "' from invalid value ".*;
     ptr = formatIntDec(ptr[21..][0..32], value);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastToErrorFromInvalid(
     comptime From: type,
@@ -3087,7 +3087,7 @@ pub fn panicCastToErrorFromInvalid(
         ptr[0..2].* = "' ".*;
         ptr = formatAny(ptr[2..][0..80], value);
     }
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastToIntFromInvalid(
     comptime To: type,
@@ -3103,7 +3103,7 @@ pub fn panicCastToIntFromInvalid(
     if (@typeInfo(From) == .Vector or @typeInfo(To) == .Vector or
         (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64))
     {
-        return std.debug.panicImpl("integer part of floating point value out of bounds", null, ret_addr);
+        return panicImpl("integer part of floating point value out of bounds", null, ret_addr);
     }
     const yn: bool = value < 0;
     var buf: [256]u8 = undefined; // max_len: 82 + 13 + 32 + 82 = 177
@@ -3111,7 +3111,7 @@ pub fn panicCastToIntFromInvalid(
     ptr[0..13].* = " overflowed: ".*;
     ptr = formatAny(ptr[13..][0..32], value);
     ptr = writeAboveOrBelowLimit(ptr, std.meta.BestNum(To), to_type_name, yn, @intCast(if (yn) extrema.min else extrema.max));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastTruncatedData(
     comptime To: type,
@@ -3127,7 +3127,7 @@ pub fn panicCastTruncatedData(
     if (@typeInfo(From) == .Vector or @typeInfo(To) == .Vector or
         (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64))
     {
-        return std.debug.panicImpl("cast truncated bits", null, ret_addr);
+        return panicImpl("cast truncated bits", null, ret_addr);
     }
     var buf: [256]u8 = undefined; // max_len: 82 + 17 + 32 + 82 = 213
     const yn: bool = value < 0;
@@ -3135,7 +3135,7 @@ pub fn panicCastTruncatedData(
     ptr[0..17].* = " truncated bits: ".*;
     ptr = formatIntDec(ptr[17..][0..32], value);
     ptr = writeAboveOrBelowLimit(ptr, std.meta.BestNum(To), to_type_name, yn, @intCast(if (yn) extrema.min else extrema.max));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicCastToUnsignedFromNegative(
     comptime To: type,
@@ -3150,14 +3150,14 @@ pub fn panicCastToUnsignedFromNegative(
     if (@typeInfo(From) == .Vector or @typeInfo(To) == .Vector or
         (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64))
     {
-        return std.debug.panicImpl("cast to unsigned from negative", null, ret_addr);
+        return panicImpl("cast to unsigned from negative", null, ret_addr);
     }
     var buf: [256]u8 = undefined; // max_len: 82 + 18 + 32 + 1 = 133
     var ptr: [*]u8 = writeCastToFrom(&buf, to_type_name, from_type_name);
     ptr[0..18].* = " lost signedness (".*;
     ptr = formatIntDec(ptr[18..][0..32], value);
     ptr[0] = ')';
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 1) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr + 1) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicMismatchedSentinel(
     comptime Number: type,
@@ -3169,7 +3169,7 @@ pub fn panicMismatchedSentinel(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and (@bitSizeOf(Number) > 64)) {
-        return std.debug.panicImpl("mismatched sentinel", null, ret_addr);
+        return panicImpl("mismatched sentinel", null, ret_addr);
     }
     var buf: [256]u8 = undefined; // max_len: 32 + 29 + 80 + 8 + 80 = 229
     var ptr: [*]u8 = cpyEquTrunc(buf[0..32], type_name);
@@ -3177,7 +3177,7 @@ pub fn panicMismatchedSentinel(
     ptr = formatAny(ptr[29..][0..80], expected);
     ptr[0..8].* = ", found ".*;
     ptr = formatAny(ptr[8..][0..80], found);
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicAccessedInactiveField(
     expected: []const u8,
@@ -3192,7 +3192,7 @@ pub fn panicAccessedInactiveField(
     ptr[0..15].* = "' while field '".*;
     ptr = cpyEquTrunc(ptr[15..][0..80], expected);
     ptr[0..11].* = "' is active".*;
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr + 11) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr + 11) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicExactDivisionWithRemainder(
     comptime Number: type,
@@ -3203,7 +3203,7 @@ pub fn panicExactDivisionWithRemainder(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-        return std.debug.panicImpl("exact division with remainder", null, ret_addr);
+        return panicImpl("exact division with remainder", null, ret_addr);
     }
     var buf: [256]u8 = undefined; // max_len: 31 + 1 + 32 + 1 + 32 + 4 + 64 + 1 + 64 = 230
     buf[0..31].* = "exact division with remainder: ".*;
@@ -3214,7 +3214,7 @@ pub fn panicExactDivisionWithRemainder(
     ptr = formatAny(ptr[4..][0..64], @divTrunc(lhs, rhs));
     ptr[0] = 'r';
     ptr = formatAny(ptr[1..][0..64], @rem(lhs, rhs));
-    std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+    panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 /// max_len: 9 + 32 + 8 + 32 + 1 = 82
 pub fn writeCastToFrom(
@@ -3247,13 +3247,21 @@ pub fn writeAboveOrBelowLimit(
 }
 
 pub fn panicArithOverflow(comptime Operand: type) type {
-    return if (@typeInfo(Operand) == .Vector) struct {
-        const Scalar = @typeInfo(Operand).Vector.child;
+    const Scalar = std.meta.Scalar(Operand);
+    return if (Scalar != Operand) struct {
         const Format = panicArithOverflow(Scalar);
         const Absolute = @TypeOf(@abs(@as(Scalar, undefined)));
-        const Extrema = std.meta.BestExtrema(Operand);
+        const Extrema = std.meta.BestExtrema(Scalar);
         const len: comptime_int = @typeInfo(Operand).Vector.len;
         const simplify = builtin.zig_backend != .stage2_llvm;
+
+        fn writeVecIdx(buf: [*]u8, idx: usize) [*]u8 {
+            @setRuntimeSafety(false);
+            buf[0..2].* = " [".*;
+            var ptr: [*]u8 = formatIntDec(buf[2..18], idx);
+            ptr[0..5].* = "]    ".*;
+            return ptr + 5;
+        }
         pub fn add(
             type_name: []const u8,
             extrema: Extrema,
@@ -3265,10 +3273,12 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (simplify) panicImpl("add overflowed", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeAdd(ptr, type_name, extrema, lhs[idx], rhs[idx]);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "add overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeAdd(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
@@ -3283,10 +3293,12 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (simplify) panicImpl("sub overflowed", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeSub(ptr, type_name, extrema, lhs[idx], rhs[idx]);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "sub overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeSub(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
@@ -3301,10 +3313,12 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (simplify) panicImpl("mul overflowed", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeMul(ptr, type_name, extrema, lhs[idx], rhs[idx]);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "mul overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeMul(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
@@ -3319,53 +3333,59 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (simplify) panicImpl("div overflowed", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeDiv(ptr, type_name, extrema, lhs[idx], rhs[idx]);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "div overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeDiv(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shl(
             type_name: []const u8,
             values: Operand,
-            shift_amts: anytype,
+            shift_amts: [len]u16,
             mask: Absolute,
             ret_addr: usize,
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("shl overflowed", null, ret_addr);
+            if (simplify) panicImpl("left shift overflowed bits", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeShl(ptr, type_name, values[idx], shift_amts[idx], mask);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "left shift overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeShl(ptr, type_name, values[idx], shift_amts[idx], mask, false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shr(
             type_name: []const u8,
             values: Operand,
-            shift_amts: anytype,
+            shift_amts: [len]u16,
             mask: Absolute,
             ret_addr: usize,
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("shr overflowed", null, ret_addr);
+            if (simplify) panicImpl("right shift overflowed bits", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeShr(ptr, type_name, values[idx], shift_amts[idx], mask);
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "right shift overflowed");
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeShr(ptr, type_name, values[idx], shift_amts[idx], mask, false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shiftRhs(
             type_name: []const u8,
             bit_count: u16,
-            shift_amts: anytype,
+            shift_amts: [len]u16,
             ret_addr: usize,
         ) noreturn {
             @setCold(true);
@@ -3373,11 +3393,25 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             if (simplify) panicImpl("shift RHS overflowed", null, ret_addr);
             var buf: [len * 384]u8 = undefined;
             var ptr: [*]u8 = &buf;
-            var idx: usize = 0;
-            while (idx != len) : (idx +%= 1) {
-                ptr = Format.writeShiftRhs(ptr, type_name, bit_count, shift_amts[idx]);
+            for (0..len) |idx| {
+                ptr = writeVecIdx(ptr, idx);
+                ptr = Format.writeShiftRhs(ptr, type_name, bit_count, shift_amts[idx], false);
+                ptr[0] = '\n';
+                ptr += 1;
             }
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
+        }
+        fn writeWhatOverflowed(
+            buf: [*]u8,
+            type_name: []const u8,
+            op_name: []const u8,
+        ) [*]u8 {
+            @setRuntimeSafety(false);
+            var ptr: [*]u8 = cpyEqu(buf, op_name);
+            ptr[0] = ' ';
+            ptr = cpyEquTrunc(ptr[1..][0..16], type_name);
+            ptr[0..2].* = ":\n".*;
+            return ptr + 2;
         }
     } else struct {
         const Extrema = std.meta.BestExtrema(Operand);
@@ -3394,7 +3428,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("add overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeAdd(&buf, type_name, extrema, lhs, rhs);
+            const ptr: [*]u8 = writeAdd(&buf, type_name, extrema, lhs, rhs, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn sub(
@@ -3408,7 +3442,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("sub overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeSub(&buf, type_name, extrema, lhs, rhs);
+            const ptr: [*]u8 = writeSub(&buf, type_name, extrema, lhs, rhs, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn mul(
@@ -3422,7 +3456,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("mul overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeMul(&buf, type_name, extrema, lhs, rhs);
+            const ptr: [*]u8 = writeMul(&buf, type_name, extrema, lhs, rhs, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn div(
@@ -3436,7 +3470,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("div overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeDiv(&buf, type_name, extrema, lhs, rhs);
+            const ptr: [*]u8 = writeDiv(&buf, type_name, extrema, lhs, rhs, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shl(
@@ -3450,7 +3484,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("shl overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeShl(&buf, type_name, value, shift_amt, mask);
+            const ptr: [*]u8 = writeShl(&buf, type_name, value, shift_amt, mask, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shr(
@@ -3464,7 +3498,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             @setRuntimeSafety(false);
             if (large) panicImpl("shr overflowed", null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeShr(&buf, type_name, value, shift_amt, mask);
+            const ptr: [*]u8 = writeShr(&buf, type_name, value, shift_amt, mask, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shiftRhs(
@@ -3486,10 +3520,11 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             extrema: Extrema,
             lhs: Operand,
             rhs: Operand,
+            what: bool,
         ) [*]u8 {
             @setRuntimeSafety(false);
             const yn: bool = rhs < 0;
-            const ptr: [*]u8 = writeOverflowed(buf, "add overflowed ", type_name, " + ", lhs, rhs, &@addWithOverflow(lhs, rhs));
+            const ptr: [*]u8 = writeOverflowed(buf, "add overflowed ", type_name, " + ", lhs, rhs, &@addWithOverflow(lhs, rhs), what);
             return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
         }
         fn writeSub(
@@ -3498,10 +3533,11 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             extrema: Extrema,
             lhs: Operand,
             rhs: Operand,
+            what: bool,
         ) [*]u8 {
             @setRuntimeSafety(false);
             const yn: bool = rhs > 0;
-            const ptr: [*]u8 = writeOverflowed(buf, "sub overflowed ", type_name, " - ", lhs, rhs, &@subWithOverflow(lhs, rhs));
+            const ptr: [*]u8 = writeOverflowed(buf, "sub overflowed ", type_name, " - ", lhs, rhs, &@subWithOverflow(lhs, rhs), what);
             return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
         }
         fn writeMul(
@@ -3510,9 +3546,10 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             extrema: Extrema,
             lhs: Operand,
             rhs: Operand,
+            what: bool,
         ) [*]u8 {
             @setRuntimeSafety(false);
-            const ptr: [*]u8 = writeOverflowed(buf, "mul overflowed ", type_name, " * ", lhs, rhs, &@mulWithOverflow(lhs, rhs));
+            const ptr: [*]u8 = writeOverflowed(buf, "mul overflowed ", type_name, " * ", lhs, rhs, &@mulWithOverflow(lhs, rhs), what);
             const yn: bool = @bitCast(
                 (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
                     (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
@@ -3525,9 +3562,10 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             extrema: Extrema,
             lhs: Operand,
             rhs: Operand,
+            what: bool,
         ) [*]u8 {
             @setRuntimeSafety(false);
-            const ptr: [*]u8 = writeOverflowed(buf, "div overflowed ", type_name, " / ", lhs, rhs, null);
+            const ptr: [*]u8 = writeOverflowed(buf, "div overflowed ", type_name, " / ", lhs, rhs, null, what);
             const yn: bool = @bitCast(
                 (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
                     (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
@@ -3540,18 +3578,25 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             value: Operand,
             shift_amt: u16,
             mask: Absolute,
+            what: bool,
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
             const absolute: Absolute = @bitCast(value);
-            const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute << @intCast(shift_amt)) & mask);
-            buf[0..22].* = "left shift overflowed ".*;
-            var ptr: [*]u8 = cpyEquTrunc(buf[22..][0..16], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = formatIntDec(ptr[2..][0..32], value);
+            const a_pc: u16 = @popCount(absolute & mask);
+            const b_pc: u16 = @popCount((absolute << @intCast(shift_amt)) & mask);
+            var ptr: [*]u8 = buf;
+            if (what) {
+                ptr[0..22].* = "left shift overflowed ".*;
+                ptr = cpyEquTrunc(ptr[22..][0..16], type_name);
+                ptr[0..2].* = ": ".*;
+                ptr += 2;
+            }
+            ptr = formatIntDec(ptr[0..32], value);
             ptr[0..4].* = " << ".*;
             ptr = formatIntDec(ptr[4..][0..32], @as(usize, shift_amt));
-            return writeShiftedOutBits(ptr, ov_bits);
+            if (a_pc <= b_pc) return ptr;
+            return writeShiftedOutBits(ptr, a_pc -% b_pc);
         }
         fn writeShr(
             buf: [*]u8,
@@ -3559,18 +3604,25 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             value: Operand,
             shift_amt: u16,
             mask: Absolute,
+            what: bool,
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
             const absolute: Absolute = @bitCast(value);
-            const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute << @intCast(shift_amt)) & mask);
-            buf[0..23].* = "right shift overflowed ".*;
-            var ptr: [*]u8 = cpyEquTrunc(buf[23..][0..16], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = formatIntDec(ptr[2..][0..32], value);
+            const a_pc: u16 = @popCount(absolute & mask);
+            const b_pc: u16 = @popCount((absolute >> @intCast(shift_amt)) & mask);
+            var ptr: [*]u8 = buf;
+            if (what) {
+                ptr[0..23].* = "right shift overflowed ".*;
+                ptr = cpyEquTrunc(ptr[23..][0..16], type_name);
+                ptr[0..2].* = ": ".*;
+                ptr += 2;
+            }
+            ptr = formatIntDec(ptr[0..32], value);
             ptr[0..4].* = " >> ".*;
             ptr = formatIntDec(ptr[4..][0..32], @as(usize, shift_amt));
-            return writeShiftedOutBits(ptr, ov_bits);
+            if (a_pc <= b_pc) return ptr;
+            return writeShiftedOutBits(ptr, a_pc -% b_pc);
         }
         fn writeShiftRhs(
             buf: [*]u8,
@@ -3588,19 +3640,24 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         }
         fn writeOverflowed(
             buf: [*]u8,
-            op_name: *const [15]u8,
+            op_name: []const u8,
             type_name: []const u8,
             op_sym: *const [3]u8,
             lhs: Operand,
             rhs: Operand,
             res_opt: ?*const struct { Operand, u1 },
+            what: bool,
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
-            buf[0..15].* = op_name.*;
-            var ptr: [*]u8 = cpyEquTrunc(buf[15..][0..16], type_name);
-            ptr[0..2].* = ": ".*;
-            ptr = formatIntDec(ptr[2..][0..32], lhs);
+            var ptr: [*]u8 = buf;
+            if (what) {
+                ptr = cpyEqu(ptr, op_name);
+                ptr = cpyEquTrunc(ptr[0..16], type_name);
+                ptr[0..2].* = ": ".*;
+                ptr += 2;
+            }
+            ptr = formatIntDec(ptr[0..32], lhs);
             ptr[0..3].* = op_sym.*;
             ptr = formatIntDec(ptr[3..][0..32], rhs);
             if (res_opt) |res| {
@@ -3619,7 +3676,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
-            buf[0..13].* = " shifted out ".*;
+            buf[0..13].* = " shifted-out ".*;
             var ptr: [*]u8 = formatIntDec(buf[13..][0..32], @as(usize, ov_bits));
             ptr[0..5].* = " bits".*;
             return ptr + 4 + @intFromBool(ov_bits != 1);
@@ -3628,7 +3685,6 @@ pub fn panicArithOverflow(comptime Operand: type) type {
 }
 
 fn cpyEquTrunc(slice: []u8, str: []const u8) [*]u8 {
-    @setRuntimeSafety(true);
     if (str.len > slice.len) {
         _ = cpyEqu(slice.ptr, str[0..slice.len]);
         (slice.ptr - 4)[slice.len..][0..4].* = "[..]".*;
@@ -3638,7 +3694,7 @@ fn cpyEquTrunc(slice: []u8, str: []const u8) [*]u8 {
     }
 }
 fn cpyEqu(ptr: [*]u8, str: []const u8) [*]u8 {
-    @memcpy(ptr, str);
+    for (str, 0..) |byte, idx| ptr[idx] = byte;
     return ptr + str.len;
 }
 fn writeErrorFormattingValue(buf: []u8) [*]u8 {
@@ -3655,26 +3711,10 @@ fn formatAny(buf: []u8, value: anytype) [*]u8 {
     return buf.ptr + fbs.pos;
 }
 fn formatIntDec(buf: []u8, value: anytype) [*]u8 {
-    if (@typeInfo(@TypeOf(value)) != .Int) {
-        @compileError("can not format non-integer '" ++ @typeName(@TypeOf(value)) ++ "'");
-    }
-    std.debug.assert(@sizeOf(@TypeOf(value)) >= @sizeOf(usize));
-    var fbs = std.io.fixedBufferStream(buf);
-    std.fmt.formatInt(value, 10, .lower, .{}, fbs.writer()) catch {
-        return writeErrorFormattingValue(buf);
-    };
-    return buf.ptr + fbs.pos;
+    return buf.ptr + std.fmt.formatIntBuf(buf, value, 10, .lower, .{});
 }
 fn formatIntHex(buf: []u8, value: anytype) [*]u8 {
-    if (@typeInfo(@TypeOf(value)) != .Int) {
-        @compileError("can not format non-integer '" ++ @typeName(@TypeOf(value)) ++ "'");
-    }
-    std.debug.assert(@sizeOf(@TypeOf(value)) >= @sizeOf(usize));
-    var fbs = std.io.fixedBufferStream(buf);
-    std.fmt.formatInt(value, 16, .lower, .{}, fbs.writer()) catch {
-        return writeErrorFormattingValue(buf);
-    };
-    return buf.ptr + fbs.pos;
+    return buf.ptr + std.fmt.formatIntBuf(buf, value, 16, .lower, .{});
 }
 
 test {

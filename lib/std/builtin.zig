@@ -1046,26 +1046,26 @@ fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
             error_type.from, @typeName(error_type.to), data, @returnAddress(),
         }),
         .mul_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).mul, .{
-            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .add_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).add, .{
-            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .sub_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).sub, .{
-            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .div_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).div, .{
-            @typeName(int_type), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .inc_overflowed, .dec_overflowed => {},
         .shl_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
-            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
         }),
         .shr_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shr, .{
-            @typeName(int_type), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
         }),
         .shift_amt_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(@TypeOf(data))).shiftRhs, .{
-            @typeName(int_type), @bitSizeOf(int_type), data, @returnAddress(),
+            @typeName(std.meta.Scalar(int_type)), @bitSizeOf(int_type), data, @returnAddress(),
         }),
         .div_with_remainder => |num_type| @call(.auto, std.debug.panicExactDivisionWithRemainder, .{
             std.meta.BestNum(num_type), data.lhs, data.rhs, @returnAddress(),
