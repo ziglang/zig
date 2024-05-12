@@ -76,34 +76,40 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
 inline fn memcpy_aligned(
     noalias dest: [*]CopyType,
     noalias src: [*]const CopyType,
-    len: usize,
+    max_bytes: usize,
 ) void {
-    memcpy_blocks(dest, src, len);
+    memcpy_blocks(dest, src, max_bytes);
 }
 
 inline fn memcpy_unaligned(
     noalias dest: [*]align(1) CopyType,
     noalias src: [*]const CopyType,
-    len: usize,
+    max_bytes: usize,
 ) void {
-    memcpy_blocks(dest, src, len);
+    memcpy_blocks(dest, src, max_bytes);
 }
 
+/// Copies a multiple of `@sizeOf(T)` bytes from `src` to `dest`, where `T` is
+/// the child type of `src` and `dest`. No more than `max_bytes` will be copied
+/// (`max_bytes` need not be a multiple of `@sizeOf(T)`) but `max_bytes` must
+/// be at least `@sizeOf(T)`.
 inline fn memcpy_blocks(
     noalias dest: anytype,
     noalias src: anytype,
-    len: usize,
+    max_bytes: usize,
 ) void {
     @setRuntimeSafety(false);
 
-    var d = dest;
-    var s = src;
-    var loop_count = len / size;
+    const T = @typeInfo(@TypeOf(dest)).Pointer.child;
+    comptime std.debug.assert(T == @typeInfo(@TypeOf(src)).Pointer.child);
 
-    while (loop_count > 0) : (loop_count -= 1) {
-        d[0] = s[0];
-        d += 1;
-        s += 1;
+    const loop_count = max_bytes / @sizeOf(T);
+
+    var i: usize = 0;
+    while (true) {
+        dest[i] = src[i];
+        i += 1;
+        if (i == loop_count) break;
     }
 }
 
