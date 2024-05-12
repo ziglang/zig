@@ -688,7 +688,6 @@ test "string concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
@@ -728,7 +727,6 @@ fn maybe(x: bool) anyerror!?u32 {
 test "auto created variables have correct alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(str: [*]const u8) u32 {
@@ -893,7 +891,6 @@ test "weird array and tuple initializations" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const E = enum { a, b };
     const S = struct { e: E };
@@ -1012,7 +1009,6 @@ comptime {
 
 test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: u32 = 0;
     _ = &a;
@@ -1379,8 +1375,6 @@ test "allocation and looping over 3-byte integer" {
 }
 
 test "loading array from struct is not optimized away" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         arr: [1]u32 = .{0},
         fn doTheTest(self: *@This()) !void {

@@ -3207,10 +3207,6 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
         const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
         defer self.register_manager.unlockReg(offset_reg_lock);
 
-        if (true) return self.fail("TODO: airPtrElemPtr", .{});
-
-        // TODO: something is breaking here dunno
-
         break :result try self.binOp(.ptr_add, base_ptr_mcv, base_ptr_ty, .{ .register = offset_reg }, base_ptr_ty);
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
@@ -5862,6 +5858,29 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                     const elem_mcv = try self.resolveInst(elem);
                     try self.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, elem_mcv);
                 }
+                break :result .{ .load_frame = .{ .index = frame_index } };
+            },
+            .Array => {
+                const elem_ty = result_ty.childType(zcu);
+                const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, zcu));
+                const elem_size: u32 = @intCast(elem_ty.abiSize(zcu));
+
+                for (elements, 0..) |elem, elem_i| {
+                    const elem_mcv = try self.resolveInst(elem);
+                    const elem_off: i32 = @intCast(elem_size * elem_i);
+                    try self.genSetMem(
+                        .{ .frame = frame_index },
+                        elem_off,
+                        elem_ty,
+                        elem_mcv,
+                    );
+                }
+                if (result_ty.sentinel(zcu)) |sentinel| try self.genSetMem(
+                    .{ .frame = frame_index },
+                    @intCast(elem_size * elements.len),
+                    elem_ty,
+                    try self.genTypedValue(sentinel),
+                );
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
             else => return self.fail("TODO: airAggregate {}", .{result_ty.fmt(zcu)}),

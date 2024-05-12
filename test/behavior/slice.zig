@@ -185,8 +185,6 @@ test "slicing zero length array" {
 }
 
 test "slicing pointer by length" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     const ptr: [*]const u8 = @as([*]const u8, @ptrCast(&array));
     const slice = ptr[1..][0..5];
@@ -306,7 +304,6 @@ test "slice type with custom alignment" {
 
 test "obtaining a null terminated slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // here we have a normal array
     var buf: [50]u8 = undefined;
@@ -772,7 +769,6 @@ test "slice sentinel access at comptime" {
 test "slicing array with sentinel as end index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn do() !void {

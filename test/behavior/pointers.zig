@@ -541,7 +541,6 @@ test "pointer alignment and element type include call expression" {
 
 test "pointer to array has explicit alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Base = extern struct { a: u8 };
