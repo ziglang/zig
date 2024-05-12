@@ -1327,7 +1327,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
         cache.hash.addBytes(options.root_name);
         cache.hash.add(options.config.wasi_exec_model);
-        cache.hash.add(@as(u64, @bitCast(Package.Module.runtime_safety)));
 
         // TODO audit this and make sure everything is in it
 
