@@ -304,7 +304,7 @@ pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags:
     return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
-pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
+pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: ?LPCWSTR, flags: DWORD, desired_access: DWORD) !HANDLE {
     const handle = kernel32.CreateEventExW(attributes, nameW, flags, desired_access);
     if (handle) |h| {
         return h;
