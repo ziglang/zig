@@ -179,14 +179,14 @@ null_stack_trace: InternPool.Index = .none,
 safety: struct {
     panic_cause_ty: Type = .{ .ip_index = .none },
     panic_cast_ty: Type = .{ .ip_index = .none },
-    panic_fn_inst: Air.Inst.Ref = .none,
-    panic_extra_fn_inst: Air.Inst.Ref = .none,
-    null_st: InternPool.Index = .none,
-    null_addr: InternPool.Index = .none,
 
-    // ATTENTION Remove when testing is complete
-    is_named_enum_value_fn_inst: Air.Inst.Ref = .none,
-    error_set_has_value_fn_inst: Air.Inst.Ref = .none,
+    panic_fn_inst: Air.Inst.Ref = .none,
+    panic_data_fn_inst: Air.Inst.Ref = .none,
+
+    // Any first parameter.
+    panic_fn_id_arg_ty: InternPool.Index = .none,
+    // Any second parameter.
+    panic_fn_data_arg_ty: InternPool.Index = .none,
 } = .{},
 
 pub const PanicId = enum {

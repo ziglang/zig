@@ -367,7 +367,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .code_model = code_model,
             .omit_frame_pointer = omit_frame_pointer,
             .wasi_exec_model = options.global.wasi_exec_model,
-            .runtime_safety = runtime_safety,
         }, arena);
 
         const new = if (options.builtin_modules) |builtins| new: {
@@ -520,6 +519,3 @@ const Builtin = @import("../Builtin.zig");
 const assert = std.debug.assert;
 const Compilation = @import("../Compilation.zig");
 const File = @import("../Module.zig").File;
-
-/// Runtime safety test compile commands bit-field
-pub var runtime_safety: std.builtin.RuntimeSafety = .{};
