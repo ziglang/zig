@@ -102,7 +102,7 @@ pub const Memory = struct {
 
 pub const Immediate = union(enum) {
     signed: i32,
-    unsigned: u32,
+    unsigned: u64,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };

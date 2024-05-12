@@ -1668,12 +1668,66 @@ fn allocReg(self: *Self, reg_class: abi.RegisterClass) !struct { Register, Regis
     return .{ reg, lock };
 }
 
+const PromoteOptions = struct {
+    /// zeroes out the register before loading in the operand
+    ///
+    /// if the operand is already a register, it will truncate with 0
+    zero: bool = false,
+};
+
 /// Similar to `allocReg` but will copy the MCValue into the Register unless `operand` is already
 /// a register, in which case it will return a possible lock to that register.
-fn promoteReg(self: *Self, ty: Type, operand: MCValue) !struct { Register, ?RegisterLock } {
-    if (operand == .register) return .{ operand.register, self.register_manager.lockReg(operand.register) };
+fn promoteReg(self: *Self, ty: Type, operand: MCValue, options: PromoteOptions) !struct { Register, ?RegisterLock } {
+    const zcu = self.bin_file.comp.module.?;
+    const bit_size = ty.bitSize(zcu);
+
+    if (operand == .register) {
+        const op_reg = operand.register;
+        if (options.zero and op_reg.class() == .int) {
+            // we make sure to emit the truncate manually because binOp will call this function
+            // and it could cause an infinite loop
+
+            _ = try self.addInst(.{
+                .tag = .slli,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .imm12 = Immediate.u(64 - bit_size),
+                        .rd = op_reg,
+                        .rs1 = op_reg,
+                    },
+                },
+            });
+
+            _ = try self.addInst(.{
+                .tag = .srli,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .imm12 = Immediate.u(64 - bit_size),
+                        .rd = op_reg,
+                        .rs1 = op_reg,
+                    },
+                },
+            });
+        }
+
+        return .{ op_reg, self.register_manager.lockReg(operand.register) };
+    }
 
     const reg, const lock = try self.allocReg(self.typeRegClass(ty));
+
+    if (options.zero and reg.class() == .int) {
+        _ = try self.addInst(.{
+            .tag = .pseudo,
+            .ops = .pseudo_mv,
+            .data = .{ .rr = .{
+                .rd = reg,
+                .rs = .zero,
+            } },
+        });
+    }
+
     try self.genSetReg(ty, reg, operand);
     return .{ reg, lock };
 }
@@ -2124,10 +2178,10 @@ fn binOpRegister(
     rhs: MCValue,
     rhs_ty: Type,
 ) !MCValue {
-    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{ .zero = true });
     defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{ .zero = true });
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const dest_reg, const dest_lock = try self.allocReg(.int);
@@ -2223,10 +2277,10 @@ fn binOpFloat(
     const zcu = self.bin_file.comp.module.?;
     const float_bits = lhs_ty.floatBits(zcu.getTarget());
 
-    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+    const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{});
     defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+    const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{});
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
     const mir_tag: Mir.Inst.Tag = switch (tag) {
@@ -2425,10 +2479,10 @@ fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const result_mcv = try self.allocRegOrMem(inst, false);
         const offset = result_mcv.load_frame;
 
-        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{});
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{});
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const dest_reg, const dest_lock = try self.allocReg(.int);
@@ -2559,7 +2613,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                                         1...8 => {
                                             const max_val = std.math.pow(u16, 2, int_info.bits) - 1;
 
-                                            const add_reg, const add_lock = try self.promoteReg(lhs_ty, lhs);
+                                            const add_reg, const add_lock = try self.promoteReg(lhs_ty, lhs, .{});
                                             defer if (add_lock) |lock| self.register_manager.unlockReg(lock);
 
                                             const overflow_reg, const overflow_lock = try self.allocReg(.int);
@@ -2645,10 +2699,10 @@ fn airBitAnd(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{});
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{});
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const dest_reg, const dest_lock = try self.allocReg(.int);
@@ -2678,10 +2732,10 @@ fn airBitOr(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(bin_op.lhs);
         const rhs_ty = self.typeOf(bin_op.rhs);
 
-        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{});
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{});
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const dest_reg, const dest_lock = try self.allocReg(.int);
@@ -4706,10 +4760,10 @@ fn airBoolOp(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = Type.bool;
         const rhs_ty = Type.bool;
 
-        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs);
+        const lhs_reg, const lhs_lock = try self.promoteReg(lhs_ty, lhs, .{});
         defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs);
+        const rhs_reg, const rhs_lock = try self.promoteReg(rhs_ty, rhs, .{});
         defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         const result_reg, const result_lock = try self.allocReg(.int);
@@ -4905,7 +4959,7 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             const src_info: ?struct { addr_reg: Register, addr_lock: ?RegisterLock } = switch (src_mcv) {
                 .register_pair, .memory, .indirect, .load_frame => null,
                 .load_symbol => src: {
-                    const src_addr_reg, const src_addr_lock = try self.promoteReg(Type.usize, src_mcv.address());
+                    const src_addr_reg, const src_addr_lock = try self.promoteReg(Type.usize, src_mcv.address(), .{});
                     errdefer self.register_manager.unlockReg(src_addr_lock);
 
                     break :src .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
@@ -5463,7 +5517,7 @@ fn genSetMem(
         .immediate => {
             // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
             // a register allocation.
-            const reg, const reg_lock = try self.promoteReg(ty, src_mcv);
+            const reg, const reg_lock = try self.promoteReg(ty, src_mcv, .{});
             defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
 
             return self.genSetMem(base, disp, ty, .{ .register = reg });

@@ -740,7 +740,6 @@ test "ret_ptr doesn't cause own inferred error set to be resolved" {
 
 test "simple else prong allowed even when all errors handled" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() !u8 {

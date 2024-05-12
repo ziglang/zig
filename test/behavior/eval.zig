@@ -395,7 +395,6 @@ test "return 0 from function that has u0 return type" {
 test "statically initialized struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     st_init_str_foo.x += 1;
     try expect(st_init_str_foo.x == 14);
@@ -787,7 +786,6 @@ test "array concatenation peer resolves element types - pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a = [2]u3{ 1, 7 };
     var b = [3]u8{ 200, 225, 255 };

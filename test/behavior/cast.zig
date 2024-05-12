@@ -57,8 +57,6 @@ test "@intCast to comptime_int" {
 }
 
 test "implicit cast comptime numbers to any type when the value fits" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const a: u64 = 255;
     var b: u8 = a;
     _ = &b;
