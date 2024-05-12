@@ -1347,6 +1347,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
 
 fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
     const gpa = f.arena.child_allocator;
+    const cache_root = f.job_queue.global_cache;
     // Recursive directory copy.
     var it = try dir.walk(gpa);
     defer it.deinit();
@@ -1354,18 +1355,26 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
         switch (entry.kind) {
             .directory => {}, // omit empty directories
             .file => {
-                dir.copyFile(
-                    entry.path,
-                    tmp_dir,
-                    entry.path,
-                    .{},
-                ) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
-                    },
-                    else => |e| return e,
-                };
+                const full_path = try dir.realpathAlloc(gpa, entry.path);
+                defer gpa.free(full_path);
+
+                const cache_path = try cache_root.handle.realpathAlloc(gpa, ".");
+                defer gpa.free(cache_path);
+
+                if (!std.mem.startsWith(u8, full_path, cache_path)) {
+                    dir.copyFile(
+                        entry.path,
+                        tmp_dir,
+                        entry.path,
+                        .{},
+                    ) catch |err| switch (err) {
+                        error.FileNotFound => {
+                            if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                            try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
+                        },
+                        else => |e| return e,
+                    };
+                }
             },
             .sym_link => {
                 var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
