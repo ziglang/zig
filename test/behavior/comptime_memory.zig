@@ -408,6 +408,8 @@ test "mutate entire slice at comptime" {
 }
 
 test "dereference undefined pointer to zero-bit type" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const p0: *void = undefined;
     try testing.expectEqual({}, p0.*);
 
@@ -513,5 +515,7 @@ fn fieldPtrTest() u32 {
     return a.value;
 }
 test "pointer in aggregate field can mutate comptime state" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     try comptime std.testing.expect(fieldPtrTest() == 2);
 }

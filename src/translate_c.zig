@@ -1080,6 +1080,8 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
                 .name = enum_val_name,
                 .is_public = toplevel,
                 .type = enum_const_type_node,
+                // TODO: as of LLVM 18, the return value from `enum_const.getInitVal` here needs
+                // to be freed with a call to its free() method.
                 .value = try transCreateNodeAPInt(c, enum_const.getInitVal()),
             });
             if (toplevel)
@@ -3592,6 +3594,7 @@ fn transUnaryExprOrTypeTraitExpr(
     const node = switch (kind) {
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
+        .DataSizeOf,
         .PreferredAlignOf,
         .VecStep,
         .OpenMPRequiredSimdAlign,

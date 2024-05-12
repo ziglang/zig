@@ -1,7 +1,7 @@
 const expect = @import("std").testing.expect;
 
 test "for basics" {
-    const items = [_]i32 { 4, 5, 3, 4, 0 };
+    const items = [_]i32{ 4, 5, 3, 4, 0 };
     var sum: i32 = 0;
 
     // For loops iterate over slices and arrays.
@@ -31,7 +31,7 @@ test "for basics" {
 
     // To iterate over consecutive integers, use the range syntax.
     // Unbounded range is always a compile error.
-    var sum3 : usize = 0;
+    var sum3: usize = 0;
     for (0..5) |i| {
         sum3 += i;
     }

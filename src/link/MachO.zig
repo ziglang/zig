@@ -891,6 +891,10 @@ pub fn resolveLibSystem(
             },
         };
 
+        for (self.lib_dirs) |dir| {
+            if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
+        }
+
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return error.MissingLibSystem;
     }
@@ -3676,10 +3680,17 @@ pub inline fn getPageSize(self: MachO) u16 {
 
 pub fn requiresCodeSig(self: MachO) bool {
     if (self.entitlements) |_| return true;
+    // TODO: enable once we support this linker option
     // if (self.options.adhoc_codesign) |cs| return cs;
-    return switch (self.getTarget().cpu.arch) {
-        .aarch64 => true,
-        else => false,
+    const target = self.getTarget();
+    return switch (target.cpu.arch) {
+        .aarch64 => switch (target.os.tag) {
+            .macos => true,
+            .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
+            else => false,
+        },
+        .x86_64 => false,
+        else => unreachable,
     };
 }
 
@@ -4424,6 +4435,7 @@ pub const Platform = struct {
                         .TVOS, .TVOSSIMULATOR => .tvos,
                         .WATCHOS, .WATCHOSSIMULATOR => .watchos,
                         .MACCATALYST => .ios,
+                        .VISIONOS, .VISIONOSSIMULATOR => .visionos,
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
@@ -4431,6 +4443,7 @@ pub const Platform = struct {
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
                         .WATCHOSSIMULATOR,
+                        .VISIONOSSIMULATOR,
                         => .simulator,
                         else => .none,
                     },
@@ -4481,6 +4494,7 @@ pub const Platform = struct {
             },
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
             .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
+            .visionos => if (plat.abi == .simulator) .VISIONOSSIMULATOR else .VISIONOS,
             else => unreachable,
         };
     }
@@ -4549,13 +4563,15 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .macos,   .none,      0xA0E00, 0xA0800 },
-    .{ .ios,     .none,      0xC0000, 0x70000 },
-    .{ .tvos,    .none,      0xC0000, 0x70000 },
-    .{ .watchos, .none,      0x50000, 0x20000 },
-    .{ .ios,     .simulator, 0xD0000, 0x80000 },
-    .{ .tvos,    .simulator, 0xD0000, 0x80000 },
-    .{ .watchos, .simulator, 0x60000, 0x20000 },
+    .{ .macos,    .none,      0xA0E00, 0xA0800 },
+    .{ .ios,      .none,      0xC0000, 0x70000 },
+    .{ .tvos,     .none,      0xC0000, 0x70000 },
+    .{ .watchos,  .none,      0x50000, 0x20000 },
+    .{ .visionos, .none,      0x10000, 0x10000 },
+    .{ .ios,      .simulator, 0xD0000, 0x80000 },
+    .{ .tvos,     .simulator, 0xD0000, 0x80000 },
+    .{ .watchos,  .simulator, 0x60000, 0x20000 },
+    .{ .visionos, .simulator, 0x10000, 0x10000 },
 };
 // zig fmt: on
 

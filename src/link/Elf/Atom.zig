@@ -2025,7 +2025,15 @@ const riscv = struct {
             .SUB32,
             => {},
 
-            else => try atom.reportUnhandledRelocError(rel, elf_file),
+            else => |x| switch (@intFromEnum(x)) {
+                Elf.R_ZIG_GOT_HI20,
+                Elf.R_ZIG_GOT_LO12,
+                => {
+                    assert(symbol.flags.has_zig_got);
+                },
+
+                else => try atom.reportUnhandledRelocError(rel, elf_file),
+            },
         }
     }
 
@@ -2046,7 +2054,6 @@ const riscv = struct {
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
         _ = TP;
         _ = DTP;
-        _ = ZIG_GOT;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -2136,7 +2143,22 @@ const riscv = struct {
                 }
             },
 
-            else => try atom.reportUnhandledRelocError(rel, elf_file),
+            else => |x| switch (@intFromEnum(x)) {
+                // Zig custom relocations
+                Elf.R_ZIG_GOT_HI20 => {
+                    assert(target.flags.has_zig_got);
+                    const disp: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
+                },
+
+                Elf.R_ZIG_GOT_LO12 => {
+                    assert(target.flags.has_zig_got);
+                    const value: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstI(code[r_offset..][0..4], value);
+                },
+
+                else => try atom.reportUnhandledRelocError(rel, elf_file),
+            },
         }
     }
 

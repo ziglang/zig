@@ -308,7 +308,7 @@ pub fn main() !void {
         }
         const s = std.fs.path.sep_str;
         const tmp_sub_path = "tmp" ++ s ++ (output_tmp_nonce orelse fatal("missing -Z arg", .{}));
-        local_cache_directory.handle.writeFile2(.{
+        local_cache_directory.handle.writeFile(.{
             .sub_path = tmp_sub_path,
             .data = buffer.items,
             .flags = .{ .exclusive = true },
@@ -466,10 +466,9 @@ fn runStepNames(
             const step = steps_slice[steps_slice.len - i - 1];
             if (step.state == .skipped_oom) continue;
 
-            wait_group.start();
-            thread_pool.spawn(workerMakeOneStep, .{
+            thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
                 &wait_group, &thread_pool, b, step, &step_prog, run,
-            }) catch @panic("OOM");
+            });
         }
     }
     assert(run.memory_blocked_steps.items.len == 0);
@@ -895,8 +894,6 @@ fn workerMakeOneStep(
     prog_node: *std.Progress.Node,
     run: *Run,
 ) void {
-    defer wg.finish();
-
     // First, check the conditions for running this step. If they are not met,
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
@@ -976,10 +973,9 @@ fn workerMakeOneStep(
 
         // Successful completion of a step, so we queue up its dependants as well.
         for (s.dependants.items) |dep| {
-            wg.start();
-            thread_pool.spawn(workerMakeOneStep, .{
+            thread_pool.spawnWg(wg, workerMakeOneStep, .{
                 wg, thread_pool, b, dep, prog_node, run,
-            }) catch @panic("OOM");
+            });
         }
     }
 
@@ -1002,10 +998,9 @@ fn workerMakeOneStep(
             if (dep.max_rss <= remaining) {
                 remaining -= dep.max_rss;
 
-                wg.start();
-                thread_pool.spawn(workerMakeOneStep, .{
+                thread_pool.spawnWg(wg, workerMakeOneStep, .{
                     wg, thread_pool, b, dep, prog_node, run,
-                }) catch @panic("OOM");
+                });
             } else {
                 run.memory_blocked_steps.items[i] = dep;
                 i += 1;

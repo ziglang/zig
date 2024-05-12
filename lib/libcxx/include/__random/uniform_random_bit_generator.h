@@ -28,14 +28,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 // [rand.req.urng]
-template<class _Gen>
-concept uniform_random_bit_generator =
-  invocable<_Gen&> && unsigned_integral<invoke_result_t<_Gen&>> &&
-  requires {
-    { _Gen::min() } -> same_as<invoke_result_t<_Gen&>>;
-    { _Gen::max() } -> same_as<invoke_result_t<_Gen&>>;
-    requires bool_constant<(_Gen::min() < _Gen::max())>::value;
-  };
+template <class _Gen>
+concept uniform_random_bit_generator = invocable<_Gen&> && unsigned_integral<invoke_result_t<_Gen&>> && requires {
+  { _Gen::min() } -> same_as<invoke_result_t<_Gen&>>;
+  { _Gen::max() } -> same_as<invoke_result_t<_Gen&>>;
+  requires bool_constant<(_Gen::min() < _Gen::max())>::value;
+};
 
 #endif // _LIBCPP_STD_VER >= 20
 

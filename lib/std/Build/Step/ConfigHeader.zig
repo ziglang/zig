@@ -52,15 +52,14 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
-    const self = owner.allocator.create(ConfigHeader) catch @panic("OOM");
+    const config_header = owner.allocator.create(ConfigHeader) catch @panic("OOM");
 
     var include_path: []const u8 = "config.h";
 
     if (options.style.getPath()) |s| default_include_path: {
         const sub_path = switch (s) {
             .src_path => |sp| sp.sub_path,
-            .path => |path| path,
-            .generated, .generated_dirname => break :default_include_path,
+            .generated => break :default_include_path,
             .cwd_relative => |sub_path| sub_path,
             .dependency => |dependency| dependency.sub_path,
         };
@@ -81,7 +80,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     else
         owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
 
-    self.* = .{
+    config_header.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = name,
@@ -95,64 +94,64 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
-        .output_file = .{ .step = &self.step },
+        .output_file = .{ .step = &config_header.step },
     };
 
-    return self;
+    return config_header;
 }
 
-pub fn addValues(self: *ConfigHeader, values: anytype) void {
-    return addValuesInner(self, values) catch @panic("OOM");
+pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
+    return addValuesInner(config_header, values) catch @panic("OOM");
 }
 
-pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
-    return .{ .generated = &self.output_file };
+pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
+    return .{ .generated = .{ .file = &config_header.output_file } };
 }
 
-fn addValuesInner(self: *ConfigHeader, values: anytype) !void {
+fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
     inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
-        try putValue(self, field.name, field.type, @field(values, field.name));
+        try putValue(config_header, field.name, field.type, @field(values, field.name));
     }
 }
 
-fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
+fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
     switch (@typeInfo(T)) {
         .Null => {
-            try self.values.put(field_name, .undef);
+            try config_header.values.put(field_name, .undef);
         },
         .Void => {
-            try self.values.put(field_name, .defined);
+            try config_header.values.put(field_name, .defined);
         },
         .Bool => {
-            try self.values.put(field_name, .{ .boolean = v });
+            try config_header.values.put(field_name, .{ .boolean = v });
         },
         .Int => {
-            try self.values.put(field_name, .{ .int = v });
+            try config_header.values.put(field_name, .{ .int = v });
         },
         .ComptimeInt => {
-            try self.values.put(field_name, .{ .int = v });
+            try config_header.values.put(field_name, .{ .int = v });
         },
         .EnumLiteral => {
-            try self.values.put(field_name, .{ .ident = @tagName(v) });
+            try config_header.values.put(field_name, .{ .ident = @tagName(v) });
         },
         .Optional => {
             if (v) |x| {
-                return putValue(self, field_name, @TypeOf(x), x);
+                return putValue(config_header, field_name, @TypeOf(x), x);
             } else {
-                try self.values.put(field_name, .undef);
+                try config_header.values.put(field_name, .undef);
             }
         },
         .Pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .Array => |array| {
                     if (ptr.size == .One and array.child == u8) {
-                        try self.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
                 .Int => {
                     if (ptr.size == .Slice and ptr.child == u8) {
-                        try self.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
@@ -168,7 +167,7 @@ fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T)
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const self: *ConfigHeader = @fieldParentPtr("step", step);
+    const config_header: *ConfigHeader = @fieldParentPtr("step", step);
     const gpa = b.allocator;
     const arena = b.allocator;
 
@@ -179,8 +178,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // random bytes when ConfigHeader implementation is modified in a
     // non-backwards-compatible way.
     man.hash.add(@as(u32, 0xdef08d23));
-    man.hash.addBytes(self.include_path);
-    man.hash.addOptionalBytes(self.include_guard_override);
+    man.hash.addBytes(config_header.include_path);
+    man.hash.addOptionalBytes(config_header.include_guard_override);
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
@@ -189,34 +188,34 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const c_generated_line = "/* " ++ header_text ++ " */\n";
     const asm_generated_line = "; " ++ header_text ++ "\n";
 
-    switch (self.style) {
+    switch (config_header.style) {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(b);
-            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read autoconf input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
-            try render_autoconf(step, contents, &output, self.values, src_path);
+            try render_autoconf(step, contents, &output, config_header.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(b);
-            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read cmake input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
-            try render_cmake(step, contents, &output, self.values, src_path);
+            try render_cmake(step, contents, &output, config_header.values, src_path);
         },
         .blank => {
             try output.appendSlice(c_generated_line);
-            try render_blank(&output, self.values, self.include_path, self.include_guard_override);
+            try render_blank(&output, config_header.values, config_header.include_path, config_header.include_guard_override);
         },
         .nasm => {
             try output.appendSlice(asm_generated_line);
-            try render_nasm(&output, self.values);
+            try render_nasm(&output, config_header.values);
         },
     }
 
@@ -224,8 +223,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        self.output_file.path = try b.cache_root.join(arena, &.{
-            "o", &digest, self.include_path,
+        config_header.output_file.path = try b.cache_root.join(arena, &.{
+            "o", &digest, config_header.include_path,
         });
         return;
     }
@@ -237,7 +236,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // output_path is libavutil/avconfig.h
     // We want to open directory zig-cache/o/HASH/libavutil/
     // but keep output_dir as zig-cache/o/HASH for -I include
-    const sub_path = try std.fs.path.join(arena, &.{ "o", &digest, self.include_path });
+    const sub_path = b.pathJoin(&.{ "o", &digest, config_header.include_path });
     const sub_path_dirname = std.fs.path.dirname(sub_path).?;
 
     b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
@@ -246,13 +245,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     };
 
-    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output.items }) catch |err| {
         return step.fail("unable to write file '{}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(err),
         });
     };
 
-    self.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    config_header.output_file.path = try b.cache_root.join(arena, &.{sub_path});
     try man.writeManifest();
 }
 

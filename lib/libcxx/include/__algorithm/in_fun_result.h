@@ -18,6 +18,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
@@ -30,7 +33,7 @@ struct in_fun_result {
 
   template <class _InIter2, class _Func2>
     requires convertible_to<const _InIter1&, _InIter2> && convertible_to<const _Func1&, _Func2>
-  _LIBCPP_HIDE_FROM_ABI constexpr operator in_fun_result<_InIter2, _Func2>() const & {
+  _LIBCPP_HIDE_FROM_ABI constexpr operator in_fun_result<_InIter2, _Func2>() const& {
     return {in, fun};
   }
 
@@ -45,5 +48,7 @@ struct in_fun_result {
 #endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_IN_FUN_RESULT_H

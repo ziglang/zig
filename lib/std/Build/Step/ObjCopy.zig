@@ -58,8 +58,8 @@ pub fn create(
     input_file: std.Build.LazyPath,
     options: Options,
 ) *ObjCopy {
-    const self = owner.allocator.create(ObjCopy) catch @panic("OOM");
-    self.* = ObjCopy{
+    const objcopy = owner.allocator.create(ObjCopy) catch @panic("OOM");
+    objcopy.* = ObjCopy{
         .step = Step.init(.{
             .id = base_id,
             .name = owner.fmt("objcopy {s}", .{input_file.getDisplayName()}),
@@ -68,31 +68,31 @@ pub fn create(
         }),
         .input_file = input_file,
         .basename = options.basename orelse input_file.getDisplayName(),
-        .output_file = std.Build.GeneratedFile{ .step = &self.step },
-        .output_file_debug = if (options.strip != .none and options.extract_to_separate_file) std.Build.GeneratedFile{ .step = &self.step } else null,
+        .output_file = std.Build.GeneratedFile{ .step = &objcopy.step },
+        .output_file_debug = if (options.strip != .none and options.extract_to_separate_file) std.Build.GeneratedFile{ .step = &objcopy.step } else null,
         .format = options.format,
         .only_sections = options.only_sections,
         .pad_to = options.pad_to,
         .strip = options.strip,
         .compress_debug = options.compress_debug,
     };
-    input_file.addStepDependencies(&self.step);
-    return self;
+    input_file.addStepDependencies(&objcopy.step);
+    return objcopy;
 }
 
 /// deprecated: use getOutput
 pub const getOutputSource = getOutput;
 
-pub fn getOutput(self: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = &self.output_file };
+pub fn getOutput(objcopy: *const ObjCopy) std.Build.LazyPath {
+    return .{ .generated = .{ .file = &objcopy.output_file } };
 }
-pub fn getOutputSeparatedDebug(self: *const ObjCopy) ?std.Build.LazyPath {
-    return if (self.output_file_debug) |*file| .{ .generated = file } else null;
+pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
+    return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self: *ObjCopy = @fieldParentPtr("step", step);
+    const objcopy: *ObjCopy = @fieldParentPtr("step", step);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
@@ -101,24 +101,24 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // bytes when ObjCopy implementation is modified incompatibly.
     man.hash.add(@as(u32, 0xe18b7baf));
 
-    const full_src_path = self.input_file.getPath(b);
+    const full_src_path = objcopy.input_file.getPath2(b, step);
     _ = try man.addFile(full_src_path, null);
-    man.hash.addOptionalListOfBytes(self.only_sections);
-    man.hash.addOptional(self.pad_to);
-    man.hash.addOptional(self.format);
-    man.hash.add(self.compress_debug);
-    man.hash.add(self.strip);
-    man.hash.add(self.output_file_debug != null);
+    man.hash.addOptionalListOfBytes(objcopy.only_sections);
+    man.hash.addOptional(objcopy.pad_to);
+    man.hash.addOptional(objcopy.format);
+    man.hash.add(objcopy.compress_debug);
+    man.hash.add(objcopy.strip);
+    man.hash.add(objcopy.output_file_debug != null);
 
     if (try step.cacheHit(&man)) {
         // Cache hit, skip subprocess execution.
         const digest = man.final();
-        self.output_file.path = try b.cache_root.join(b.allocator, &.{
-            "o", &digest, self.basename,
+        objcopy.output_file.path = try b.cache_root.join(b.allocator, &.{
+            "o", &digest, objcopy.basename,
         });
-        if (self.output_file_debug) |*file| {
+        if (objcopy.output_file_debug) |*file| {
             file.path = try b.cache_root.join(b.allocator, &.{
-                "o", &digest, b.fmt("{s}.debug", .{self.basename}),
+                "o", &digest, b.fmt("{s}.debug", .{objcopy.basename}),
             });
         }
         return;
@@ -126,8 +126,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const digest = man.final();
     const cache_path = "o" ++ fs.path.sep_str ++ digest;
-    const full_dest_path = try b.cache_root.join(b.allocator, &.{ cache_path, self.basename });
-    const full_dest_path_debug = try b.cache_root.join(b.allocator, &.{ cache_path, b.fmt("{s}.debug", .{self.basename}) });
+    const full_dest_path = try b.cache_root.join(b.allocator, &.{ cache_path, objcopy.basename });
+    const full_dest_path_debug = try b.cache_root.join(b.allocator, &.{ cache_path, b.fmt("{s}.debug", .{objcopy.basename}) });
     b.cache_root.handle.makePath(cache_path) catch |err| {
         return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
     };
@@ -135,28 +135,28 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv = std.ArrayList([]const u8).init(b.allocator);
     try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
-    if (self.only_sections) |only_sections| {
+    if (objcopy.only_sections) |only_sections| {
         for (only_sections) |only_section| {
             try argv.appendSlice(&.{ "-j", only_section });
         }
     }
-    switch (self.strip) {
+    switch (objcopy.strip) {
         .none => {},
         .debug => try argv.appendSlice(&.{"--strip-debug"}),
         .debug_and_symbols => try argv.appendSlice(&.{"--strip-all"}),
     }
-    if (self.pad_to) |pad_to| {
+    if (objcopy.pad_to) |pad_to| {
         try argv.appendSlice(&.{ "--pad-to", b.fmt("{d}", .{pad_to}) });
     }
-    if (self.format) |format| switch (format) {
+    if (objcopy.format) |format| switch (format) {
         .bin => try argv.appendSlice(&.{ "-O", "binary" }),
         .hex => try argv.appendSlice(&.{ "-O", "hex" }),
         .elf => try argv.appendSlice(&.{ "-O", "elf" }),
     };
-    if (self.compress_debug) {
+    if (objcopy.compress_debug) {
         try argv.appendSlice(&.{"--compress-debug-sections"});
     }
-    if (self.output_file_debug != null) {
+    if (objcopy.output_file_debug != null) {
         try argv.appendSlice(&.{b.fmt("--extract-to={s}", .{full_dest_path_debug})});
     }
 
@@ -165,7 +165,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try argv.append("--listen=-");
     _ = try step.evalZigProcess(argv.items, prog_node);
 
-    self.output_file.path = full_dest_path;
-    if (self.output_file_debug) |*file| file.path = full_dest_path_debug;
+    objcopy.output_file.path = full_dest_path;
+    if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;
     try man.writeManifest();
 }

@@ -31,6 +31,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Type traits.
@@ -38,22 +41,19 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _From, class _To>
 struct __can_lower_copy_assignment_to_memmove {
   static const bool value =
-    // If the types are always bitcastable, it's valid to do a bitwise copy between them.
-    __is_always_bitcastable<_From, _To>::value &&
-    // Reject conversions that wouldn't be performed by the regular built-in assignment (e.g. between arrays).
-    is_trivially_assignable<_To&, const _From&>::value &&
-    // `memmove` doesn't accept `volatile` pointers, make sure the optimization SFINAEs away in that case.
-    !is_volatile<_From>::value &&
-    !is_volatile<_To>::value;
+      // If the types are always bitcastable, it's valid to do a bitwise copy between them.
+      __is_always_bitcastable<_From, _To>::value &&
+      // Reject conversions that wouldn't be performed by the regular built-in assignment (e.g. between arrays).
+      is_trivially_assignable<_To&, const _From&>::value &&
+      // `memmove` doesn't accept `volatile` pointers, make sure the optimization SFINAEs away in that case.
+      !is_volatile<_From>::value && !is_volatile<_To>::value;
 };
 
 template <class _From, class _To>
 struct __can_lower_move_assignment_to_memmove {
   static const bool value =
-    __is_always_bitcastable<_From, _To>::value &&
-    is_trivially_assignable<_To&, _From&&>::value &&
-    !is_volatile<_From>::value &&
-    !is_volatile<_To>::value;
+      __is_always_bitcastable<_From, _To>::value && is_trivially_assignable<_To&, _From&&>::value &&
+      !is_volatile<_From>::value && !is_volatile<_To>::value;
 };
 
 // `memmove` algorithms implementation.
@@ -95,8 +95,8 @@ struct __can_rewrap<_InIter,
                     _Sent,
                     _OutIter,
                     // Note that sentinels are always copy-constructible.
-                    __enable_if_t< is_copy_constructible<_InIter>::value &&
-                                   is_copy_constructible<_OutIter>::value > > : true_type {};
+                    __enable_if_t< is_copy_constructible<_InIter>::value && is_copy_constructible<_OutIter>::value > >
+    : true_type {};
 
 template <class _Algorithm,
           class _InIter,
@@ -108,7 +108,7 @@ __unwrap_and_dispatch(_InIter __first, _Sent __last, _OutIter __out_first) {
   auto __range  = std::__unwrap_range(__first, std::move(__last));
   auto __result = _Algorithm()(std::move(__range.first), std::move(__range.second), std::__unwrap_iter(__out_first));
   return std::make_pair(std::__rewrap_range<_Sent>(std::move(__first), std::move(__result.first)),
-                                 std::__rewrap_iter(std::move(__out_first), std::move(__result.second)));
+                        std::__rewrap_iter(std::move(__out_first), std::move(__result.second)));
 }
 
 template <class _Algorithm,
@@ -134,5 +134,7 @@ __dispatch_copy_or_move(_InIter __first, _Sent __last, _OutIter __out_first) {
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_COPY_MOVE_COMMON_H

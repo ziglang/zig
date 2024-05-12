@@ -19,6 +19,8 @@ const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
+const lldMain = @import("main.zig").lldMain;
+const Package = @import("Package.zig");
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
 /// These are *always* dynamically linked. Static libraries will be
@@ -982,3 +984,113 @@ pub const File = struct {
     pub const NvPtx = @import("link/NvPtx.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
+
+pub fn spawnLld(
+    comp: *Compilation,
+    arena: Allocator,
+    argv: []const []const u8,
+) !void {
+    if (comp.verbose_link) {
+        // Skip over our own name so that the LLD linker name is the first argv item.
+        Compilation.dump_argv(argv[1..]);
+    }
+
+    // If possible, we run LLD as a child process because it does not always
+    // behave properly as a library, unfortunately.
+    // https://github.com/ziglang/zig/issues/3825
+    if (!std.process.can_spawn) {
+        const exit_code = try lldMain(arena, argv, false);
+        if (exit_code == 0) return;
+        if (comp.clang_passthrough_mode) std.process.exit(exit_code);
+        return error.LLDReportedFailure;
+    }
+
+    var stderr: []u8 = &.{};
+    defer comp.gpa.free(stderr);
+
+    var child = std.process.Child.init(argv, arena);
+    const term = (if (comp.clang_passthrough_mode) term: {
+        child.stdin_behavior = .Inherit;
+        child.stdout_behavior = .Inherit;
+        child.stderr_behavior = .Inherit;
+
+        break :term child.spawnAndWait();
+    } else term: {
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Ignore;
+        child.stderr_behavior = .Pipe;
+
+        child.spawn() catch |err| break :term err;
+        stderr = try child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        break :term child.wait();
+    }) catch |first_err| term: {
+        const err = switch (first_err) {
+            error.NameTooLong => err: {
+                const s = fs.path.sep_str;
+                const rand_int = std.crypto.random.int(u64);
+                const rsp_path = "tmp" ++ s ++ Package.Manifest.hex64(rand_int) ++ ".rsp";
+
+                const rsp_file = try comp.local_cache_directory.handle.createFileZ(rsp_path, .{});
+                defer comp.local_cache_directory.handle.deleteFileZ(rsp_path) catch |err|
+                    log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
+                {
+                    defer rsp_file.close();
+                    var rsp_buf = std.io.bufferedWriter(rsp_file.writer());
+                    const rsp_writer = rsp_buf.writer();
+                    for (argv[2..]) |arg| {
+                        try rsp_writer.writeByte('"');
+                        for (arg) |c| {
+                            switch (c) {
+                                '\"', '\\' => try rsp_writer.writeByte('\\'),
+                                else => {},
+                            }
+                            try rsp_writer.writeByte(c);
+                        }
+                        try rsp_writer.writeByte('"');
+                        try rsp_writer.writeByte('\n');
+                    }
+                    try rsp_buf.flush();
+                }
+
+                var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(
+                    arena,
+                    "@{s}",
+                    .{try comp.local_cache_directory.join(arena, &.{rsp_path})},
+                ) }, arena);
+                if (comp.clang_passthrough_mode) {
+                    rsp_child.stdin_behavior = .Inherit;
+                    rsp_child.stdout_behavior = .Inherit;
+                    rsp_child.stderr_behavior = .Inherit;
+
+                    break :term rsp_child.spawnAndWait() catch |err| break :err err;
+                } else {
+                    rsp_child.stdin_behavior = .Ignore;
+                    rsp_child.stdout_behavior = .Ignore;
+                    rsp_child.stderr_behavior = .Pipe;
+
+                    rsp_child.spawn() catch |err| break :err err;
+                    stderr = try rsp_child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    break :term rsp_child.wait() catch |err| break :err err;
+                }
+            },
+            else => first_err,
+        };
+        log.err("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+        return error.UnableToSpawnSelf;
+    };
+
+    switch (term) {
+        .Exited => |code| if (code != 0) {
+            if (comp.clang_passthrough_mode) std.process.exit(code);
+            comp.lockAndParseLldStderr(argv[1], stderr);
+            return error.LLDReportedFailure;
+        },
+        else => {
+            if (comp.clang_passthrough_mode) std.process.abort();
+            log.err("{s} terminated with stderr:\n{s}", .{ argv[0], stderr });
+            return error.LLDCrashed;
+        },
+    }
+
+    if (stderr.len > 0) log.warn("unexpected LLD stderr:\n{s}", .{stderr});
+}

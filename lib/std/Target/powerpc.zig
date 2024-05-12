@@ -8,6 +8,7 @@ pub const Feature = enum {
     @"64bit",
     @"64bitregs",
     aix,
+    aix_small_local_exec_tls,
     allow_unaligned_fp_access,
     altivec,
     booke,
@@ -110,6 +111,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.aix)] = .{
         .llvm_name = "aix",
         .description = "AIX OS",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.aix_small_local_exec_tls)] = .{
+        .llvm_name = "aix-small-local-exec-tls",
+        .description = "Produce a TOC-free local-exec TLS sequence for this function for 64-bit AIX",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.allow_unaligned_fp_access)] = .{

@@ -17,39 +17,26 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-namespace rel_ops
-{
+namespace rel_ops {
 
-template<class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-bool
-operator!=(const _Tp& __x, const _Tp& __y)
-{
-    return !(__x == __y);
+template <class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const _Tp& __x, const _Tp& __y) {
+  return !(__x == __y);
 }
 
-template<class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-bool
-operator> (const _Tp& __x, const _Tp& __y)
-{
-    return __y < __x;
+template <class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI bool operator>(const _Tp& __x, const _Tp& __y) {
+  return __y < __x;
 }
 
-template<class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-bool
-operator<=(const _Tp& __x, const _Tp& __y)
-{
-    return !(__y < __x);
+template <class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI bool operator<=(const _Tp& __x, const _Tp& __y) {
+  return !(__y < __x);
 }
 
-template<class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY
-bool
-operator>=(const _Tp& __x, const _Tp& __y)
-{
-    return !(__x < __y);
+template <class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI bool operator>=(const _Tp& __x, const _Tp& __y) {
+  return !(__x < __y);
 }
 
 } // namespace rel_ops
