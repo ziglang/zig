@@ -82,7 +82,7 @@ pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
-    lpName: [*:0]const u16,
+    lpName: ?LPCWSTR,
     dwFlags: DWORD,
     dwDesiredAccess: DWORD,
 ) callconv(WINAPI) ?HANDLE;
