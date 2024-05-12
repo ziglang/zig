@@ -800,11 +800,6 @@ pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
     st.index += 1;
 }
 
-const std = @import("std.zig");
-const root = @import("root");
-
-// Safety
-
 /// This type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const PanicId = @typeInfo(PanicCause).Union.tag_type.?;
@@ -985,57 +980,6 @@ pub fn PanicData(comptime cause: PanicCause) type {
         },
     }
 }
-/// This type is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-///
-/// The plan is to provide the same function-level control as by compile flags
-/// like `@setRuntimeSafety(.{ .add_overflowed = false });`
-pub const RuntimeSafety = packed struct(u64) {
-    message: Setting = .extra,
-    unwrapped_error: Setting = .extra,
-    returned_noreturn: Setting = .extra,
-    reached_unreachable: Setting = .extra,
-    corrupt_switch: Setting = .extra,
-    accessed_out_of_bounds: Setting = .extra,
-    accessed_out_of_order: Setting = .extra,
-    accessed_out_of_order_extra: Setting = .extra,
-    accessed_inactive_field: Setting = .extra,
-    accessed_null_value: Setting = .extra,
-    divided_by_zero: Setting = .extra,
-    memcpy_argument_aliasing: Setting = .extra,
-    mismatched_memcpy_argument_lengths: Setting = .extra,
-    mismatched_for_loop_capture_lengths: Setting = .extra,
-    mismatched_sentinel: Setting = .extra,
-    mismatched_null_sentinel: Setting = .extra,
-    shl_overflowed: Setting = .extra,
-    shr_overflowed: Setting = .extra,
-    shift_amt_overflowed: Setting = .extra,
-    div_with_remainder: Setting = .extra,
-    mul_overflowed: Setting = .extra,
-    add_overflowed: Setting = .extra,
-    inc_overflowed: Setting = .extra,
-    sub_overflowed: Setting = .extra,
-    dec_overflowed: Setting = .extra,
-    div_overflowed: Setting = .extra,
-    cast_truncated_data: Setting = .extra,
-    cast_to_enum_from_invalid: Setting = .extra,
-    cast_to_error_from_invalid: Setting = .extra,
-    cast_to_ptr_from_invalid: Setting = .extra,
-    cast_to_int_from_invalid: Setting = .extra,
-    cast_to_unsigned_from_negative: Setting = .extra,
-
-    pub const Setting = enum(u2) {
-        /// Do not check panic condition.
-        none = 0,
-        /// Check panic condition.
-        check = 1,
-        /// Check panic condition, include context data.
-        extra = 2,
-    };
-
-    // TODO: Remove when `analyzeSlice2` is confirmed.
-    pub var analyze_slice2: bool = true;
-};
 
 // TODO: Rename to `panic` when the old interface is removed.
 pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicImpl;
@@ -1150,3 +1094,6 @@ fn panicImpl(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
         }),
     }
 }
+
+const std = @import("std.zig");
+const root = @import("root");
