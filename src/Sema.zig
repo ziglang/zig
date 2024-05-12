@@ -17562,9 +17562,11 @@ fn analyzeArithmetic(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
-        const res: Air.Inst.Ref = try RuntimeSafety.addSubSafeOptimized(sema, block, src, air_tag, resolved_type, casted_lhs, casted_rhs);
-        if (res != .none) {
-            return res;
+        if (try sema.resolveValue(casted_rhs)) |casted_rhs_val| {
+            const res: Air.Inst.Ref = try RuntimeSafety.checkSimpleArithmeticOverflowOptimised(sema, block, src, air_tag, resolved_type, casted_lhs, casted_rhs, casted_rhs_val);
+            if (res != .none) {
+                return res;
+            }
         }
         const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
             .add => .add_with_overflow,
@@ -39246,7 +39248,7 @@ const RuntimeSafety = struct {
     }
 
     /// This optimises addition and subtraction operations
-    fn addSubSafeOptimized(
+    fn checkSimpleArithmeticOverflowOptimised(
         sema: *Sema,
         block: *Block,
         src: std.zig.LazySrcLoc,
@@ -39254,12 +39256,11 @@ const RuntimeSafety = struct {
         resolved_ty: Type,
         casted_lhs: Air.Inst.Ref,
         casted_rhs: Air.Inst.Ref,
+        casted_rhs_val: Value,
     ) !Air.Inst.Ref {
         if (resolved_ty.zigTypeTag(sema.mod) == .Vector) {
             return .none;
         }
-        const casted_rhs_val: Value =
-            try sema.resolveValue(casted_rhs) orelse return .none;
         const max_int: Value = try resolved_ty.maxInt(sema.mod, resolved_ty);
         const min_int: Value = try resolved_ty.minInt(sema.mod, resolved_ty);
         var ov: ?usize = null;
