@@ -24,7 +24,22 @@ comptime {
     std.debug.assert(std.math.isPowerOfTwo(size));
 }
 
-pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+pub const memcpy = if (builtin.mode == .ReleaseSmall or builtin.mode == .Debug)
+    memcpy_small
+else
+    memcpy_fast;
+
+fn memcpy_small(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    @setRuntimeSafety(false);
+
+    if (len != 0) {
+        memcpy_blocks(dest.?, src.?, len);
+    }
+
+    return dest;
+}
+
+fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
     if (len <= 16) {
