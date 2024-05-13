@@ -194,7 +194,6 @@ include_directories(${CLANG_INCLUDE_DIRS})
 
 find_package(Threads)
 
-set(ZIG_LIB_DIR "lib/zig")
 set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
 set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 
@@ -722,27 +721,11 @@ include_directories(
 
 if(MSVC)
   set(EXE_CXX_FLAGS "/std:c++17")
-  set(EXE_LDFLAGS "/STACK:16777216")
-  if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Release" AND NOT "${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
-    set(EXE_LDFLAGS "${EXE_LDFLAGS} /debug:fastlink")
-  endif()
 else()
   set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-type-limits -Wno-missing-braces -Wno-comment")
-  set(EXE_LDFLAGS " ")
   if(MINGW)
     set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
-    set(EXE_LDFLAGS "${EXE_LDFLAGS} -Wl,--stack,16777216")
   endif()
-endif()
-
-if(ZIG_STATIC)
-    if(APPLE)
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static-libgcc -static-libstdc++")
-    elseif(MINGW)
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static-libgcc -static-libstdc++ -Wl,-Bstatic, -lwinpthread -lz3 -lz -lgomp")
-    elseif(NOT MSVC)
-        set(EXE_LDFLAGS "${EXE_LDFLAGS} -static")
-    endif()
 endif()
 
 add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
