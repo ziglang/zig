@@ -1159,6 +1159,10 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
                     const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
+                        error.FileNotFound => |e| {
+                            component = it.previous() orelse return e;
+                            continue;
+                        },
                         else => |e| return e,
                     };
                     if (fstat.kind != .directory) return error.NotDir;
@@ -1209,6 +1213,10 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
                     const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
+                        error.FileNotFound => |e| {
+                            component = it.previous() orelse return e;
+                            continue;
+                        },
                         else => |e| return e,
                     };
                     if (fstat.kind != .directory) return error.NotDir;
@@ -1591,32 +1599,50 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
     };
     const open_reparse_point: w.DWORD = if (flags.no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
     var io: w.IO_STATUS_BLOCK = undefined;
-    const rc = w.ntdll.NtCreateFile(
-        &result.fd,
-        access_mask,
-        &attr,
-        &io,
-        null,
-        w.FILE_ATTRIBUTE_NORMAL,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
-        flags.create_disposition,
-        w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
-        null,
-        0,
-    );
 
-    switch (rc) {
-        .SUCCESS => return result,
-        .OBJECT_NAME_INVALID => return error.BadPathName,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        // This can happen if the directory has 'List folder contents' permission set to 'Deny'
-        // and the directory is trying to be opened for iteration.
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_PARAMETER => unreachable,
-        else => return w.unexpectedStatus(rc),
+    while (true) {
+        const rc = w.ntdll.NtCreateFile(
+            &result.fd,
+            access_mask,
+            &attr,
+            &io,
+            null,
+            w.FILE_ATTRIBUTE_NORMAL,
+            w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+            flags.create_disposition,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => return result,
+            .OBJECT_NAME_INVALID => return error.BadPathName,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+            // and the directory is trying to be opened for iteration.
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_PARAMETER => unreachable,
+            .DELETE_PENDING => {
+                // This error means that there *was* a file in this location on
+                // the file system, but it was deleted. However, the OS is not
+                // finished with the deletion operation, and so this CreateFile
+                // call has failed. There is not really a sane way to handle
+                // this other than failing if the create disposition flags permit,
+                // or retrying the creation after the OS finishes the deletion.
+                switch (flags.create_disposition) {
+                    w.FILE_CREATE => return error.PathAlreadyExists,
+                    w.FILE_OPEN, w.FILE_OVERWRITE => return error.FileNotFound,
+                    else => {
+                        std.time.sleep(std.time.ns_per_ms);
+                        continue;
+                    },
+                }
+            },
+            else => return w.unexpectedStatus(rc),
+        }
     }
 }
 

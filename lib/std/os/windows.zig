@@ -143,10 +143,16 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // the file system, but it was deleted. However, the OS is not
                 // finished with the deletion operation, and so this CreateFile
                 // call has failed. There is not really a sane way to handle
-                // this other than retrying the creation after the OS finishes
-                // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
-                continue;
+                // this other than failing if the create disposition flags permit,
+                // or retrying the creation after the OS finishes the deletion.
+                switch (options.creation) {
+                    FILE_CREATE => return error.PathAlreadyExists,
+                    FILE_OPEN, FILE_OVERWRITE => return error.FileNotFound,
+                    else => {
+                        std.time.sleep(std.time.ns_per_ms);
+                        continue;
+                    },
+                }
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
             else => return unexpectedStatus(rc),
