@@ -924,8 +924,16 @@ pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
 
+pub fn addLibraryPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addLibraryPathSpecial(bytes);
+}
+
 pub fn addRPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addRPath(directory_path);
+}
+
+pub fn addRPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addRPathSpecial(bytes);
 }
 
 pub fn addSystemFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
