@@ -154,7 +154,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     try argv_list.append(translate_c.source.getPath2(b, step));
 
-    const output_path = try step.evalZigProcess(argv_list.items, prog_node);
+    const output_path = try step.evalZigProcess(null, argv_list.items, prog_node);
 
     translate_c.out_basename = fs.path.basename(output_path.?);
     const output_dir = fs.path.dirname(output_path.?).?;

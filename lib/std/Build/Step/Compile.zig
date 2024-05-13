@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const Build = std.Build;
 const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -213,6 +214,9 @@ is_linking_libc: bool = false,
 is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
+
+/// Use `setCwd` to set the initial current working directory
+cwd: ?Build.LazyPath = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
@@ -1739,7 +1743,8 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+    const cwd: ?[]const u8 = if (compile.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
+    const maybe_output_bin_path = step.evalZigProcess(cwd, zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);
@@ -1981,4 +1986,9 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
+}
+
+pub fn setCwd(self: *Compile, cwd: Build.LazyPath) void {
+    cwd.addStepDependencies(&self.step);
+    self.cwd = cwd;
 }

@@ -316,6 +316,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 /// is the zig compiler - the same version that compiled the build runner.
 pub fn evalZigProcess(
     s: *Step,
+    opt_cwd: ?[]const u8,
     argv: []const []const u8,
     prog_node: std.Progress.Node,
 ) !?[]const u8 {
@@ -324,8 +325,8 @@ pub fn evalZigProcess(
     const arena = b.allocator;
     const gpa = arena;
 
-    try handleChildProcUnsupported(s, null, argv);
-    try handleVerbose(s.owner, null, argv);
+    try handleChildProcUnsupported(s, opt_cwd, argv);
+    try handleVerbose(s.owner, opt_cwd, argv);
 
     var child = std.process.Child.init(argv, arena);
     child.env_map = &b.graph.env_map;
@@ -334,6 +335,7 @@ pub fn evalZigProcess(
     child.stderr_behavior = .Pipe;
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
+    child.cwd = opt_cwd;
 
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
