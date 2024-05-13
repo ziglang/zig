@@ -1578,6 +1578,11 @@ const MachODumper = struct {
                 it.pos = curr;
             }
         }
+
+        fn dumpSection(ctx: ObjectContext, sect: macho.section_64, writer: anytype) !void {
+            const data = ctx.data[sect.offset..][0..sect.size];
+            try writer.print("{s}", .{data});
+        }
     };
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
@@ -1664,6 +1669,17 @@ const MachODumper = struct {
                     }
                 }
                 return step.fail("no exports data found", .{});
+            },
+
+            .dump_section => {
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
+                const sep_index = mem.indexOfScalar(u8, name, ',') orelse
+                    return step.fail("invalid section name: {s}", .{name});
+                const segname = name[0..sep_index];
+                const sectname = name[sep_index + 1 ..];
+                const sect = ctx.getSectionByName(segname, sectname) orelse
+                    return step.fail("section '{s}' not found", .{name});
+                try ctx.dumpSection(sect, writer);
             },
 
             else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(check.kind)}),
