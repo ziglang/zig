@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const Build = std.Build;
 const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -225,6 +226,9 @@ zig_process: ?*Step.ZigProcess,
 /// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
 /// flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
+
+/// Use `setCwd` to set the initial current working directory
+cwd: ?Build.LazyPath = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
@@ -1778,9 +1782,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
+    const cwd: ?[]const u8 = if (compile.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
     const zig_args = try getZigArgs(compile, false);
 
     const maybe_output_bin_path = step.evalZigProcess(
+        cwd,
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
@@ -2041,4 +2047,9 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
+}
+
+pub fn setCwd(self: *Compile, cwd: Build.LazyPath) void {
+    cwd.addStepDependencies(&self.step);
+    self.cwd = cwd;
 }
