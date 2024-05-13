@@ -44,6 +44,7 @@ const OverlayOptions = struct {
     zig_source_bytes: ?[]const u8 = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    omit_soname: ?bool = null,
 };
 
 pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Compile {
@@ -82,6 +83,7 @@ fn addCompileStep(
         },
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,
+        .omit_soname = overlay.omit_soname,
         .kind = switch (kind) {
             .exe => .exe,
             .obj => .obj,

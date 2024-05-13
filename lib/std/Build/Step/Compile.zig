@@ -184,6 +184,7 @@ stack_size: ?u64 = null,
 want_lto: ?bool = null,
 use_llvm: ?bool,
 use_lld: ?bool,
+omit_soname: ?bool,
 
 /// This is an advanced setting that can change the intent of this Compile step.
 /// If this value is non-null, it means that this Compile step exists to
@@ -241,6 +242,7 @@ pub const Options = struct {
     test_runner: ?LazyPath = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    omit_soname: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
@@ -398,6 +400,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .omit_soname = options.omit_soname,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -1013,6 +1016,10 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+
+    if (compile.omit_soname orelse false) {
+        try zig_args.append("-fno-soname");
+    }
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
