@@ -16,7 +16,7 @@ dwarf_format: ?std.dwarf.Format,
 
 c_macros: std.ArrayListUnmanaged([]const u8),
 include_dirs: std.ArrayListUnmanaged(IncludeDir),
-lib_paths: std.ArrayListUnmanaged(LazyPath),
+lib_paths: std.ArrayListUnmanaged(LibraryPath),
 rpaths: std.ArrayListUnmanaged(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
@@ -39,6 +39,11 @@ link_libcpp: ?bool,
 
 /// Symbols to be exported when compiling to WebAssembly.
 export_symbol_names: []const []const u8 = &.{},
+
+pub const LibraryPath = union(enum) {
+    lazy_path: LazyPath,
+    special: []const u8,
+};
 
 pub const RPath = union(enum) {
     lazy_path: LazyPath,
@@ -260,7 +265,10 @@ pub fn addImport(m: *Module, name: []const u8, module: *Module) void {
 /// dependencies on `m`'s `depending_steps`.
 fn addShallowDependencies(m: *Module, dependee: *Module) void {
     if (dependee.root_source_file) |lazy_path| addLazyPathDependencies(m, dependee, lazy_path);
-    for (dependee.lib_paths.items) |lib_path| addLazyPathDependencies(m, dependee, lib_path);
+    for (dependee.lib_paths.items) |lib_path| switch (lib_path) {
+        .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
+        .special => {},
+    };
     for (dependee.rpaths.items) |rpath| switch (rpath) {
         .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
         .special => {},
@@ -577,8 +585,13 @@ pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    m.lib_paths.append(b.allocator, directory_path.dupe(b)) catch @panic("OOM");
+    m.lib_paths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
+}
+
+pub fn addLibraryPathSpecial(m: *Module, bytes: []const u8) void {
+    const b = m.owner;
+    m.lib_paths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
 }
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
@@ -698,10 +711,16 @@ pub fn appendZigProcessFlags(
     try zig_args.appendSlice(m.c_macros.items);
 
     try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
-    for (m.lib_paths.items) |lib_path| {
-        zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
-    }
+    for (m.lib_paths.items) |lib_path| switch (lib_path) {
+        .lazy_path => |lp| {
+            zig_args.appendAssumeCapacity("-L");
+            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
+        },
+        .special => |bytes| {
+            zig_args.appendAssumeCapacity("-L");
+            zig_args.appendAssumeCapacity(bytes);
+        },
+    };
 
     try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
     for (m.rpaths.items) |rpath| switch (rpath) {
