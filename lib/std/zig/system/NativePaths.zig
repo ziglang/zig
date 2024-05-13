@@ -33,6 +33,8 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
                     break;
                 };
                 try self.addFrameworkDir(framework_path);
+            } else if (mem.startsWith(u8, word, "-F")) {
+                try self.addFrameworkDir(word[2..]);
             } else {
                 if (mem.startsWith(u8, word, "-frandom-seed=")) {
                     continue;
@@ -67,6 +69,8 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
                 try self.addRPath(lib_path);
             } else if (mem.startsWith(u8, word, "-l")) {
                 // Ignore this argument.
+            } else if (mem.endsWith(u8, word, ".tbd")) {
+                try self.addLibDir(word);
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                 break;
