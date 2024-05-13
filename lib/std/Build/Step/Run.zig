@@ -659,7 +659,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
-    if (try step.cacheHit(&man) and !has_side_effects) {
+    if (!has_side_effects and try step.cacheHit(&man)) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -678,7 +678,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const dep_output_file = run.dep_output_file orelse {
         // We already know the final output paths, use them directly.
-        const digest = man.final();
+        const digest = if (has_side_effects)
+            man.hash.final()
+        else
+            man.final();
 
         try populateGeneratedPaths(
             arena,
@@ -710,7 +713,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
-        try step.writeManifest(&man);
+        if (!has_side_effects) try step.writeManifest(&man);
         return;
     };
 
@@ -741,9 +744,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
 
-    try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
+    const dep_file_dir = std.fs.cwd();
+    const dep_file_basename = dep_output_file.generated_file.getPath();
+    if (has_side_effects)
+        try man.addDepFile(dep_file_dir, dep_file_basename)
+    else
+        try man.addDepFilePost(dep_file_dir, dep_file_basename);
 
-    const digest = man.final();
+    const digest = if (has_side_effects)
+        man.hash.final()
+    else
+        man.final();
 
     const any_output = output_placeholders.items.len > 0 or
         run.captured_stdout != null or run.captured_stderr != null;
@@ -778,7 +789,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
     }
 
-    try step.writeManifest(&man);
+    if (!has_side_effects) try step.writeManifest(&man);
 
     try populateGeneratedPaths(
         arena,
