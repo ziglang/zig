@@ -3261,7 +3261,7 @@ pub fn writeAboveOrBelowLimit(
 
 pub fn panicArithOverflow(comptime Operand: type) type {
     const Scalar = std.meta.Scalar(Operand);
-    return if (Scalar != Operand) struct {
+    const V = struct {
         const Format = panicArithOverflow(Scalar);
         const Absolute = @TypeOf(@abs(@as(Scalar, undefined)));
         const Extrema = std.meta.BestExtrema(Scalar);
@@ -3408,7 +3408,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             var ptr: [*]u8 = &buf;
             for (0..len) |idx| {
                 ptr = writeVecIdx(ptr, idx);
-                ptr = Format.writeShiftRhs(ptr, type_name, bit_count, shift_amts[idx], false);
+                ptr = Format.writeShiftRhs(ptr, type_name, bit_count, shift_amts[idx]);
                 ptr[0] = '\n';
                 ptr += 1;
             }
@@ -3426,7 +3426,8 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             ptr[0..2].* = ":\n".*;
             return ptr + 2;
         }
-    } else struct {
+    };
+    const S = struct {
         const Extrema = std.meta.BestExtrema(Operand);
         const Absolute = @TypeOf(@abs(@as(Operand, undefined)));
         const large: bool = @bitSizeOf(Operand) > 64;
@@ -3695,6 +3696,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             return ptr + 4 + @intFromBool(ov_bits != 1);
         }
     };
+    return if (Scalar != Operand) V else S;
 }
 
 fn cpyEquTrunc(slice: []u8, str: []const u8) [*]u8 {
