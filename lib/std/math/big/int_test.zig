@@ -3243,7 +3243,6 @@ test "(BigInt) positive" {
     var c = try Managed.initSet(testing.allocator, 1);
     defer c.deinit();
 
-    // @sizeof(Limb)
     // a = pow(2, 64 * @sizeOf(usize) * 8), b = a - 1
     try a.pow(&a, 64 * @sizeOf(Limb) * 8);
     try b.sub(&a, &c);
