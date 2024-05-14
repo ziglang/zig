@@ -87,11 +87,6 @@ message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
 set(ZIG_NO_LIB off CACHE BOOL
     "Disable copying lib/ files to install prefix during the build phase")
 
-# This used to do something and it may or may not do something in the future.
-# Right now it does nothing.
-set(ZIG_NO_LANGREF off CACHE BOOL
-    "Disable copying of langref to the install prefix during the build phase")
-
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
 set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
@@ -136,7 +131,17 @@ if(ZIG_AR_WORKAROUND)
   string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
-set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
+
+option(ZIG_PIE "Produce a position independent zig executable" ${CMAKE_POSITION_INDEPENDENT_CODE})
+include(CheckPIESupported)
+check_pie_supported(
+  OUTPUT_VARIABLE ZIG_PIE_SUPPORTED_BY_CMAKE
+  LANGUAGES C CXX
+)
+if(ZIG_PIE AND NOT ZIG_PIE_SUPPORTED_BY_CMAKE)
+  message(SEND_ERROR "ZIG_PIE was requested but CMake does not support it for \"zigcpp\" target")
+endif()
+
 
 # Detect system libcxx name.
 if ("c++" IN_LIST CMAKE_CXX_IMPLICIT_LINK_LIBRARIES)
@@ -925,56 +930,51 @@ if(MSVC OR MINGW)
     target_link_libraries(zig2 LINK_PUBLIC version)
 endif()
 
-if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-  set(ZIG_RELEASE_ARG "")
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast)
-else()
-  set(ZIG_RELEASE_ARG -Doptimize=ReleaseFast -Dstrip)
-endif()
-if(ZIG_NO_LIB)
-  set(ZIG_NO_LIB_ARG "-Dno-lib")
-else()
-  set(ZIG_NO_LIB_ARG "")
-endif()
-if(ZIG_SINGLE_THREADED)
-  set(ZIG_SINGLE_THREADED_ARG "-Dsingle-threaded")
-else()
-  set(ZIG_SINGLE_THREADED_ARG "")
-endif()
-if(ZIG_STATIC AND NOT MSVC)
-  set(ZIG_STATIC_ARG "-Duse-zig-libcxx")
-else()
-  set(ZIG_STATIC_ARG "")
-endif()
-if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
-  set(ZIG_PIE_ARG "-Dpie")
-else()
-  set(ZIG_PIE_ARG "")
-endif()
-if("${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
-  set(ZIG_DYNAMIC_LINKER_ARG "")
-else()
-  set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
 
-# -Dno-langref is currently hardcoded because building the langref takes too damn long
+# "-Dno-langref" and "-Dstd-docs=false" are hardcoded because they take too long to build.
 # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
-  "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
-  "-Denable-llvm"
-  ${ZIG_RELEASE_ARG}
-  ${ZIG_STATIC_ARG}
-  ${ZIG_NO_LIB_ARG}
-  "-Dno-langref"
-  ${ZIG_SINGLE_THREADED_ARG}
-  ${ZIG_PIE_ARG}
+
+  "-Dversion-string=${RESOLVED_ZIG_VERSION}"
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
-  ${ZIG_DYNAMIC_LINKER_ARG}
-  "-Dversion-string=${RESOLVED_ZIG_VERSION}"
+
+  -Denable-llvm
+  "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
+
+  -Dno-langref
+  -Dstd-docs=false
 )
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
+else()
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+endif()
+
+if(ZIG_STATIC AND NOT MSVC)
+  list(APPEND ZIG_BUILD_ARGS -Duse-zig-libcxx)
+endif()
+
+if(ZIG_NO_LIB)
+  list(APPEND ZIG_BUILD_ARGS -Dno-lib)
+endif()
+
+if(ZIG_SINGLE_THREADED)
+  list(APPEND ZIG_BUILD_ARGS -Dsingle-threaded)
+endif()
+
+if(ZIG_PIE)
+  list(APPEND ZIG_BUILD_ARGS -Dpie)
+endif()
+
+if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
+  list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
+endif()
+
 
 add_custom_target(stage3 ALL
   DEPENDS "${PROJECT_BINARY_DIR}/stage3/bin/zig"
