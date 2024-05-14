@@ -2,7 +2,7 @@ var dest_end: usize = 0;
 var dest_start: usize = 0;
 var dest_len: usize = 0;
 var src_mem0: [2]u8 = undefined;
-export fn fn0() void {
+fn fn0() void {
     const src_ptr0: *[2]u8 = src_mem0[0..2];
     vs(*[2]u8, @as(*[2]u8, src_ptr0), 0, src_ptr0[0..]);
     ve(*[2]u8, @as(*[2]u8, src_ptr0), 0, 2, src_ptr0[0..2]);
@@ -21,7 +21,7 @@ export fn fn0() void {
     vl([]u8, @as(*[2]u8, src_ptr0), 1, dest_len, src_ptr0[1..][0..dest_len]);
 }
 var src_mem1: [3]u8 = undefined;
-export fn fn1() void {
+fn fn1() void {
     const src_ptr1: *[3]u8 = src_mem1[0..3];
     vs(*[3]u8, @as(*[3]u8, src_ptr1), 0, src_ptr1[0..]);
     const src_ptr2: *[3]u8 = src_mem1[0..3];
@@ -57,7 +57,7 @@ export fn fn1() void {
     vs(*[3]u8, @as(*[3]u8, src_ptr2), 0, src_ptr2[0..]);
 }
 var src_mem2: [1]u8 = undefined;
-export fn fn2() void {
+fn fn2() void {
     const src_ptr3: *[1]u8 = src_mem2[0..1];
     vs(*[1]u8, @as(*[1]u8, src_ptr3), 0, src_ptr3[0..]);
     const src_ptr4: *[1]u8 = src_mem2[0..1];
@@ -460,7 +460,7 @@ export fn fn2() void {
     ve([]u8, @as([*c]u8, src_ptr25), 1, dest_end, src_ptr25[1..dest_end]);
 }
 var src_mem6: [2]u8 = .{ 0, 0 };
-export fn fn3() void {
+fn fn3() void {
     const src_ptr26: *[2]u8 = src_mem6[0..2];
     vs(*[2]u8, @as(*[2]u8, src_ptr26), 0, src_ptr26[0..]);
     const src_ptr27: *[2]u8 = src_mem6[0..2];
@@ -478,7 +478,7 @@ export fn fn3() void {
     vl([]u8, @as(*[2]u8, src_ptr27), 1, dest_len, src_ptr27[1..][0..dest_len]);
 }
 var src_mem7: [2]u8 = .{ 0, 0 };
-export fn fn4() void {
+fn fn4() void {
     const src_ptr28: *[1:0]u8 = src_mem7[0..1 :0];
     vs(*[1:0]u8, @as(*[1:0]u8, src_ptr28), 0, src_ptr28[0..]);
     const src_ptr29: *[1:0]u8 = src_mem7[0..1 :0];
@@ -511,7 +511,7 @@ export fn fn4() void {
     vs(*[1:0]u8, @as(*[1:0]u8, src_ptr29), 0, src_ptr29[0..]);
 }
 var src_mem8: [3]u8 = .{ 0, 0, 0 };
-export fn fn5() void {
+fn fn5() void {
     const src_ptr31: *[3]u8 = src_mem8[0..3];
     vs(*[3]u8, @as(*[3]u8, src_ptr31), 0, src_ptr31[0..]);
     const src_ptr32: *[3]u8 = src_mem8[0..3];
@@ -546,7 +546,7 @@ export fn fn5() void {
     ve([]u8, @as(*[3]u8, src_ptr32), 3, dest_end, src_ptr32[3..dest_end]);
 }
 var src_mem9: [3]u8 = .{ 0, 0, 0 };
-export fn fn6() void {
+fn fn6() void {
     const src_ptr33: *[2:0]u8 = src_mem9[0..2 :0];
     vs(*[2:0]u8, @as(*[2:0]u8, src_ptr33), 0, src_ptr33[0..]);
     const src_ptr34: *[2:0]u8 = src_mem9[0..2 :0];
@@ -610,7 +610,7 @@ export fn fn6() void {
     vs(*[2:0]u8, @as(*[2:0]u8, src_ptr34), 0, src_ptr34[0..]);
 }
 var src_mem10: [1]u8 = .{0};
-export fn fn7() void {
+fn fn7() void {
     const src_ptr36: *[1]u8 = src_mem10[0..1];
     vs(*[1]u8, @as(*[1]u8, src_ptr36), 0, src_ptr36[0..]);
     const src_ptr37: *[1]u8 = src_mem10[0..1];
@@ -624,7 +624,7 @@ export fn fn7() void {
     ve([]u8, @as(*[1]u8, src_ptr37), 1, dest_end, src_ptr37[1..dest_end]);
 }
 var src_mem11: [1]u8 = .{0};
-export fn fn8() void {
+fn fn8() void {
     const src_ptr38: *[0:0]u8 = src_mem11[0..0 :0];
     vs(*[0:0]u8, @as(*[0:0]u8, src_ptr38), 0, src_ptr38[0..]);
     const src_ptr39: *[0:0]u8 = src_mem11[0..0 :0];
@@ -3186,6 +3186,7 @@ inline fn badSentinel(res: anytype) ?struct { expected: std.meta.Elem(@TypeOf(re
     return null;
 }
 test {
+    if (@import("builtin").zig_backend == .stage2_riscv64) return error.SkipZigTest;
     fn0();
     fn1();
     fn2();
