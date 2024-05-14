@@ -175,23 +175,6 @@ if(ZIG_STATIC_CURSES)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
 endif()
 
-set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zigcpp")
-
-# Handle multi-config builds and place each into a common lib. The VS generator
-# for example will append a Debug folder by default if not explicitly specified.
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${ZIG_CPP_LIB_DIR})
-foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
-    string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIG_CPP_LIB_DIR})
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${CMAKE_BINARY_DIR})
-endforeach(CONFIG_TYPE CMAKE_CONFIGURATION_TYPES)
-
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${LLD_INCLUDE_DIRS})
-include_directories(${CLANG_INCLUDE_DIRS})
-
 find_package(Threads)
 
 set(ZIG_CONFIG_H_OUT "${CMAKE_BINARY_DIR}/config.h")
@@ -200,6 +183,7 @@ set(ZIG_CONFIG_ZIG_OUT "${CMAKE_BINARY_DIR}/config.zig")
 set(ZIG_WASM2C_SOURCES
     "${CMAKE_SOURCE_DIR}/stage1/wasm2c.c"
 )
+# Sync with "zig_cpp_sources" in build.zig
 set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
@@ -713,35 +697,63 @@ configure_file (
     "${ZIG_CONFIG_ZIG_OUT}"
 )
 
-include_directories(
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}
-    "${CMAKE_SOURCE_DIR}/src"
-)
+# zigcpp target
 
-if(MSVC)
-  set(EXE_CXX_FLAGS "/std:c++17")
-else()
-  set(EXE_CXX_FLAGS "-std=c++17 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fvisibility-inlines-hidden -fno-exceptions -fno-rtti -Wno-type-limits -Wno-missing-braces -Wno-comment")
-  if(MINGW)
-    set(EXE_CXX_FLAGS "${EXE_CXX_FLAGS} -Wno-format")
-  endif()
-endif()
+set(ZIGCPP_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/zigcpp")
 
 add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
-if(ZIG_PIE)
-    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fno-stack-protector -fPIC")
-else()
-    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fno-stack-protector")
-endif()
-set_target_properties(zigcpp PROPERTIES COMPILE_FLAGS ${ZIGCPP_CXX_FLAGS})
 
-target_link_libraries(zigcpp LINK_PUBLIC
+# Sync with minimum C++ standard required to build LLVM
+# and with "exe_cflags" in build.zig
+target_compile_features(zigcpp PRIVATE cxx_std_17)
+set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
+
+if(NOT MSVC)
+  if(MINGW)
+    target_compile_options(zigcpp PRIVATE -Wno-format)
+  endif()
+  # Sync content below with "exe_cflags" in build.zig
+  target_compile_definitions(zigcpp PUBLIC
+    __STDC_CONSTANT_MACROS
+    __STDC_FORMAT_MACROS
+    __STDC_LIMIT_MACROS
+
+    _GNU_SOURCE
+  )
+  target_compile_options(zigcpp PRIVATE
+    -fno-exceptions
+    -fno-rtti
+    -fno-stack-protector
+
+    -fvisibility-inlines-hidden
+
+    -Wno-type-limits
+    -Wno-missing-braces
+    -Wno-comment
+  )
+endif()
+
+target_include_directories(zigcpp PUBLIC
+    ${CLANG_INCLUDE_DIRS}
+    ${LLVM_INCLUDE_DIRS}
+    ${LLD_INCLUDE_DIRS}
+)
+target_link_libraries(zigcpp PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
+
+# Handle multi-config builds and place each into a common lib. The VS generator
+# for example will append a Debug folder by default if not explicitly specified.
+set_target_properties(zigcpp PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${ZIGCPP_OUTPUT_DIR})
+foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+    string(TOUPPER ${CONFIG_TYPE} CONFIG_TYPE)
+    set_target_properties(zigcpp PROPERTIES ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_TYPE} ${ZIGCPP_OUTPUT_DIR})
+endforeach()
+
+# end of zigcpp target
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
