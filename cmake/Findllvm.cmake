@@ -12,7 +12,6 @@
 if(ZIG_USE_LLVM_CONFIG)
   set(LLVM_CONFIG_ERROR_MESSAGES "")
   while(1)
-    unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
         NAMES llvm-config-18 llvm-config-18.0 llvm-config180 llvm-config18 llvm-config NAMES_PER_DIR
         PATHS
