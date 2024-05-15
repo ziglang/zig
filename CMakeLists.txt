@@ -1,23 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(zig
-  DESCRIPTION
-    "Zig is a general-purpose programming language and toolchain for maintaining robust, optimal and reusable software"
-  HOMEPAGE_URL
-    "https://ziglang.org"
-  LANGUAGES
-    C CXX
-)
-
-include(CheckSymbolExists)
-
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
         "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
-    set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/stage3" CACHE STRING
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/stage3" CACHE PATH
       "Directory to install zig to" FORCE)
 endif()
 
@@ -37,8 +26,16 @@ else()
   list(APPEND ZIG_CMAKE_PREFIX_PATH "${ZIG_CMAKE_PREFIX_PATH_STRING}")
 endif()
 
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-list(PREPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+project(zig
+  DESCRIPTION
+    "Zig is a general-purpose programming language and toolchain for maintaining robust, optimal and reusable software"
+  HOMEPAGE_URL
+    "https://ziglang.org"
+  LANGUAGES
+    C CXX
+)
 
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 13)
@@ -755,6 +752,8 @@ endforeach()
 
 # end of zigcpp target
 
+include(CheckSymbolExists)
+
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
 if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
@@ -970,11 +969,13 @@ add_custom_target(stage3 ALL
   DEPENDS "${PROJECT_BINARY_DIR}/stage3/bin/zig"
 )
 
+set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
+
 add_custom_command(
   OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
   COMMAND zig2 build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
   COMMENT STATUS "Building stage3"
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
 )
 
 if(WIN32)
@@ -985,6 +986,6 @@ endif()
 
 install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
 install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")
+install(CODE "set(ZIG2_WORKING_DIR \"${ZIG2_WORKING_DIR}\")")
 install(CODE "set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")")
-install(CODE "set(PROJECT_SOURCE_DIR \"${PROJECT_SOURCE_DIR}\")")
 install(SCRIPT cmake/install.cmake)
