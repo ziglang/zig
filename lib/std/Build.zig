@@ -2345,6 +2345,9 @@ pub const LazyPath = union(enum) {
 
         /// Applied after `up`.
         sub_path: []const u8 = "",
+
+        /// If set, the file is hashed only on this suffix, not the full absolute path
+        content_hash_name: ?[]const u8 = null,
     },
 
     /// An absolute path or a path relative to the current working directory of
@@ -2546,7 +2549,9 @@ pub const LazyPath = union(enum) {
                     }
                 }
 
-                return file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
+                var item = file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
+                item.content_hash_name = gen.content_hash_name;
+                return item;
             },
             .dependency => |dep| return .{
                 .root_dir = dep.dependency.builder.build_root,
@@ -2586,6 +2591,7 @@ pub const LazyPath = union(enum) {
                 .file = gen.file,
                 .up = gen.up,
                 .sub_path = dupePathInner(allocator, gen.sub_path),
+                .content_hash_name = if (gen.content_hash_name) |name| Build.dupeInner(allocator, name) else null,
             } },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
