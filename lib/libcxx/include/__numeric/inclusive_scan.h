@@ -24,33 +24,32 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 template <class _InputIterator, class _OutputIterator, class _Tp, class _BinaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 inclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __result, _BinaryOp __b, _Tp __init) {
   for (; __first != __last; ++__first, (void)++__result) {
-    __init = __b(__init, *__first);
+    __init    = __b(__init, *__first);
     *__result = __init;
   }
   return __result;
 }
 
 template <class _InputIterator, class _OutputIterator, class _BinaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 inclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __result, _BinaryOp __b) {
   if (__first != __last) {
     typename iterator_traits<_InputIterator>::value_type __init = *__first;
-    *__result++ = __init;
+    *__result++                                                 = __init;
     if (++__first != __last)
-      return _VSTD::inclusive_scan(__first, __last, __result, __b, __init);
+      return std::inclusive_scan(__first, __last, __result, __b, __init);
   }
 
   return __result;
 }
 
 template <class _InputIterator, class _OutputIterator>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator inclusive_scan(_InputIterator __first,
-                                                                                       _InputIterator __last,
-                                                                                       _OutputIterator __result) {
-  return _VSTD::inclusive_scan(__first, __last, __result, _VSTD::plus<>());
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+inclusive_scan(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
+  return std::inclusive_scan(__first, __last, __result, std::plus<>());
 }
 
 #endif // _LIBCPP_STD_VER >= 17

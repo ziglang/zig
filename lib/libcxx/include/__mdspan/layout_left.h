@@ -110,12 +110,27 @@ public:
         "layout_left::mapping converting ctor: other.required_span_size() must be representable as index_type.");
   }
 
-// FIXME: add when we add other layouts
-#  if 0
-    template<class _OtherExtents>
-      constexpr explicit(extents_type::rank() > 0)
-        mapping(const layout_stride::mapping_<OtherExtents>&) noexcept;
-#  endif
+  template <class _OtherExtents>
+    requires(is_constructible_v<extents_type, _OtherExtents>)
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit(extents_type::rank() > 0)
+      mapping(const layout_stride::mapping<_OtherExtents>& __other) noexcept
+      : __extents_(__other.extents()) {
+    if constexpr (extents_type::rank() > 0) {
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+          ([&]() {
+            using _CommonType = common_type_t<typename extents_type::index_type, typename _OtherExtents::index_type>;
+            for (rank_type __r = 0; __r < extents_type::rank(); __r++)
+              if (static_cast<_CommonType>(stride(__r)) != static_cast<_CommonType>(__other.stride(__r)))
+                return false;
+            return true;
+          }()),
+          "layout_left::mapping from layout_stride ctor: strides are not compatible with layout_left.");
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+          __mdspan_detail::__is_representable_as<index_type>(__other.required_span_size()),
+          "layout_left::mapping from layout_stride ctor: other.required_span_size() must be representable as "
+          "index_type.");
+    }
+  }
 
   _LIBCPP_HIDE_FROM_ABI constexpr mapping& operator=(const mapping&) noexcept = default;
 
@@ -137,8 +152,8 @@ public:
     // return a value exceeding required_span_size(), which is used to know how large an allocation one needs
     // Thus, this is a canonical point in multi-dimensional data structures to make invalid element access checks
     // However, mdspan does check this on its own, so for now we avoid double checking in hardened mode
-    _LIBCPP_ASSERT(__mdspan_detail::__is_multidimensional_index_in(__extents_, __idx...),
-                   "layout_left::mapping: out of bounds indexing");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__mdspan_detail::__is_multidimensional_index_in(__extents_, __idx...),
+                                 "layout_left::mapping: out of bounds indexing");
     array<index_type, extents_type::rank()> __idx_a{static_cast<index_type>(__idx)...};
     return [&]<size_t... _Pos>(index_sequence<_Pos...>) {
       index_type __res = 0;

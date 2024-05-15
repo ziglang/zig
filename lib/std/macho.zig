@@ -1230,6 +1230,12 @@ pub const MH_APP_EXTENSION_SAFE = 0x02000000;
 /// The external symbols listed in the nlist symbol table do not include all the symbols listed in the dyld info.
 pub const MH_NLIST_OUTOFSYNC_WITH_DYLDINFO = 0x04000000;
 
+/// Allow LC_MIN_VERSION_MACOS and LC_BUILD_VERSION load commands with the platforms macOS, iOSMac, iOSSimulator, tvOSSimulator and watchOSSimulator.
+pub const MH_SIM_SUPPORT = 0x08000000;
+
+/// Only for use on dylibs. When this bit is set, the dylib is part of the dyld shared cache, rather than loose in the filesystem.
+pub const MH_DYLIB_IN_CACHE = 0x80000000;
+
 // Constants for the flags field of the fat_header
 
 /// the fat magic number

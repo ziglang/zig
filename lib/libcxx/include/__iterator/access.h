@@ -20,106 +20,72 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, size_t _Np>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
-_Tp*
-begin(_Tp (&__array)[_Np])
-{
-    return __array;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* begin(_Tp (&__array)[_Np]) _NOEXCEPT {
+  return __array;
 }
 
 template <class _Tp, size_t _Np>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
-_Tp*
-end(_Tp (&__array)[_Np])
-{
-    return __array + _Np;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp* end(_Tp (&__array)[_Np]) _NOEXCEPT {
+  return __array + _Np;
 }
 
 #if !defined(_LIBCPP_CXX03_LANG)
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
-auto
-begin(_Cp& __c) -> decltype(__c.begin())
-{
-    return __c.begin();
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 auto begin(_Cp& __c) -> decltype(__c.begin()) {
+  return __c.begin();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
-auto
-begin(const _Cp& __c) -> decltype(__c.begin())
-{
-    return __c.begin();
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 auto begin(const _Cp& __c) -> decltype(__c.begin()) {
+  return __c.begin();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
-auto
-end(_Cp& __c) -> decltype(__c.end())
-{
-    return __c.end();
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 auto end(_Cp& __c) -> decltype(__c.end()) {
+  return __c.end();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17
-auto
-end(const _Cp& __c) -> decltype(__c.end())
-{
-    return __c.end();
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 auto end(const _Cp& __c) -> decltype(__c.end()) {
+  return __c.end();
 }
 
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
-auto cbegin(const _Cp& __c) -> decltype(_VSTD::begin(__c))
-{
-    return _VSTD::begin(__c);
+_LIBCPP_HIDE_FROM_ABI constexpr auto cbegin(const _Cp& __c) noexcept(noexcept(std::begin(__c)))
+    -> decltype(std::begin(__c)) {
+  return std::begin(__c);
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
-auto cend(const _Cp& __c) -> decltype(_VSTD::end(__c))
-{
-    return _VSTD::end(__c);
+_LIBCPP_HIDE_FROM_ABI constexpr auto cend(const _Cp& __c) noexcept(noexcept(std::end(__c))) -> decltype(std::end(__c)) {
+  return std::end(__c);
 }
 
-#endif
+#  endif
 
-
-#else  // defined(_LIBCPP_CXX03_LANG)
+#else // defined(_LIBCPP_CXX03_LANG)
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY
-typename _Cp::iterator
-begin(_Cp& __c)
-{
-    return __c.begin();
+_LIBCPP_HIDE_FROM_ABI typename _Cp::iterator begin(_Cp& __c) {
+  return __c.begin();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY
-typename _Cp::const_iterator
-begin(const _Cp& __c)
-{
-    return __c.begin();
+_LIBCPP_HIDE_FROM_ABI typename _Cp::const_iterator begin(const _Cp& __c) {
+  return __c.begin();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY
-typename _Cp::iterator
-end(_Cp& __c)
-{
-    return __c.end();
+_LIBCPP_HIDE_FROM_ABI typename _Cp::iterator end(_Cp& __c) {
+  return __c.end();
 }
 
 template <class _Cp>
-_LIBCPP_INLINE_VISIBILITY
-typename _Cp::const_iterator
-end(const _Cp& __c)
-{
-    return __c.end();
+_LIBCPP_HIDE_FROM_ABI typename _Cp::const_iterator end(const _Cp& __c) {
+  return __c.end();
 }
 
 #endif // !defined(_LIBCPP_CXX03_LANG)

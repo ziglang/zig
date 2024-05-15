@@ -124,7 +124,7 @@ __subject_seq_combinator(_It __first, _It __last, _Tp& __value, _Fn __f, _Ts... 
   return __r;
 }
 
-template <typename _Tp, typename enable_if<is_unsigned<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_unsigned<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 __from_chars_atoi(const char* __first, const char* __last, _Tp& __value) {
   using __tx          = __itoa::__traits<_Tp>;
@@ -145,7 +145,7 @@ __from_chars_atoi(const char* __first, const char* __last, _Tp& __value) {
       });
 }
 
-template <typename _Tp, typename enable_if<is_signed<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_signed<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 __from_chars_atoi(const char* __first, const char* __last, _Tp& __value) {
   using __t = decltype(std::__to_unsigned_like(__value));
@@ -170,7 +170,7 @@ inline constexpr float __from_chars_log2f_lut[35] = {
     4.321928,  4.3923173, 4.4594316, 4.523562, 4.5849624, 4.643856, 4.70044,  4.7548876, 4.807355,
     4.857981,  4.9068904, 4.9541965, 5,        5.044394,  5.087463, 5.129283, 5.169925};
 
-template <typename _Tp, typename enable_if<is_unsigned<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_unsigned<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 __from_chars_integral(const char* __first, const char* __last, _Tp& __value, int __base) {
   if (__base == 10)
@@ -211,20 +211,20 @@ __from_chars_integral(const char* __first, const char* __last, _Tp& __value, int
       __base);
 }
 
-template <typename _Tp, typename enable_if<is_signed<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_signed<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 __from_chars_integral(const char* __first, const char* __last, _Tp& __value, int __base) {
   using __t = decltype(std::__to_unsigned_like(__value));
   return std::__sign_combinator(__first, __last, __value, __from_chars_integral<__t>, __base);
 }
 
-template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_integral<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 from_chars(const char* __first, const char* __last, _Tp& __value) {
   return std::__from_chars_atoi(__first, __last, __value);
 }
 
-template <typename _Tp, typename enable_if<is_integral<_Tp>::value, int>::type = 0>
+template <typename _Tp, __enable_if_t<is_integral<_Tp>::value, int> = 0>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI from_chars_result
 from_chars(const char* __first, const char* __last, _Tp& __value, int __base) {
   _LIBCPP_ASSERT_UNCATEGORIZED(2 <= __base && __base <= 36, "base not in [2, 36]");

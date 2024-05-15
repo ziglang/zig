@@ -47,6 +47,67 @@ extern "C" {
 #endif //__cplusplus
 
 #if !defined(__HIPCC_RTC__)
+#if __has_include("hip/hip_version.h")
+#include "hip/hip_version.h"
+#endif // __has_include("hip/hip_version.h")
+#endif // __HIPCC_RTC__
+
+typedef __SIZE_TYPE__ __hip_size_t;
+
+#ifdef __cplusplus
+extern "C" {
+#endif //__cplusplus
+
+#if HIP_VERSION_MAJOR * 100 + HIP_VERSION_MINOR >= 405
+__device__ unsigned long long __ockl_dm_alloc(unsigned long long __size);
+__device__ void __ockl_dm_dealloc(unsigned long long __addr);
+#if __has_feature(address_sanitizer)
+__device__ unsigned long long __asan_malloc_impl(unsigned long long __size,
+                                                 unsigned long long __pc);
+__device__ void __asan_free_impl(unsigned long long __addr,
+                                 unsigned long long __pc);
+__attribute__((noinline, weak)) __device__ void *malloc(__hip_size_t __size) {
+  unsigned long long __pc = (unsigned long long)__builtin_return_address(0);
+  return (void *)__asan_malloc_impl(__size, __pc);
+}
+__attribute__((noinline, weak)) __device__ void free(void *__ptr) {
+  unsigned long long __pc = (unsigned long long)__builtin_return_address(0);
+  __asan_free_impl((unsigned long long)__ptr, __pc);
+}
+#else // __has_feature(address_sanitizer)
+__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
+  return (void *) __ockl_dm_alloc(__size);
+}
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
+  __ockl_dm_dealloc((unsigned long long)__ptr);
+}
+#endif // __has_feature(address_sanitizer)
+#else  // HIP version check
+#if __HIP_ENABLE_DEVICE_MALLOC__
+__device__ void *__hip_malloc(__hip_size_t __size);
+__device__ void *__hip_free(void *__ptr);
+__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
+  return __hip_malloc(__size);
+}
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
+  __hip_free(__ptr);
+}
+#else  // __HIP_ENABLE_DEVICE_MALLOC__
+__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
+  __builtin_trap();
+  return (void *)0;
+}
+__attribute__((weak)) inline __device__ void free(void *__ptr) {
+  __builtin_trap();
+}
+#endif // __HIP_ENABLE_DEVICE_MALLOC__
+#endif // HIP version check
+
+#ifdef __cplusplus
+} // extern "C"
+#endif //__cplusplus
+
+#if !defined(__HIPCC_RTC__)
 #include <cmath>
 #include <cstdlib>
 #include <stdlib.h>
@@ -70,59 +131,6 @@ typedef __SIZE_TYPE__ size_t;
 #define CHAR_BIT __CHAR_BIT__
 #define INT_MAX __INTMAX_MAX__
 #endif // __HIPCC_RTC__
-
-typedef __SIZE_TYPE__ __hip_size_t;
-
-#ifdef __cplusplus
-extern "C" {
-#endif //__cplusplus
-
-#if HIP_VERSION_MAJOR * 100 + HIP_VERSION_MINOR >= 405
-extern "C" __device__ unsigned long long __ockl_dm_alloc(unsigned long long __size);
-extern "C" __device__ void __ockl_dm_dealloc(unsigned long long __addr);
-#if __has_feature(address_sanitizer)
-extern "C" __device__ unsigned long long __asan_malloc_impl(unsigned long long __size, unsigned long long __pc);
-extern "C" __device__ void __asan_free_impl(unsigned long long __addr, unsigned long long __pc);
-__attribute__((noinline, weak)) __device__ void *malloc(__hip_size_t __size) {
-  unsigned long long __pc = (unsigned long long)__builtin_return_address(0);
-  return (void *)__asan_malloc_impl(__size, __pc);
-}
-__attribute__((noinline, weak)) __device__ void free(void *__ptr) {
-  unsigned long long __pc = (unsigned long long)__builtin_return_address(0);
-  __asan_free_impl((unsigned long long)__ptr, __pc);
-}
-#else
-__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
-  return (void *) __ockl_dm_alloc(__size);
-}
-__attribute__((weak)) inline __device__ void free(void *__ptr) {
-  __ockl_dm_dealloc((unsigned long long)__ptr);
-}
-#endif // __has_feature(address_sanitizer)
-#else  // HIP version check
-#if __HIP_ENABLE_DEVICE_MALLOC__
-__device__ void *__hip_malloc(__hip_size_t __size);
-__device__ void *__hip_free(void *__ptr);
-__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
-  return __hip_malloc(__size);
-}
-__attribute__((weak)) inline __device__ void free(void *__ptr) {
-  __hip_free(__ptr);
-}
-#else
-__attribute__((weak)) inline __device__ void *malloc(__hip_size_t __size) {
-  __builtin_trap();
-  return (void *)0;
-}
-__attribute__((weak)) inline __device__ void free(void *__ptr) {
-  __builtin_trap();
-}
-#endif
-#endif // HIP version check
-
-#ifdef __cplusplus
-} // extern "C"
-#endif //__cplusplus
 
 #include <__clang_hip_libdevice_declares.h>
 #include <__clang_hip_math.h>

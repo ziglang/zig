@@ -13,6 +13,7 @@ fn foo() C!void {
 
 test "merge error sets" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (foo()) {
         @panic("unexpected");

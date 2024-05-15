@@ -28,43 +28,44 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [cmp.alg]
 namespace __partial_order {
-    struct __fn {
-    // NOLINTBEGIN(libcpp-robust-against-adl) partial_order should use ADL, but only here
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<2>)
-            noexcept(noexcept(partial_ordering(partial_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      partial_ordering(partial_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          partial_ordering(partial_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
-    // NOLINTEND(libcpp-robust-against-adl)
+struct __fn {
+  // NOLINTBEGIN(libcpp-robust-against-adl) partial_order should use ADL, but only here
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<2>) noexcept(
+      noexcept(partial_ordering(partial_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(partial_ordering(partial_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return partial_ordering(partial_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
+  // NOLINTEND(libcpp-robust-against-adl)
 
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<1>)
-            noexcept(noexcept(partial_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      partial_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          partial_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<1>) noexcept(
+      noexcept(partial_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(partial_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return partial_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
 
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<0>)
-            noexcept(noexcept(partial_ordering(_VSTD::weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      partial_ordering(_VSTD::weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          partial_ordering(_VSTD::weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<0>) noexcept(
+      noexcept(partial_ordering(std::weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(partial_ordering(std::weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return partial_ordering(std::weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
 
-        template<class _Tp, class _Up>
-        _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t, _Up&& __u) const
-            noexcept(noexcept(__go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<2>())))
-            -> decltype(      __go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<2>()))
-            { return          __go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<2>()); }
-    };
+  template <class _Tp, class _Up>
+  _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t, _Up&& __u) const
+      noexcept(noexcept(__go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<2>())))
+          -> decltype(__go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<2>())) {
+    return __go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<2>());
+  }
+};
 } // namespace __partial_order
 
 inline namespace __cpo {
-    inline constexpr auto partial_order = __partial_order::__fn{};
+inline constexpr auto partial_order = __partial_order::__fn{};
 } // namespace __cpo
 
 #endif // _LIBCPP_STD_VER >= 20

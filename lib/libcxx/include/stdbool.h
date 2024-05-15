@@ -30,11 +30,11 @@ Macros:
 #endif
 
 #ifdef __cplusplus
-#undef bool
-#undef true
-#undef false
-#undef __bool_true_false_are_defined
-#define __bool_true_false_are_defined 1
+#  undef bool
+#  undef true
+#  undef false
+#  undef __bool_true_false_are_defined
+#  define __bool_true_false_are_defined 1
 #endif
 
 #endif // _LIBCPP_STDBOOL_H

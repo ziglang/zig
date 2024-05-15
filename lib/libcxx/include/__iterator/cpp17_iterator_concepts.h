@@ -29,6 +29,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 #if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -181,5 +184,7 @@ _LIBCPP_END_NAMESPACE_STD
 #  define _LIBCPP_REQUIRE_CPP17_RANDOM_ACCESS_ITERATOR(iter_t)
 
 #endif // _LIBCPP_STD_VER >= 20
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_CPP17_ITERATOR_CONCEPTS_H

@@ -44,7 +44,12 @@ pub fn fmtValue(val: Value, mod: *Module, opt_sema: ?*Sema) std.fmt.Formatter(pr
         .val = val,
         .mod = mod,
         .opt_sema = opt_sema,
+        .depth = 3,
     } };
+}
+
+pub fn fmtValueFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.format) {
+    return .{ .data = ctx };
 }
 
 /// Converts `val` to a null-terminated string stored in the InternPool.

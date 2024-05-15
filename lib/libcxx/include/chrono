@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_CHRONO
 #define _LIBCPP_CHRONO
 
+// clang-format off
+
 /*
     chrono synopsis
 
@@ -293,6 +295,10 @@ using sys_days    = sys_time<days>;                     // C++20
 template<class charT, class traits, class Duration>     // C++20
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const sys_time<Duration>& tp);
+
+template<class charT, class traits>                    // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const sys_days& dp);
 
 class file_clock                                        // C++20
 {
@@ -677,6 +683,39 @@ constexpr bool is_pm(hours const& h) noexcept;
 constexpr hours make12(const hours& h) noexcept;
 constexpr hours make24(const hours& h, bool is_pm) noexcept;
 
+// [time.zone.db], time zone database
+struct tzdb {                                                                    // C++20
+  string                 version;
+};
+
+class tzdb_list {                                                                // C++20
+public:
+  tzdb_list(const tzdb_list&) = delete;
+  tzdb_list& operator=(const tzdb_list&) = delete;
+
+  // unspecified additional constructors
+
+  class const_iterator;
+
+  const tzdb& front() const noexcept;
+
+  const_iterator erase_after(const_iterator p);
+
+  const_iterator begin() const noexcept;
+  const_iterator end()   const noexcept;
+
+  const_iterator cbegin() const noexcept;
+  const_iterator cend()   const noexcept;
+};
+
+// [time.zone.db.access], time zone database access
+const tzdb& get_tzdb();                                                          // C++20
+tzdb_list& get_tzdb_list();                                                      // C++20
+
+// [time.zone.db.remote], remote time zone database support
+const tzdb& reload_tzdb();                                                       // C++20
+string remote_version();                                                         // C++20
+
 // 25.10.5, class time_zone    // C++20
 enum class choose {earliest, latest};
 class time_zone;
@@ -763,6 +802,8 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 }  // std
 */
 
+// clang-format on
+
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__chrono/calendar.h>
 #include <__chrono/convert_to_timespec.h>
@@ -799,6 +840,11 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #  include <__chrono/statically_widen.h>
 #endif
 
+#if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                              \
+    !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#  include <__chrono/tzdb.h>
+#  include <__chrono/tzdb_list.h>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -808,6 +854,8 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 #  include <bit>
 #  include <concepts>
 #  include <cstring>
+#  include <forward_list>
+#  include <string>
 #endif
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20

@@ -249,6 +249,7 @@ template <class T>
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__utility/as_const.h>
+#include <__utility/as_lvalue.h>
 #include <__utility/auto_cast.h>
 #include <__utility/cmp.h>
 #include <__utility/declval.h>

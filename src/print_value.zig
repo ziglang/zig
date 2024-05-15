@@ -14,10 +14,11 @@ const Target = std.Target;
 const max_aggregate_items = 100;
 const max_string_len = 256;
 
-const FormatContext = struct {
+pub const FormatContext = struct {
     val: Value,
     mod: *Module,
     opt_sema: ?*Sema,
+    depth: u8,
 };
 
 pub fn format(
@@ -28,7 +29,7 @@ pub fn format(
 ) !void {
     _ = options;
     comptime std.debug.assert(fmt.len == 0);
-    return print(ctx.val, writer, 3, ctx.mod, ctx.opt_sema) catch |err| switch (err) {
+    return print(ctx.val, writer, ctx.depth, ctx.mod, ctx.opt_sema) catch |err| switch (err) {
         error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
         error.ComptimeBreak, error.ComptimeReturn => unreachable,
         error.AnalysisFail, error.NeededSourceLocation => unreachable, // TODO: re-evaluate when we use `opt_sema` more fully

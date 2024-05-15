@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = b.host,
     });

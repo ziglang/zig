@@ -22,9 +22,8 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator1, class _InputIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
-    mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _BinaryPredicate __pred) {
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
+mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _BinaryPredicate __pred) {
   for (; __first1 != __last1; ++__first1, (void)++__first2)
     if (!__pred(*__first1, *__first2))
       break;
@@ -32,18 +31,19 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
 }
 
 template <class _InputIterator1, class _InputIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
-    mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2) {
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
+mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2) {
   return std::mismatch(__first1, __last1, __first2, __equal_to());
 }
 
 #if _LIBCPP_STD_VER >= 14
 template <class _InputIterator1, class _InputIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
-    mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2,
-             _BinaryPredicate __pred) {
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
+mismatch(_InputIterator1 __first1,
+         _InputIterator1 __last1,
+         _InputIterator2 __first2,
+         _InputIterator2 __last2,
+         _BinaryPredicate __pred) {
   for (; __first1 != __last1 && __first2 != __last2; ++__first1, (void)++__first2)
     if (!__pred(*__first1, *__first2))
       break;
@@ -51,9 +51,8 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
 }
 
 template <class _InputIterator1, class _InputIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
-    mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2) {
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InputIterator1, _InputIterator2>
+mismatch(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2) {
   return std::mismatch(__first1, __last1, __first2, __last2, __equal_to());
 }
 #endif

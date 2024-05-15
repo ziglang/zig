@@ -15,6 +15,7 @@
 #include <__atomic/is_always_lock_free.h>
 #include <__config>
 #include <__type_traits/conditional.h>
+#include <__type_traits/make_unsigned.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -80,36 +81,30 @@ using atomic_ptrdiff_t = atomic<ptrdiff_t>;
 using atomic_intmax_t  = atomic<intmax_t>;
 using atomic_uintmax_t = atomic<uintmax_t>;
 
-// atomic_*_lock_free : prefer the contention type most highly, then the largest lock-free type
+// C++20 atomic_{signed,unsigned}_lock_free: prefer the contention type most highly, then the largest lock-free type
+#if _LIBCPP_STD_VER >= 20
+#  if ATOMIC_LLONG_LOCK_FREE == 2
+using __largest_lock_free_type = long long;
+#  elif ATOMIC_INT_LOCK_FREE == 2
+using __largest_lock_free_type = int;
+#  elif ATOMIC_SHORT_LOCK_FREE == 2
+using __largest_lock_free_type = short;
+#  elif ATOMIC_CHAR_LOCK_FREE == 2
+using __largest_lock_free_type = char;
+#  else
+#    define _LIBCPP_NO_LOCK_FREE_TYPES // There are no lockfree types (this can happen in freestanding)
+#  endif
 
-#if _LIBCPP_STD_VER >= 17
-#  define _LIBCPP_CONTENTION_LOCK_FREE ::std::__libcpp_is_always_lock_free<__cxx_contention_t>::__value
-#else
-#  define _LIBCPP_CONTENTION_LOCK_FREE false
-#endif
+#  ifndef _LIBCPP_NO_LOCK_FREE_TYPES
+using __contention_t_or_largest =
+    __conditional_t<__libcpp_is_always_lock_free<__cxx_contention_t>::__value,
+                    __cxx_contention_t,
+                    __largest_lock_free_type>;
 
-#if ATOMIC_LLONG_LOCK_FREE == 2
-using __libcpp_signed_lock_free = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, long long>;
-using __libcpp_unsigned_lock_free =
-    __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, unsigned long long>;
-#elif ATOMIC_INT_LOCK_FREE == 2
-using __libcpp_signed_lock_free   = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, int>;
-using __libcpp_unsigned_lock_free = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, unsigned int>;
-#elif ATOMIC_SHORT_LOCK_FREE == 2
-using __libcpp_signed_lock_free   = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, short>;
-using __libcpp_unsigned_lock_free = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, unsigned short>;
-#elif ATOMIC_CHAR_LOCK_FREE == 2
-using __libcpp_signed_lock_free   = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, char>;
-using __libcpp_unsigned_lock_free = __conditional_t<_LIBCPP_CONTENTION_LOCK_FREE, __cxx_contention_t, unsigned char>;
-#else
-// No signed/unsigned lock-free types
-#  define _LIBCPP_NO_LOCK_FREE_TYPES
-#endif
-
-#if !defined(_LIBCPP_NO_LOCK_FREE_TYPES)
-using atomic_signed_lock_free   = atomic<__libcpp_signed_lock_free>;
-using atomic_unsigned_lock_free = atomic<__libcpp_unsigned_lock_free>;
-#endif
+using atomic_signed_lock_free   = atomic<__contention_t_or_largest>;
+using atomic_unsigned_lock_free = atomic<make_unsigned_t<__contention_t_or_largest>>;
+#  endif // !_LIBCPP_NO_LOCK_FREE_TYPES
+#endif   // C++20
 
 _LIBCPP_END_NAMESPACE_STD
 

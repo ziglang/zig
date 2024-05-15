@@ -344,6 +344,10 @@ pub fn GenericWriter(
             return @errorCast(self.any().writeStruct(value));
         }
 
+        pub inline fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) Error!void {
+            return @errorCast(self.any().writeStructEndian(value, endian));
+        }
+
         pub inline fn any(self: *const Self) AnyWriter {
             return .{
                 .context = @ptrCast(&self.context),

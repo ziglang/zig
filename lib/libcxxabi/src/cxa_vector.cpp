@@ -416,6 +416,6 @@ __cxa_vec_delete3(void *array_address, size_t element_size, size_t padding_size,
 }
 
 
-}  // extern "C"
+} // extern "C"
 
 }  // abi

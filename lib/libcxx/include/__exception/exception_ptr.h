@@ -9,14 +9,42 @@
 #ifndef _LIBCPP___EXCEPTION_EXCEPTION_PTR_H
 #define _LIBCPP___EXCEPTION_EXCEPTION_PTR_H
 
+#include <__availability>
 #include <__config>
 #include <__exception/operations.h>
 #include <__memory/addressof.h>
+#include <__memory/construct_at.h>
+#include <__type_traits/decay.h>
 #include <cstddef>
 #include <cstdlib>
+#include <new>
+#include <typeinfo>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
+#endif
+
+#ifndef _LIBCPP_ABI_MICROSOFT
+
+namespace __cxxabiv1 {
+
+extern "C" {
+_LIBCPP_OVERRIDABLE_FUNC_VIS void* __cxa_allocate_exception(size_t) throw();
+_LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_free_exception(void*) throw();
+
+struct __cxa_exception;
+_LIBCPP_OVERRIDABLE_FUNC_VIS __cxa_exception* __cxa_init_primary_exception(
+    void*,
+    std::type_info*,
+    void(
+#  if defined(_WIN32)
+        __thiscall
+#  endif
+            *)(void*)) throw();
+}
+
+} // namespace __cxxabiv1
+
 #endif
 
 namespace std { // purposefully not using versioning namespace
@@ -25,6 +53,11 @@ namespace std { // purposefully not using versioning namespace
 
 class _LIBCPP_EXPORTED_FROM_ABI exception_ptr {
   void* __ptr_;
+
+  static exception_ptr __from_native_exception_pointer(void*) _NOEXCEPT;
+
+  template <class _Ep>
+  friend _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep) _NOEXCEPT;
 
 public:
   _LIBCPP_HIDE_FROM_ABI exception_ptr() _NOEXCEPT : __ptr_() {}
@@ -51,11 +84,28 @@ public:
 template <class _Ep>
 _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
 #  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION && __cplusplus >= 201103L
+  using _Ep2 = __decay_t<_Ep>;
+
+  void* __ex = __cxxabiv1::__cxa_allocate_exception(sizeof(_Ep));
+  (void)__cxxabiv1::__cxa_init_primary_exception(__ex, const_cast<std::type_info*>(&typeid(_Ep)), [](void* __p) {
+    std::__destroy_at(static_cast<_Ep2*>(__p));
+  });
+
+  try {
+    ::new (__ex) _Ep2(__e);
+    return exception_ptr::__from_native_exception_pointer(__ex);
+  } catch (...) {
+    __cxxabiv1::__cxa_free_exception(__ex);
+    return current_exception();
+  }
+#    else
   try {
     throw __e;
   } catch (...) {
     return current_exception();
   }
+#    endif
 #  else
   ((void)__e);
   std::abort();

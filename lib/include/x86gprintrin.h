@@ -21,6 +21,11 @@
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__USERMSR__)
+#include <usermsrintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__CRC32__)
 #include <crc32intrin.h>
 #endif

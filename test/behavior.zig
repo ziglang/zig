@@ -89,6 +89,7 @@ test {
     _ = @import("behavior/switch.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
+    _ = @import("behavior/switch_on_captured_error.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/threadlocal.zig");
     _ = @import("behavior/truncate.zig");

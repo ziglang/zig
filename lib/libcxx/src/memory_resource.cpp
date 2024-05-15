@@ -74,7 +74,7 @@ union ResourceInitHelper {
     __null_memory_resource_imp null_res;
   } resources;
   char dummy;
-  _LIBCPP_CONSTEXPR_SINCE_CXX14 ResourceInitHelper() : resources() {}
+  constexpr ResourceInitHelper() : resources() {}
   ~ResourceInitHelper() {}
 };
 
@@ -175,7 +175,7 @@ void* unsynchronized_pool_resource::__adhoc_pool::__do_allocate(memory_resource*
 
 void unsynchronized_pool_resource::__adhoc_pool::__do_deallocate(
     memory_resource* upstream, void* p, size_t bytes, size_t align) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__first_ != nullptr, "deallocating a block that was not allocated with this allocator");
+  _LIBCPP_ASSERT_NON_NULL(__first_ != nullptr, "deallocating a block that was not allocated with this allocator");
   if (__first_->__start_ == p) {
     __chunk_footer* next = __first_->__next_;
     upstream->deallocate(p, __first_->__allocation_size(), __first_->__align_);
@@ -189,7 +189,8 @@ void unsynchronized_pool_resource::__adhoc_pool::__do_deallocate(
         return;
       }
     }
-    _LIBCPP_ASSERT_UNCATEGORIZED(false, "deallocating a block that was not allocated with this allocator");
+    // The request to deallocate memory ends up being a no-op, likely resulting in a memory leak.
+    _LIBCPP_ASSERT_VALID_DEALLOCATION(false, "deallocating a block that was not allocated with this allocator");
   }
 }
 
@@ -230,7 +231,7 @@ public:
   }
 
   void* __allocate_in_new_chunk(memory_resource* upstream, size_t block_size, size_t chunk_size) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(chunk_size % block_size == 0, "");
+    _LIBCPP_ASSERT_INTERNAL(chunk_size % block_size == 0, "");
     static_assert(__default_alignment >= alignof(std::max_align_t), "");
     static_assert(__default_alignment >= alignof(__chunk_footer), "");
     static_assert(__default_alignment >= alignof(__vacancy_header), "");
@@ -401,7 +402,7 @@ void unsynchronized_pool_resource::do_deallocate(void* p, size_t bytes, size_t a
   if (i == __num_fixed_pools_)
     return __adhoc_pool_.__do_deallocate(__res_, p, bytes, align);
   else {
-    _LIBCPP_ASSERT_UNCATEGORIZED(
+    _LIBCPP_ASSERT_NON_NULL(
         __fixed_pools_ != nullptr, "deallocating a block that was not allocated with this allocator");
     __fixed_pools_[i].__evacuate(p);
   }

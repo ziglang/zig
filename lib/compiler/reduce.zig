@@ -233,7 +233,7 @@ pub fn main() !void {
                 }
             }
 
-            try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
+            try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
             // std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
@@ -274,7 +274,7 @@ pub fn main() !void {
         fixups.clearRetainingCapacity();
         rendered.clearRetainingCapacity();
         try tree.renderToArrayList(&rendered, fixups);
-        try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
+        try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
 
         return std.process.cleanExit();
     }

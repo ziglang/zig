@@ -25,7 +25,7 @@ pub fn writeLoadStoreRegInst(value: u12, code: *[4]u8) void {
     mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
-pub fn calcNumberOfPages(saddr: u64, taddr: u64) error{Overflow}!i21 {
+pub fn calcNumberOfPages(saddr: i64, taddr: i64) error{Overflow}!i21 {
     const spage = math.cast(i32, saddr >> 12) orelse return error.Overflow;
     const tpage = math.cast(i32, taddr >> 12) orelse return error.Overflow;
     const pages = math.cast(i21, tpage - spage) orelse return error.Overflow;

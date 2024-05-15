@@ -48,6 +48,7 @@ test "exporting using field access" {
 test "exporting comptime-known value" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
         builtin.target.ofmt != .macho and
@@ -67,6 +68,7 @@ test "exporting comptime-known value" {
 test "exporting comptime var" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
         builtin.target.ofmt != .macho and

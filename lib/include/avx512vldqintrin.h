@@ -15,8 +15,14 @@
 #define __AVX512VLDQINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS128 __attribute__((__always_inline__, __nodebug__, __target__("avx512vl,avx512dq"), __min_vector_width__(128)))
-#define __DEFAULT_FN_ATTRS256 __attribute__((__always_inline__, __nodebug__, __target__("avx512vl,avx512dq"), __min_vector_width__(256)))
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vl,avx512dq,no-evex512"),                   \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS256                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vl,avx512dq,no-evex512"),                   \
+                 __min_vector_width__(256)))
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
 _mm256_mullo_epi64 (__m256i __A, __m256i __B) {

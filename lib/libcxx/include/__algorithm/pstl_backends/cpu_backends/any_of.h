@@ -16,26 +16,32 @@
 #include <__atomic/memory_order.h>
 #include <__config>
 #include <__functional/operations.h>
-#include <__iterator/iterator_traits.h>
+#include <__iterator/concepts.h>
 #include <__type_traits/is_execution_policy.h>
+#include <__utility/move.h>
 #include <__utility/pair.h>
-#include <__utility/terminate_on_exception.h>
 #include <cstdint>
+#include <optional>
 
 #if !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+
+_LIBCPP_PUSH_MACROS
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Index, class _Brick>
-_LIBCPP_HIDE_FROM_ABI bool __parallel_or(_Index __first, _Index __last, _Brick __f) {
+_LIBCPP_HIDE_FROM_ABI optional<bool> __parallel_or(_Index __first, _Index __last, _Brick __f) {
   std::atomic<bool> __found(false);
-  __par_backend::__parallel_for(__first, __last, [__f, &__found](_Index __i, _Index __j) {
+  auto __ret = __par_backend::__parallel_for(__first, __last, [__f, &__found](_Index __i, _Index __j) {
     if (!__found.load(std::memory_order_relaxed) && __f(__i, __j)) {
       __found.store(true, std::memory_order_relaxed);
       __par_backend::__cancel_execution();
     }
   });
-  return __found;
+  if (!__ret)
+    return nullopt;
+  return static_cast<bool>(__found);
 }
 
 // TODO: check whether __simd_first() can be used here
@@ -64,19 +70,19 @@ _LIBCPP_HIDE_FROM_ABI bool __simd_or(_Index __first, _DifferenceType __n, _Pred 
 }
 
 template <class _ExecutionPolicy, class _ForwardIterator, class _Predicate>
-_LIBCPP_HIDE_FROM_ABI bool
+_LIBCPP_HIDE_FROM_ABI optional<bool>
 __pstl_any_of(__cpu_backend_tag, _ForwardIterator __first, _ForwardIterator __last, _Predicate __pred) {
   if constexpr (__is_parallel_execution_policy_v<_ExecutionPolicy> &&
-                __has_random_access_iterator_category<_ForwardIterator>::value) {
-    return std::__terminate_on_exception([&] {
-      return std::__parallel_or(
-          __first, __last, [&__pred](_ForwardIterator __brick_first, _ForwardIterator __brick_last) {
-            return std::__pstl_any_of<__remove_parallel_policy_t<_ExecutionPolicy>>(
-                __cpu_backend_tag{}, __brick_first, __brick_last, __pred);
-          });
-    });
+                __has_random_access_iterator_category_or_concept<_ForwardIterator>::value) {
+    return std::__parallel_or(
+        __first, __last, [&__pred](_ForwardIterator __brick_first, _ForwardIterator __brick_last) {
+          auto __res = std::__pstl_any_of<__remove_parallel_policy_t<_ExecutionPolicy>>(
+              __cpu_backend_tag{}, __brick_first, __brick_last, __pred);
+          _LIBCPP_ASSERT_INTERNAL(__res, "unseq/seq should never try to allocate!");
+          return *std::move(__res);
+        });
   } else if constexpr (__is_unsequenced_execution_policy_v<_ExecutionPolicy> &&
-                       __has_random_access_iterator_category<_ForwardIterator>::value) {
+                       __has_random_access_iterator_category_or_concept<_ForwardIterator>::value) {
     return std::__simd_or(__first, __last - __first, __pred);
   } else {
     return std::any_of(__first, __last, __pred);
@@ -84,6 +90,8 @@ __pstl_any_of(__cpu_backend_tag, _ForwardIterator __first, _ForwardIterator __la
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
 

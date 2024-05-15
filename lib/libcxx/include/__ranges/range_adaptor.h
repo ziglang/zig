@@ -47,7 +47,7 @@ struct __range_adaptor_closure;
 // i.e. something that can be called via the `x | f` notation.
 template <class _Fn>
 struct __range_adaptor_closure_t : _Fn, __range_adaptor_closure<__range_adaptor_closure_t<_Fn>> {
-    _LIBCPP_HIDE_FROM_ABI constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) { }
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) {}
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(__range_adaptor_closure_t);
 
@@ -56,23 +56,21 @@ concept _RangeAdaptorClosure = derived_from<remove_cvref_t<_Tp>, __range_adaptor
 
 template <class _Tp>
 struct __range_adaptor_closure {
-    template <ranges::viewable_range _View, _RangeAdaptorClosure _Closure>
-        requires same_as<_Tp, remove_cvref_t<_Closure>> &&
-                 invocable<_Closure, _View>
-    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-    friend constexpr decltype(auto) operator|(_View&& __view, _Closure&& __closure)
-        noexcept(is_nothrow_invocable_v<_Closure, _View>)
-    { return std::invoke(std::forward<_Closure>(__closure), std::forward<_View>(__view)); }
+  template <ranges::viewable_range _View, _RangeAdaptorClosure _Closure>
+    requires same_as<_Tp, remove_cvref_t<_Closure>> && invocable<_Closure, _View>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI friend constexpr decltype(auto)
+  operator|(_View&& __view, _Closure&& __closure) noexcept(is_nothrow_invocable_v<_Closure, _View>) {
+    return std::invoke(std::forward<_Closure>(__closure), std::forward<_View>(__view));
+  }
 
-    template <_RangeAdaptorClosure _Closure, _RangeAdaptorClosure _OtherClosure>
-        requires same_as<_Tp, remove_cvref_t<_Closure>> &&
-                 constructible_from<decay_t<_Closure>, _Closure> &&
-                 constructible_from<decay_t<_OtherClosure>, _OtherClosure>
-    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-    friend constexpr auto operator|(_Closure&& __c1, _OtherClosure&& __c2)
-        noexcept(is_nothrow_constructible_v<decay_t<_Closure>, _Closure> &&
-                 is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>)
-    { return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1))); }
+  template <_RangeAdaptorClosure _Closure, _RangeAdaptorClosure _OtherClosure>
+    requires same_as<_Tp, remove_cvref_t<_Closure>> && constructible_from<decay_t<_Closure>, _Closure> &&
+             constructible_from<decay_t<_OtherClosure>, _OtherClosure>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI friend constexpr auto operator|(_Closure&& __c1, _OtherClosure&& __c2) noexcept(
+      is_nothrow_constructible_v<decay_t<_Closure>, _Closure> &&
+      is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>) {
+    return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1)));
+  }
 };
 
 #endif // _LIBCPP_STD_VER >= 20

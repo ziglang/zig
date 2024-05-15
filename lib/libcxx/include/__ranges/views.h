@@ -22,7 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 
-namespace views { }
+namespace views {}
 
 } // namespace ranges
 

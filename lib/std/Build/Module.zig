@@ -89,10 +89,10 @@ pub const CSourceFile = struct {
     file: LazyPath,
     flags: []const []const u8 = &.{},
 
-    pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
+    pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
-            .file = self.file.dupe(b),
-            .flags = b.dupeStrings(self.flags),
+            .file = file.file.dupe(b),
+            .flags = b.dupeStrings(file.flags),
         };
     }
 };
@@ -110,11 +110,18 @@ pub const RcSourceFile = struct {
     ///  /x (ignore the INCLUDE environment variable)
     ///  /D_DEBUG or /DNDEBUG depending on the optimization mode
     flags: []const []const u8 = &.{},
+    /// Include paths that may or may not exist yet and therefore need to be
+    /// specified as a LazyPath. Each path will be appended to the flags
+    /// as `/I <resolved path>`.
+    include_paths: []const LazyPath = &.{},
 
-    pub fn dupe(self: RcSourceFile, b: *std.Build) RcSourceFile {
+    pub fn dupe(file: RcSourceFile, b: *std.Build) RcSourceFile {
+        const include_paths = b.allocator.alloc(LazyPath, file.include_paths.len) catch @panic("OOM");
+        for (include_paths, file.include_paths) |*dest, lazy_path| dest.* = lazy_path.dupe(b);
         return .{
-            .file = self.file.dupe(b),
-            .flags = b.dupeStrings(self.flags),
+            .file = file.file.dupe(b),
+            .flags = b.dupeStrings(file.flags),
+            .include_paths = include_paths,
         };
     }
 };
@@ -503,6 +510,9 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
     rc_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .win32_resource_file = rc_source_file }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, source.file);
+    for (source.include_paths) |include_path| {
+        addLazyPathDependenciesOnly(m, include_path);
+    }
 }
 
 pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
@@ -655,24 +665,19 @@ pub fn appendZigProcessFlags(
     for (m.include_dirs.items) |include_dir| {
         switch (include_dir) {
             .path => |include_path| {
-                try zig_args.append("-I");
-                try zig_args.append(include_path.getPath(b));
+                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
             },
             .path_system => |include_path| {
-                try zig_args.append("-isystem");
-                try zig_args.append(include_path.getPath(b));
+                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
             },
             .path_after => |include_path| {
-                try zig_args.append("-idirafter");
-                try zig_args.append(include_path.getPath(b));
+                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
             },
             .framework_path => |include_path| {
-                try zig_args.append("-F");
-                try zig_args.append(include_path.getPath2(b, asking_step));
+                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
             },
             .framework_path_system => |include_path| {
-                try zig_args.append("-iframework");
-                try zig_args.append(include_path.getPath2(b, asking_step));
+                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
             },
             .other_step => |other| {
                 if (other.generated_h) |header| {

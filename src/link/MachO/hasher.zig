@@ -36,14 +36,12 @@ pub fn ParallelHasher(comptime Hasher: type) type {
                         file_size - fstart
                     else
                         chunk_size;
-                    wg.start();
-                    try self.thread_pool.spawn(worker, .{
+                    self.thread_pool.spawnWg(&wg, worker, .{
                         file,
                         fstart,
                         buffer[fstart..][0..fsize],
                         &(out_buf.*),
                         &(result.*),
-                        &wg,
                     });
                 }
             }
@@ -56,9 +54,7 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             buffer: []u8,
             out: *[hash_size]u8,
             err: *fs.File.PReadError!usize,
-            wg: *WaitGroup,
         ) void {
-            defer wg.finish();
             err.* = file.preadAll(buffer, fstart);
             Hasher.hash(buffer, out, .{});
         }

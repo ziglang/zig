@@ -240,7 +240,7 @@ pub const ErrorDetails = struct {
         //       see https://github.com/ziglang/zig/issues/15395
         _: u26 = 0,
 
-        pub const strings = std.ComptimeStringMap([]const u8, .{
+        pub const strings = std.StaticStringMap([]const u8).initComptime(.{
             .{ "number", "number" },
             .{ "number_expression", "number expression" },
             .{ "string_literal", "quoted string literal" },

@@ -47,7 +47,8 @@ wctrans_t wctrans(const char* property);
 #include <__config>
 
 #if defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
-#   error "The <wctype.h> header is not supported since libc++ has been configured with LIBCXX_ENABLE_WIDE_CHARACTERS disabled"
+#  error                                                                                                               \
+      "The <wctype.h> header is not supported since libc++ has been configured with LIBCXX_ENABLE_WIDE_CHARACTERS disabled"
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -64,30 +65,30 @@ wctrans_t wctrans(const char* property);
 // of these declarations (e.g. <wchar.h>), the second `using ::wint_t` with using_if_exists
 // will fail because it does not refer to the same declaration.
 #if __has_include_next(<wctype.h>)
-#   include_next <wctype.h>
-#   define _LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H
+#  include_next <wctype.h>
+#  define _LIBCPP_INCLUDED_C_LIBRARY_WCTYPE_H
 #endif
 
 #ifdef __cplusplus
 
-#undef iswalnum
-#undef iswalpha
-#undef iswblank
-#undef iswcntrl
-#undef iswdigit
-#undef iswgraph
-#undef iswlower
-#undef iswprint
-#undef iswpunct
-#undef iswspace
-#undef iswupper
-#undef iswxdigit
-#undef iswctype
-#undef wctype
-#undef towlower
-#undef towupper
-#undef towctrans
-#undef wctrans
+#  undef iswalnum
+#  undef iswalpha
+#  undef iswblank
+#  undef iswcntrl
+#  undef iswdigit
+#  undef iswgraph
+#  undef iswlower
+#  undef iswprint
+#  undef iswpunct
+#  undef iswspace
+#  undef iswupper
+#  undef iswxdigit
+#  undef iswctype
+#  undef wctype
+#  undef towlower
+#  undef towupper
+#  undef towctrans
+#  undef wctrans
 
 #endif // __cplusplus
 

@@ -34,17 +34,12 @@ template <class _Tp, class = void>
 struct __coroutine_traits_sfinae {};
 
 template <class _Tp>
-struct __coroutine_traits_sfinae<
-    _Tp, __void_t<typename _Tp::promise_type> >
-{
+struct __coroutine_traits_sfinae< _Tp, __void_t<typename _Tp::promise_type> > {
   using promise_type = typename _Tp::promise_type;
 };
 
 template <class _Ret, class... _Args>
-struct coroutine_traits
-    : public __coroutine_traits_sfinae<_Ret>
-{
-};
+struct coroutine_traits : public __coroutine_traits_sfinae<_Ret> {};
 
 _LIBCPP_END_NAMESPACE_STD
 

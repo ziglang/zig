@@ -891,8 +891,7 @@ pub const Inst = struct {
     /// The most-significant bit of the value is a tag bit. This bit is 1 if the value represents an
     /// instruction index and 0 if it represents an InternPool index.
     ///
-    /// The hardcoded refs `none` and `var_args_param_type` are exceptions to this rule: they have
-    /// their tag bit set but refer to the InternPool.
+    /// The ref `none` is an exception: it has the tag bit set but refers to the InternPool.
     pub const Ref = enum(u32) {
         u0_type = @intFromEnum(InternPool.Index.u0_type),
         i0_type = @intFromEnum(InternPool.Index.i0_type),
@@ -980,9 +979,6 @@ pub const Inst = struct {
         generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
         /// This Ref does not correspond to any AIR instruction or constant
-        /// value. It is used to handle argument types of var args functions.
-        var_args_param_type = @intFromEnum(InternPool.Index.var_args_param_type),
-        /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
         none = @intFromEnum(InternPool.Index.none),
         _,
@@ -994,7 +990,6 @@ pub const Inst = struct {
 
         pub fn toInternedAllowNone(ref: Ref) ?InternPool.Index {
             return switch (ref) {
-                .var_args_param_type => .var_args_param_type,
                 .none => .none,
                 else => if (@intFromEnum(ref) >> 31 == 0)
                     @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
@@ -1010,7 +1005,7 @@ pub const Inst = struct {
 
         pub fn toIndexAllowNone(ref: Ref) ?Index {
             return switch (ref) {
-                .var_args_param_type, .none => null,
+                .none => null,
                 else => if (@intFromEnum(ref) >> 31 != 0)
                     @enumFromInt(@as(u31, @truncate(@intFromEnum(ref))))
                 else
@@ -1557,7 +1552,6 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
     return switch (ip_index) {
-        .var_args_param_type => .var_args_param_type,
         .none => .none,
         else => {
             assert(@intFromEnum(ip_index) >> 31 == 0);

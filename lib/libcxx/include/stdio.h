@@ -9,14 +9,14 @@
 
 #if defined(__need_FILE) || defined(__need___FILE)
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#include_next <stdio.h>
+#  include_next <stdio.h>
 
 #elif !defined(_LIBCPP_STDIO_H)
-#define _LIBCPP_STDIO_H
+#  define _LIBCPP_STDIO_H
 
 /*
     stdio.h synopsis
@@ -98,24 +98,26 @@ int ferror(FILE* stream);
 void perror(const char* s);
 */
 
-#include <__config>
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 #  if __has_include_next(<stdio.h>)
 #    include_next <stdio.h>
 #  endif
 
-#ifdef __cplusplus
+#  ifdef __cplusplus
 
-#undef getc
-#undef putc
-#undef clearerr
-#undef feof
-#undef ferror
+#    undef getc
+#    undef putc
+#    undef clearerr
+#    undef feof
+#    undef ferror
+#    undef putchar
+#    undef getchar
 
-#endif
+#  endif
 
 #endif // _LIBCPP_STDIO_H

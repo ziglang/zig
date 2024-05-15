@@ -3,23 +3,23 @@ const fs = std.fs;
 const Step = std.Build.Step;
 const RemoveDir = @This();
 
-pub const base_id = .remove_dir;
+pub const base_id: Step.Id = .remove_dir;
 
 step: Step,
 dir_path: []const u8,
 
 pub fn create(owner: *std.Build, dir_path: []const u8) *RemoveDir {
-    const self = owner.allocator.create(RemoveDir) catch @panic("OOM");
-    self.* = .{
+    const remove_dir = owner.allocator.create(RemoveDir) catch @panic("OOM");
+    remove_dir.* = .{
         .step = Step.init(.{
-            .id = .remove_dir,
+            .id = base_id,
             .name = owner.fmt("RemoveDir {s}", .{dir_path}),
             .owner = owner,
             .makeFn = make,
         }),
         .dir_path = owner.dupePath(dir_path),
     };
-    return self;
+    return remove_dir;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
@@ -28,16 +28,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
-    const self: *RemoveDir = @fieldParentPtr("step", step);
+    const remove_dir: *RemoveDir = @fieldParentPtr("step", step);
 
-    b.build_root.handle.deleteTree(self.dir_path) catch |err| {
+    b.build_root.handle.deleteTree(remove_dir.dir_path) catch |err| {
         if (b.build_root.path) |base| {
             return step.fail("unable to recursively delete path '{s}/{s}': {s}", .{
-                base, self.dir_path, @errorName(err),
+                base, remove_dir.dir_path, @errorName(err),
             });
         } else {
             return step.fail("unable to recursively delete path '{s}': {s}", .{
-                self.dir_path, @errorName(err),
+                remove_dir.dir_path, @errorName(err),
             });
         }
     };

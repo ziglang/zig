@@ -32,8 +32,12 @@ typedef unsigned int __v4su __attribute__((__vector_size__(16)));
 #endif
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse"), __min_vector_width__(128)))
-#define __DEFAULT_FN_ATTRS_MMX __attribute__((__always_inline__, __nodebug__, __target__("mmx,sse"), __min_vector_width__(64)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("sse,no-evex512"), \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS_MMX                                                 \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("mmx,sse,no-evex512"), __min_vector_width__(64)))
 
 /// Adds the 32-bit float values in the low-order bits of the operands.
 ///
@@ -2121,9 +2125,9 @@ _mm_storer_ps(float *__p, __m128 __a)
 /// \param __a
 ///    A 64-bit integer containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS_MMX
-_mm_stream_pi(__m64 *__p, __m64 __a)
+_mm_stream_pi(void *__p, __m64 __a)
 {
-  __builtin_ia32_movntq(__p, __a);
+  __builtin_ia32_movntq((__m64 *)__p, __a);
 }
 
 /// Moves packed float values from a 128-bit vector of [4 x float] to a
@@ -2140,7 +2144,7 @@ _mm_stream_pi(__m64 *__p, __m64 __a)
 /// \param __a
 ///    A 128-bit vector of [4 x float] containing the values to be moved.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_stream_ps(float *__p, __m128 __a)
+_mm_stream_ps(void *__p, __m128 __a)
 {
   __builtin_nontemporal_store((__v4sf)__a, (__v4sf*)__p);
 }

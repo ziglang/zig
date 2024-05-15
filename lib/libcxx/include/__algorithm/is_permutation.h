@@ -37,18 +37,24 @@ struct _ConstTimeDistance : false_type {};
 #if _LIBCPP_STD_VER >= 20
 
 template <class _Iter1, class _Sent1, class _Iter2, class _Sent2>
-struct _ConstTimeDistance<_Iter1, _Sent1, _Iter2, _Sent2, __enable_if_t<
-  sized_sentinel_for<_Sent1, _Iter1> &&
-  sized_sentinel_for<_Sent2, _Iter2>
->> : true_type {};
+struct _ConstTimeDistance<_Iter1,
+                          _Sent1,
+                          _Iter2,
+                          _Sent2,
+                          __enable_if_t< sized_sentinel_for<_Sent1, _Iter1> && sized_sentinel_for<_Sent2, _Iter2> >>
+    : true_type {};
 
 #else
 
 template <class _Iter1, class _Iter2>
-struct _ConstTimeDistance<_Iter1, _Iter1, _Iter2, _Iter2, __enable_if_t<
-    is_same<typename iterator_traits<_Iter1>::iterator_category, random_access_iterator_tag>::value &&
-    is_same<typename iterator_traits<_Iter2>::iterator_category, random_access_iterator_tag>::value
-> > : true_type {};
+struct _ConstTimeDistance<
+    _Iter1,
+    _Iter1,
+    _Iter2,
+    _Iter2,
+    __enable_if_t< is_same<typename iterator_traits<_Iter1>::iterator_category, random_access_iterator_tag>::value &&
+                   is_same<typename iterator_traits<_Iter2>::iterator_category, random_access_iterator_tag>::value > >
+    : true_type {};
 
 #endif // _LIBCPP_STD_VER >= 20
 
@@ -56,11 +62,21 @@ struct _ConstTimeDistance<_Iter1, _Iter1, _Iter2, _Iter2, __enable_if_t<
 
 // For each element in [f1, l1) see if there are the same number of equal elements in [f2, l2)
 template <class _AlgPolicy,
-          class _Iter1, class _Sent1, class _Iter2, class _Sent2,
-          class _Proj1, class _Proj2, class _Pred>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-__is_permutation_impl(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
-                      _Pred&& __pred, _Proj1&& __proj1, _Proj2&& __proj2) {
+          class _Iter1,
+          class _Sent1,
+          class _Iter2,
+          class _Sent2,
+          class _Proj1,
+          class _Proj2,
+          class _Pred>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation_impl(
+    _Iter1 __first1,
+    _Sent1 __last1,
+    _Iter2 __first2,
+    _Sent2 __last2,
+    _Pred&& __pred,
+    _Proj1&& __proj1,
+    _Proj2&& __proj2) {
   using _D1 = __iter_diff_t<_Iter1>;
 
   for (auto __i = __first1; __i != __last1; ++__i) {
@@ -97,9 +113,8 @@ __is_permutation_impl(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 _
 
 // 2+1 iterators, predicate. Not used by range algorithms.
 template <class _AlgPolicy, class _ForwardIterator1, class _Sentinel1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-__is_permutation(_ForwardIterator1 __first1, _Sentinel1 __last1, _ForwardIterator2 __first2,
-                 _BinaryPredicate&& __pred) {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
+    _ForwardIterator1 __first1, _Sentinel1 __last1, _ForwardIterator2 __first2, _BinaryPredicate&& __pred) {
   // Shorten sequences as much as possible by lopping of any equal prefix.
   for (; __first1 != __last1; ++__first1, (void)++__first2) {
     if (!__pred(*__first1, *__first2))
@@ -111,24 +126,39 @@ __is_permutation(_ForwardIterator1 __first1, _Sentinel1 __last1, _ForwardIterato
 
   //  __first1 != __last1 && *__first1 != *__first2
   using _D1 = __iter_diff_t<_ForwardIterator1>;
-  _D1 __l1 = _IterOps<_AlgPolicy>::distance(__first1, __last1);
+  _D1 __l1  = _IterOps<_AlgPolicy>::distance(__first1, __last1);
   if (__l1 == _D1(1))
     return false;
   auto __last2 = _IterOps<_AlgPolicy>::next(__first2, __l1);
 
   return std::__is_permutation_impl<_AlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      __pred, __identity(), __identity());
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      __pred,
+      __identity(),
+      __identity());
 }
 
 // 2+2 iterators, predicate, non-constant time `distance`.
 template <class _AlgPolicy,
-          class _Iter1, class _Sent1, class _Iter2, class _Sent2,
-          class _Proj1, class _Proj2, class _Pred>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-__is_permutation(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
-                 _Pred&& __pred, _Proj1&& __proj1, _Proj2&& __proj2,
-                 /*_ConstTimeDistance=*/false_type) {
+          class _Iter1,
+          class _Sent1,
+          class _Iter2,
+          class _Sent2,
+          class _Proj1,
+          class _Proj2,
+          class _Pred>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
+    _Iter1 __first1,
+    _Sent1 __last1,
+    _Iter2 __first2,
+    _Sent2 __last2,
+    _Pred&& __pred,
+    _Proj1&& __proj1,
+    _Proj2&& __proj2,
+    /*_ConstTimeDistance=*/false_type) {
   // Shorten sequences as much as possible by lopping of any equal prefix.
   while (__first1 != __last1 && __first2 != __last2) {
     if (!std::__invoke(__pred, std::__invoke(__proj1, *__first1), std::__invoke(__proj2, *__first2)))
@@ -143,44 +173,73 @@ __is_permutation(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last
     return false;
 
   using _D1 = __iter_diff_t<_Iter1>;
-  _D1 __l1 = _IterOps<_AlgPolicy>::distance(__first1, __last1);
+  _D1 __l1  = _IterOps<_AlgPolicy>::distance(__first1, __last1);
 
   using _D2 = __iter_diff_t<_Iter2>;
-  _D2 __l2 = _IterOps<_AlgPolicy>::distance(__first2, __last2);
+  _D2 __l2  = _IterOps<_AlgPolicy>::distance(__first2, __last2);
   if (__l1 != __l2)
     return false;
 
   return std::__is_permutation_impl<_AlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      __pred, __proj1, __proj2);
+      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2), __pred, __proj1, __proj2);
 }
 
 // 2+2 iterators, predicate, specialization for constant-time `distance` call.
 template <class _AlgPolicy,
-          class _Iter1, class _Sent1, class _Iter2, class _Sent2,
-          class _Proj1, class _Proj2, class _Pred>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-__is_permutation(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
-                 _Pred&& __pred, _Proj1&& __proj1, _Proj2&& __proj2,
-                 /*_ConstTimeDistance=*/true_type) {
+          class _Iter1,
+          class _Sent1,
+          class _Iter2,
+          class _Sent2,
+          class _Proj1,
+          class _Proj2,
+          class _Pred>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
+    _Iter1 __first1,
+    _Sent1 __last1,
+    _Iter2 __first2,
+    _Sent2 __last2,
+    _Pred&& __pred,
+    _Proj1&& __proj1,
+    _Proj2&& __proj2,
+    /*_ConstTimeDistance=*/true_type) {
   if (std::distance(__first1, __last1) != std::distance(__first2, __last2))
     return false;
   return std::__is_permutation<_AlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      __pred, __proj1, __proj2,
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      __pred,
+      __proj1,
+      __proj2,
       /*_ConstTimeDistance=*/false_type());
 }
 
 // 2+2 iterators, predicate
 template <class _AlgPolicy,
-          class _Iter1, class _Sent1, class _Iter2, class _Sent2,
-          class _Proj1, class _Proj2, class _Pred>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-__is_permutation(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last2,
-                 _Pred&& __pred, _Proj1&& __proj1, _Proj2&& __proj2) {
+          class _Iter1,
+          class _Sent1,
+          class _Iter2,
+          class _Sent2,
+          class _Proj1,
+          class _Proj2,
+          class _Pred>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
+    _Iter1 __first1,
+    _Sent1 __last1,
+    _Iter2 __first2,
+    _Sent2 __last2,
+    _Pred&& __pred,
+    _Proj1&& __proj1,
+    _Proj2&& __proj2) {
   return std::__is_permutation<_AlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      __pred, __proj1, __proj2,
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      __pred,
+      __proj1,
+      __proj2,
       _ConstTimeDistance<_Iter1, _Sent1, _Iter2, _Sent2>());
 }
 
@@ -188,14 +247,12 @@ __is_permutation(_Iter1 __first1, _Sent1 __last1, _Iter2 __first2, _Sent2 __last
 
 // 2+1 iterators, predicate
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-is_permutation(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2,
-               _BinaryPredicate __pred) {
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
+    _ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _BinaryPredicate __pred) {
   static_assert(__is_callable<_BinaryPredicate, decltype(*__first1), decltype(*__first2)>::value,
-      "The predicate has to be callable");
+                "The predicate has to be callable");
 
-  return std::__is_permutation<_ClassicAlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), __pred);
+  return std::__is_permutation<_ClassicAlgPolicy>(std::move(__first1), std::move(__last1), std::move(__first2), __pred);
 }
 
 // 2+1 iterators
@@ -223,15 +280,23 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 
 // 2+2 iterators, predicate
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-is_permutation(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2,
-               _ForwardIterator2 __last2, _BinaryPredicate __pred) {
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
+    _ForwardIterator1 __first1,
+    _ForwardIterator1 __last1,
+    _ForwardIterator2 __first2,
+    _ForwardIterator2 __last2,
+    _BinaryPredicate __pred) {
   static_assert(__is_callable<_BinaryPredicate, decltype(*__first1), decltype(*__first2)>::value,
-      "The predicate has to be callable");
+                "The predicate has to be callable");
 
   return std::__is_permutation<_ClassicAlgPolicy>(
-      std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2),
-      __pred, __identity(), __identity());
+      std::move(__first1),
+      std::move(__last1),
+      std::move(__first2),
+      std::move(__last2),
+      __pred,
+      __identity(),
+      __identity());
 }
 
 #endif // _LIBCPP_STD_VER >= 14

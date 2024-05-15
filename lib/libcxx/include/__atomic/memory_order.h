@@ -22,14 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Figure out what the underlying type for `memory_order` would be if it were
 // declared as an unscoped enum (accounting for -fshort-enums). Use this result
 // to pin the underlying type in C++20.
-enum __legacy_memory_order {
-    __mo_relaxed,
-    __mo_consume,
-    __mo_acquire,
-    __mo_release,
-    __mo_acq_rel,
-    __mo_seq_cst
-};
+enum __legacy_memory_order { __mo_relaxed, __mo_consume, __mo_acquire, __mo_release, __mo_acq_rel, __mo_seq_cst };
 
 using __memory_order_underlying_t = underlying_type<__legacy_memory_order>::type;
 
@@ -45,7 +38,7 @@ enum class memory_order : __memory_order_underlying_t {
 };
 
 static_assert((is_same<underlying_type<memory_order>::type, __memory_order_underlying_t>::value),
-  "unexpected underlying type for std::memory_order");
+              "unexpected underlying type for std::memory_order");
 
 inline constexpr auto memory_order_relaxed = memory_order::relaxed;
 inline constexpr auto memory_order_consume = memory_order::consume;

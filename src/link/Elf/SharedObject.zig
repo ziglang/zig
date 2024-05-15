@@ -231,7 +231,7 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) void {
 
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, false) < global.symbolRank(elf_file)) {
-            global.value = this_sym.st_value;
+            global.value = @intCast(this_sym.st_value);
             global.atom_index = 0;
             global.esym_index = esym_index;
             global.version_index = self.versyms.items[esym_index];
@@ -269,7 +269,7 @@ pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) !void {
         if (file_ptr.index() != self.index) continue;
         if (global.isLocal(elf_file)) continue;
         global.flags.output_symtab = true;
-        try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+        try global.addExtra(.{ .symtab = self.output_symtab_ctx.nglobals }, elf_file);
         self.output_symtab_ctx.nglobals += 1;
         self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
     }

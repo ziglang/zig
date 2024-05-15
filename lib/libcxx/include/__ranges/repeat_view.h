@@ -34,6 +34,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 23
@@ -68,7 +71,7 @@ struct __fn;
 template <move_constructible _Tp, semiregular _Bound = unreachable_sentinel_t>
   requires(is_object_v<_Tp> && same_as<_Tp, remove_cv_t<_Tp>> &&
            (__integer_like_with_usable_difference_type<_Bound> || same_as<_Bound, unreachable_sentinel_t>))
-class repeat_view : public view_interface<repeat_view<_Tp, _Bound>> {
+class _LIBCPP_ABI_LLVM18_NO_UNIQUE_ADDRESS repeat_view : public view_interface<repeat_view<_Tp, _Bound>> {
   friend struct views::__take::__fn;
   friend struct views::__drop::__fn;
   class __iterator;
@@ -82,13 +85,13 @@ public:
     requires copy_constructible<_Tp>
       : __value_(in_place, __value), __bound_(__bound_sentinel) {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(__bound_ >= 0, "The value of bound must be greater than or equal to 0");
+      _LIBCPP_ASSERT_UNCATEGORIZED(__bound_ >= 0, "The value of bound must be greater than or equal to 0");
   }
 
   _LIBCPP_HIDE_FROM_ABI constexpr explicit repeat_view(_Tp&& __value, _Bound __bound_sentinel = _Bound())
       : __value_(in_place, std::move(__value)), __bound_(__bound_sentinel) {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(__bound_ >= 0, "The value of bound must be greater than or equal to 0");
+      _LIBCPP_ASSERT_UNCATEGORIZED(__bound_ >= 0, "The value of bound must be greater than or equal to 0");
   }
 
   template <class... _TpArgs, class... _BoundArgs>
@@ -98,7 +101,7 @@ public:
       : __value_(in_place, std::make_from_tuple<_Tp>(std::move(__value_args))),
         __bound_(std::make_from_tuple<_Bound>(std::move(__bound_args))) {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(
+      _LIBCPP_ASSERT_UNCATEGORIZED(
           __bound_ >= 0, "The behavior is undefined if Bound is not unreachable_sentinel_t and bound is negative");
   }
 
@@ -119,7 +122,7 @@ public:
   }
 
 private:
-  __movable_box<_Tp> __value_;
+  _LIBCPP_NO_UNIQUE_ADDRESS __movable_box<_Tp> __value_;
   _LIBCPP_NO_UNIQUE_ADDRESS _Bound __bound_ = _Bound();
 };
 
@@ -161,7 +164,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI constexpr __iterator& operator--() {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(__current_ > 0, "The value of bound must be greater than or equal to 0");
+      _LIBCPP_ASSERT_UNCATEGORIZED(__current_ > 0, "The value of bound must be greater than or equal to 0");
     --__current_;
     return *this;
   }
@@ -174,14 +177,14 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI constexpr __iterator& operator+=(difference_type __n) {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(__current_ + __n >= 0, "The value of bound must be greater than or equal to 0");
+      _LIBCPP_ASSERT_UNCATEGORIZED(__current_ + __n >= 0, "The value of bound must be greater than or equal to 0");
     __current_ += __n;
     return *this;
   }
 
   _LIBCPP_HIDE_FROM_ABI constexpr __iterator& operator-=(difference_type __n) {
     if constexpr (!same_as<_Bound, unreachable_sentinel_t>)
-      _LIBCPP_ASSERT(__current_ - __n >= 0, "The value of bound must be greater than or equal to 0");
+      _LIBCPP_ASSERT_UNCATEGORIZED(__current_ - __n >= 0, "The value of bound must be greater than or equal to 0");
     __current_ -= __n;
     return *this;
   }
@@ -256,5 +259,7 @@ inline constexpr bool __is_repeat_specialization<repeat_view<_Tp, _Bound>> = tru
 #endif // _LIBCPP_STD_VER >= 23
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_REPEAT_VIEW_H

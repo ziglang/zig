@@ -26,7 +26,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 inline constexpr size_t dynamic_extent = numeric_limits<size_t>::max();
-template <typename _Tp, size_t _Extent = dynamic_extent> class span;
+template <typename _Tp, size_t _Extent = dynamic_extent>
+class span;
 
 #endif
 

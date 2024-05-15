@@ -28,8 +28,9 @@
 #ifndef _AVX512VP2INTERSECT_H
 #define _AVX512VP2INTERSECT_H
 
-#define __DEFAULT_FN_ATTRS \
-  __attribute__((__always_inline__, __nodebug__,  __target__("avx512vp2intersect"), \
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vp2intersect,evex512"),                     \
                  __min_vector_width__(512)))
 
 /// Store, in an even/odd pair of mask registers, the indicators of the

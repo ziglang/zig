@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_MEMORY
 #define _LIBCPP_MEMORY
 
+// clang-format off
+
 /*
     memory synopsis
 
@@ -137,7 +139,7 @@ public:
     template <class U> struct rebind {typedef allocator<U> other;}; // deprecated in C++17, removed in C++20
 
     typedef true_type propagate_on_container_move_assignment;
-    typedef true_type is_always_equal;
+    typedef true_type is_always_equal;                   // Deprecated in C++23, removed in C++26
 
     constexpr allocator() noexcept;                      // constexpr in C++20
     constexpr allocator(const allocator&) noexcept;      // constexpr in C++20
@@ -627,7 +629,7 @@ public:
     T& operator*() const noexcept;
     T* operator->() const noexcept;
     long use_count() const noexcept;
-    bool unique() const noexcept;
+    bool unique() const noexcept;  // deprected in C++17, removed in C++20
     explicit operator bool() const noexcept;
     template<class U> bool owner_before(shared_ptr<U> const& b) const noexcept;
     template<class U> bool owner_before(weak_ptr<U> const& b) const noexcept;
@@ -867,6 +869,43 @@ template <class T> struct hash<shared_ptr<T> >;
 template <class T, class Alloc>
   inline constexpr bool uses_allocator_v = uses_allocator<T, Alloc>::value;
 
+// [allocator.uses.construction], uses-allocator construction
+template<class T, class Alloc, class... Args>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  Args&&... args) noexcept;
+template<class T, class Alloc, class Tuple1, class Tuple2>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  piecewise_construct_t,
+                                                  Tuple1&& x, Tuple2&& y) noexcept;
+template<class T, class Alloc>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc) noexcept;   // since C++20
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  U&& u, V&& v) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++23
+                                                  pair<U, V>& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  const pair<U, V>& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  pair<U, V>&& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++23
+                                                  const pair<U, V>&& pr) noexcept;
+template<class T, class Alloc, pair-like P>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  P&& p) noexcept;
+template<class T, class Alloc, class U>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  U&& u) noexcept;
+template<class T, class Alloc, class... Args>
+  constexpr T make_obj_using_allocator(const Alloc& alloc, Args&&... args);       // since C++20
+template<class T, class Alloc, class... Args>
+  constexpr T* uninitialized_construct_using_allocator(T* p,                      // since C++20
+                                                         const Alloc& alloc, Args&&... args);
+
 // [ptr.align]
 void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 
@@ -876,6 +915,8 @@ template<size_t N, class T>
 }  // std
 
 */
+
+// clang-format on
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>

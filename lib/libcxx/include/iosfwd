@@ -90,6 +90,18 @@ using u8streampos = fpos<char_traits<char8_t>::state_type>; // C++20
 using u16streampos = fpos<char_traits<char16_t>::state_type>;
 using u32streampos = fpos<char_traits<char32_t>::state_type>;
 
+template <class charT, class traits = char_traits<charT>, class Allocator = allocator<charT>>
+    class basic_syncbuf;                          // C++20
+
+using syncbuf = basic_syncbuf<char>;              // C++20
+using wsyncbuf = basic_syncbuf<wchar_t>;          // C++20
+
+template <class charT, class traits = char_traits<charT>, class Allocator = allocator<charT>>
+    class basic_osyncstream;                      // C++20
+
+using osyncstream = basic_osyncstream<char>;      // C++20
+using wosyncstream = basic_osyncstream<wchar_t>;  // C++20
+
 }  // std
 
 */
@@ -115,48 +127,65 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 class _LIBCPP_EXPORTED_FROM_ABI ios_base;
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
-    class _LIBCPP_TEMPLATE_VIS istreambuf_iterator;
+class _LIBCPP_TEMPLATE_VIS istreambuf_iterator;
 template <class _CharT, class _Traits = char_traits<_CharT> >
-    class _LIBCPP_TEMPLATE_VIS ostreambuf_iterator;
+class _LIBCPP_TEMPLATE_VIS ostreambuf_iterator;
 
-template <class _State>             class _LIBCPP_TEMPLATE_VIS fpos;
-typedef fpos<mbstate_t>    streampos;
-typedef fpos<mbstate_t>    wstreampos;
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
-typedef fpos<mbstate_t>    u8streampos;
+template <class _State>
+class _LIBCPP_TEMPLATE_VIS fpos;
+typedef fpos<mbstate_t> streampos;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+typedef fpos<mbstate_t> wstreampos;
 #endif
-typedef fpos<mbstate_t>    u16streampos;
-typedef fpos<mbstate_t>    u32streampos;
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
+typedef fpos<mbstate_t> u8streampos;
+#endif
+typedef fpos<mbstate_t> u16streampos;
+typedef fpos<mbstate_t> u32streampos;
+
+#if _LIBCPP_STD_VER >= 20
+
+template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT>>
+class basic_syncbuf;
+
+using syncbuf = basic_syncbuf<char>;
+#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+using wsyncbuf = basic_syncbuf<wchar_t>;
+#  endif
+
+template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT>>
+class basic_osyncstream;
+
+using osyncstream = basic_osyncstream<char>;
+#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+using wosyncstream = basic_osyncstream<wchar_t>;
+#  endif
+
+#endif // _LIBCPP_STD_VER >=20
 
 // Include other forward declarations here
 template <class _Tp, class _Alloc = allocator<_Tp> >
 class _LIBCPP_TEMPLATE_VIS vector;
 
 template <class _CharT, class _Traits>
-class __save_flags
-{
-    typedef basic_ios<_CharT, _Traits> __stream_type;
-    typedef typename __stream_type::fmtflags fmtflags;
+class __save_flags {
+  typedef basic_ios<_CharT, _Traits> __stream_type;
+  typedef typename __stream_type::fmtflags fmtflags;
 
-    __stream_type& __stream_;
-    fmtflags       __fmtflags_;
-    _CharT         __fill_;
+  __stream_type& __stream_;
+  fmtflags __fmtflags_;
+  _CharT __fill_;
 
-    __save_flags(const __save_flags&);
-    __save_flags& operator=(const __save_flags&);
+  __save_flags(const __save_flags&);
+  __save_flags& operator=(const __save_flags&);
+
 public:
-    _LIBCPP_INLINE_VISIBILITY
-    explicit __save_flags(__stream_type& __stream)
-        : __stream_(__stream),
-          __fmtflags_(__stream.flags()),
-          __fill_(__stream.fill())
-        {}
-    _LIBCPP_INLINE_VISIBILITY
-    ~__save_flags()
-    {
-        __stream_.flags(__fmtflags_);
-        __stream_.fill(__fill_);
-    }
+  _LIBCPP_HIDE_FROM_ABI explicit __save_flags(__stream_type& __stream)
+      : __stream_(__stream), __fmtflags_(__stream.flags()), __fill_(__stream.fill()) {}
+  _LIBCPP_HIDE_FROM_ABI ~__save_flags() {
+    __stream_.flags(__fmtflags_);
+    __stream_.fill(__fill_);
+  }
 };
 
 _LIBCPP_END_NAMESPACE_STD

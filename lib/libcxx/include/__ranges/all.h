@@ -36,45 +36,38 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges::views {
 
 namespace __all {
-  struct __fn : __range_adaptor_closure<__fn> {
-    template<class _Tp>
-      requires ranges::view<decay_t<_Tp>>
-    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-    constexpr auto operator()(_Tp&& __t) const
+struct __fn : __range_adaptor_closure<__fn> {
+  template <class _Tp>
+    requires ranges::view<decay_t<_Tp>>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
       noexcept(noexcept(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))))
-      -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t)))
-    {
-      return _LIBCPP_AUTO_CAST(std::forward<_Tp>(__t));
-    }
+          -> decltype(_LIBCPP_AUTO_CAST(std::forward<_Tp>(__t))) {
+    return _LIBCPP_AUTO_CAST(std::forward<_Tp>(__t));
+  }
 
-    template<class _Tp>
-      requires (!ranges::view<decay_t<_Tp>>) &&
-               requires (_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; }
-    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-    constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::ref_view{std::forward<_Tp>(__t)}))
-    {
-      return ranges::ref_view{std::forward<_Tp>(__t)};
-    }
+  template <class _Tp>
+    requires(!ranges::view<decay_t<_Tp>>) && requires(_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; }
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
+      noexcept(noexcept(ranges::ref_view{std::forward<_Tp>(__t)})) {
+    return ranges::ref_view{std::forward<_Tp>(__t)};
+  }
 
-    template<class _Tp>
-      requires (!ranges::view<decay_t<_Tp>> &&
-                !requires (_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; } &&
-                 requires (_Tp&& __t) { ranges::owning_view{std::forward<_Tp>(__t)}; })
-    [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
-    constexpr auto operator()(_Tp&& __t) const
-      noexcept(noexcept(ranges::owning_view{std::forward<_Tp>(__t)}))
-    {
-      return ranges::owning_view{std::forward<_Tp>(__t)};
-    }
-  };
+  template <class _Tp>
+    requires(
+        !ranges::view<decay_t<_Tp>> && !requires(_Tp&& __t) { ranges::ref_view{std::forward<_Tp>(__t)}; } &&
+        requires(_Tp&& __t) { ranges::owning_view{std::forward<_Tp>(__t)}; })
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t) const
+      noexcept(noexcept(ranges::owning_view{std::forward<_Tp>(__t)})) {
+    return ranges::owning_view{std::forward<_Tp>(__t)};
+  }
+};
 } // namespace __all
 
 inline namespace __cpo {
-  inline constexpr auto all = __all::__fn{};
+inline constexpr auto all = __all::__fn{};
 } // namespace __cpo
 
-template<ranges::viewable_range _Range>
+template <ranges::viewable_range _Range>
 using all_t = decltype(views::all(std::declval<_Range>()));
 
 } // namespace ranges::views

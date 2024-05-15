@@ -591,14 +591,6 @@ pub fn WriteStream(
             try encodeJsonString(s, self.options, self.stream);
             self.valueDone();
         }
-
-        pub const arrayElem = @compileError("Deprecated; You don't need to call this anymore.");
-        pub const emitNull = @compileError("Deprecated; Use .write(null) instead.");
-        pub const emitBool = @compileError("Deprecated; Use .write() instead.");
-        pub const emitNumber = @compileError("Deprecated; Use .write() instead.");
-        pub const emitString = @compileError("Deprecated; Use .write() instead.");
-        pub const emitJson = @compileError("Deprecated; Use .write() instead.");
-        pub const writePreformatted = @compileError("Deprecated; Use .print(\"{s}\", .{s}) instead.");
     };
 }
 

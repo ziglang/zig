@@ -244,9 +244,14 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr const mapping_type& mapping() const noexcept { return __map_; };
   _LIBCPP_HIDE_FROM_ABI constexpr const accessor_type& accessor() const noexcept { return __acc_; };
 
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_unique() { return mapping_type::is_always_unique(); };
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_exhaustive() { return mapping_type::is_always_exhaustive(); };
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_strided() { return mapping_type::is_always_strided(); };
+  // per LWG-4021 "mdspan::is_always_meow() should be noexcept"
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_unique() noexcept { return mapping_type::is_always_unique(); };
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_exhaustive() noexcept {
+    return mapping_type::is_always_exhaustive();
+  };
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_strided() noexcept {
+    return mapping_type::is_always_strided();
+  };
 
   _LIBCPP_HIDE_FROM_ABI constexpr bool is_unique() const { return __map_.is_unique(); };
   _LIBCPP_HIDE_FROM_ABI constexpr bool is_exhaustive() const { return __map_.is_exhaustive(); };

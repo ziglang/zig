@@ -1,4 +1,4 @@
-// -*-C++ - *-
+// -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -23,7 +23,7 @@ namespace std {
   // [mdspan.layout], layout mapping
   struct layout_left;
   struct layout_right;
-  struct layout_stride; // not implemented yet
+  struct layout_stride;
 
   // [mdspan.accessor.default], class template default_accessor
   template<class ElementType>
@@ -190,6 +190,63 @@ namespace std {
   };
 }
 
+// layout_stride synopsis
+
+namespace std {
+  template<class Extents>
+  class layout_stride::mapping {
+  public:
+    using extents_type = Extents;
+    using index_type = typename extents_type::index_type;
+    using size_type = typename extents_type::size_type;
+    using rank_type = typename extents_type::rank_type;
+    using layout_type = layout_stride;
+
+  private:
+    static constexpr rank_type rank_ = extents_type::rank();    // exposition only
+
+  public:
+    // [mdspan.layout.stride.cons], constructors
+    constexpr mapping() noexcept;
+    constexpr mapping(const mapping&) noexcept = default;
+    template<class OtherIndexType>
+      constexpr mapping(const extents_type&, span<OtherIndexType, rank_>) noexcept;
+    template<class OtherIndexType>
+      constexpr mapping(const extents_type&, const array<OtherIndexType, rank_>&) noexcept;
+
+    template<class StridedLayoutMapping>
+      constexpr explicit(see below) mapping(const StridedLayoutMapping&) noexcept;
+
+    constexpr mapping& operator=(const mapping&) noexcept = default;
+
+    // [mdspan.layout.stride.obs], observers
+    constexpr const extents_type& extents() const noexcept { return extents_; }
+    constexpr array<index_type, rank_> strides() const noexcept { return strides_; }
+
+    constexpr index_type required_span_size() const noexcept;
+
+    template<class... Indices>
+      constexpr index_type operator()(Indices...) const noexcept;
+
+    static constexpr bool is_always_unique() noexcept { return true; }
+    static constexpr bool is_always_exhaustive() noexcept { return false; }
+    static constexpr bool is_always_strided() noexcept { return true; }
+
+    static constexpr bool is_unique() noexcept { return true; }
+    constexpr bool is_exhaustive() const noexcept;
+    static constexpr bool is_strided() noexcept { return true; }
+
+    constexpr index_type stride(rank_type i) const noexcept { return strides_[i]; }
+
+    template<class OtherMapping>
+      friend constexpr bool operator==(const mapping&, const OtherMapping&) noexcept;
+
+  private:
+    extents_type extents_{};                    // exposition only
+    array<index_type, rank_> strides_{};        // exposition only
+  };
+}
+
 // default_accessor synopsis
 
 namespace std {
@@ -277,11 +334,12 @@ namespace std {
     constexpr const mapping_type& mapping() const noexcept { return map_; }
     constexpr const accessor_type& accessor() const noexcept { return acc_; }
 
-    static constexpr bool is_always_unique()
+    // per LWG-4021 "mdspan::is_always_meow() should be noexcept"
+    static constexpr bool is_always_unique() noexcept
       { return mapping_type::is_always_unique(); }
-    static constexpr bool is_always_exhaustive()
+    static constexpr bool is_always_exhaustive() noexcept
       { return mapping_type::is_always_exhaustive(); }
-    static constexpr bool is_always_strided()
+    static constexpr bool is_always_strided() noexcept
       { return mapping_type::is_always_strided(); }
 
     constexpr bool is_unique() const
@@ -348,7 +406,9 @@ namespace std {
 #include <__mdspan/extents.h>
 #include <__mdspan/layout_left.h>
 #include <__mdspan/layout_right.h>
+#include <__mdspan/layout_stride.h>
 #include <__mdspan/mdspan.h>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

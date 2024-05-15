@@ -22,7 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <typename _Tp>
 _LIBCPP_ALWAYS_INLINE _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void* __voidify(_Tp& __from) {
   // Cast away cv-qualifiers to allow modifying elements of a range through const iterators.
-  return const_cast<void*>(static_cast<const volatile void*>(_VSTD::addressof(__from)));
+  return const_cast<void*>(static_cast<const volatile void*>(std::addressof(__from)));
 }
 
 _LIBCPP_END_NAMESPACE_STD

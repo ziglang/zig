@@ -163,7 +163,8 @@ pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
     const relocs_index = @as(u32, @intCast(self.relocs.items.len));
     const relocs = try self.relocs.addOne(gpa);
     relocs.* = .{};
-    atom.relocs = .{ .pos = relocs_index, .len = 0 };
+    try atom.addExtra(.{ .rel_index = relocs_index, .rel_count = 0 }, macho_file);
+    atom.flags.relocs = true;
 
     return symbol_index;
 }
@@ -190,13 +191,18 @@ pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8
     }
 }
 
-pub fn getAtomRelocs(self: *ZigObject, atom: Atom) []const Relocation {
-    const relocs = self.relocs.items[atom.relocs.pos];
-    return relocs.items[0..atom.relocs.len];
+pub fn getAtomRelocs(self: *ZigObject, atom: Atom, macho_file: *MachO) []const Relocation {
+    if (!atom.flags.relocs) return &[0]Relocation{};
+    const extra = atom.getExtra(macho_file).?;
+    const relocs = self.relocs.items[extra.rel_index];
+    return relocs.items[0..extra.rel_count];
 }
 
-pub fn freeAtomRelocs(self: *ZigObject, atom: Atom) void {
-    self.relocs.items[atom.relocs.pos].clearRetainingCapacity();
+pub fn freeAtomRelocs(self: *ZigObject, atom: Atom, macho_file: *MachO) void {
+    if (atom.flags.relocs) {
+        const extra = atom.getExtra(macho_file).?;
+        self.relocs.items[extra.rel_index].clearRetainingCapacity();
+    }
 }
 
 pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {

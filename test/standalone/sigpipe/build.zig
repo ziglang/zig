@@ -29,7 +29,7 @@ pub fn build(b: *std.build.Builder) !void {
         options.addOption(bool, "keep_sigpipe", keep_sigpipe);
         const exe = b.addExecutable(.{
             .name = "breakpipe",
-            .root_source_file = .{ .path = "breakpipe.zig" },
+            .root_source_file = b.path("breakpipe.zig"),
         });
         exe.addOptions("build_options", options);
         const run = b.addRunArtifact(exe);

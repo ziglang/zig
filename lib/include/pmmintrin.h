@@ -17,8 +17,9 @@
 #include <emmintrin.h>
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS \
-  __attribute__((__always_inline__, __nodebug__, __target__("sse3"), __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("sse3,no-evex512"), __min_vector_width__(128)))
 
 /// Loads data from an unaligned memory location to elements in a 128-bit
 ///    vector.

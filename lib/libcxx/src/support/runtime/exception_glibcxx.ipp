@@ -8,25 +8,17 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef __GLIBCXX__
-#error header can only be used when targeting libstdc++ or libsupc++
+#  error header can only be used when targeting libstdc++ or libsupc++
 #endif
 
 namespace std {
 
-bad_alloc::bad_alloc() noexcept
-{
-}
+bad_alloc::bad_alloc() noexcept {}
 
-bad_array_new_length::bad_array_new_length() noexcept
-{
-}
+bad_array_new_length::bad_array_new_length() noexcept {}
 
-bad_cast::bad_cast() noexcept
-{
-}
+bad_cast::bad_cast() noexcept {}
 
-bad_typeid::bad_typeid() noexcept
-{
-}
+bad_typeid::bad_typeid() noexcept {}
 
 } // namespace std

@@ -5,22 +5,25 @@ const testing = std.testing;
 const verify = @import("../verify.zig");
 const crc = @import("../crc.zig");
 
-test "crc32 ieee" {
-    inline for ([2]type{ crc.Crc32WithPoly(.IEEE), crc.Crc32SmallWithPoly(.IEEE) }) |ieee| {
-        try testing.expect(ieee.hash("") == 0x00000000);
-        try testing.expect(ieee.hash("a") == 0xe8b7be43);
-        try testing.expect(ieee.hash("abc") == 0x352441c2);
-        try verify.iterativeApi(ieee);
-    }
+test "crc32 ieee regression" {
+    const crc32 = crc.Crc32IsoHdlc;
+    try testing.expectEqual(crc32.hash(""), 0x00000000);
+    try testing.expectEqual(crc32.hash("a"), 0xe8b7be43);
+    try testing.expectEqual(crc32.hash("abc"), 0x352441c2);
 }
 
-test "crc32 castagnoli" {
-    inline for ([2]type{ crc.Crc32WithPoly(.Castagnoli), crc.Crc32SmallWithPoly(.Castagnoli) }) |casta| {
-        try testing.expect(casta.hash("") == 0x00000000);
-        try testing.expect(casta.hash("a") == 0xc1d04330);
-        try testing.expect(casta.hash("abc") == 0x364b3fb7);
-        try verify.iterativeApi(casta);
-    }
+test "crc32 castagnoli regression" {
+    const crc32 = crc.Crc32Iscsi;
+    try testing.expectEqual(crc32.hash(""), 0x00000000);
+    try testing.expectEqual(crc32.hash("a"), 0xc1d04330);
+    try testing.expectEqual(crc32.hash("abc"), 0x364b3fb7);
+}
+
+test "crc32 koopman regression" {
+    const crc32 = crc.Crc32Koopman;
+    try testing.expectEqual(crc32.hash(""), 0x00000000);
+    try testing.expectEqual(crc32.hash("a"), 0x0da2aa8a);
+    try testing.expectEqual(crc32.hash("abc"), 0xba2322ac);
 }
 
 test "CRC-3/GSM" {
@@ -1132,6 +1135,17 @@ test "CRC-32/JAMCRC" {
     c.update("1234");
     c.update("56789");
     try testing.expectEqual(@as(u32, 0x340bc6d9), c.final());
+}
+
+test "CRC-32/KOOPMAN" {
+    const Crc32Koopman = crc.Crc32Koopman;
+
+    try testing.expectEqual(@as(u32, 0x2d3dd0ae), Crc32Koopman.hash("123456789"));
+
+    var c = Crc32Koopman.init();
+    c.update("1234");
+    c.update("56789");
+    try testing.expectEqual(@as(u32, 0x2d3dd0ae), c.final());
 }
 
 test "CRC-32/MEF" {

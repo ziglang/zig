@@ -45,6 +45,7 @@
 #define __opencl_c_ext_fp32_local_atomic_add 1
 #define __opencl_c_ext_fp32_global_atomic_min_max 1
 #define __opencl_c_ext_fp32_local_atomic_min_max 1
+#define __opencl_c_ext_image_raw10_raw12 1
 
 #endif // defined(__SPIR__) || defined(__SPIRV__)
 #endif // (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ >= 200)
@@ -477,6 +478,10 @@ typedef enum memory_order
 #if __OPENCL_C_VERSION__ >= CL_VERSION_3_0
 #define CLK_UNORM_INT_101010_2 0x10E0
 #endif // __OPENCL_C_VERSION__ >= CL_VERSION_3_0
+#ifdef __opencl_c_ext_image_raw10_raw12
+#define CLK_UNSIGNED_INT_RAW10_EXT 0x10E3
+#define CLK_UNSIGNED_INT_RAW12_EXT 0x10E4
+#endif // __opencl_c_ext_image_raw10_raw12
 
 // Channel order, numbering must be aligned with cl_channel_order in cl.h
 //

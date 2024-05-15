@@ -110,19 +110,19 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     bool JIT;
     std::optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
 
-    CodeGenOpt::Level OL;
+    CodeGenOptLevel OL;
     switch (Level) {
         case LLVMCodeGenLevelNone:
-            OL = CodeGenOpt::None;
+            OL = CodeGenOptLevel::None;
             break;
         case LLVMCodeGenLevelLess:
-            OL = CodeGenOpt::Less;
+            OL = CodeGenOptLevel::Less;
             break;
         case LLVMCodeGenLevelAggressive:
-            OL = CodeGenOpt::Aggressive;
+            OL = CodeGenOptLevel::Aggressive;
             break;
         default:
-            OL = CodeGenOpt::Default;
+            OL = CodeGenOptLevel::Default;
             break;
     }
 
@@ -336,13 +336,13 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
       createTargetTransformInfoWrapperPass(target_machine.getTargetIRAnalysis()));
 
     if (dest_bin && !lto) {
-        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CGFT_ObjectFile)) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CodeGenFileType::ObjectFile)) {
             *error_message = strdup("TargetMachine can't emit an object file");
             return true;
         }
     }
     if (dest_asm) {
-        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_asm, nullptr, CGFT_AssemblyFile)) {
+        if (target_machine.addPassesToEmitFile(codegen_pm, *dest_asm, nullptr, CodeGenFileType::AssemblyFile)) {
             *error_message = strdup("TargetMachine can't emit an assembly file");
             return true;
         }
@@ -534,7 +534,9 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
         if (err) return true;
         new_members.push_back(std::move(*new_member));
     }
-    Error err = writeArchive(archive_name, new_members, true, kind, true, false, nullptr);
+    Error err = writeArchive(archive_name, new_members,
+        SymtabWritingMode::NormalSymtab, kind, true, false, nullptr);
+
     if (err) return true;
     return false;
 }
@@ -620,6 +622,7 @@ static_assert((Triple::ArchType)ZigLLVM_hsail == Triple::hsail, "");
 static_assert((Triple::ArchType)ZigLLVM_hsail64 == Triple::hsail64, "");
 static_assert((Triple::ArchType)ZigLLVM_spir == Triple::spir, "");
 static_assert((Triple::ArchType)ZigLLVM_spir64 == Triple::spir64, "");
+static_assert((Triple::ArchType)ZigLLVM_spirv == Triple::spirv, "");
 static_assert((Triple::ArchType)ZigLLVM_spirv32 == Triple::spirv32, "");
 static_assert((Triple::ArchType)ZigLLVM_spirv64 == Triple::spirv64, "");
 static_assert((Triple::ArchType)ZigLLVM_kalimba == Triple::kalimba, "");
@@ -642,7 +645,6 @@ static_assert((Triple::VendorType)ZigLLVM_ImaginationTechnologies == Triple::Ima
 static_assert((Triple::VendorType)ZigLLVM_MipsTechnologies == Triple::MipsTechnologies, "");
 static_assert((Triple::VendorType)ZigLLVM_NVIDIA == Triple::NVIDIA, "");
 static_assert((Triple::VendorType)ZigLLVM_CSR == Triple::CSR, "");
-static_assert((Triple::VendorType)ZigLLVM_Myriad == Triple::Myriad, "");
 static_assert((Triple::VendorType)ZigLLVM_AMD == Triple::AMD, "");
 static_assert((Triple::VendorType)ZigLLVM_Mesa == Triple::Mesa, "");
 static_assert((Triple::VendorType)ZigLLVM_SUSE == Triple::SUSE, "");
@@ -650,8 +652,6 @@ static_assert((Triple::VendorType)ZigLLVM_OpenEmbedded == Triple::OpenEmbedded, 
 static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
 
 static_assert((Triple::OSType)ZigLLVM_UnknownOS == Triple::UnknownOS, "");
-static_assert((Triple::OSType)ZigLLVM_Ananas == Triple::Ananas, "");
-static_assert((Triple::OSType)ZigLLVM_CloudABI == Triple::CloudABI, "");
 static_assert((Triple::OSType)ZigLLVM_Darwin == Triple::Darwin, "");
 static_assert((Triple::OSType)ZigLLVM_DragonFly == Triple::DragonFly, "");
 static_assert((Triple::OSType)ZigLLVM_FreeBSD == Triple::FreeBSD, "");
@@ -670,7 +670,6 @@ static_assert((Triple::OSType)ZigLLVM_UEFI == Triple::UEFI, "");
 static_assert((Triple::OSType)ZigLLVM_Win32 == Triple::Win32, "");
 static_assert((Triple::OSType)ZigLLVM_ZOS == Triple::ZOS, "");
 static_assert((Triple::OSType)ZigLLVM_Haiku == Triple::Haiku, "");
-static_assert((Triple::OSType)ZigLLVM_Minix == Triple::Minix, "");
 static_assert((Triple::OSType)ZigLLVM_RTEMS == Triple::RTEMS, "");
 static_assert((Triple::OSType)ZigLLVM_NaCl == Triple::NaCl, "");
 static_assert((Triple::OSType)ZigLLVM_AIX == Triple::AIX, "");
@@ -681,8 +680,9 @@ static_assert((Triple::OSType)ZigLLVM_PS4 == Triple::PS4, "");
 static_assert((Triple::OSType)ZigLLVM_ELFIAMCU == Triple::ELFIAMCU, "");
 static_assert((Triple::OSType)ZigLLVM_TvOS == Triple::TvOS, "");
 static_assert((Triple::OSType)ZigLLVM_WatchOS == Triple::WatchOS, "");
+static_assert((Triple::OSType)ZigLLVM_DriverKit == Triple::DriverKit, "");
+static_assert((Triple::OSType)ZigLLVM_XROS == Triple::XROS, "");
 static_assert((Triple::OSType)ZigLLVM_Mesa3D == Triple::Mesa3D, "");
-static_assert((Triple::OSType)ZigLLVM_Contiki == Triple::Contiki, "");
 static_assert((Triple::OSType)ZigLLVM_AMDPAL == Triple::AMDPAL, "");
 static_assert((Triple::OSType)ZigLLVM_HermitCore == Triple::HermitCore, "");
 static_assert((Triple::OSType)ZigLLVM_Hurd == Triple::Hurd, "");
@@ -690,6 +690,8 @@ static_assert((Triple::OSType)ZigLLVM_WASI == Triple::WASI, "");
 static_assert((Triple::OSType)ZigLLVM_Emscripten == Triple::Emscripten, "");
 static_assert((Triple::OSType)ZigLLVM_ShaderModel == Triple::ShaderModel, "");
 static_assert((Triple::OSType)ZigLLVM_LiteOS == Triple::LiteOS, "");
+static_assert((Triple::OSType)ZigLLVM_Serenity == Triple::Serenity, "");
+static_assert((Triple::OSType)ZigLLVM_Vulkan == Triple::Vulkan, "");
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 
 static_assert((Triple::EnvironmentType)ZigLLVM_UnknownEnvironment == Triple::UnknownEnvironment, "");
@@ -748,12 +750,14 @@ static_assert((CallingConv::ID)ZigLLVM_Fast == llvm::CallingConv::Fast, "");
 static_assert((CallingConv::ID)ZigLLVM_Cold == llvm::CallingConv::Cold, "");
 static_assert((CallingConv::ID)ZigLLVM_GHC == llvm::CallingConv::GHC, "");
 static_assert((CallingConv::ID)ZigLLVM_HiPE == llvm::CallingConv::HiPE, "");
-static_assert((CallingConv::ID)ZigLLVM_WebKit_JS == llvm::CallingConv::WebKit_JS, "");
 static_assert((CallingConv::ID)ZigLLVM_AnyReg == llvm::CallingConv::AnyReg, "");
 static_assert((CallingConv::ID)ZigLLVM_PreserveMost == llvm::CallingConv::PreserveMost, "");
 static_assert((CallingConv::ID)ZigLLVM_PreserveAll == llvm::CallingConv::PreserveAll, "");
 static_assert((CallingConv::ID)ZigLLVM_Swift == llvm::CallingConv::Swift, "");
 static_assert((CallingConv::ID)ZigLLVM_CXX_FAST_TLS == llvm::CallingConv::CXX_FAST_TLS, "");
+static_assert((CallingConv::ID)ZigLLVM_Tail == llvm::CallingConv::Tail, "");
+static_assert((CallingConv::ID)ZigLLVM_CFGuard_Check == llvm::CallingConv::CFGuard_Check, "");
+static_assert((CallingConv::ID)ZigLLVM_SwiftTail == llvm::CallingConv::SwiftTail, "");
 static_assert((CallingConv::ID)ZigLLVM_FirstTargetCC == llvm::CallingConv::FirstTargetCC, "");
 static_assert((CallingConv::ID)ZigLLVM_X86_StdCall == llvm::CallingConv::X86_StdCall, "");
 static_assert((CallingConv::ID)ZigLLVM_X86_FastCall == llvm::CallingConv::X86_FastCall, "");
@@ -787,4 +791,16 @@ static_assert((CallingConv::ID)ZigLLVM_MSP430_BUILTIN == llvm::CallingConv::MSP4
 static_assert((CallingConv::ID)ZigLLVM_AMDGPU_LS == llvm::CallingConv::AMDGPU_LS, "");
 static_assert((CallingConv::ID)ZigLLVM_AMDGPU_ES == llvm::CallingConv::AMDGPU_ES, "");
 static_assert((CallingConv::ID)ZigLLVM_AArch64_VectorCall == llvm::CallingConv::AArch64_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_AArch64_SVE_VectorCall == llvm::CallingConv::AArch64_SVE_VectorCall, "");
+static_assert((CallingConv::ID)ZigLLVM_WASM_EmscriptenInvoke == llvm::CallingConv::WASM_EmscriptenInvoke, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_Gfx == llvm::CallingConv::AMDGPU_Gfx, "");
+static_assert((CallingConv::ID)ZigLLVM_M68k_INTR == llvm::CallingConv::M68k_INTR, "");
+static_assert((CallingConv::ID)ZigLLVM_AArch64_SME_ABI_Support_Routines_PreserveMost_From_X0 == llvm::CallingConv::AArch64_SME_ABI_Support_Routines_PreserveMost_From_X0, "");
+static_assert((CallingConv::ID)ZigLLVM_AArch64_SME_ABI_Support_Routines_PreserveMost_From_X2 == llvm::CallingConv::AArch64_SME_ABI_Support_Routines_PreserveMost_From_X2, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_CS_Chain == llvm::CallingConv::AMDGPU_CS_Chain, "");
+static_assert((CallingConv::ID)ZigLLVM_AMDGPU_CS_ChainPreserve == llvm::CallingConv::AMDGPU_CS_ChainPreserve, "");
+static_assert((CallingConv::ID)ZigLLVM_M68k_RTD == llvm::CallingConv::M68k_RTD, "");
+static_assert((CallingConv::ID)ZigLLVM_GRAAL == llvm::CallingConv::GRAAL, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM64EC_Thunk_X64 == llvm::CallingConv::ARM64EC_Thunk_X64, "");
+static_assert((CallingConv::ID)ZigLLVM_ARM64EC_Thunk_Native == llvm::CallingConv::ARM64EC_Thunk_Native, "");
 static_assert((CallingConv::ID)ZigLLVM_MaxID == llvm::CallingConv::MaxID, "");

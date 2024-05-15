@@ -728,7 +728,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
     const hdr_size = if (self.sixtyfour_bit) @as(usize, 40) else 32;
     const hdr_slice: []u8 = hdr_buf[0..hdr_size];
     var foff = hdr_size;
-    iovecs[0] = .{ .iov_base = hdr_slice.ptr, .iov_len = hdr_slice.len };
+    iovecs[0] = .{ .base = hdr_slice.ptr, .len = hdr_slice.len };
     var iovecs_i: usize = 1;
     var text_i: u64 = 0;
 
@@ -757,7 +757,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
                     linecount = out.end_line;
                 }
                 foff += out.code.len;
-                iovecs[iovecs_i] = .{ .iov_base = out.code.ptr, .iov_len = out.code.len };
+                iovecs[iovecs_i] = .{ .base = out.code.ptr, .len = out.code.len };
                 iovecs_i += 1;
                 const off = self.getAddr(text_i, .t);
                 text_i += out.code.len;
@@ -787,7 +787,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
             const text_atom = if (meta.text_state != .unused) self.getAtomPtr(meta.text_atom) else continue;
             const code = text_atom.code.getOwnedCode().?;
             foff += code.len;
-            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+            iovecs[iovecs_i] = .{ .base = code.ptr, .len = code.len };
             iovecs_i += 1;
             const off = self.getAddr(text_i, .t);
             text_i += code.len;
@@ -812,7 +812,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
         }
     }
     // global offset table is in data
-    iovecs[iovecs_i] = .{ .iov_base = got_table.ptr, .iov_len = got_table.len };
+    iovecs[iovecs_i] = .{ .base = got_table.ptr, .len = got_table.len };
     iovecs_i += 1;
     // data
     var data_i: u64 = got_size;
@@ -824,7 +824,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
             const code = entry.value_ptr.*;
 
             foff += code.len;
-            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+            iovecs[iovecs_i] = .{ .base = code.ptr, .len = code.len };
             iovecs_i += 1;
             const off = self.getAddr(data_i, .d);
             data_i += code.len;
@@ -847,7 +847,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
                 const code = atom.code.getOwnedCode().?; // unnamed consts must own their code
                 log.debug("write unnamed const: ({s})", .{self.syms.items[atom.sym_index.?].name});
                 foff += code.len;
-                iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+                iovecs[iovecs_i] = .{ .base = code.ptr, .len = code.len };
                 iovecs_i += 1;
                 const off = self.getAddr(data_i, .d);
                 data_i += code.len;
@@ -868,7 +868,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
                 const code = atom.code.getOwnedCode().?;
                 log.debug("write anon decl: {s}", .{self.syms.items[atom.sym_index.?].name});
                 foff += code.len;
-                iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+                iovecs[iovecs_i] = .{ .base = code.ptr, .len = code.len };
                 iovecs_i += 1;
                 const off = self.getAddr(data_i, .d);
                 data_i += code.len;
@@ -888,7 +888,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
             const data_atom = if (meta.rodata_state != .unused) self.getAtomPtr(meta.rodata_atom) else continue;
             const code = data_atom.code.getOwnedCode().?; // lazy symbols must own their code
             foff += code.len;
-            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+            iovecs[iovecs_i] = .{ .base = code.ptr, .len = code.len };
             iovecs_i += 1;
             const off = self.getAddr(data_i, .d);
             data_i += code.len;
@@ -929,9 +929,9 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
     const syms = try sym_buf.toOwnedSlice();
     defer gpa.free(syms);
     assert(2 + self.atomCount() - self.externCount() == iovecs_i); // we didn't write all the decls
-    iovecs[iovecs_i] = .{ .iov_base = syms.ptr, .iov_len = syms.len };
+    iovecs[iovecs_i] = .{ .base = syms.ptr, .len = syms.len };
     iovecs_i += 1;
-    iovecs[iovecs_i] = .{ .iov_base = linecountinfo.items.ptr, .iov_len = linecountinfo.items.len };
+    iovecs[iovecs_i] = .{ .base = linecountinfo.items.ptr, .len = linecountinfo.items.len };
     iovecs_i += 1;
     // generate the header
     self.hdr = .{

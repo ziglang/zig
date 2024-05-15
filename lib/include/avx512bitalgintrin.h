@@ -15,7 +15,10 @@
 #define __AVX512BITALGINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("avx512bitalg"), __min_vector_width__(512)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bitalg,evex512"),                           \
+                 __min_vector_width__(512)))
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS
 _mm512_popcnt_epi16(__m512i __A)

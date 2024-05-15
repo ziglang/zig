@@ -16,6 +16,7 @@ test "global variable alignment" {
 }
 
 test "large alignment of local constant" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
@@ -25,6 +26,7 @@ test "large alignment of local constant" {
 }
 
 test "slicing array of length 1 can not assume runtime index is always zero" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
@@ -52,6 +54,7 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -114,50 +117,11 @@ test "alignment and size of structs with 128-bit fields" {
             .u129_size = 24,
         },
 
-        .x86 => if (builtin.object_format == .c) .{
-            .a_align = 16,
-            .a_size = 16,
-
-            .b_align = 16,
-            .b_size = 32,
-
-            .u128_align = 16,
-            .u128_size = 16,
-            .u129_align = 16,
-            .u129_size = 32,
-        } else switch (builtin.os.tag) {
-            .windows => .{
-                .a_align = 8,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 8,
-                .u128_size = 16,
-                .u129_align = 8,
-                .u129_size = 24,
-            },
-            else => .{
-                .a_align = 4,
-                .a_size = 16,
-
-                .b_align = 16,
-                .b_size = 32,
-
-                .u128_align = 4,
-                .u128_size = 16,
-                .u129_align = 4,
-                .u129_size = 20,
-            },
-        },
-
         .mips64,
         .mips64el,
         .powerpc64,
         .powerpc64le,
         .sparc64,
-        .x86_64,
         => switch (builtin.object_format) {
             .c => .{
                 .a_align = 16,
@@ -185,6 +149,34 @@ test "alignment and size of structs with 128-bit fields" {
             },
         },
 
+        .x86_64 => switch (builtin.zig_backend) {
+            .stage2_x86_64 => .{
+                .a_align = 8,
+                .a_size = 16,
+
+                .b_align = 16,
+                .b_size = 32,
+
+                .u128_align = 8,
+                .u128_size = 16,
+                .u129_align = 8,
+                .u129_size = 24,
+            },
+            else => .{
+                .a_align = 16,
+                .a_size = 16,
+
+                .b_align = 16,
+                .b_size = 32,
+
+                .u128_align = 16,
+                .u128_size = 16,
+                .u129_align = 16,
+                .u129_size = 32,
+            },
+        },
+
+        .x86,
         .aarch64,
         .aarch64_be,
         .aarch64_32,
@@ -246,6 +238,7 @@ fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 {
 }
 
 test "specifying alignment allows pointer cast" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -258,6 +251,7 @@ fn testBytesAlign(b: u8) !void {
 }
 
 test "@alignCast slices" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -276,6 +270,7 @@ fn sliceExpects4(slice: []align(4) u32) void {
 }
 
 test "return error union with 128-bit integer" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -288,6 +283,7 @@ fn give() anyerror!u128 {
 }
 
 test "page aligned array on stack" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -316,6 +312,7 @@ test "function alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
@@ -429,6 +426,7 @@ test "function callconv expression depends on generic parameter" {
 }
 
 test "runtime-known array index has best alignment possible" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
@@ -489,6 +487,7 @@ const DefaultAligned = struct {
 };
 
 test "read 128-bit field from default aligned struct in stack memory" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -508,6 +507,7 @@ var default_aligned_global = DefaultAligned{
 };
 
 test "read 128-bit field from default aligned struct in global memory" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -517,6 +517,7 @@ test "read 128-bit field from default aligned struct in global memory" {
 }
 
 test "struct field explicit alignment" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -561,6 +562,7 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 }
 
 test "align(N) on functions" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -606,6 +608,7 @@ test "comptime alloc alignment" {
 }
 
 test "@alignCast null" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -621,6 +624,7 @@ test "alignment of slice element" {
 }
 
 test "sub-aligned pointer field access" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
@@ -669,6 +673,7 @@ test "alignment of zero-bit types is respected" {
 }
 
 test "zero-bit fields in extern struct pad fields appropriately" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;

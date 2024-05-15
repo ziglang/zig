@@ -15,7 +15,9 @@
 #define __AVX512CDINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("avx512cd"), __min_vector_width__(512)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512cd,evex512"), __min_vector_width__(512)))
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS
 _mm512_conflict_epi64 (__m512i __A)

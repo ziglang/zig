@@ -1,4 +1,4 @@
-/*===---- __stddef_max_align_t.h - Definition of max_align_t for modules ---===
+/*===---- __stddef_max_align_t.h - Definition of max_align_t ---------------===
  *
  * Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
  * See https://llvm.org/LICENSE.txt for license information.

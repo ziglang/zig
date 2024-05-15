@@ -22,24 +22,20 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-inline namespace literals
-{
-  inline namespace chrono_literals
-  {
-    _LIBCPP_HIDE_FROM_ABI constexpr chrono::day operator ""d(unsigned long long __d) noexcept
-    {
-        return chrono::day(static_cast<unsigned>(__d));
-    }
+inline namespace literals {
+inline namespace chrono_literals {
+_LIBCPP_HIDE_FROM_ABI constexpr chrono::day operator""d(unsigned long long __d) noexcept {
+  return chrono::day(static_cast<unsigned>(__d));
+}
 
-    _LIBCPP_HIDE_FROM_ABI constexpr chrono::year operator ""y(unsigned long long __y) noexcept
-    {
-        return chrono::year(static_cast<int>(__y));
-    }
+_LIBCPP_HIDE_FROM_ABI constexpr chrono::year operator""y(unsigned long long __y) noexcept {
+  return chrono::year(static_cast<int>(__y));
+}
 } // namespace chrono_literals
 } // namespace literals
 
 namespace chrono { // hoist the literals into namespace std::chrono
-   using namespace literals::chrono_literals;
+using namespace literals::chrono_literals;
 } // namespace chrono
 
 _LIBCPP_END_NAMESPACE_STD

@@ -29,7 +29,7 @@ pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
 
-    root_entries: usize = 0,
+    entries: usize = 0,
     root_dir: []const u8 = "",
 
     pub const Error = union(enum) {
@@ -48,41 +48,40 @@ pub const Diagnostics = struct {
         },
     };
 
-    fn findRoot(d: *Diagnostics, path: []const u8, kind: FileKind) !void {
-        if (rootDir(path)) |root_dir| {
-            d.root_entries += 1;
-            if (kind == .directory and d.root_entries == 1) {
-                d.root_dir = try d.allocator.dupe(u8, root_dir);
-                return;
-            }
-            d.allocator.free(d.root_dir);
-            d.root_dir = "";
+    fn findRoot(d: *Diagnostics, path: []const u8) !void {
+        if (path.len == 0) return;
+
+        d.entries += 1;
+        const root_dir = rootDir(path);
+        if (d.entries == 1) {
+            d.root_dir = try d.allocator.dupe(u8, root_dir);
+            return;
         }
+        if (d.root_dir.len == 0 or std.mem.eql(u8, root_dir, d.root_dir))
+            return;
+        d.allocator.free(d.root_dir);
+        d.root_dir = "";
     }
 
-    // If path is package root returns root_dir name, otherwise null.
-    fn rootDir(path: []const u8) ?[]const u8 {
-        if (path.len == 0) return null;
-
+    // Returns root dir of the path, assumes non empty path.
+    fn rootDir(path: []const u8) []const u8 {
         const start_index: usize = if (path[0] == '/') 1 else 0;
         const end_index: usize = if (path[path.len - 1] == '/') path.len - 1 else path.len;
         const buf = path[start_index..end_index];
-        return if (std.mem.indexOfScalarPos(u8, buf, 0, '/') == null)
-            buf
-        else
-            null;
+        if (std.mem.indexOfScalarPos(u8, buf, 0, '/')) |idx| {
+            return buf[0..idx];
+        }
+        return buf;
     }
 
     test rootDir {
         const expectEqualStrings = testing.expectEqualStrings;
-        const expect = testing.expect;
-
-        try expectEqualStrings("a", rootDir("a").?);
-        try expectEqualStrings("b", rootDir("b").?);
-        try expectEqualStrings("c", rootDir("/c").?);
-        try expectEqualStrings("d", rootDir("/d/").?);
-        try expect(rootDir("a/b") == null);
-        try expect(rootDir("") == null);
+        try expectEqualStrings("a", rootDir("a"));
+        try expectEqualStrings("b", rootDir("b"));
+        try expectEqualStrings("c", rootDir("/c"));
+        try expectEqualStrings("d", rootDir("/d/"));
+        try expectEqualStrings("a", rootDir("a/b"));
+        try expectEqualStrings("a", rootDir("a/b/c"));
     }
 
     pub fn deinit(d: *Diagnostics) void {
@@ -625,7 +624,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
     while (try iter.next()) |file| {
         const file_name = stripComponents(file.name, options.strip_components);
         if (options.diagnostics) |d| {
-            try d.findRoot(file_name, file.kind);
+            try d.findRoot(file_name);
         }
 
         switch (file.kind) {
@@ -1056,7 +1055,7 @@ test "pipeToFileSystem root_dir" {
 
         // there is no root_dir
         try testing.expectEqual(0, diagnostics.root_dir.len);
-        try testing.expectEqual(3, diagnostics.root_entries);
+        try testing.expectEqual(5, diagnostics.entries);
     }
 
     // with strip_components = 0
@@ -1078,8 +1077,23 @@ test "pipeToFileSystem root_dir" {
 
         // root_dir found
         try testing.expectEqualStrings("example", diagnostics.root_dir);
-        try testing.expectEqual(1, diagnostics.root_entries);
+        try testing.expectEqual(6, diagnostics.entries);
     }
+}
+
+test "findRoot without explicit root dir" {
+    const data = @embedFile("tar/testdata/19820.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+
+    try testing.expectEqualStrings("root", diagnostics.root_dir);
 }
 
 fn normalizePath(bytes: []u8) []u8 {

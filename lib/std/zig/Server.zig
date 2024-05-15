@@ -149,13 +149,13 @@ pub fn serveMessage(
     var iovecs: [10]std.posix.iovec_const = undefined;
     const header_le = bswap(header);
     iovecs[0] = .{
-        .iov_base = @as([*]const u8, @ptrCast(&header_le)),
-        .iov_len = @sizeOf(OutMessage.Header),
+        .base = @as([*]const u8, @ptrCast(&header_le)),
+        .len = @sizeOf(OutMessage.Header),
     };
     for (bufs, iovecs[1 .. bufs.len + 1]) |buf, *iovec| {
         iovec.* = .{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
+            .base = buf.ptr,
+            .len = buf.len,
         };
     }
     try s.out.writevAll(iovecs[0 .. bufs.len + 1]);

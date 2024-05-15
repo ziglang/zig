@@ -18,19 +18,15 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator, class _OutputIterator, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-remove_copy(_InputIterator __first, _InputIterator __last, _OutputIterator __result, const _Tp& __value)
-{
-    for (; __first != __last; ++__first)
-    {
-        if (!(*__first == __value))
-        {
-            *__result = *__first;
-            ++__result;
-        }
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
+remove_copy(_InputIterator __first, _InputIterator __last, _OutputIterator __result, const _Tp& __value) {
+  for (; __first != __last; ++__first) {
+    if (!(*__first == __value)) {
+      *__result = *__first;
+      ++__result;
     }
-    return __result;
+  }
+  return __result;
 }
 
 _LIBCPP_END_NAMESPACE_STD

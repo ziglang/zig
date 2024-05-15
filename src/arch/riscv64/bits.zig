@@ -2,385 +2,149 @@ const std = @import("std");
 const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
+const Encoding = @import("Encoding.zig");
+const Mir = @import("Mir.zig");
 
-// TODO: this is only tagged to facilitate the monstrosity.
-// Once packed structs work make it packed.
-pub const Instruction = union(enum) {
-    R: packed struct {
-        opcode: u7,
-        rd: u5,
-        funct3: u3,
-        rs1: u5,
-        rs2: u5,
-        funct7: u7,
-    },
-    I: packed struct {
-        opcode: u7,
-        rd: u5,
-        funct3: u3,
-        rs1: u5,
-        imm0_11: u12,
-    },
-    S: packed struct {
-        opcode: u7,
-        imm0_4: u5,
-        funct3: u3,
-        rs1: u5,
-        rs2: u5,
-        imm5_11: u7,
-    },
-    B: packed struct {
-        opcode: u7,
-        imm11: u1,
-        imm1_4: u4,
-        funct3: u3,
-        rs1: u5,
-        rs2: u5,
-        imm5_10: u6,
-        imm12: u1,
-    },
-    U: packed struct {
-        opcode: u7,
-        rd: u5,
-        imm12_31: u20,
-    },
-    J: packed struct {
-        opcode: u7,
-        rd: u5,
-        imm12_19: u8,
-        imm11: u1,
-        imm1_10: u10,
-        imm20: u1,
-    },
+pub const Memory = struct {
+    base: Base,
+    mod: Mod,
 
-    // TODO: once packed structs work we can remove this monstrosity.
-    pub fn toU32(self: Instruction) u32 {
-        return switch (self) {
-            .R => |v| @as(u32, @bitCast(v)),
-            .I => |v| @as(u32, @bitCast(v)),
-            .S => |v| @as(u32, @bitCast(v)),
-            .B => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
-            .U => |v| @as(u32, @bitCast(v)),
-            .J => |v| @as(u32, @bitCast(v)),
+    pub const Base = union(enum) {
+        reg: Register,
+        frame: FrameIndex,
+        reloc: Symbol,
+    };
+
+    pub const Mod = union(enum(u1)) {
+        rm: struct {
+            size: Size,
+            disp: i32 = 0,
+        },
+        off: i32,
+    };
+
+    pub const Size = enum(u4) {
+        /// Byte, 1 byte
+        byte,
+        /// Half word, 2 bytes
+        hword,
+        /// Word, 4 bytes
+        word,
+        /// Double word, 8 Bytes
+        dword,
+
+        pub fn fromByteSize(size: u64) Size {
+            return switch (size) {
+                1 => .byte,
+                2 => .hword,
+                4 => .word,
+                8 => .dword,
+                else => unreachable,
+            };
+        }
+
+        pub fn fromBitSize(bit_size: u64) Size {
+            return switch (bit_size) {
+                8 => .byte,
+                16 => .hword,
+                32 => .word,
+                64 => .dword,
+                else => unreachable,
+            };
+        }
+
+        pub fn bitSize(s: Size) u64 {
+            return switch (s) {
+                .byte => 8,
+                .hword => 16,
+                .word => 32,
+                .dword => 64,
+            };
+        }
+    };
+
+    /// Asserts `mem` can be represented as a `FrameLoc`.
+    pub fn toFrameLoc(mem: Memory, mir: Mir) Mir.FrameLoc {
+        const offset: i32 = switch (mem.mod) {
+            .off => |off| off,
+            .rm => |rm| rm.disp,
         };
+
+        switch (mem.base) {
+            .reg => |reg| {
+                return .{
+                    .base = reg,
+                    .disp = offset,
+                };
+            },
+            .frame => |index| {
+                const base_loc = mir.frame_locs.get(@intFromEnum(index));
+                return .{
+                    .base = base_loc.base,
+                    .disp = base_loc.disp + offset,
+                };
+            },
+            .reloc => unreachable,
+        }
+    }
+};
+
+pub const Immediate = union(enum) {
+    signed: i32,
+    unsigned: u32,
+
+    pub fn u(x: u64) Immediate {
+        return .{ .unsigned = x };
     }
 
-    fn rType(op: u7, fn3: u3, fn7: u7, rd: Register, r1: Register, r2: Register) Instruction {
-        return Instruction{
-            .R = .{
-                .opcode = op,
-                .funct3 = fn3,
-                .funct7 = fn7,
-                .rd = rd.id(),
-                .rs1 = r1.id(),
-                .rs2 = r2.id(),
+    pub fn s(x: i32) Immediate {
+        return .{ .signed = x };
+    }
+
+    pub fn asSigned(imm: Immediate, bit_size: u64) i64 {
+        return switch (imm) {
+            .signed => |x| switch (bit_size) {
+                1, 8 => @as(i8, @intCast(x)),
+                16 => @as(i16, @intCast(x)),
+                32, 64 => x,
+                else => unreachable,
+            },
+            .unsigned => |x| switch (bit_size) {
+                1, 8 => @as(i8, @bitCast(@as(u8, @intCast(x)))),
+                16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
+                32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
+                64 => @bitCast(x),
+                else => unreachable,
             },
         };
     }
 
-    // RISC-V is all signed all the time -- convert immediates to unsigned for processing
-    fn iType(op: u7, fn3: u3, rd: Register, r1: Register, imm: i12) Instruction {
-        const umm = @as(u12, @bitCast(imm));
-
-        return Instruction{
-            .I = .{
-                .opcode = op,
-                .funct3 = fn3,
-                .rd = rd.id(),
-                .rs1 = r1.id(),
-                .imm0_11 = umm,
+    pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
+        return switch (imm) {
+            .signed => |x| switch (bit_size) {
+                1, 8 => @as(u8, @bitCast(@as(i8, @intCast(x)))),
+                16 => @as(u16, @bitCast(@as(i16, @intCast(x)))),
+                32, 64 => @as(u32, @bitCast(x)),
+                else => unreachable,
+            },
+            .unsigned => |x| switch (bit_size) {
+                1, 8 => @as(u8, @intCast(x)),
+                16 => @as(u16, @intCast(x)),
+                32 => @as(u32, @intCast(x)),
+                64 => x,
+                else => unreachable,
             },
         };
     }
 
-    fn sType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i12) Instruction {
-        const umm = @as(u12, @bitCast(imm));
-
-        return Instruction{
-            .S = .{
-                .opcode = op,
-                .funct3 = fn3,
-                .rs1 = r1.id(),
-                .rs2 = r2.id(),
-                .imm0_4 = @as(u5, @truncate(umm)),
-                .imm5_11 = @as(u7, @truncate(umm >> 5)),
-            },
+    pub fn asBits(imm: Immediate, comptime T: type) T {
+        const int_info = @typeInfo(T).Int;
+        if (int_info.signedness != .unsigned) @compileError("Immediate.asBits needs unsigned T");
+        return switch (imm) {
+            .signed => |x| @bitCast(@as(std.meta.Int(.signed, int_info.bits), @intCast(x))),
+            .unsigned => |x| @intCast(x),
         };
     }
-
-    // Use significance value rather than bit value, same for J-type
-    // -- less burden on callsite, bonus semantic checking
-    fn bType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i13) Instruction {
-        const umm = @as(u13, @bitCast(imm));
-        assert(umm % 2 == 0); // misaligned branch target
-
-        return Instruction{
-            .B = .{
-                .opcode = op,
-                .funct3 = fn3,
-                .rs1 = r1.id(),
-                .rs2 = r2.id(),
-                .imm1_4 = @as(u4, @truncate(umm >> 1)),
-                .imm5_10 = @as(u6, @truncate(umm >> 5)),
-                .imm11 = @as(u1, @truncate(umm >> 11)),
-                .imm12 = @as(u1, @truncate(umm >> 12)),
-            },
-        };
-    }
-
-    // We have to extract the 20 bits anyway -- let's not make it more painful
-    fn uType(op: u7, rd: Register, imm: i20) Instruction {
-        const umm = @as(u20, @bitCast(imm));
-
-        return Instruction{
-            .U = .{
-                .opcode = op,
-                .rd = rd.id(),
-                .imm12_31 = umm,
-            },
-        };
-    }
-
-    fn jType(op: u7, rd: Register, imm: i21) Instruction {
-        const umm = @as(u21, @bitCast(imm));
-        assert(umm % 2 == 0); // misaligned jump target
-
-        return Instruction{
-            .J = .{
-                .opcode = op,
-                .rd = rd.id(),
-                .imm1_10 = @as(u10, @truncate(umm >> 1)),
-                .imm11 = @as(u1, @truncate(umm >> 11)),
-                .imm12_19 = @as(u8, @truncate(umm >> 12)),
-                .imm20 = @as(u1, @truncate(umm >> 20)),
-            },
-        };
-    }
-
-    // The meat and potatoes. Arguments are in the order in which they would appear in assembly code.
-
-    // Arithmetic/Logical, Register-Register
-
-    pub fn add(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b000, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn sub(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b000, 0b0100000, rd, r1, r2);
-    }
-
-    pub fn @"and"(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b111, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn @"or"(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b110, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn xor(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b100, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn sll(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b001, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn srl(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b101, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn sra(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b101, 0b0100000, rd, r1, r2);
-    }
-
-    pub fn slt(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b010, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn sltu(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0110011, 0b011, 0b0000000, rd, r1, r2);
-    }
-
-    // Arithmetic/Logical, Register-Register (32-bit)
-
-    pub fn addw(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0111011, 0b000, rd, r1, r2);
-    }
-
-    pub fn subw(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0111011, 0b000, 0b0100000, rd, r1, r2);
-    }
-
-    pub fn sllw(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0111011, 0b001, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn srlw(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0111011, 0b101, 0b0000000, rd, r1, r2);
-    }
-
-    pub fn sraw(rd: Register, r1: Register, r2: Register) Instruction {
-        return rType(0b0111011, 0b101, 0b0100000, rd, r1, r2);
-    }
-
-    // Arithmetic/Logical, Register-Immediate
-
-    pub fn addi(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0010011, 0b000, rd, r1, imm);
-    }
-
-    pub fn andi(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0010011, 0b111, rd, r1, imm);
-    }
-
-    pub fn ori(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0010011, 0b110, rd, r1, imm);
-    }
-
-    pub fn xori(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0010011, 0b100, rd, r1, imm);
-    }
-
-    pub fn slli(rd: Register, r1: Register, shamt: u6) Instruction {
-        return iType(0b0010011, 0b001, rd, r1, shamt);
-    }
-
-    pub fn srli(rd: Register, r1: Register, shamt: u6) Instruction {
-        return iType(0b0010011, 0b101, rd, r1, shamt);
-    }
-
-    pub fn srai(rd: Register, r1: Register, shamt: u6) Instruction {
-        return iType(0b0010011, 0b101, rd, r1, (1 << 10) + shamt);
-    }
-
-    pub fn slti(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0010011, 0b010, rd, r1, imm);
-    }
-
-    pub fn sltiu(rd: Register, r1: Register, imm: u12) Instruction {
-        return iType(0b0010011, 0b011, rd, r1, @as(i12, @bitCast(imm)));
-    }
-
-    // Arithmetic/Logical, Register-Immediate (32-bit)
-
-    pub fn addiw(rd: Register, r1: Register, imm: i12) Instruction {
-        return iType(0b0011011, 0b000, rd, r1, imm);
-    }
-
-    pub fn slliw(rd: Register, r1: Register, shamt: u5) Instruction {
-        return iType(0b0011011, 0b001, rd, r1, shamt);
-    }
-
-    pub fn srliw(rd: Register, r1: Register, shamt: u5) Instruction {
-        return iType(0b0011011, 0b101, rd, r1, shamt);
-    }
-
-    pub fn sraiw(rd: Register, r1: Register, shamt: u5) Instruction {
-        return iType(0b0011011, 0b101, rd, r1, (1 << 10) + shamt);
-    }
-
-    // Upper Immediate
-
-    pub fn lui(rd: Register, imm: i20) Instruction {
-        return uType(0b0110111, rd, imm);
-    }
-
-    pub fn auipc(rd: Register, imm: i20) Instruction {
-        return uType(0b0010111, rd, imm);
-    }
-
-    // Load
-
-    pub fn ld(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b011, rd, base, offset);
-    }
-
-    pub fn lw(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b010, rd, base, offset);
-    }
-
-    pub fn lwu(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b110, rd, base, offset);
-    }
-
-    pub fn lh(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b001, rd, base, offset);
-    }
-
-    pub fn lhu(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b101, rd, base, offset);
-    }
-
-    pub fn lb(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b000, rd, base, offset);
-    }
-
-    pub fn lbu(rd: Register, offset: i12, base: Register) Instruction {
-        return iType(0b0000011, 0b100, rd, base, offset);
-    }
-
-    // Store
-
-    pub fn sd(rs: Register, offset: i12, base: Register) Instruction {
-        return sType(0b0100011, 0b011, base, rs, offset);
-    }
-
-    pub fn sw(rs: Register, offset: i12, base: Register) Instruction {
-        return sType(0b0100011, 0b010, base, rs, offset);
-    }
-
-    pub fn sh(rs: Register, offset: i12, base: Register) Instruction {
-        return sType(0b0100011, 0b001, base, rs, offset);
-    }
-
-    pub fn sb(rs: Register, offset: i12, base: Register) Instruction {
-        return sType(0b0100011, 0b000, base, rs, offset);
-    }
-
-    // Fence
-    // TODO: implement fence
-
-    // Branch
-
-    pub fn beq(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b000, r1, r2, offset);
-    }
-
-    pub fn bne(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b001, r1, r2, offset);
-    }
-
-    pub fn blt(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b100, r1, r2, offset);
-    }
-
-    pub fn bge(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b101, r1, r2, offset);
-    }
-
-    pub fn bltu(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b110, r1, r2, offset);
-    }
-
-    pub fn bgeu(r1: Register, r2: Register, offset: i13) Instruction {
-        return bType(0b1100011, 0b111, r1, r2, offset);
-    }
-
-    // Jump
-
-    pub fn jal(link: Register, offset: i21) Instruction {
-        return jType(0b1101111, link, offset);
-    }
-
-    pub fn jalr(link: Register, offset: i12, base: Register) Instruction {
-        return iType(0b1100111, 0b000, link, base, offset);
-    }
-
-    // System
-
-    pub const ecall = iType(0b1110011, 0b000, .zero, .zero, 0x000);
-    pub const ebreak = iType(0b1110011, 0b000, .zero, .zero, 0x001);
-    pub const unimp = iType(0, 0, .zero, .zero, 0);
 };
 
 pub const Register = enum(u6) {
@@ -404,50 +168,63 @@ pub const Register = enum(u6) {
     t3, t4, t5, t6, // caller saved
     // zig fmt: on
 
-    /// Returns the unique 4-bit ID of this register which is used in
+    /// Returns the unique 5-bit ID of this register which is used in
     /// the machine code
     pub fn id(self: Register) u5 {
         return @as(u5, @truncate(@intFromEnum(self)));
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id()) + DW.OP.reg0;
+        return @as(u8, reg.id());
     }
 };
 
-// zig fmt: on
+pub const FrameIndex = enum(u32) {
+    /// This index refers to the return address.
+    ret_addr,
+    /// This index refers to the frame pointer.
+    base_ptr,
+    /// This index refers to the entire stack frame.
+    stack_frame,
+    /// This index referes to where in the stack frame the args are spilled to.
+    args_frame,
+    /// This index referes to a frame dedicated to setting up args for function called
+    /// in this function. Useful for aligning args separately.
+    call_frame,
+    /// This index referes to the frame where callee saved registers are spilled and restore
+    /// from.
+    spill_frame,
+    /// Other indices are used for local variable stack slots
+    _,
 
-test "serialize instructions" {
-    const Testcase = struct {
-        inst: Instruction,
-        expected: u32,
-    };
+    pub const named_count = @typeInfo(FrameIndex).Enum.fields.len;
 
-    const testcases = [_]Testcase{
-        .{ // add t6, zero, zero
-            .inst = Instruction.add(.t6, .zero, .zero),
-            .expected = 0b0000000_00000_00000_000_11111_0110011,
-        },
-        .{ // sd s0, 0x7f(s0)
-            .inst = Instruction.sd(.s0, 0x7f, .s0),
-            .expected = 0b0000011_01000_01000_011_11111_0100011,
-        },
-        .{ // bne s0, s1, 0x42
-            .inst = Instruction.bne(.s0, .s1, 0x42),
-            .expected = 0b0_000010_01001_01000_001_0001_0_1100011,
-        },
-        .{ // j 0x1a
-            .inst = Instruction.jal(.zero, 0x1a),
-            .expected = 0b0_0000001101_0_00000000_00000_1101111,
-        },
-        .{ // ebreak
-            .inst = Instruction.ebreak,
-            .expected = 0b000000000001_00000_000_00000_1110011,
-        },
-    };
-
-    for (testcases) |case| {
-        const actual = case.inst.toU32();
-        try testing.expectEqual(case.expected, actual);
+    pub fn isNamed(fi: FrameIndex) bool {
+        return @intFromEnum(fi) < named_count;
     }
-}
+
+    pub fn format(
+        fi: FrameIndex,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try writer.writeAll("FrameIndex");
+        if (fi.isNamed()) {
+            try writer.writeByte('.');
+            try writer.writeAll(@tagName(fi));
+        } else {
+            try writer.writeByte('(');
+            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
+            try writer.writeByte(')');
+        }
+    }
+};
+
+/// A linker symbol not yet allocated in VM.
+pub const Symbol = struct {
+    /// Index of the containing atom.
+    atom_index: u32,
+    /// Index into the linker's symbol table.
+    sym_index: u32,
+};

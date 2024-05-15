@@ -22,9 +22,9 @@ struct _LIBCPP_TEMPLATE_VIS integral_constant {
   static _LIBCPP_CONSTEXPR const _Tp value = __v;
   typedef _Tp value_type;
   typedef integral_constant type;
-  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR operator value_type() const _NOEXCEPT { return value; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator value_type() const _NOEXCEPT { return value; }
 #if _LIBCPP_STD_VER >= 14
-  _LIBCPP_INLINE_VISIBILITY constexpr value_type operator()() const _NOEXCEPT { return value; }
+  _LIBCPP_HIDE_FROM_ABI constexpr value_type operator()() const _NOEXCEPT { return value; }
 #endif
 };
 

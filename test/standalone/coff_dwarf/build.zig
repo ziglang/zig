@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
     });
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
     });
-    lib.addCSourceFile(.{ .file = .{ .path = "shared_lib.c" }, .flags = &.{"-gdwarf"} });
+    lib.addCSourceFile(.{ .file = b.path("shared_lib.c"), .flags = &.{"-gdwarf"} });
     lib.linkLibC();
     exe.linkLibrary(lib);
 

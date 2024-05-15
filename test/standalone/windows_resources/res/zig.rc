@@ -1,3 +1,7 @@
+// This include file is generated via build.zig, and it #defines GENERATED_DEFINE
+#include "generated.h"
+FOO RCDATA { GENERATED_DEFINE }
+
 #define ICO_ID 1
 
 // Nothing from windows.h is used in this .rc file,

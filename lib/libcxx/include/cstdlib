@@ -136,10 +136,12 @@ using ::div _LIBCPP_USING_IF_EXISTS;
 using ::ldiv _LIBCPP_USING_IF_EXISTS;
 using ::lldiv _LIBCPP_USING_IF_EXISTS;
 using ::mblen _LIBCPP_USING_IF_EXISTS;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 using ::mbtowc _LIBCPP_USING_IF_EXISTS;
 using ::wctomb _LIBCPP_USING_IF_EXISTS;
 using ::mbstowcs _LIBCPP_USING_IF_EXISTS;
 using ::wcstombs _LIBCPP_USING_IF_EXISTS;
+#endif
 #if !defined(_LIBCPP_CXX03_LANG)
 using ::at_quick_exit _LIBCPP_USING_IF_EXISTS;
 using ::quick_exit _LIBCPP_USING_IF_EXISTS;

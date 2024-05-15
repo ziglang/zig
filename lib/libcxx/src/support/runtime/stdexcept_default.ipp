@@ -9,9 +9,8 @@
 #include "../../include/refstring.h"
 
 /* For _LIBCPPABI_VERSION */
-#if !defined(_LIBCPP_BUILDING_HAS_NO_ABI_LIBRARY) &&                           \
-    (defined(LIBCXX_BUILDING_LIBCXXABI) || defined(LIBCXXRT))
-#include <cxxabi.h>
+#if !defined(_LIBCPP_BUILDING_HAS_NO_ABI_LIBRARY) && (defined(LIBCXX_BUILDING_LIBCXXABI) || defined(LIBCXXRT))
+#  include <cxxabi.h>
 #endif
 
 static_assert(sizeof(std::__libcpp_refstring) == sizeof(const char*), "");
@@ -34,8 +33,7 @@ runtime_error::runtime_error(const string& msg) : __imp_(msg.c_str()) {}
 
 runtime_error::runtime_error(const char* msg) : __imp_(msg) {}
 
-runtime_error::runtime_error(const runtime_error& re) noexcept
-    : __imp_(re.__imp_) {}
+runtime_error::runtime_error(const runtime_error& re) noexcept : __imp_(re.__imp_) {}
 
 runtime_error& runtime_error::operator=(const runtime_error& re) noexcept {
   __imp_ = re.__imp_;

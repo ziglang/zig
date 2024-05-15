@@ -45,7 +45,7 @@ const OperandKindMap = std.ArrayHashMap(StringPair, OperandKind, StringPairConte
 /// Khronos made it so that these names are not defined explicitly, so
 /// we need to hardcode it (like they did).
 /// See https://github.com/KhronosGroup/SPIRV-Registry/
-const set_names = std.ComptimeStringMap([]const u8, .{
+const set_names = std.StaticStringMap([]const u8).initComptime(.{
     .{ "opencl.std.100", "OpenCL.std" },
     .{ "glsl.std.450", "GLSL.std.450" },
     .{ "opencl.debuginfo.100", "OpenCL.DebugInfo.100" },

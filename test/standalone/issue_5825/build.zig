@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const obj = b.addObject(.{
         .name = "issue_5825",
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
         .target = target,
     });

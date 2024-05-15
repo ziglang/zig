@@ -23,17 +23,8 @@ out_n_sect: u8 = 0,
 /// off + size <= parent section size.
 off: u64 = 0,
 
-/// Relocations of this atom.
-relocs: Loc = .{},
-
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
-
-/// Index of the thunk for this atom.
-thunk_index: Thunk.Index = 0,
-
-/// Unwind records associated with this atom.
-unwind_records: Loc = .{},
 
 flags: Flags = .{},
 
@@ -41,6 +32,8 @@ flags: Flags = .{},
 /// This can be used to find, for example, the capacity of this `TextBlock`.
 prev_index: Index = 0,
 next_index: Index = 0,
+
+extra: u32 = 0,
 
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
     return switch (self.getFile(macho_file)) {
@@ -67,7 +60,7 @@ pub fn getData(self: Atom, macho_file: *MachO, buffer: []u8) !void {
 pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
     return switch (self.getFile(macho_file)) {
         .dylib => unreachable,
-        inline else => |x| x.getAtomRelocs(self),
+        inline else => |x| x.getAtomRelocs(self, macho_file),
     };
 }
 
@@ -95,10 +88,11 @@ pub fn getPriority(self: Atom, macho_file: *MachO) u64 {
 }
 
 pub fn getUnwindRecords(self: Atom, macho_file: *MachO) []const UnwindInfo.Record.Index {
+    if (!self.flags.unwind) return &[0]UnwindInfo.Record.Index{};
+    const extra = self.getExtra(macho_file).?;
     return switch (self.getFile(macho_file)) {
-        .dylib => unreachable,
-        .zig_object, .internal => &[0]UnwindInfo.Record.Index{},
-        .object => |x| x.unwind_records.items[self.unwind_records.pos..][0..self.unwind_records.len],
+        .dylib, .zig_object, .internal => unreachable,
+        .object => |x| x.unwind_records.items[extra.unwind_index..][0..extra.unwind_count],
     };
 }
 
@@ -114,7 +108,38 @@ pub fn markUnwindRecordsDead(self: Atom, macho_file: *MachO) void {
 }
 
 pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
-    return macho_file.getThunk(self.thunk_index);
+    assert(self.flags.thunk);
+    const extra = self.getExtra(macho_file).?;
+    return macho_file.getThunk(extra.thunk);
+}
+
+const AddExtraOpts = struct {
+    thunk: ?u32 = null,
+    rel_index: ?u32 = null,
+    rel_count: ?u32 = null,
+    unwind_index: ?u32 = null,
+    unwind_count: ?u32 = null,
+};
+
+pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) !void {
+    if (atom.getExtra(macho_file) == null) {
+        atom.extra = try macho_file.addAtomExtra(.{});
+    }
+    var extra = atom.getExtra(macho_file).?;
+    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+        if (@field(opts, field.name)) |x| {
+            @field(extra, field.name) = x;
+        }
+    }
+    atom.setExtra(extra, macho_file);
+}
+
+pub inline fn getExtra(atom: Atom, macho_file: *MachO) ?Extra {
+    return macho_file.getAtomExtra(atom.extra);
+}
+
+pub inline fn setExtra(atom: Atom, extra: Extra, macho_file: *MachO) void {
+    macho_file.setAtomExtra(atom.extra, extra);
 }
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
@@ -403,14 +428,20 @@ pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
     const gpa = macho_file.base.comp.gpa;
     const file = self.getFile(macho_file);
     assert(file == .zig_object);
-    const rels = &file.zig_object.relocs.items[self.relocs.pos];
+    assert(self.flags.relocs);
+    var extra = self.getExtra(macho_file).?;
+    const rels = &file.zig_object.relocs.items[extra.rel_index];
     try rels.append(gpa, reloc);
-    self.relocs.len += 1;
+    extra.rel_count += 1;
+    self.setExtra(extra, macho_file);
 }
 
 pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
-    self.getFile(macho_file).zig_object.freeAtomRelocs(self.*);
-    self.relocs.len = 0;
+    if (!self.flags.relocs) return;
+    self.getFile(macho_file).zig_object.freeAtomRelocs(self.*, macho_file);
+    var extra = self.getExtra(macho_file).?;
+    extra.rel_count = 0;
+    self.setExtra(extra, macho_file);
 }
 
 pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
@@ -770,7 +801,7 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
+            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target))));
             aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
         },
 
@@ -1117,19 +1148,21 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d})", .{
         atom.atom_index,                atom.getName(macho_file), atom.getAddress(macho_file),
         atom.out_n_sect,                atom.alignment,           atom.size,
-        atom.getRelocs(macho_file).len, atom.thunk_index,
+        atom.getRelocs(macho_file).len,
     });
+    if (atom.flags.thunk) try writer.print(" : thunk({d})", .{atom.getExtra(macho_file).?.thunk});
     if (!atom.flags.alive) try writer.writeAll(" : [*]");
-    if (atom.unwind_records.len > 0) {
+    if (atom.flags.unwind) {
         try writer.writeAll(" : unwind{ ");
-        for (atom.getUnwindRecords(macho_file), atom.unwind_records.pos..) |index, i| {
+        const extra = atom.getExtra(macho_file).?;
+        for (atom.getUnwindRecords(macho_file), extra.unwind_index..) |index, i| {
             const rec = macho_file.getUnwindRecord(index);
             try writer.print("{d}", .{index});
             if (!rec.alive) try writer.writeAll("([*])");
-            if (i < atom.unwind_records.pos + atom.unwind_records.len - 1) try writer.writeAll(", ");
+            if (i < extra.unwind_index + extra.unwind_count - 1) try writer.writeAll(", ");
         }
         try writer.writeAll(" }");
     }
@@ -1143,11 +1176,32 @@ pub const Flags = packed struct {
 
     /// Specifies if the atom has been visited during garbage collection.
     visited: bool = false,
+
+    /// Whether this atom has a range extension thunk.
+    thunk: bool = false,
+
+    /// Whether this atom has any relocations.
+    relocs: bool = false,
+
+    /// Whether this atom has any unwind records.
+    unwind: bool = false,
 };
 
-pub const Loc = struct {
-    pos: u32 = 0,
-    len: u32 = 0,
+pub const Extra = struct {
+    /// Index of the range extension thunk of this atom.
+    thunk: u32 = 0,
+
+    /// Start index of relocations belonging to this atom.
+    rel_index: u32 = 0,
+
+    /// Count of relocations belonging to this atom.
+    rel_count: u32 = 0,
+
+    /// Start index of relocations belonging to this atom.
+    unwind_index: u32 = 0,
+
+    /// Count of relocations belonging to this atom.
+    unwind_count: u32 = 0,
 };
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;

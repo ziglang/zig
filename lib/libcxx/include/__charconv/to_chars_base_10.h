@@ -132,14 +132,14 @@ __base_10_u64(char* __buffer, uint64_t __value) noexcept {
 /// range that can be used. However the range is sufficient for
 /// \ref __base_10_u128.
 _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline __uint128_t __pow_10(int __exp) noexcept {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__exp >= __pow10_128_offset, "Index out of bounds");
+  _LIBCPP_ASSERT_INTERNAL(__exp >= __pow10_128_offset, "Index out of bounds");
   return __pow10_128[__exp - __pow10_128_offset];
 }
 
 _LIBCPP_CONSTEXPR_SINCE_CXX23 _LIBCPP_HIDE_FROM_ABI inline char*
 __base_10_u128(char* __buffer, __uint128_t __value) noexcept {
-  _LIBCPP_ASSERT_UNCATEGORIZED(
-      __value > numeric_limits<uint64_t>::max(), "The optimizations for this algorithm fail when this isn't true.");
+  _LIBCPP_ASSERT_INTERNAL(
+      __value > numeric_limits<uint64_t>::max(), "The optimizations for this algorithm fails when this isn't true.");
 
   // Unlike the 64 to 32 bit case the 128 bit case the "upper half" can't be
   // stored in the "lower half". Instead we first need to handle the top most

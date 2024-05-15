@@ -3,6 +3,7 @@ const std = @import("std");
 
 test "@prefetch()" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: [2]u32 = .{ 42, 42 };
     var a_len = a.len;

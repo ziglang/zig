@@ -43,7 +43,6 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // __split_buffer allocates a contiguous chunk of memory and stores objects in the range [__begin_, __end_).
@@ -51,8 +50,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // it to grow both in the front and back without having to move the data.
 
 template <class _Tp, class _Allocator = allocator<_Tp> >
-struct __split_buffer
-{
+struct __split_buffer {
 public:
   using value_type      = _Tp;
   using allocator_type  = _Allocator;
@@ -75,7 +73,7 @@ public:
   using __alloc_ref       = __add_lvalue_reference_t<allocator_type>;
   using __alloc_const_ref = __add_lvalue_reference_t<allocator_type>;
 
-  __split_buffer(const __split_buffer&) = delete;
+  __split_buffer(const __split_buffer&)            = delete;
   __split_buffer& operator=(const __split_buffer&) = delete;
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI __split_buffer()
@@ -160,23 +158,20 @@ public:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __construct_at_end(size_type __n);
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __construct_at_end(size_type __n, const_reference __x);
 
-  template <class _InputIter>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI
-      __enable_if_t<__has_exactly_input_iterator_category<_InputIter>::value>
-      __construct_at_end(_InputIter __first, _InputIter __last);
+  template <class _InputIter, __enable_if_t<__has_exactly_input_iterator_category<_InputIter>::value, int> = 0>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __construct_at_end(_InputIter __first, _InputIter __last);
 
-  template <class _ForwardIterator>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI
-      __enable_if_t<__has_forward_iterator_category<_ForwardIterator>::value>
-      __construct_at_end(_ForwardIterator __first, _ForwardIterator __last);
+  template <class _ForwardIterator, __enable_if_t<__has_forward_iterator_category<_ForwardIterator>::value, int> = 0>
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void
+  __construct_at_end(_ForwardIterator __first, _ForwardIterator __last);
 
   template <class _Iterator, class _Sentinel>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI
-  void __construct_at_end_with_sentinel(_Iterator __first, _Sentinel __last);
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void
+  __construct_at_end_with_sentinel(_Iterator __first, _Sentinel __last);
 
   template <class _Iterator>
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI
-  void __construct_at_end_with_size(_Iterator __first, size_type __n);
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void
+  __construct_at_end_with_size(_Iterator __first, size_type __n);
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __destruct_at_begin(pointer __new_begin) {
     __destruct_at_begin(__new_begin, is_trivially_destructible<value_type>());
@@ -200,7 +195,7 @@ public:
 private:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __move_assign_alloc(__split_buffer& __c, true_type)
       _NOEXCEPT_(is_nothrow_move_assignable<allocator_type>::value) {
-    __alloc() = _VSTD::move(__c.__alloc());
+    __alloc() = std::move(__c.__alloc());
   }
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void __move_assign_alloc(__split_buffer&, false_type) _NOEXCEPT {}
@@ -223,29 +218,23 @@ private:
 };
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-bool
-__split_buffer<_Tp, _Allocator>::__invariants() const
-{
-    if (__first_ == nullptr)
-    {
-        if (__begin_ != nullptr)
-            return false;
-        if (__end_ != nullptr)
-            return false;
-        if (__end_cap() != nullptr)
-            return false;
-    }
-    else
-    {
-        if (__begin_ < __first_)
-            return false;
-        if (__end_ < __begin_)
-            return false;
-        if (__end_cap() < __end_)
-            return false;
-    }
-    return true;
+_LIBCPP_CONSTEXPR_SINCE_CXX20 bool __split_buffer<_Tp, _Allocator>::__invariants() const {
+  if (__first_ == nullptr) {
+    if (__begin_ != nullptr)
+      return false;
+    if (__end_ != nullptr)
+      return false;
+    if (__end_cap() != nullptr)
+      return false;
+  } else {
+    if (__begin_ < __first_)
+      return false;
+    if (__end_ < __begin_)
+      return false;
+    if (__end_cap() < __end_)
+      return false;
+  }
+  return true;
 }
 
 //  Default constructs __n objects starting at __end_
@@ -254,14 +243,11 @@ __split_buffer<_Tp, _Allocator>::__invariants() const
 //  Precondition:  size() + __n <= capacity()
 //  Postcondition:  size() == size() + __n
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n)
-{
-    _ConstructTransaction __tx(&this->__end_, __n);
-    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
-        __alloc_traits::construct(this->__alloc(), _VSTD::__to_address(__tx.__pos_));
-    }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n) {
+  _ConstructTransaction __tx(&this->__end_, __n);
+  for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
+    __alloc_traits::construct(this->__alloc(), std::__to_address(__tx.__pos_));
+  }
 }
 
 //  Copy constructs __n objects starting at __end_ from __x
@@ -271,413 +257,315 @@ __split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n)
 //  Postcondition:  size() == old size() + __n
 //  Postcondition:  [i] == __x for all i in [size() - __n, __n)
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n, const_reference __x)
-{
-    _ConstructTransaction __tx(&this->__end_, __n);
-    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
-        __alloc_traits::construct(this->__alloc(),
-            _VSTD::__to_address(__tx.__pos_), __x);
-    }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__split_buffer<_Tp, _Allocator>::__construct_at_end(size_type __n, const_reference __x) {
+  _ConstructTransaction __tx(&this->__end_, __n);
+  for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_) {
+    __alloc_traits::construct(this->__alloc(), std::__to_address(__tx.__pos_), __x);
+  }
 }
 
 template <class _Tp, class _Allocator>
-template <class _InputIter>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 __enable_if_t<__has_exactly_input_iterator_category<_InputIter>::value>
-__split_buffer<_Tp, _Allocator>::__construct_at_end(_InputIter __first, _InputIter __last)
-{
+template <class _InputIter, __enable_if_t<__has_exactly_input_iterator_category<_InputIter>::value, int> >
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__split_buffer<_Tp, _Allocator>::__construct_at_end(_InputIter __first, _InputIter __last) {
   __construct_at_end_with_sentinel(__first, __last);
 }
 
 template <class _Tp, class _Allocator>
 template <class _Iterator, class _Sentinel>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void __split_buffer<_Tp, _Allocator>::__construct_at_end_with_sentinel(_Iterator __first, _Sentinel __last) {
-    __alloc_rr& __a = this->__alloc();
-    for (; __first != __last; ++__first)
-    {
-        if (__end_ == __end_cap())
-        {
-            size_type __old_cap = __end_cap() - __first_;
-            size_type __new_cap = _VSTD::max<size_type>(2 * __old_cap, 8);
-            __split_buffer __buf(__new_cap, 0, __a);
-            for (pointer __p = __begin_; __p != __end_; ++__p, (void) ++__buf.__end_)
-                __alloc_traits::construct(__buf.__alloc(),
-                        _VSTD::__to_address(__buf.__end_), _VSTD::move(*__p));
-            swap(__buf);
-        }
-        __alloc_traits::construct(__a, _VSTD::__to_address(this->__end_), *__first);
-        ++this->__end_;
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__split_buffer<_Tp, _Allocator>::__construct_at_end_with_sentinel(_Iterator __first, _Sentinel __last) {
+  __alloc_rr& __a = this->__alloc();
+  for (; __first != __last; ++__first) {
+    if (__end_ == __end_cap()) {
+      size_type __old_cap = __end_cap() - __first_;
+      size_type __new_cap = std::max<size_type>(2 * __old_cap, 8);
+      __split_buffer __buf(__new_cap, 0, __a);
+      for (pointer __p = __begin_; __p != __end_; ++__p, (void)++__buf.__end_)
+        __alloc_traits::construct(__buf.__alloc(), std::__to_address(__buf.__end_), std::move(*__p));
+      swap(__buf);
     }
+    __alloc_traits::construct(__a, std::__to_address(this->__end_), *__first);
+    ++this->__end_;
+  }
 }
 template <class _Tp, class _Allocator>
-template <class _ForwardIterator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20 __enable_if_t<__has_forward_iterator_category<_ForwardIterator>::value>
-__split_buffer<_Tp, _Allocator>::__construct_at_end(_ForwardIterator __first, _ForwardIterator __last)
-{
+template <class _ForwardIterator, __enable_if_t<__has_forward_iterator_category<_ForwardIterator>::value, int> >
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__split_buffer<_Tp, _Allocator>::__construct_at_end(_ForwardIterator __first, _ForwardIterator __last) {
   __construct_at_end_with_size(__first, std::distance(__first, __last));
 }
 
 template <class _Tp, class _Allocator>
 template <class _ForwardIterator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void __split_buffer<_Tp, _Allocator>::__construct_at_end_with_size(_ForwardIterator __first, size_type __n) {
-    _ConstructTransaction __tx(&this->__end_, __n);
-    for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_, (void) ++__first) {
-        __alloc_traits::construct(this->__alloc(),
-            _VSTD::__to_address(__tx.__pos_), *__first);
-    }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__split_buffer<_Tp, _Allocator>::__construct_at_end_with_size(_ForwardIterator __first, size_type __n) {
+  _ConstructTransaction __tx(&this->__end_, __n);
+  for (; __tx.__pos_ != __tx.__end_; ++__tx.__pos_, (void)++__first) {
+    __alloc_traits::construct(this->__alloc(), std::__to_address(__tx.__pos_), *__first);
+  }
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline
-void
-__split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, false_type)
-{
-    while (__begin_ != __new_begin)
-        __alloc_traits::destroy(__alloc(), _VSTD::__to_address(__begin_++));
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline void
+__split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, false_type) {
+  while (__begin_ != __new_begin)
+    __alloc_traits::destroy(__alloc(), std::__to_address(__begin_++));
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline
-void
-__split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, true_type)
-{
-    __begin_ = __new_begin;
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline void
+__split_buffer<_Tp, _Allocator>::__destruct_at_begin(pointer __new_begin, true_type) {
+  __begin_ = __new_begin;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline _LIBCPP_HIDE_FROM_ABI
-void
-__split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, false_type) _NOEXCEPT
-{
-    while (__new_last != __end_)
-        __alloc_traits::destroy(__alloc(), _VSTD::__to_address(--__end_));
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline _LIBCPP_HIDE_FROM_ABI void
+__split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, false_type) _NOEXCEPT {
+  while (__new_last != __end_)
+    __alloc_traits::destroy(__alloc(), std::__to_address(--__end_));
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline _LIBCPP_HIDE_FROM_ABI
-void
-__split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, true_type) _NOEXCEPT
-{
-    __end_ = __new_last;
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline _LIBCPP_HIDE_FROM_ABI void
+__split_buffer<_Tp, _Allocator>::__destruct_at_end(pointer __new_last, true_type) _NOEXCEPT {
+  __end_ = __new_last;
 }
 
 template <class _Tp, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20
 __split_buffer<_Tp, _Allocator>::__split_buffer(size_type __cap, size_type __start, __alloc_rr& __a)
-    : __end_cap_(nullptr, __a)
-{
-    if (__cap == 0) {
-        __first_ = nullptr;
-    } else {
-        auto __allocation = std::__allocate_at_least(__alloc(), __cap);
-        __first_ = __allocation.ptr;
-        __cap = __allocation.count;
-    }
-    __begin_ = __end_ = __first_ + __start;
-    __end_cap() = __first_ + __cap;
+    : __end_cap_(nullptr, __a) {
+  if (__cap == 0) {
+    __first_ = nullptr;
+  } else {
+    auto __allocation = std::__allocate_at_least(__alloc(), __cap);
+    __first_          = __allocation.ptr;
+    __cap             = __allocation.count;
+  }
+  __begin_ = __end_ = __first_ + __start;
+  __end_cap()       = __first_ + __cap;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-__split_buffer<_Tp, _Allocator>::~__split_buffer()
-{
-    clear();
-    if (__first_)
-        __alloc_traits::deallocate(__alloc(), __first_, capacity());
+_LIBCPP_CONSTEXPR_SINCE_CXX20 __split_buffer<_Tp, _Allocator>::~__split_buffer() {
+  clear();
+  if (__first_)
+    __alloc_traits::deallocate(__alloc(), __first_, capacity());
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-__split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c)
+_LIBCPP_CONSTEXPR_SINCE_CXX20 __split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c)
     _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value)
-    : __first_(_VSTD::move(__c.__first_)),
-      __begin_(_VSTD::move(__c.__begin_)),
-      __end_(_VSTD::move(__c.__end_)),
-      __end_cap_(_VSTD::move(__c.__end_cap_))
-{
-    __c.__first_ = nullptr;
-    __c.__begin_ = nullptr;
-    __c.__end_ = nullptr;
-    __c.__end_cap() = nullptr;
+    : __first_(std::move(__c.__first_)),
+      __begin_(std::move(__c.__begin_)),
+      __end_(std::move(__c.__end_)),
+      __end_cap_(std::move(__c.__end_cap_)) {
+  __c.__first_    = nullptr;
+  __c.__begin_    = nullptr;
+  __c.__end_      = nullptr;
+  __c.__end_cap() = nullptr;
 }
 
 template <class _Tp, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20
 __split_buffer<_Tp, _Allocator>::__split_buffer(__split_buffer&& __c, const __alloc_rr& __a)
-    : __end_cap_(nullptr, __a)
-{
-    if (__a == __c.__alloc())
-    {
-        __first_ = __c.__first_;
-        __begin_ = __c.__begin_;
-        __end_ = __c.__end_;
-        __end_cap() = __c.__end_cap();
-        __c.__first_ = nullptr;
-        __c.__begin_ = nullptr;
-        __c.__end_ = nullptr;
-        __c.__end_cap() = nullptr;
-    }
-    else
-    {
-        auto __allocation = std::__allocate_at_least(__alloc(), __c.size());
-        __first_ = __allocation.ptr;
-        __begin_ = __end_ = __first_;
-        __end_cap() = __first_ + __allocation.count;
-        typedef move_iterator<iterator> _Ip;
-        __construct_at_end(_Ip(__c.begin()), _Ip(__c.end()));
-    }
+    : __end_cap_(nullptr, __a) {
+  if (__a == __c.__alloc()) {
+    __first_        = __c.__first_;
+    __begin_        = __c.__begin_;
+    __end_          = __c.__end_;
+    __end_cap()     = __c.__end_cap();
+    __c.__first_    = nullptr;
+    __c.__begin_    = nullptr;
+    __c.__end_      = nullptr;
+    __c.__end_cap() = nullptr;
+  } else {
+    auto __allocation = std::__allocate_at_least(__alloc(), __c.size());
+    __first_          = __allocation.ptr;
+    __begin_ = __end_ = __first_;
+    __end_cap()       = __first_ + __allocation.count;
+    typedef move_iterator<iterator> _Ip;
+    __construct_at_end(_Ip(__c.begin()), _Ip(__c.end()));
+  }
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-__split_buffer<_Tp, _Allocator>&
+_LIBCPP_CONSTEXPR_SINCE_CXX20 __split_buffer<_Tp, _Allocator>&
 __split_buffer<_Tp, _Allocator>::operator=(__split_buffer&& __c)
     _NOEXCEPT_((__alloc_traits::propagate_on_container_move_assignment::value &&
                 is_nothrow_move_assignable<allocator_type>::value) ||
-               !__alloc_traits::propagate_on_container_move_assignment::value)
-{
-    clear();
-    shrink_to_fit();
-    __first_ = __c.__first_;
-    __begin_ = __c.__begin_;
-    __end_ = __c.__end_;
-    __end_cap() = __c.__end_cap();
-    __move_assign_alloc(__c,
-        integral_constant<bool,
-                          __alloc_traits::propagate_on_container_move_assignment::value>());
-    __c.__first_ = __c.__begin_ = __c.__end_ = __c.__end_cap() = nullptr;
-    return *this;
+               !__alloc_traits::propagate_on_container_move_assignment::value) {
+  clear();
+  shrink_to_fit();
+  __first_    = __c.__first_;
+  __begin_    = __c.__begin_;
+  __end_      = __c.__end_;
+  __end_cap() = __c.__end_cap();
+  __move_assign_alloc(__c, integral_constant<bool, __alloc_traits::propagate_on_container_move_assignment::value>());
+  __c.__first_ = __c.__begin_ = __c.__end_ = __c.__end_cap() = nullptr;
+  return *this;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::swap(__split_buffer& __x)
-        _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value||
-                   __is_nothrow_swappable<__alloc_rr>::value)
-{
-    _VSTD::swap(__first_, __x.__first_);
-    _VSTD::swap(__begin_, __x.__begin_);
-    _VSTD::swap(__end_, __x.__end_);
-    _VSTD::swap(__end_cap(), __x.__end_cap());
-    _VSTD::__swap_allocator(__alloc(), __x.__alloc());
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::swap(__split_buffer& __x)
+    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<__alloc_rr>::value) {
+  std::swap(__first_, __x.__first_);
+  std::swap(__begin_, __x.__begin_);
+  std::swap(__end_, __x.__end_);
+  std::swap(__end_cap(), __x.__end_cap());
+  std::__swap_allocator(__alloc(), __x.__alloc());
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::reserve(size_type __n)
-{
-    if (__n < capacity())
-    {
-        __split_buffer<value_type, __alloc_rr&> __t(__n, 0, __alloc());
-        __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                               move_iterator<pointer>(__end_));
-        _VSTD::swap(__first_, __t.__first_);
-        _VSTD::swap(__begin_, __t.__begin_);
-        _VSTD::swap(__end_, __t.__end_);
-        _VSTD::swap(__end_cap(), __t.__end_cap());
-    }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::reserve(size_type __n) {
+  if (__n < capacity()) {
+    __split_buffer<value_type, __alloc_rr&> __t(__n, 0, __alloc());
+    __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+    std::swap(__first_, __t.__first_);
+    std::swap(__begin_, __t.__begin_);
+    std::swap(__end_, __t.__end_);
+    std::swap(__end_cap(), __t.__end_cap());
+  }
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT
-{
-    if (capacity() > size())
-    {
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::shrink_to_fit() _NOEXCEPT {
+  if (capacity() > size()) {
 #ifndef _LIBCPP_HAS_NO_EXCEPTIONS
-        try
-        {
+    try {
 #endif // _LIBCPP_HAS_NO_EXCEPTIONS
-            __split_buffer<value_type, __alloc_rr&> __t(size(), 0, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            __t.__end_ = __t.__begin_ + (__end_ - __begin_);
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
+      __split_buffer<value_type, __alloc_rr&> __t(size(), 0, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      __t.__end_ = __t.__begin_ + (__end_ - __begin_);
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
 #ifndef _LIBCPP_HAS_NO_EXCEPTIONS
-        }
-        catch (...)
-        {
-        }
+    } catch (...) {
+    }
 #endif // _LIBCPP_HAS_NO_EXCEPTIONS
-    }
+  }
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::push_front(const_reference __x)
-{
-    if (__begin_ == __first_)
-    {
-        if (__end_ < __end_cap())
-        {
-            difference_type __d = __end_cap() - __end_;
-            __d = (__d + 1) / 2;
-            __begin_ = _VSTD::move_backward(__begin_, __end_, __end_ + __d);
-            __end_ += __d;
-        }
-        else
-        {
-            size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
-            __split_buffer<value_type, __alloc_rr&> __t(__c, (__c + 3) / 4, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
-        }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::push_front(const_reference __x) {
+  if (__begin_ == __first_) {
+    if (__end_ < __end_cap()) {
+      difference_type __d = __end_cap() - __end_;
+      __d                 = (__d + 1) / 2;
+      __begin_            = std::move_backward(__begin_, __end_, __end_ + __d);
+      __end_ += __d;
+    } else {
+      size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
+      __split_buffer<value_type, __alloc_rr&> __t(__c, (__c + 3) / 4, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__begin_-1), __x);
-    --__begin_;
+  }
+  __alloc_traits::construct(__alloc(), std::__to_address(__begin_ - 1), __x);
+  --__begin_;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::push_front(value_type&& __x)
-{
-    if (__begin_ == __first_)
-    {
-        if (__end_ < __end_cap())
-        {
-            difference_type __d = __end_cap() - __end_;
-            __d = (__d + 1) / 2;
-            __begin_ = _VSTD::move_backward(__begin_, __end_, __end_ + __d);
-            __end_ += __d;
-        }
-        else
-        {
-            size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
-            __split_buffer<value_type, __alloc_rr&> __t(__c, (__c + 3) / 4, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
-        }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::push_front(value_type&& __x) {
+  if (__begin_ == __first_) {
+    if (__end_ < __end_cap()) {
+      difference_type __d = __end_cap() - __end_;
+      __d                 = (__d + 1) / 2;
+      __begin_            = std::move_backward(__begin_, __end_, __end_ + __d);
+      __end_ += __d;
+    } else {
+      size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
+      __split_buffer<value_type, __alloc_rr&> __t(__c, (__c + 3) / 4, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__begin_-1),
-            _VSTD::move(__x));
-    --__begin_;
+  }
+  __alloc_traits::construct(__alloc(), std::__to_address(__begin_ - 1), std::move(__x));
+  --__begin_;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline _LIBCPP_HIDE_FROM_ABI
-void
-__split_buffer<_Tp, _Allocator>::push_back(const_reference __x)
-{
-    if (__end_ == __end_cap())
-    {
-        if (__begin_ > __first_)
-        {
-            difference_type __d = __begin_ - __first_;
-            __d = (__d + 1) / 2;
-            __end_ = _VSTD::move(__begin_, __end_, __begin_ - __d);
-            __begin_ -= __d;
-        }
-        else
-        {
-            size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
-            __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
-        }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline _LIBCPP_HIDE_FROM_ABI void
+__split_buffer<_Tp, _Allocator>::push_back(const_reference __x) {
+  if (__end_ == __end_cap()) {
+    if (__begin_ > __first_) {
+      difference_type __d = __begin_ - __first_;
+      __d                 = (__d + 1) / 2;
+      __end_              = std::move(__begin_, __end_, __begin_ - __d);
+      __begin_ -= __d;
+    } else {
+      size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
+      __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_), __x);
-    ++__end_;
+  }
+  __alloc_traits::construct(__alloc(), std::__to_address(__end_), __x);
+  ++__end_;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::push_back(value_type&& __x)
-{
-    if (__end_ == __end_cap())
-    {
-        if (__begin_ > __first_)
-        {
-            difference_type __d = __begin_ - __first_;
-            __d = (__d + 1) / 2;
-            __end_ = _VSTD::move(__begin_, __end_, __begin_ - __d);
-            __begin_ -= __d;
-        }
-        else
-        {
-            size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
-            __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
-        }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::push_back(value_type&& __x) {
+  if (__end_ == __end_cap()) {
+    if (__begin_ > __first_) {
+      difference_type __d = __begin_ - __first_;
+      __d                 = (__d + 1) / 2;
+      __end_              = std::move(__begin_, __end_, __begin_ - __d);
+      __begin_ -= __d;
+    } else {
+      size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
+      __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_),
-            _VSTD::move(__x));
-    ++__end_;
+  }
+  __alloc_traits::construct(__alloc(), std::__to_address(__end_), std::move(__x));
+  ++__end_;
 }
 
 template <class _Tp, class _Allocator>
 template <class... _Args>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__split_buffer<_Tp, _Allocator>::emplace_back(_Args&&... __args)
-{
-    if (__end_ == __end_cap())
-    {
-        if (__begin_ > __first_)
-        {
-            difference_type __d = __begin_ - __first_;
-            __d = (__d + 1) / 2;
-            __end_ = _VSTD::move(__begin_, __end_, __begin_ - __d);
-            __begin_ -= __d;
-        }
-        else
-        {
-            size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
-            __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
-            __t.__construct_at_end(move_iterator<pointer>(__begin_),
-                                   move_iterator<pointer>(__end_));
-            _VSTD::swap(__first_, __t.__first_);
-            _VSTD::swap(__begin_, __t.__begin_);
-            _VSTD::swap(__end_, __t.__end_);
-            _VSTD::swap(__end_cap(), __t.__end_cap());
-        }
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void __split_buffer<_Tp, _Allocator>::emplace_back(_Args&&... __args) {
+  if (__end_ == __end_cap()) {
+    if (__begin_ > __first_) {
+      difference_type __d = __begin_ - __first_;
+      __d                 = (__d + 1) / 2;
+      __end_              = std::move(__begin_, __end_, __begin_ - __d);
+      __begin_ -= __d;
+    } else {
+      size_type __c = std::max<size_type>(2 * static_cast<size_t>(__end_cap() - __first_), 1);
+      __split_buffer<value_type, __alloc_rr&> __t(__c, __c / 4, __alloc());
+      __t.__construct_at_end(move_iterator<pointer>(__begin_), move_iterator<pointer>(__end_));
+      std::swap(__first_, __t.__first_);
+      std::swap(__begin_, __t.__begin_);
+      std::swap(__end_, __t.__end_);
+      std::swap(__end_cap(), __t.__end_cap());
     }
-    __alloc_traits::construct(__alloc(), _VSTD::__to_address(__end_),
-                              _VSTD::forward<_Args>(__args)...);
-    ++__end_;
+  }
+  __alloc_traits::construct(__alloc(), std::__to_address(__end_), std::forward<_Args>(__args)...);
+  ++__end_;
 }
 
 template <class _Tp, class _Allocator>
-_LIBCPP_CONSTEXPR_SINCE_CXX20
-inline _LIBCPP_HIDE_FROM_ABI
-void
-swap(__split_buffer<_Tp, _Allocator>& __x, __split_buffer<_Tp, _Allocator>& __y)
-        _NOEXCEPT_(_NOEXCEPT_(__x.swap(__y)))
-{
-    __x.swap(__y);
+_LIBCPP_CONSTEXPR_SINCE_CXX20 inline _LIBCPP_HIDE_FROM_ABI void
+swap(__split_buffer<_Tp, _Allocator>& __x, __split_buffer<_Tp, _Allocator>& __y) _NOEXCEPT_(_NOEXCEPT_(__x.swap(__y))) {
+  __x.swap(__y);
 }
 
 _LIBCPP_END_NAMESPACE_STD

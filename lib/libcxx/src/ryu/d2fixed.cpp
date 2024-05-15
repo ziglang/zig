@@ -102,8 +102,8 @@ inline constexpr int __POW10_ADDITIONAL_BITS = 120;
   const uint64_t __s1low = __low2 + __high1 + __c1; // 128
   const uint32_t __c2 = __s1low < __low2; // __high1 + __c1 can't overflow, so compare against __low2
   const uint64_t __s1high = __high2 + __c2;         // 192
-  _LIBCPP_ASSERT_UNCATEGORIZED(__j >= 128, "");
-  _LIBCPP_ASSERT_UNCATEGORIZED(__j <= 180, "");
+  _LIBCPP_ASSERT_INTERNAL(__j >= 128, "");
+  _LIBCPP_ASSERT_INTERNAL(__j <= 180, "");
 #ifdef _LIBCPP_INTRINSIC128
   const uint32_t __dist = static_cast<uint32_t>(__j - 128); // __dist: [0, 52]
   const uint64_t __shiftedhigh = __s1high >> __dist;

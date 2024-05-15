@@ -22,7 +22,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr add_const_t<_Tp>& as_const(_Tp& __t) noexcept { return __t; }
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr add_const_t<_Tp>& as_const(_Tp& __t) noexcept {
+  return __t;
+}
 
 template <class _Tp>
 void as_const(const _Tp&&) = delete;

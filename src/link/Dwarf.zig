@@ -2120,32 +2120,32 @@ fn pwriteDbgLineNops(
         var padding_left = prev_padding_size;
         if (padding_left % 2 != 0) {
             vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
+                .base = &three_byte_nop,
+                .len = three_byte_nop.len,
             };
             vec_index += 1;
             padding_left -= three_byte_nop.len;
         }
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
     }
 
     vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .base = buf.ptr,
+        .len = buf.len,
     };
     if (buf.len > 0) vec_index += 1;
 
@@ -2153,24 +2153,24 @@ fn pwriteDbgLineNops(
         var padding_left = next_padding_size;
         if (padding_left % 2 != 0) {
             vecs[vec_index] = .{
-                .iov_base = &three_byte_nop,
-                .iov_len = three_byte_nop.len,
+                .base = &three_byte_nop,
+                .len = three_byte_nop.len,
             };
             vec_index += 1;
             padding_left -= three_byte_nop.len;
         }
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
@@ -2237,24 +2237,24 @@ fn pwriteDbgInfoNops(
         var padding_left = prev_padding_size;
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
     }
 
     vecs[vec_index] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .base = buf.ptr,
+        .len = buf.len,
     };
     if (buf.len > 0) vec_index += 1;
 
@@ -2262,16 +2262,16 @@ fn pwriteDbgInfoNops(
         var padding_left = next_padding_size;
         while (padding_left > page_of_nops.len) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = page_of_nops.len,
+                .base = &page_of_nops,
+                .len = page_of_nops.len,
             };
             vec_index += 1;
             padding_left -= page_of_nops.len;
         }
         if (padding_left > 0) {
             vecs[vec_index] = .{
-                .iov_base = &page_of_nops,
-                .iov_len = padding_left,
+                .base = &page_of_nops,
+                .len = padding_left,
             };
             vec_index += 1;
         }
@@ -2280,8 +2280,8 @@ fn pwriteDbgInfoNops(
     if (trailing_zero) {
         var zbuf = [1]u8{0};
         vecs[vec_index] = .{
-            .iov_base = &zbuf,
-            .iov_len = zbuf.len,
+            .base = &zbuf,
+            .len = zbuf.len,
         };
         vec_index += 1;
     }

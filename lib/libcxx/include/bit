@@ -34,9 +34,9 @@ namespace std {
 
   // [bit.rotate], rotating
   template<class T>
-    constexpr T rotl(T x, unsigned int s) noexcept; // C++20
+    constexpr T rotl(T x, int s) noexcept; // C++20
   template<class T>
-    constexpr T rotr(T x, unsigned int s) noexcept; // C++20
+    constexpr T rotr(T x, int s) noexcept; // C++20
 
   // [bit.count], counting
   template<class T>

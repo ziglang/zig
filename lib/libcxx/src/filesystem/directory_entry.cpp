@@ -28,9 +28,9 @@ error_code directory_entry::__do_refresh() noexcept {
     return failure_ec;
   }
 
-  if (!_VSTD_FS::exists(st) || !_VSTD_FS::is_symlink(st)) {
-    __data_.__cache_type_ = directory_entry::_RefreshNonSymlink;
-    __data_.__type_ = st.type();
+  if (!filesystem::exists(st) || !filesystem::is_symlink(st)) {
+    __data_.__cache_type_    = directory_entry::_RefreshNonSymlink;
+    __data_.__type_          = st.type();
     __data_.__non_sym_perms_ = st.permissions();
   } else { // we have a symlink
     __data_.__sym_perms_ = st.permissions();
@@ -40,7 +40,7 @@ error_code directory_entry::__do_refresh() noexcept {
     error_code ignored_ec;
     st = detail::posix_stat(__p_, full_st, &ignored_ec);
 
-    __data_.__type_ = st.type();
+    __data_.__type_          = st.type();
     __data_.__non_sym_perms_ = st.permissions();
 
     // If we failed to resolve the link, then only partially populate the
@@ -54,18 +54,17 @@ error_code directory_entry::__do_refresh() noexcept {
     __data_.__cache_type_ = directory_entry::_RefreshSymlink;
   }
 
-  if (_VSTD_FS::is_regular_file(st))
+  if (filesystem::is_regular_file(st))
     __data_.__size_ = static_cast<uintmax_t>(full_st.st_size);
 
-  if (_VSTD_FS::exists(st)) {
+  if (filesystem::exists(st)) {
     __data_.__nlink_ = static_cast<uintmax_t>(full_st.st_nlink);
 
     // Attempt to extract the mtime, and fail if it's not representable using
     // file_time_type. For now we ignore the error, as we'll report it when
     // the value is actually used.
     error_code ignored_ec;
-    __data_.__write_time_ =
-        detail::__extract_last_write_time(__p_, full_st, &ignored_ec);
+    __data_.__write_time_ = detail::__extract_last_write_time(__p_, full_st, &ignored_ec);
   }
 
   return failure_ec;

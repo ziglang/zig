@@ -12,8 +12,6 @@ pub const Sha3_512 = Keccak(1600, 512, 0x06, 24);
 
 pub const Keccak256 = Keccak(1600, 256, 0x01, 24);
 pub const Keccak512 = Keccak(1600, 512, 0x01, 24);
-pub const Keccak_256 = @compileError("Deprecated: use `Keccak256` instead");
-pub const Keccak_512 = @compileError("Deprecated: use `Keccak512` instead");
 
 pub const Shake128 = Shake(128);
 pub const Shake256 = Shake(256);

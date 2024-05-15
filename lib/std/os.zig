@@ -76,6 +76,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .ios,
         .watchos,
         .tvos,
+        .visionos,
         .linux,
         .solaris,
         .illumos,
@@ -110,7 +111,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
             const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
             return out_buffer[0..end_index];
         },
-        .macos, .ios, .watchos, .tvos => {
+        .macos, .ios, .watchos, .tvos, .visionos => {
             // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);

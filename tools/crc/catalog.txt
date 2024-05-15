@@ -100,6 +100,7 @@ width=32  poly=0x04c11db7  init=0x00000000  refin=false  refout=false  xorout=0x
 width=32  poly=0x1edc6f41  init=0xffffffff  refin=true  refout=true  xorout=0xffffffff  check=0xe3069283  residue=0xb798b438  name="CRC-32/ISCSI"
 width=32  poly=0x04c11db7  init=0xffffffff  refin=true  refout=true  xorout=0xffffffff  check=0xcbf43926  residue=0xdebb20e3  name="CRC-32/ISO-HDLC"
 width=32  poly=0x04c11db7  init=0xffffffff  refin=true  refout=true  xorout=0x00000000  check=0x340bc6d9  residue=0x00000000  name="CRC-32/JAMCRC"
+width=32  poly=0x741b8cd7  init=0xffffffff  refin=true  refout=true  xorout=0xffffffff  check=0x2d3dd0ae  residue=0x00000000  name="CRC-32/KOOPMAN"
 width=32  poly=0x741b8cd7  init=0xffffffff  refin=true  refout=true  xorout=0x00000000  check=0xd2c22f51  residue=0x00000000  name="CRC-32/MEF"
 width=32  poly=0x04c11db7  init=0xffffffff  refin=false  refout=false  xorout=0x00000000  check=0x0376e6e7  residue=0x00000000  name="CRC-32/MPEG-2"
 width=32  poly=0x000000af  init=0x00000000  refin=false  refout=false  xorout=0x00000000  check=0xbd0be338  residue=0x00000000  name="CRC-32/XFER"

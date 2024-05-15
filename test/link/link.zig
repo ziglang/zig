@@ -1,21 +1,3 @@
-pub fn build(b: *Build) void {
-    const test_step = b.step("test-link", "Run link tests");
-    b.default_step = test_step;
-
-    const has_macos_sdk = b.option(bool, "has_macos_sdk", "whether the host provides a macOS SDK in system path");
-    const has_ios_sdk = b.option(bool, "has_ios_sdk", "whether the host provides a iOS SDK in system path");
-    const has_symlinks_windows = b.option(bool, "has_symlinks_windows", "whether the host is windows and has symlinks enabled");
-
-    const build_opts: BuildOptions = .{
-        .has_macos_sdk = has_macos_sdk orelse false,
-        .has_ios_sdk = has_ios_sdk orelse false,
-        .has_symlinks_windows = has_symlinks_windows orelse false,
-    };
-
-    test_step.dependOn(@import("elf.zig").testAll(b, build_opts));
-    test_step.dependOn(@import("macho.zig").testAll(b, build_opts));
-}
-
 pub const BuildOptions = struct {
     has_macos_sdk: bool,
     has_ios_sdk: bool,

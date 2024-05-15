@@ -362,12 +362,16 @@ pub fn isNativeAbi(self: Query) bool {
     return self.os_tag == null and self.abi == null;
 }
 
-pub fn isNative(self: Query) bool {
+pub fn isNativeTriple(self: Query) bool {
     return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
 }
 
+pub fn isNative(self: Query) bool {
+    return self.isNativeTriple() and self.ofmt == null;
+}
+
 pub fn canDetectLibC(self: Query) bool {
-    if (self.isNative()) return true;
+    if (self.isNativeOs()) return true;
     if (self.os_tag) |os| {
         if (builtin.os.tag == .macos and os.isDarwin()) return true;
         if (os == .linux and self.abi == .android) return true;
@@ -386,9 +390,8 @@ fn formatVersion(version: SemanticVersion, writer: anytype) !void {
 }
 
 pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
-    if (self.isNative()) {
+    if (self.isNativeTriple())
         return allocator.dupe(u8, "native");
-    }
 
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";

@@ -14,9 +14,6 @@
 #ifndef __AVX512PFINTRIN_H
 #define __AVX512PFINTRIN_H
 
-/* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("avx512pf")))
-
 #define _mm512_mask_prefetch_i32gather_pd(index, mask, addr, scale, hint) \
   __builtin_ia32_gatherpfdpd((__mmask8)(mask), (__v8si)(__m256i)(index), \
                              (void const *)(addr), (int)(scale), \
@@ -91,7 +88,5 @@
 #define _mm512_mask_prefetch_i64scatter_ps(addr, mask, index, scale, hint) \
   __builtin_ia32_scatterpfqps((__mmask8)(mask), (__v8di)(__m512i)(index), \
                               (void *)(addr), (int)(scale), (int)(hint))
-
-#undef __DEFAULT_FN_ATTRS
 
 #endif

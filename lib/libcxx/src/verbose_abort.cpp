@@ -28,8 +28,7 @@ extern "C" void android_set_abort_message(const char* msg);
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_WEAK
-void __libcpp_verbose_abort(char const* format, ...) {
+_LIBCPP_WEAK void __libcpp_verbose_abort(char const* format, ...) {
   // Write message to stderr. We do this before formatting into a
   // buffer so that we still get some information out if that fails.
   {
@@ -41,7 +40,8 @@ void __libcpp_verbose_abort(char const* format, ...) {
 
   // Format the arguments into an allocated buffer for CrashReport & friends.
   // We leak the buffer on purpose, since we're about to abort() anyway.
-  char* buffer; (void)buffer;
+  char* buffer;
+  (void)buffer;
   va_list list;
   va_start(list, format);
 

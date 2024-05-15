@@ -673,7 +673,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
   ldr    d30,     [x0, #0x200]
   ldr    d31,     [x0, #0x208]
 
-  // Finally, restore sp. This must be done after the the last read from the
+  // Finally, restore sp. This must be done after the last read from the
   // context struct, because it is allocated on the stack, and an exception
   // could clobber the de-allocated portion of the stack after sp has been
   // restored.
@@ -993,11 +993,13 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind18Registers_mips_o326jumptoEv)
   ldc1  $f31, (4 * 36 + 8 * 31)($4)
 #endif
 #endif
+#if __mips_isa_rev < 6
   // restore hi and lo
   lw    $8, (4 * 33)($4)
   mthi  $8
   lw    $8, (4 * 34)($4)
   mtlo  $8
+#endif
   // r0 is zero
   lw    $1, (4 * 1)($4)
   lw    $2, (4 * 2)($4)
@@ -1054,11 +1056,13 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind21Registers_mips_newabi6jumptoEv)
     ldc1 $f\i, (280+8*\i)($4)
   .endr
 #endif
+#if __mips_isa_rev < 6
   // restore hi and lo
   ld    $8, (8 * 33)($4)
   mthi  $8
   ld    $8, (8 * 34)($4)
   mtlo  $8
+#endif
   // r0 is zero
   ld    $1, (8 * 1)($4)
   ld    $2, (8 * 2)($4)

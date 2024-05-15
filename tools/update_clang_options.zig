@@ -552,24 +552,27 @@ fn knownOption(name: []const u8) ?[]const u8 {
 
 const cpu_targets = struct {
     pub const aarch64 = std.Target.aarch64;
-    pub const arc = std.Target.arc;
     pub const amdgpu = std.Target.amdgpu;
+    pub const arc = std.Target.arc;
     pub const arm = std.Target.arm;
     pub const avr = std.Target.avr;
     pub const bpf = std.Target.bpf;
     pub const csky = std.Target.csky;
     pub const hexagon = std.Target.hexagon;
+    pub const loongarch = std.Target.loongarch;
+    pub const m68k = std.Target.m68k;
     pub const mips = std.Target.mips;
     pub const msp430 = std.Target.msp430;
     pub const nvptx = std.Target.nvptx;
     pub const powerpc = std.Target.powerpc;
     pub const riscv = std.Target.riscv;
+    pub const s390x = std.Target.s390x;
     pub const sparc = std.Target.sparc;
     pub const spirv = std.Target.spirv;
-    pub const s390x = std.Target.s390x;
     pub const ve = std.Target.ve;
     pub const wasm = std.Target.wasm;
     pub const x86 = std.Target.x86;
+    pub const xtensa = std.Target.xtensa;
 };
 
 pub fn main() anyerror!void {

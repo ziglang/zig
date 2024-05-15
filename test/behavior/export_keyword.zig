@@ -9,6 +9,8 @@ const builtin = @import("builtin");
 // and generates code
 const vram = @as([*]volatile u8, @ptrFromInt(0x20000000))[0..0x8000];
 export fn writeToVRam() void {
+    if (builtin.zig_backend == .stage2_riscv64) return;
+
     vram[0] = 'X';
 }
 

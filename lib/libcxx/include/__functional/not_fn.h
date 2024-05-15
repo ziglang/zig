@@ -28,26 +28,23 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 struct __not_fn_op {
-    template <class... _Args>
-    _LIBCPP_HIDE_FROM_ABI
-    _LIBCPP_CONSTEXPR_SINCE_CXX20 auto operator()(_Args&&... __args) const
-        noexcept(noexcept(!_VSTD::invoke(_VSTD::forward<_Args>(__args)...)))
-        -> decltype(      !_VSTD::invoke(_VSTD::forward<_Args>(__args)...))
-        { return          !_VSTD::invoke(_VSTD::forward<_Args>(__args)...); }
+  template <class... _Args>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 auto operator()(_Args&&... __args) const
+      noexcept(noexcept(!std::invoke(std::forward<_Args>(__args)...)))
+          -> decltype(!std::invoke(std::forward<_Args>(__args)...)) {
+    return !std::invoke(std::forward<_Args>(__args)...);
+  }
 };
 
 template <class _Fn>
 struct __not_fn_t : __perfect_forward<__not_fn_op, _Fn> {
-    using __perfect_forward<__not_fn_op, _Fn>::__perfect_forward;
+  using __perfect_forward<__not_fn_op, _Fn>::__perfect_forward;
 };
 
-template <class _Fn, class = enable_if_t<
-    is_constructible_v<decay_t<_Fn>, _Fn> &&
-    is_move_constructible_v<decay_t<_Fn>>
->>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_CONSTEXPR_SINCE_CXX20 auto not_fn(_Fn&& __f) {
-    return __not_fn_t<decay_t<_Fn>>(_VSTD::forward<_Fn>(__f));
+template <class _Fn,
+          class = enable_if_t< is_constructible_v<decay_t<_Fn>, _Fn> && is_move_constructible_v<decay_t<_Fn>> >>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 auto not_fn(_Fn&& __f) {
+  return __not_fn_t<decay_t<_Fn>>(std::forward<_Fn>(__f));
 }
 
 #endif // _LIBCPP_STD_VER >= 17

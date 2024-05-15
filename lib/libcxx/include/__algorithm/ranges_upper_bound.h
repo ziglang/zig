@@ -39,7 +39,7 @@ struct __fn {
             indirect_strict_weak_order<const _Type*, projected<_Iter, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Iter
   operator()(_Iter __first, _Sent __last, const _Type& __value, _Comp __comp = {}, _Proj __proj = {}) const {
-    auto __comp_lhs_rhs_swapped = [&](const auto& __lhs, const auto& __rhs) {
+    auto __comp_lhs_rhs_swapped = [&](const auto& __lhs, const auto& __rhs) -> bool {
       return !std::invoke(__comp, __rhs, __lhs);
     };
 
@@ -52,7 +52,7 @@ struct __fn {
             indirect_strict_weak_order<const _Type*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Range>
   operator()(_Range&& __r, const _Type& __value, _Comp __comp = {}, _Proj __proj = {}) const {
-    auto __comp_lhs_rhs_swapped = [&](const auto& __lhs, const auto& __rhs) {
+    auto __comp_lhs_rhs_swapped = [&](const auto& __lhs, const auto& __rhs) -> bool {
       return !std::invoke(__comp, __rhs, __lhs);
     };
 

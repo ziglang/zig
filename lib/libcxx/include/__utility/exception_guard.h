@@ -115,7 +115,7 @@ struct __exception_guard_noexceptions {
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_NODEBUG ~__exception_guard_noexceptions() {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__completed_, "__exception_guard not completed with exceptions disabled");
+    _LIBCPP_ASSERT_INTERNAL(__completed_, "__exception_guard not completed with exceptions disabled");
   }
 
 private:

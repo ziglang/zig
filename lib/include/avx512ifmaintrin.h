@@ -15,7 +15,9 @@
 #define __IFMAINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("avx512ifma"), __min_vector_width__(512)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512ifma,evex512"), __min_vector_width__(512)))
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS
 _mm512_madd52hi_epu64 (__m512i __X, __m512i __Y, __m512i __Z)

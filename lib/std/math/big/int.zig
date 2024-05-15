@@ -340,7 +340,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
+        const bit: Log2Limb = @truncate(bit_count - 1);
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
@@ -2186,7 +2186,7 @@ pub const Const = struct {
                     return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
-                        return @as(T, @intCast(r));
+                        return @intCast(r);
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;

@@ -383,7 +383,9 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
         .msvc => try writer.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{target.maxIntAlignment()});
+    try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
+        Type.maxIntAlignment(target, false),
+    });
     return defines;
 }
 
@@ -483,15 +485,15 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !v
     }
 
     f.all_buffers.items[ctypes_index] = .{
-        .iov_base = if (f.ctypes_buf.items.len > 0) f.ctypes_buf.items.ptr else "",
-        .iov_len = f.ctypes_buf.items.len,
+        .base = if (f.ctypes_buf.items.len > 0) f.ctypes_buf.items.ptr else "",
+        .len = f.ctypes_buf.items.len,
     };
     f.file_size += f.ctypes_buf.items.len;
 
     const lazy_fwd_decl_len = self.lazy_fwd_decl_buf.items.len;
     f.all_buffers.items[lazy_index] = .{
-        .iov_base = if (lazy_fwd_decl_len > 0) self.lazy_fwd_decl_buf.items.ptr else "",
-        .iov_len = lazy_fwd_decl_len,
+        .base = if (lazy_fwd_decl_len > 0) self.lazy_fwd_decl_buf.items.ptr else "",
+        .len = lazy_fwd_decl_len,
     };
     f.file_size += lazy_fwd_decl_len;
 
@@ -527,7 +529,7 @@ const Flush = struct {
 
     fn appendBufAssumeCapacity(f: *Flush, buf: []const u8) void {
         if (buf.len == 0) return;
-        f.all_buffers.appendAssumeCapacity(.{ .iov_base = buf.ptr, .iov_len = buf.len });
+        f.all_buffers.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
         f.file_size += buf.len;
     }
 
@@ -747,8 +749,8 @@ pub fn flushEmitH(zcu: *Zcu) !void {
     var file_size: u64 = zig_h.len;
     if (zig_h.len != 0) {
         all_buffers.appendAssumeCapacity(.{
-            .iov_base = zig_h,
-            .iov_len = zig_h.len,
+            .base = zig_h,
+            .len = zig_h.len,
         });
     }
 
@@ -757,8 +759,8 @@ pub fn flushEmitH(zcu: *Zcu) !void {
         const buf = decl_emit_h.fwd_decl.items;
         if (buf.len != 0) {
             all_buffers.appendAssumeCapacity(.{
-                .iov_base = buf.ptr,
-                .iov_len = buf.len,
+                .base = buf.ptr,
+                .len = buf.len,
             });
             file_size += buf.len;
         }

@@ -9,7 +9,7 @@ const fmt = std.fmt;
 const zig = std.zig;
 const fs = std.fs;
 
-const stdlib_renames = std.ComptimeStringMap([]const u8, .{
+const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     // Most 64-bit archs.
     .{ "newfstatat", "fstatat64" },
     // POWER.

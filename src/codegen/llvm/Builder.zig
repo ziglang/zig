@@ -5694,7 +5694,7 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const val_ty = val.typeOfWip(self);
         if (val_ty == ty) return val;
-        return self.cast(self.builder.convTag(Instruction.Tag, signedness, val_ty, ty), val, ty, name);
+        return self.cast(self.builder.convTag(signedness, val_ty, ty), val, ty, name);
     }
 
     pub fn cast(
@@ -6891,39 +6891,19 @@ pub const Constant = enum(u32) {
         dso_local_equivalent,
         no_cfi,
         trunc,
-        zext,
-        sext,
-        fptrunc,
-        fpext,
-        fptoui,
-        fptosi,
-        uitofp,
-        sitofp,
         ptrtoint,
         inttoptr,
         bitcast,
         addrspacecast,
         getelementptr,
         @"getelementptr inbounds",
-        icmp,
-        fcmp,
-        extractelement,
-        insertelement,
-        shufflevector,
         add,
         @"add nsw",
         @"add nuw",
         sub,
         @"sub nsw",
         @"sub nuw",
-        mul,
-        @"mul nsw",
-        @"mul nuw",
         shl,
-        lshr,
-        ashr,
-        @"and",
-        @"or",
         xor,
         @"asm",
         @"asm sideeffect",
@@ -6952,15 +6932,7 @@ pub const Constant = enum(u32) {
                 .@"sub nsw",
                 .@"sub nuw",
                 => .sub,
-                .mul,
-                .@"mul nsw",
-                .@"mul nuw",
-                => .mul,
                 .shl => .shl,
-                .lshr => .lshr,
-                .ashr => .ashr,
-                .@"and" => .@"and",
-                .@"or" => .@"or",
                 .xor => .xor,
                 else => unreachable,
             };
@@ -6969,14 +6941,6 @@ pub const Constant = enum(u32) {
         pub fn toCastOpcode(self: Tag) CastOpcode {
             return switch (self) {
                 .trunc => .trunc,
-                .zext => .zext,
-                .sext => .sext,
-                .fptoui => .fptoui,
-                .fptosi => .fptosi,
-                .uitofp => .uitofp,
-                .sitofp => .sitofp,
-                .fptrunc => .fptrunc,
-                .fpext => .fpext,
                 .ptrtoint => .ptrtoint,
                 .inttoptr => .inttoptr,
                 .bitcast => .bitcast,
@@ -7049,29 +7013,6 @@ pub const Constant = enum(u32) {
         pub const Kind = enum { normal, inbounds };
         pub const InRangeIndex = enum(u16) { none = std.math.maxInt(u16), _ };
         pub const Info = packed struct(u32) { indices_len: u16, inrange: InRangeIndex };
-    };
-
-    pub const Compare = extern struct {
-        cond: u32,
-        lhs: Constant,
-        rhs: Constant,
-    };
-
-    pub const ExtractElement = extern struct {
-        val: Constant,
-        index: Constant,
-    };
-
-    pub const InsertElement = extern struct {
-        val: Constant,
-        elem: Constant,
-        index: Constant,
-    };
-
-    pub const ShuffleVector = extern struct {
-        lhs: Constant,
-        rhs: Constant,
-        mask: Constant,
     };
 
     pub const Binary = extern struct {
@@ -7149,14 +7090,6 @@ pub const Constant = enum(u32) {
                     => builder.ptrTypeAssumeCapacity(@as(Function.Index, @enumFromInt(item.data))
                         .ptrConst(builder).global.ptrConst(builder).addr_space),
                     .trunc,
-                    .zext,
-                    .sext,
-                    .fptrunc,
-                    .fpext,
-                    .fptoui,
-                    .fptosi,
-                    .uitofp,
-                    .sitofp,
                     .ptrtoint,
                     .inttoptr,
                     .bitcast,
@@ -7176,35 +7109,13 @@ pub const Constant = enum(u32) {
                         };
                         return base_ty;
                     },
-                    .icmp,
-                    .fcmp,
-                    => builder.constantExtraData(Compare, item.data).lhs.typeOf(builder)
-                        .changeScalarAssumeCapacity(.i1, builder),
-                    .extractelement => builder.constantExtraData(ExtractElement, item.data)
-                        .val.typeOf(builder).childType(builder),
-                    .insertelement => builder.constantExtraData(InsertElement, item.data)
-                        .val.typeOf(builder),
-                    .shufflevector => {
-                        const extra = builder.constantExtraData(ShuffleVector, item.data);
-                        return extra.lhs.typeOf(builder).changeLengthAssumeCapacity(
-                            extra.mask.typeOf(builder).vectorLen(builder),
-                            builder,
-                        );
-                    },
                     .add,
                     .@"add nsw",
                     .@"add nuw",
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => builder.constantExtraData(Binary, item.data).lhs.typeOf(builder),
                     .@"asm",
@@ -7516,14 +7427,6 @@ pub const Constant = enum(u32) {
                         });
                     },
                     .trunc,
-                    .zext,
-                    .sext,
-                    .fptrunc,
-                    .fpext,
-                    .fptoui,
-                    .fptosi,
-                    .uitofp,
-                    .sitofp,
                     .ptrtoint,
                     .inttoptr,
                     .bitcast,
@@ -7550,61 +7453,13 @@ pub const Constant = enum(u32) {
                         for (indices) |index| try writer.print(", {%}", .{index.fmt(data.builder)});
                         try writer.writeByte(')');
                     },
-                    inline .icmp,
-                    .fcmp,
-                    => |tag| {
-                        const extra = data.builder.constantExtraData(Compare, item.data);
-                        try writer.print("{s} {s} ({%}, {%})", .{
-                            @tagName(tag),
-                            @tagName(@as(switch (tag) {
-                                .icmp => IntegerCondition,
-                                .fcmp => FloatCondition,
-                                else => unreachable,
-                            }, @enumFromInt(extra.cond))),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                        });
-                    },
-                    .extractelement => |tag| {
-                        const extra = data.builder.constantExtraData(ExtractElement, item.data);
-                        try writer.print("{s} ({%}, {%})", .{
-                            @tagName(tag),
-                            extra.val.fmt(data.builder),
-                            extra.index.fmt(data.builder),
-                        });
-                    },
-                    .insertelement => |tag| {
-                        const extra = data.builder.constantExtraData(InsertElement, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.val.fmt(data.builder),
-                            extra.elem.fmt(data.builder),
-                            extra.index.fmt(data.builder),
-                        });
-                    },
-                    .shufflevector => |tag| {
-                        const extra = data.builder.constantExtraData(ShuffleVector, item.data);
-                        try writer.print("{s} ({%}, {%}, {%})", .{
-                            @tagName(tag),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
-                            extra.mask.fmt(data.builder),
-                        });
-                    },
                     .add,
                     .@"add nsw",
                     .@"add nuw",
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => |tag| {
                         const extra = data.builder.constantExtraData(Binary, item.data);
@@ -9278,21 +9133,19 @@ pub fn noCfiValue(self: *Builder, function: Function.Index) Allocator.Error!Valu
 
 pub fn convConst(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Allocator.Error!Constant {
     try self.ensureUnusedConstantCapacity(1, Constant.Cast, 0);
-    return self.convConstAssumeCapacity(signedness, val, ty);
+    return self.convConstAssumeCapacity(val, ty);
 }
 
 pub fn convValue(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Allocator.Error!Value {
-    return (try self.convConst(signedness, val, ty)).toValue();
+    return (try self.convConst(val, ty)).toValue();
 }
 
 pub fn castConst(self: *Builder, tag: Constant.Tag, val: Constant, ty: Type) Allocator.Error!Constant {
@@ -9326,92 +9179,6 @@ pub fn gepValue(
     indices: []const Constant,
 ) Allocator.Error!Value {
     return (try self.gepConst(kind, ty, base, inrange, indices)).toValue();
-}
-
-pub fn icmpConst(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Compare, 0);
-    return self.icmpConstAssumeCapacity(cond, lhs, rhs);
-}
-
-pub fn icmpValue(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Value {
-    return (try self.icmpConst(cond, lhs, rhs)).toValue();
-}
-
-pub fn fcmpConst(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.Compare, 0);
-    return self.icmpConstAssumeCapacity(cond, lhs, rhs);
-}
-
-pub fn fcmpValue(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Allocator.Error!Value {
-    return (try self.fcmpConst(cond, lhs, rhs)).toValue();
-}
-
-pub fn extractElementConst(self: *Builder, val: Constant, index: Constant) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.ExtractElement, 0);
-    return self.extractElementConstAssumeCapacity(val, index);
-}
-
-pub fn extractElementValue(self: *Builder, val: Constant, index: Constant) Allocator.Error!Value {
-    return (try self.extractElementConst(val, index)).toValue();
-}
-
-pub fn insertElementConst(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedConstantCapacity(1, Constant.InsertElement, 0);
-    return self.insertElementConstAssumeCapacity(val, elem, index);
-}
-
-pub fn insertElementValue(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Allocator.Error!Value {
-    return (try self.insertElementConst(val, elem, index)).toValue();
-}
-
-pub fn shuffleVectorConst(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Allocator.Error!Constant {
-    try self.ensureUnusedTypeCapacity(1, Type.Array, 0);
-    try self.ensureUnusedConstantCapacity(1, Constant.ShuffleVector, 0);
-    return self.shuffleVectorConstAssumeCapacity(lhs, rhs, mask);
-}
-
-pub fn shuffleVectorValue(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Allocator.Error!Value {
-    return (try self.shuffleVectorConst(lhs, rhs, mask)).toValue();
 }
 
 pub fn binConst(
@@ -11390,11 +11157,10 @@ fn noCfiConstAssumeCapacity(self: *Builder, function: Function.Index) Constant {
 
 fn convTag(
     self: *Builder,
-    comptime Tag: type,
     signedness: Constant.Cast.Signedness,
     val_ty: Type,
     ty: Type,
-) Tag {
+) Function.Instruction.Tag {
     assert(val_ty != ty);
     return switch (val_ty.scalarTag(self)) {
         .simple => switch (ty.scalarTag(self)) {
@@ -11437,15 +11203,38 @@ fn convTag(
     };
 }
 
+fn convConstTag(
+    self: *Builder,
+    val_ty: Type,
+    ty: Type,
+) Constant.Tag {
+    assert(val_ty != ty);
+    return switch (val_ty.scalarTag(self)) {
+        .integer => switch (ty.scalarTag(self)) {
+            .integer => switch (std.math.order(val_ty.scalarBits(self), ty.scalarBits(self))) {
+                .gt => .trunc,
+                else => unreachable,
+            },
+            .pointer => .inttoptr,
+            else => unreachable,
+        },
+        .pointer => switch (ty.scalarTag(self)) {
+            .integer => .ptrtoint,
+            .pointer => .addrspacecast,
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+}
+
 fn convConstAssumeCapacity(
     self: *Builder,
-    signedness: Constant.Cast.Signedness,
     val: Constant,
     ty: Type,
 ) Constant {
     const val_ty = val.typeOf(self);
     if (val_ty == ty) return val;
-    return self.castConstAssumeCapacity(self.convTag(Constant.Tag, signedness, val_ty, ty), val, ty);
+    return self.castConstAssumeCapacity(self.convConstTag(val_ty, ty), val, ty);
 }
 
 fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty: Type) Constant {
@@ -11570,179 +11359,6 @@ fn gepConstAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
-fn icmpConstAssumeCapacity(
-    self: *Builder,
-    cond: IntegerCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.Compare) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(Constant.tag.icmp)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .icmp) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .icmp,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn fcmpConstAssumeCapacity(
-    self: *Builder,
-    cond: FloatCondition,
-    lhs: Constant,
-    rhs: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.Compare) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(Constant.tag.fcmp)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.Compare, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .fcmp) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.Compare, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.Compare{ .cond = @intFromEnum(cond), .lhs = lhs, .rhs = rhs };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .fcmp,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn extractElementConstAssumeCapacity(
-    self: *Builder,
-    val: Constant,
-    index: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.ExtractElement) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.extractelement)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.ExtractElement, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .extractelement) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.ExtractElement, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.ExtractElement{ .val = val, .index = index };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .extractelement,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn insertElementConstAssumeCapacity(
-    self: *Builder,
-    val: Constant,
-    elem: Constant,
-    index: Constant,
-) Constant {
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.InsertElement) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.insertelement)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.InsertElement, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .insertelement) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.InsertElement, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.InsertElement{ .val = val, .elem = elem, .index = index };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .insertelement,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
-fn shuffleVectorConstAssumeCapacity(
-    self: *Builder,
-    lhs: Constant,
-    rhs: Constant,
-    mask: Constant,
-) Constant {
-    assert(lhs.typeOf(self).isVector(self.builder));
-    assert(lhs.typeOf(self) == rhs.typeOf(self));
-    assert(mask.typeOf(self).scalarType(self).isInteger(self));
-    _ = lhs.typeOf(self).changeLengthAssumeCapacity(mask.typeOf(self).vectorLen(self), self);
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Constant.ShuffleVector) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.shufflevector)),
-                std.mem.asBytes(&key),
-            ));
-        }
-        pub fn eql(ctx: @This(), lhs_key: Constant.ShuffleVector, _: void, rhs_index: usize) bool {
-            if (ctx.builder.constant_items.items(.tag)[rhs_index] != .shufflevector) return false;
-            const rhs_data = ctx.builder.constant_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.constantExtraData(Constant.ShuffleVector, rhs_data);
-            return std.meta.eql(lhs_key, rhs_extra);
-        }
-    };
-    const data = Constant.ShuffleVector{ .lhs = lhs, .rhs = rhs, .mask = mask };
-    const gop = self.constant_map.getOrPutAssumeCapacityAdapted(data, Adapter{ .builder = self });
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.constant_items.appendAssumeCapacity(.{
-            .tag = .shufflevector,
-            .data = self.addConstantExtraAssumeCapacity(data),
-        });
-    }
-    return @enumFromInt(gop.index);
-}
-
 fn binConstAssumeCapacity(
     self: *Builder,
     tag: Constant.Tag,
@@ -11756,14 +11372,7 @@ fn binConstAssumeCapacity(
         .sub,
         .@"sub nsw",
         .@"sub nuw",
-        .mul,
-        .@"mul nsw",
-        .@"mul nuw",
         .shl,
-        .lshr,
-        .ashr,
-        .@"and",
-        .@"or",
         .xor,
         => {},
         else => unreachable,
@@ -13938,16 +13547,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .bitcast,
                     .inttoptr,
                     .ptrtoint,
-                    .fptosi,
-                    .fptoui,
-                    .sitofp,
-                    .uitofp,
                     .addrspacecast,
-                    .fptrunc,
                     .trunc,
-                    .fpext,
-                    .sext,
-                    .zext,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Cast, data);
                         try constants_block.writeAbbrevAdapted(Constants.Cast{
@@ -13962,14 +13563,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .sub,
                     .@"sub nsw",
                     .@"sub nuw",
-                    .mul,
-                    .@"mul nsw",
-                    .@"mul nuw",
                     .shl,
-                    .lshr,
-                    .ashr,
-                    .@"and",
-                    .@"or",
                     .xor,
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Binary, data);
@@ -13978,55 +13572,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .lhs = extra.lhs,
                             .rhs = extra.rhs,
                         }, constant_adapter);
-                    },
-                    .icmp,
-                    .fcmp,
-                    => {
-                        const extra = self.constantExtraData(Constant.Compare, data);
-                        try constants_block.writeAbbrevAdapted(Constants.Cmp{
-                            .ty = extra.lhs.typeOf(self),
-                            .lhs = extra.lhs,
-                            .rhs = extra.rhs,
-                            .pred = extra.cond,
-                        }, constant_adapter);
-                    },
-                    .extractelement => {
-                        const extra = self.constantExtraData(Constant.ExtractElement, data);
-                        try constants_block.writeAbbrevAdapted(Constants.ExtractElement{
-                            .val_type = extra.val.typeOf(self),
-                            .val = extra.val,
-                            .index_type = extra.index.typeOf(self),
-                            .index = extra.index,
-                        }, constant_adapter);
-                    },
-                    .insertelement => {
-                        const extra = self.constantExtraData(Constant.InsertElement, data);
-                        try constants_block.writeAbbrevAdapted(Constants.InsertElement{
-                            .val = extra.val,
-                            .elem = extra.elem,
-                            .index_type = extra.index.typeOf(self),
-                            .index = extra.index,
-                        }, constant_adapter);
-                    },
-                    .shufflevector => {
-                        const extra = self.constantExtraData(Constant.ShuffleVector, data);
-                        const ty = constant.typeOf(self);
-                        const lhs_type = extra.lhs.typeOf(self);
-                        // Check if instruction is widening, truncating or not
-                        if (ty == lhs_type) {
-                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVector{
-                                .lhs = extra.lhs,
-                                .rhs = extra.rhs,
-                                .mask = extra.mask,
-                            }, constant_adapter);
-                        } else {
-                            try constants_block.writeAbbrevAdapted(Constants.ShuffleVectorEx{
-                                .ty = ty,
-                                .lhs = extra.lhs,
-                                .rhs = extra.rhs,
-                                .mask = extra.mask,
-                            }, constant_adapter);
-                        }
                     },
                     .getelementptr,
                     .@"getelementptr inbounds",

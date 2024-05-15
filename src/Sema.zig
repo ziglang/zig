@@ -1901,7 +1901,6 @@ pub fn resolveConstStringIntern(
 
 pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) !Type {
     const air_inst = try sema.resolveInst(zir_ref);
-    assert(air_inst != .var_args_param_type);
     const ty = try sema.analyzeAsType(block, src, air_inst);
     if (ty.isGenericPoison()) return error.GenericPoison;
     return ty;
@@ -2869,14 +2868,14 @@ fn createAnonymousDeclTypeNamed(
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
 ) !InternPool.DeclIndex {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
+    const zcu = sema.mod;
+    const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
     const namespace = block.namespace;
-    const src_decl = mod.declPtr(block.src_decl);
+    const src_decl = zcu.declPtr(block.src_decl);
     const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_node);
-    errdefer mod.destroyDecl(new_decl_index);
+    const new_decl_index = try zcu.allocateNewDecl(namespace, src_node);
+    errdefer zcu.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
         .anon => {
@@ -2887,15 +2886,15 @@ fn createAnonymousDeclTypeNamed(
             // This name is also used as the key in the parent namespace so it cannot be
             // renamed.
 
-            const name = mod.intern_pool.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
-                src_decl.name.fmt(&mod.intern_pool), anon_prefix, @intFromEnum(new_decl_index),
+            const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
+                src_decl.name.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
             }, .no_embedded_nulls) catch unreachable;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .parent => {
-            const name = mod.declPtr(block.src_decl).name;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            const name = zcu.declPtr(block.src_decl).name;
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .func => {
@@ -2906,7 +2905,7 @@ fn createAnonymousDeclTypeNamed(
             defer buf.deinit();
 
             const writer = buf.writer();
-            try writer.print("{}(", .{mod.declPtr(block.src_decl).name.fmt(&mod.intern_pool)});
+            try writer.print("{}(", .{zcu.declPtr(block.src_decl).name.fmt(ip)});
 
             var arg_i: usize = 0;
             for (fn_info.param_body) |zir_inst| switch (zir_tags[@intFromEnum(zir_inst)]) {
@@ -2921,7 +2920,17 @@ fn createAnonymousDeclTypeNamed(
                         return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try writer.writeByte(',');
-                    try writer.print("{}", .{arg_val.fmtValue(sema.mod, sema)});
+
+                    // Limiting the depth here helps avoid type names getting too long, which
+                    // in turn helps to avoid unreasonably long symbol names for namespaced
+                    // symbols. Such names should ideally be human-readable, and additionally,
+                    // some tooling may not support very long symbol names.
+                    try writer.print("{}", .{Value.fmtValueFull(.{
+                        .val = arg_val,
+                        .mod = zcu,
+                        .opt_sema = sema,
+                        .depth = 1,
+                    })});
 
                     arg_i += 1;
                     continue;
@@ -2930,8 +2939,8 @@ fn createAnonymousDeclTypeNamed(
             };
 
             try writer.writeByte(')');
-            const name = try mod.intern_pool.getOrPutString(gpa, buf.items, .no_embedded_nulls);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            const name = try ip.getOrPutString(gpa, buf.items, .no_embedded_nulls);
+            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2942,10 +2951,10 @@ fn createAnonymousDeclTypeNamed(
                 .dbg_var_ptr, .dbg_var_val => {
                     if (zir_data[i].str_op.operand != ref) continue;
 
-                    const name = try mod.intern_pool.getOrPutStringFmt(gpa, "{}.{s}", .{
-                        src_decl.name.fmt(&mod.intern_pool), zir_data[i].str_op.getStr(sema.code),
+                    const name = try ip.getOrPutStringFmt(gpa, "{}.{s}", .{
+                        src_decl.name.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+                    try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
                     return new_decl_index;
                 },
                 else => {},
@@ -4279,7 +4288,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 const const_ptr_ty = try sema.makePtrTyConst(final_ptr_ty);
                 const new_const_ptr = try mod.getCoerced(Value.fromInterned(ptr_val), const_ptr_ty);
 
-                // Remap the ZIR oeprand to the resolved pointer value
+                // Remap the ZIR operand to the resolved pointer value
                 sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(new_const_ptr.toIntern()));
 
                 // Unless the block is comptime, `alloc_inferred` always produces
@@ -4304,6 +4313,11 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 .tag = .alloc,
                 .data = .{ .ty = final_ptr_ty },
             });
+
+            if (ia1.is_const) {
+                // Remap the ZIR operand to the pointer const
+                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, try sema.makePtrConst(block, ptr));
+            }
 
             // Now we need to go back over all the store instructions, and do the logic as if
             // the new result ptr type was available.
@@ -4557,12 +4571,10 @@ fn zirValidateRefTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const src = un_tok.src();
     // In case of GenericPoison, we don't actually have a type, so this will be
     // treated as an untyped address-of operator.
-    if (un_tok.operand == .var_args_param_type) return;
     const operand_air_inst = sema.resolveInst(un_tok.operand) catch |err| switch (err) {
         error.GenericPoison => return,
         else => |e| return e,
     };
-    if (operand_air_inst == .var_args_param_type) return;
     const ty_operand = sema.analyzeAsType(block, src, operand_air_inst) catch |err| switch (err) {
         error.GenericPoison => return,
         else => |e| return e,
@@ -7348,7 +7360,7 @@ const CallArgsInfo = union(enum) {
     }
 
     /// Analyzes the arg at `arg_index` and coerces it to `param_ty`.
-    /// `param_ty` may be `generic_poison` or `var_args_param`.
+    /// `param_ty` may be `generic_poison`. A value of `null` indicates a varargs parameter.
     /// `func_ty_info` may be the type before instantiation, even if a generic
     /// instantiation has been partially completed.
     fn analyzeArg(
@@ -7356,16 +7368,16 @@ const CallArgsInfo = union(enum) {
         sema: *Sema,
         block: *Block,
         arg_index: usize,
-        param_ty: Type,
+        maybe_param_ty: ?Type,
         func_ty_info: InternPool.Key.FuncType,
         func_inst: Air.Inst.Ref,
     ) CompileError!Air.Inst.Ref {
         const mod = sema.mod;
         const param_count = func_ty_info.param_types.len;
-        switch (param_ty.toIntern()) {
-            .generic_poison_type, .var_args_param_type => {},
+        if (maybe_param_ty) |param_ty| switch (param_ty.toIntern()) {
+            .generic_poison_type => {},
             else => try sema.queueFullTypeResolution(param_ty),
-        }
+        };
         const uncoerced_arg: Air.Inst.Ref = switch (cai) {
             inline .resolved, .call_builtin => |resolved| resolved.args[arg_index],
             .zir_call => |zir_call| arg_val: {
@@ -7394,7 +7406,8 @@ const CallArgsInfo = union(enum) {
                     // TODO set comptime_reason
                 }
                 // Give the arg its result type
-                sema.inst_map.putAssumeCapacity(zir_call.call_inst, Air.internedToRef(param_ty.toIntern()));
+                const provide_param_ty = if (maybe_param_ty) |t| t else Type.generic_poison;
+                sema.inst_map.putAssumeCapacity(zir_call.call_inst, Air.internedToRef(provide_param_ty.toIntern()));
                 // Resolve the arg!
                 const uncoerced_arg = try sema.resolveInlineBody(block, arg_body, zir_call.call_inst);
 
@@ -7411,9 +7424,11 @@ const CallArgsInfo = union(enum) {
                 break :arg_val uncoerced_arg;
             },
         };
+        const param_ty = maybe_param_ty orelse {
+            return sema.coerceVarArgParam(block, uncoerced_arg, cai.argSrc(block, arg_index));
+        };
         switch (param_ty.toIntern()) {
             .generic_poison_type => return uncoerced_arg,
-            .var_args_param_type => return sema.coerceVarArgParam(block, uncoerced_arg, cai.argSrc(block, arg_index)),
             else => return sema.coerceExtra(
                 block,
                 param_ty,
@@ -7955,10 +7970,10 @@ fn analyzeCall(
         const args = try sema.arena.alloc(Air.Inst.Ref, args_info.count());
         for (args, 0..) |*arg_out, arg_idx| {
             // Non-generic, so param types are already resolved
-            const param_ty = if (arg_idx < func_ty_info.param_types.len) ty: {
+            const param_ty: ?Type = if (arg_idx < func_ty_info.param_types.len) ty: {
                 break :ty Type.fromInterned(func_ty_info.param_types.get(ip)[arg_idx]);
-            } else Type.fromInterned(InternPool.Index.var_args_param_type);
-            assert(!param_ty.isGenericPoison());
+            } else null;
+            if (param_ty) |t| assert(!t.isGenericPoison());
             arg_out.* = try args_info.analyzeArg(sema, block, arg_idx, param_ty, func_ty_info, func);
             try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_idx), arg_out.*);
             if (sema.typeOf(arg_out.*).zigTypeTag(mod) == .NoReturn) {
@@ -9685,6 +9700,18 @@ fn funcCommon(
         {
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
+
+        if (cc_resolved == .Interrupt) switch (target.cpu.arch) {
+            .x86, .x86_64 => {
+                const err_code_size = target.ptrBitWidth();
+                switch (i) {
+                    0 => if (param_ty.zigTypeTag(mod) != .Pointer) return sema.fail(block, param_src, "parameter must be a pointer type", .{}),
+                    1 => if (param_ty.bitSize(mod) != err_code_size) return sema.fail(block, param_src, "parameter must be a {d}-bit integer", .{err_code_size}),
+                    else => return sema.fail(block, param_src, "Interrupt calling convention supports up to 2 parameters, found {d}", .{i + 1}),
+                }
+            },
+            else => return sema.fail(block, param_src, "parameters are not allowed with Interrupt calling convention", .{}),
+        };
     }
 
     var ret_ty_requires_comptime = false;
@@ -10033,6 +10060,15 @@ fn finishFunc(
         });
     }
 
+    if (cc_resolved == .Interrupt and return_type.zigTypeTag(mod) != .Void) {
+        return sema.fail(
+            block,
+            cc_src,
+            "non-void return type '{}' not allowed in function with calling convention 'Interrupt'",
+            .{return_type.fmt(mod)},
+        );
+    }
+
     if (cc_resolved == .Inline and is_noinline) {
         return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
     }
@@ -10190,12 +10226,10 @@ fn analyzeAs(
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const operand = try sema.resolveInst(zir_operand);
-    if (zir_dest_type == .var_args_param_type) return operand;
     const operand_air_inst = sema.resolveInst(zir_dest_type) catch |err| switch (err) {
         error.GenericPoison => return operand,
         else => |e| return e,
     };
-    if (operand_air_inst == .var_args_param_type) return operand;
     const dest_ty = sema.analyzeAsType(block, src, operand_air_inst) catch |err| switch (err) {
         error.GenericPoison => return operand,
         else => |e| return e,
@@ -10465,9 +10499,10 @@ fn intCast(
             const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(mod, operand_scalar_ty);
             const dest_max_val = try sema.splat(operand_ty, dest_max_val_scalar);
             const dest_max = Air.internedToRef(dest_max_val.toIntern());
-            const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
 
             if (actual_info.signedness == .signed) {
+                const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
+
                 // Reinterpret the sign-bit as part of the value. This will make
                 // negative differences (`operand` > `dest_max`) appear too big.
                 const unsigned_scalar_operand_ty = try mod.intType(.unsigned, actual_bits);
@@ -10508,7 +10543,7 @@ fn intCast(
                 try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
             } else {
                 const ok = if (is_vector) ok: {
-                    const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
+                    const is_in_range = try block.addCmpVector(operand, dest_max, .lte);
                     const all_in_range = try block.addInst(.{
                         .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
@@ -10518,7 +10553,7 @@ fn intCast(
                     });
                     break :ok all_in_range;
                 } else ok: {
-                    const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
+                    const is_in_range = try block.addBinOp(.cmp_lte, operand, dest_max);
                     break :ok is_in_range;
                 };
                 try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
@@ -24259,6 +24294,14 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
     if (!dest_ty.isVector(mod)) return sema.fail(block, src, "expected vector type, found '{}'", .{dest_ty.fmt(mod)});
 
+    if (!dest_ty.hasRuntimeBits(mod)) {
+        const empty_aggregate = try mod.intern(.{ .aggregate = .{
+            .ty = dest_ty.toIntern(),
+            .storage = .{ .elems = &[_]InternPool.Index{} },
+        } });
+        return Air.internedToRef(empty_aggregate);
+    }
+
     const operand = try sema.resolveInst(extra.rhs);
     const scalar_ty = dest_ty.childType(mod);
     const scalar = try sema.coerce(block, scalar_ty, operand, scalar_src);
@@ -32492,7 +32535,7 @@ fn analyzeSlice(
                     const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                     break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
                 } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
-                if (try sema.resolveValue(end)) |end_val| {
+                if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     const len_s_val = try mod.intValue(
                         Type.usize,
                         array_ty.arrayLenIncludingSentinel(mod),
@@ -35390,7 +35433,7 @@ pub fn resolveUnionAlignment(
         const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
         if (!(try sema.typeHasRuntimeBits(field_ty))) continue;
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -35450,7 +35493,7 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
             else => return err,
         });
 
-        const explicit_align = union_type.fieldAlign(ip, @intCast(field_index));
+        const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -35620,8 +35663,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!void {
     const ty_ip = ty.toIntern();
 
     switch (ty_ip) {
-        .var_args_param_type => unreachable,
-
         .none => unreachable,
 
         .u0_type,
@@ -37140,7 +37181,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .empty_struct,
         .generic_poison,
         // invalid
-        .var_args_param_type,
         .none,
         => unreachable,
 

@@ -10,9 +10,11 @@
 #define _LIBCPP___TYPE_TRAITS_IS_EQUALITY_COMPARABLE_H
 
 #include <__config>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
+#include <__type_traits/is_signed.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_cvref.h>
@@ -44,7 +46,7 @@ struct __is_equality_comparable<_Tp, _Up, __void_t<decltype(std::declval<_Tp>() 
 //   but don't have the same bit-pattern. An exception to this is comparing to a void-pointer. There the bit-pattern is
 //   always compared.
 
-template <class _Tp, class _Up>
+template <class _Tp, class _Up, class = void>
 struct __libcpp_is_trivially_equality_comparable_impl : false_type {};
 
 template <class _Tp>
@@ -56,6 +58,13 @@ struct __libcpp_is_trivially_equality_comparable_impl<_Tp, _Tp>
     : is_integral<_Tp> {
 };
 #endif // __has_builtin(__is_trivially_equality_comparable)
+
+template <class _Tp, class _Up>
+struct __libcpp_is_trivially_equality_comparable_impl<
+    _Tp,
+    _Up,
+    __enable_if_t<is_integral<_Tp>::value && is_integral<_Up>::value && !is_same<_Tp, _Up>::value &&
+                  is_signed<_Tp>::value == is_signed<_Up>::value && sizeof(_Tp) == sizeof(_Up)> > : true_type {};
 
 template <class _Tp>
 struct __libcpp_is_trivially_equality_comparable_impl<_Tp*, _Tp*> : true_type {};

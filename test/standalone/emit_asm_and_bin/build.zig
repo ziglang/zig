@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const main = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = b.standardOptimizeOption(.{}),
     });
     // TODO: actually check these two artifacts for correctness

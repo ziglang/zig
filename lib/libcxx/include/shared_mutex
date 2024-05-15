@@ -122,13 +122,18 @@ template <class Mutex>
 
 */
 
+#include <__config>
+
+#  ifdef _LIBCPP_HAS_NO_THREADS
+#    error "<shared_mutex> is not supported since libc++ has been configured without support for threads."
+#  endif
+
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__chrono/duration.h>
 #include <__chrono/steady_clock.h>
 #include <__chrono/time_point.h>
 #include <__condition_variable/condition_variable.h>
-#include <__config>
 #include <__memory/addressof.h>
 #include <__mutex/mutex.h>
 #include <__mutex/tag_types.h>
@@ -147,13 +152,9 @@ _LIBCPP_PUSH_MACROS
 #    pragma GCC system_header
 #  endif
 
-#  ifdef _LIBCPP_HAS_NO_THREADS
-#    error "<shared_mutex> is not supported since libc++ has been configured without support for threads."
-#  endif
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-struct _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_SHARED_MUTEX __shared_mutex_base {
+struct _LIBCPP_EXPORTED_FROM_ABI __shared_mutex_base {
   mutex __mut_;
   condition_variable __gate1_;
   condition_variable __gate2_;
@@ -183,8 +184,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_SHARED_MUTEX __shared_mute
 };
 
 #  if _LIBCPP_STD_VER >= 17
-class _LIBCPP_EXPORTED_FROM_ABI
-    _LIBCPP_AVAILABILITY_SHARED_MUTEX _LIBCPP_THREAD_SAFETY_ANNOTATION(__capability__("shared_mutex")) shared_mutex {
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_THREAD_SAFETY_ANNOTATION(__capability__("shared_mutex")) shared_mutex {
   __shared_mutex_base __base_;
 
 public:
@@ -222,8 +222,8 @@ public:
 };
 #  endif
 
-class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_SHARED_MUTEX _LIBCPP_THREAD_SAFETY_ANNOTATION(
-    __capability__("shared_timed_mutex")) shared_timed_mutex {
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_THREAD_SAFETY_ANNOTATION(__capability__("shared_timed_mutex"))
+    shared_timed_mutex {
   __shared_mutex_base __base_;
 
 public:
@@ -322,26 +322,26 @@ private:
 public:
   _LIBCPP_HIDE_FROM_ABI shared_lock() _NOEXCEPT : __m_(nullptr), __owns_(false) {}
 
-  _LIBCPP_HIDE_FROM_ABI explicit shared_lock(mutex_type& __m) : __m_(_VSTD::addressof(__m)), __owns_(true) {
+  _LIBCPP_HIDE_FROM_ABI explicit shared_lock(mutex_type& __m) : __m_(std::addressof(__m)), __owns_(true) {
     __m_->lock_shared();
   }
 
   _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, defer_lock_t) _NOEXCEPT
-      : __m_(_VSTD::addressof(__m)),
+      : __m_(std::addressof(__m)),
         __owns_(false) {}
 
   _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, try_to_lock_t)
-      : __m_(_VSTD::addressof(__m)), __owns_(__m.try_lock_shared()) {}
+      : __m_(std::addressof(__m)), __owns_(__m.try_lock_shared()) {}
 
-  _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, adopt_lock_t) : __m_(_VSTD::addressof(__m)), __owns_(true) {}
+  _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, adopt_lock_t) : __m_(std::addressof(__m)), __owns_(true) {}
 
   template <class _Clock, class _Duration>
   _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, const chrono::time_point<_Clock, _Duration>& __abs_time)
-      : __m_(_VSTD::addressof(__m)), __owns_(__m.try_lock_shared_until(__abs_time)) {}
+      : __m_(std::addressof(__m)), __owns_(__m.try_lock_shared_until(__abs_time)) {}
 
   template <class _Rep, class _Period>
   _LIBCPP_HIDE_FROM_ABI shared_lock(mutex_type& __m, const chrono::duration<_Rep, _Period>& __rel_time)
-      : __m_(_VSTD::addressof(__m)), __owns_(__m.try_lock_shared_for(__rel_time)) {}
+      : __m_(std::addressof(__m)), __owns_(__m.try_lock_shared_for(__rel_time)) {}
 
   _LIBCPP_HIDE_FROM_ABI ~shared_lock() {
     if (__owns_)
@@ -378,8 +378,8 @@ public:
 
   // Setters
   _LIBCPP_HIDE_FROM_ABI void swap(shared_lock& __u) _NOEXCEPT {
-    _VSTD::swap(__m_, __u.__m_);
-    _VSTD::swap(__owns_, __u.__owns_);
+    std::swap(__m_, __u.__m_);
+    std::swap(__owns_, __u.__owns_);
   }
 
   _LIBCPP_HIDE_FROM_ABI mutex_type* release() _NOEXCEPT {

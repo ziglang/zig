@@ -34,7 +34,7 @@ struct min_max_result {
 
   template <class _T2>
     requires convertible_to<const _T1&, _T2>
-  _LIBCPP_HIDE_FROM_ABI constexpr operator min_max_result<_T2>() const & {
+  _LIBCPP_HIDE_FROM_ABI constexpr operator min_max_result<_T2>() const& {
     return {min, max};
   }
 

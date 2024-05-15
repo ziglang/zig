@@ -13,6 +13,7 @@
 #include <__config>
 #include <__system_error/error_category.h>
 #include <__system_error/error_code.h>
+#include <__verbose_abort>
 #include <stdexcept>
 #include <string>
 
@@ -36,12 +37,17 @@ public:
   ~system_error() _NOEXCEPT override;
 
   _LIBCPP_HIDE_FROM_ABI const error_code& code() const _NOEXCEPT { return __ec_; }
-
-private:
-  static string __init(const error_code&, string);
 };
 
 _LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void __throw_system_error(int __ev, const char* __what_arg);
+_LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI inline void __throw_system_error(error_code __ec, const char* __what_arg) {
+#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+  throw system_error(__ec, __what_arg);
+#else
+  _LIBCPP_VERBOSE_ABORT(
+      "system_error was thrown in -fno-exceptions mode with error %i and message \"%s\"", __ec.value(), __what_arg);
+#endif
+}
 
 _LIBCPP_END_NAMESPACE_STD
 

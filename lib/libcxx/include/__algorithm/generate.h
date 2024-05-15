@@ -18,12 +18,10 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Generator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-generate(_ForwardIterator __first, _ForwardIterator __last, _Generator __gen)
-{
-    for (; __first != __last; ++__first)
-        *__first = __gen();
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+generate(_ForwardIterator __first, _ForwardIterator __last, _Generator __gen) {
+  for (; __first != __last; ++__first)
+    *__first = __gen();
 }
 
 _LIBCPP_END_NAMESPACE_STD

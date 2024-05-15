@@ -53,7 +53,8 @@ struct __fn {
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp
   operator()(initializer_list<_Tp> __il, _Comp __comp = {}, _Proj __proj = {}) const {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__il.begin() != __il.end(), "initializer_list must contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __il.begin() != __il.end(), "initializer_list must contain at least one element");
     return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp, __proj);
   }
 
@@ -65,7 +66,7 @@ struct __fn {
   operator()(_Rp&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __first = ranges::begin(__r);
     auto __last  = ranges::end(__r);
-    _LIBCPP_ASSERT_UNCATEGORIZED(__first != __last, "range must contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__first != __last, "range must contain at least one element");
     if constexpr (forward_range<_Rp> && !__is_cheap_to_copy<range_value_t<_Rp>>) {
       return *ranges::__min_element_impl(__first, __last, __comp, __proj);
     } else {

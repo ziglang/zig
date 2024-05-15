@@ -18,8 +18,22 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Pred, class _Lhs, class _Rhs>
-struct __is_trivial_plus_operation : false_type {};
+// Tags to represent the canonical operations
+struct __equal_tag {};
+struct __plus_tag {};
+
+// This class template is used to determine whether an operation "desugars"
+// (or boils down) to a given canonical operation.
+//
+// For example, `std::equal_to<>`, our internal `std::__equal_to` helper and
+// `ranges::equal_to` are all just fancy ways of representing a transparent
+// equality operation, so they all desugar to `__equal_tag`.
+//
+// This is useful to optimize some functions in cases where we know e.g. the
+// predicate being passed is actually going to call a builtin operator, or has
+// some specific semantics.
+template <class _CanonicalTag, class _Operation, class... _Args>
+struct __desugars_to : false_type {};
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -29,7 +29,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator(_Alloc
     _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
 #endif
 {
-  using _VSTD::swap;
+  using std::swap;
   swap(__a1, __a2);
 }
 
@@ -45,7 +45,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator
     _NOEXCEPT_(__is_nothrow_swappable<_Alloc>::value)
 #endif
 {
-  _VSTD::__swap_allocator(
+  std::__swap_allocator(
       __a1, __a2, integral_constant<bool, allocator_traits<_Alloc>::propagate_on_container_swap::value>());
 }
 

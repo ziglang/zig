@@ -83,7 +83,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Length (in bytes) of a raw signature.
             pub const encoded_length = Curve.scalar.encoded_length * 2;
             /// Maximum length (in bytes) of a DER-encoded signature.
-            pub const der_encoded_max_length = encoded_length + 2 + 2 * 3;
+            pub const der_encoded_length_max = encoded_length + 2 + 2 * 3;
 
             /// The R component of an ECDSA signature.
             r: Curve.scalar.CompressedScalar,
@@ -122,9 +122,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             }
 
             /// Encode the signature using the DER format.
-            /// The maximum length of the DER encoding is der_encoded_max_length.
-            /// The function returns a slice, that can be shorter than der_encoded_max_length.
-            pub fn toDer(self: Signature, buf: *[der_encoded_max_length]u8) []u8 {
+            /// The maximum length of the DER encoding is der_encoded_length_max.
+            /// The function returns a slice, that can be shorter than der_encoded_length_max.
+            pub fn toDer(self: Signature, buf: *[der_encoded_length_max]u8) []u8 {
                 var fb = io.fixedBufferStream(buf);
                 const w = fb.writer();
                 const r_len = @as(u8, @intCast(self.r.len + (self.r[0] >> 7)));

@@ -1826,7 +1826,7 @@ pub const Stream = struct {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
-            return windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null);
+            return windows.ReadFile(s.handle, first.base[0..first.len], null);
         }
 
         return posix.readv(s.handle, iovecs);
@@ -1889,13 +1889,13 @@ pub const Stream = struct {
         var i: usize = 0;
         while (true) {
             var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].iov_len) {
-                amt -= iovecs[i].iov_len;
+            while (amt >= iovecs[i].len) {
+                amt -= iovecs[i].len;
                 i += 1;
                 if (i >= iovecs.len) return;
             }
-            iovecs[i].iov_base += amt;
-            iovecs[i].iov_len -= amt;
+            iovecs[i].base += amt;
+            iovecs[i].len -= amt;
         }
     }
 };

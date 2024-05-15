@@ -1,0 +1,10 @@
+.{
+    .name = "dependencyFromBuildZig",
+    .version = "0.0.0",
+    .dependencies = .{
+        .other = .{
+            .path = "other",
+        },
+    },
+    .paths = .{""},
+}

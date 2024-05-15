@@ -33,42 +33,49 @@ class _LIBCPP_TEMPLATE_VIS back_insert_iterator
     : public iterator<output_iterator_tag, void, void, void, void>
 #endif
 {
-_LIBCPP_SUPPRESS_DEPRECATED_POP
+  _LIBCPP_SUPPRESS_DEPRECATED_POP
+
 protected:
-    _Container* container;
+  _Container* container;
+
 public:
-    typedef output_iterator_tag iterator_category;
-    typedef void value_type;
+  typedef output_iterator_tag iterator_category;
+  typedef void value_type;
 #if _LIBCPP_STD_VER >= 20
-    typedef ptrdiff_t difference_type;
+  typedef ptrdiff_t difference_type;
 #else
-    typedef void difference_type;
+  typedef void difference_type;
 #endif
-    typedef void pointer;
-    typedef void reference;
-    typedef _Container container_type;
+  typedef void pointer;
+  typedef void reference;
+  typedef _Container container_type;
 
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit back_insert_iterator(_Container& __x) : container(_VSTD::addressof(__x)) {}
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator=(const typename _Container::value_type& __value)
-        {container->push_back(__value); return *this;}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit back_insert_iterator(_Container& __x)
+      : container(std::addressof(__x)) {}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator&
+  operator=(const typename _Container::value_type& __value) {
+    container->push_back(__value);
+    return *this;
+  }
 #ifndef _LIBCPP_CXX03_LANG
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator=(typename _Container::value_type&& __value)
-        {container->push_back(_VSTD::move(__value)); return *this;}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator&
+  operator=(typename _Container::value_type&& __value) {
+    container->push_back(std::move(__value));
+    return *this;
+  }
 #endif // _LIBCPP_CXX03_LANG
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator*()     {return *this;}
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator++()    {return *this;}
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator  operator++(int) {return *this;}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator*() { return *this; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator& operator++() { return *this; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator operator++(int) { return *this; }
 
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Container* __get_container() const { return container; }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Container* __get_container() const { return container; }
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(back_insert_iterator);
 
 template <class _Container>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-back_insert_iterator<_Container>
-back_inserter(_Container& __x)
-{
-    return back_insert_iterator<_Container>(__x);
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 back_insert_iterator<_Container>
+back_inserter(_Container& __x) {
+  return back_insert_iterator<_Container>(__x);
 }
 
 _LIBCPP_END_NAMESPACE_STD

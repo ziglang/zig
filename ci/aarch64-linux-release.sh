@@ -8,7 +8,7 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -29,8 +29,8 @@ cd build-release
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
@@ -53,6 +53,7 @@ ninja install
 echo "Looking for non-conforming code formatting..."
 stage3-release/bin/zig fmt --check .. \
   --exclude ../test/cases/ \
+  --exclude ../doc/ \
   --exclude ../build-release
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
@@ -67,7 +68,7 @@ stage3-release/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
+  --zig-lib-dir "$PWD/../lib"
 
 # Look for HTML errors.
 # TODO: move this to a build.zig flag (-Denable-tidy)
@@ -80,8 +81,8 @@ rm -rf ../build-new
 mkdir ../build-new
 cd ../build-new
 
-export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-global-cache"
-export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-local-cache"
+export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
+export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
@@ -105,5 +106,5 @@ stage3/bin/zig build -p stage4 \
   -Dtarget=native-native-musl \
   -Dno-lib \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$(pwd)/../lib"
+  --zig-lib-dir "$PWD/../lib"
 stage4/bin/zig test ../test/behavior.zig

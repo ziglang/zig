@@ -34,7 +34,7 @@ struct binary_function
 template <class T>
 class reference_wrapper
     : public unary_function<T1, R> // if wrapping a unary functor
-    : public binary_function<T1, T2, R> // if wraping a binary functor
+    : public binary_function<T1, T2, R> // if wrapping a binary functor
 {
 public:
     // types
@@ -542,8 +542,6 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #include <__functional/unary_negate.h>
 #include <__type_traits/unwrap_ref.h>
 #include <__utility/forward.h>
-#include <memory> // TODO: find out why removing this breaks the modules build
-#include <typeinfo>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -555,8 +553,12 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 #  include <concepts>
 #  include <cstdlib>
 #  include <exception>
+#  include <iosfwd>
+#  include <memory>
+#  include <stdexcept>
 #  include <tuple>
 #  include <type_traits>
+#  include <typeinfo>
 #  include <utility>
 #endif
 

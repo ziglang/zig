@@ -24,8 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Iterator>
 concept permutable =
-    forward_iterator<_Iterator> &&
-    indirectly_movable_storable<_Iterator, _Iterator> &&
+    forward_iterator<_Iterator> && indirectly_movable_storable<_Iterator, _Iterator> &&
     indirectly_swappable<_Iterator, _Iterator>;
 
 #endif // _LIBCPP_STD_VER >= 20

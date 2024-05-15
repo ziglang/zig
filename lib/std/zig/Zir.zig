@@ -2194,9 +2194,6 @@ pub const Inst = struct {
         empty_struct,
         generic_poison,
 
-        /// This tag is here to match Air and InternPool, however it is unused
-        /// for ZIR purposes.
-        var_args_param_type = std.math.maxInt(u32) - 1,
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
         none = std.math.maxInt(u32),

@@ -50,11 +50,11 @@ typedef __bf16 __m128bh __attribute__((__vector_size__(16), __aligned__(16)));
 
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS                                                     \
-  __attribute__((__always_inline__, __nodebug__, __target__("sse2"),           \
-                 __min_vector_width__(128)))
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("sse2,no-evex512"), __min_vector_width__(128)))
 #define __DEFAULT_FN_ATTRS_MMX                                                 \
-  __attribute__((__always_inline__, __nodebug__, __target__("mmx,sse2"),       \
-                 __min_vector_width__(64)))
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("mmx,sse2,no-evex512"), __min_vector_width__(64)))
 
 /// Adds lower double-precision values in both operands and returns the
 ///    sum in the lower 64 bits of the result. The upper 64 bits of the result
@@ -3945,7 +3945,7 @@ static __inline__ void __DEFAULT_FN_ATTRS _mm_storel_epi64(__m128i_u *__p,
 ///    A pointer to the 128-bit aligned memory location used to store the value.
 /// \param __a
 ///    A vector of [2 x double] containing the 64-bit values to be stored.
-static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_pd(double *__p,
+static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_pd(void *__p,
                                                         __m128d __a) {
   __builtin_nontemporal_store((__v2df)__a, (__v2df *)__p);
 }
@@ -3963,7 +3963,7 @@ static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_pd(double *__p,
 ///    A pointer to the 128-bit aligned memory location used to store the value.
 /// \param __a
 ///    A 128-bit integer vector containing the values to be stored.
-static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_si128(__m128i *__p,
+static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_si128(void *__p,
                                                            __m128i __a) {
   __builtin_nontemporal_store((__v2di)__a, (__v2di *)__p);
 }
@@ -3983,8 +3983,8 @@ static __inline__ void __DEFAULT_FN_ATTRS _mm_stream_si128(__m128i *__p,
 ///    A 32-bit integer containing the value to be stored.
 static __inline__ void
     __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
-    _mm_stream_si32(int *__p, int __a) {
-  __builtin_ia32_movnti(__p, __a);
+    _mm_stream_si32(void *__p, int __a) {
+  __builtin_ia32_movnti((int *)__p, __a);
 }
 
 #ifdef __x86_64__
@@ -4003,8 +4003,8 @@ static __inline__ void
 ///    A 64-bit integer containing the value to be stored.
 static __inline__ void
     __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
-    _mm_stream_si64(long long *__p, long long __a) {
-  __builtin_ia32_movnti64(__p, __a);
+    _mm_stream_si64(void *__p, long long __a) {
+  __builtin_ia32_movnti64((long long *)__p, __a);
 }
 #endif
 

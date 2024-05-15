@@ -15,9 +15,14 @@
 #define __VBMIVLINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS128 __attribute__((__always_inline__, __nodebug__, __target__("avx512vbmi,avx512vl"), __min_vector_width__(128)))
-#define __DEFAULT_FN_ATTRS256 __attribute__((__always_inline__, __nodebug__, __target__("avx512vbmi,avx512vl"), __min_vector_width__(256)))
-
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vbmi,avx512vl,no-evex512"),                 \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS256                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vbmi,avx512vl,no-evex512"),                 \
+                 __min_vector_width__(256)))
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS128
 _mm_permutex2var_epi8(__m128i __A, __m128i __I, __m128i __B)

@@ -17,27 +17,27 @@
 #  pragma GCC system_header
 #endif
 
-#ifndef _LIBCPP_CXX03_LANG
+#if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
 // On Windows, the library never identifies files as block, character, fifo
 // or socket.
-enum class _LIBCPP_ENUM_VIS file_type : signed char {
-  none = 0,
+enum class file_type : signed char {
+  none      = 0,
   not_found = -1,
-  regular = 1,
+  regular   = 1,
   directory = 2,
-  symlink = 3,
-  block = 4,
+  symlink   = 3,
+  block     = 4,
   character = 5,
-  fifo = 6,
-  socket = 7,
-  unknown = 8
+  fifo      = 6,
+  socket    = 7,
+  unknown   = 8
 };
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 
-#endif // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_STD_VER >= 17
 
 #endif // _LIBCPP___FILESYSTEM_FILE_TYPE_H

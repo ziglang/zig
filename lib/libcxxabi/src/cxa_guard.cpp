@@ -48,6 +48,6 @@ _LIBCXXABI_FUNC_VIS void __cxa_guard_abort(guard_type *raw_guard_object) {
   SelectedImplementation imp(raw_guard_object);
   imp.cxa_guard_abort();
 }
-}  // extern "C"
+} // extern "C"
 
 }  // __cxxabiv1
