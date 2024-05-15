@@ -404,7 +404,7 @@ pub const Manifest = struct {
         });
         errdefer gpa.free(resolved_path);
         const prefixed_path = try m.cache.findPrefixResolved(resolved_path);
-        return addFileInner(m, prefixed_path, handle, max_file_size);
+        return addFileInner(m, prefixed_path, handle, max_file_size, path.content_hash_name);
     }
 
     /// Deprecated; use `addFilePath`.
@@ -416,10 +416,10 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        return addFileInner(self, prefixed_path, null, max_file_size);
+        return addFileInner(self, prefixed_path, null, max_file_size, null);
     }
 
-    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize) usize {
+    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize, content_hash_name: ?[]const u8) usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
             self.cache.gpa.free(prefixed_path.sub_path);
@@ -436,8 +436,13 @@ pub const Manifest = struct {
             .handle = handle,
         };
 
-        self.hash.add(prefixed_path.prefix);
-        self.hash.addBytes(prefixed_path.sub_path);
+        if (content_hash_name) |name| {
+            self.hash.add(@as(u8, '?'));
+            self.hash.addBytes(name);
+        } else {
+            self.hash.add(prefixed_path.prefix);
+            self.hash.addBytes(prefixed_path.sub_path);
+        }
 
         return gop.index;
     }
@@ -715,15 +720,13 @@ pub const Manifest = struct {
 
             if (file_path.len == 0) return error.InvalidFormat;
 
+            const prefixed_path: PrefixedPath = .{
+                .prefix = prefix,
+                .sub_path = file_path, // expires with file_contents
+            };
             const cache_hash_file = f: {
-                const prefixed_path: PrefixedPath = .{
-                    .prefix = prefix,
-                    .sub_path = file_path, // expires with file_contents
-                };
                 if (idx < input_file_count) {
                     const file = &self.files.keys()[idx];
-                    if (!file.prefixed_path.eql(prefixed_path))
-                        return error.InvalidFormat;
 
                     file.stat = .{
                         .size = stat_size,
@@ -779,11 +782,13 @@ pub const Manifest = struct {
                 } };
                 return error.CacheCheckFailed;
             };
+
+            const name_match = pp.eql(prefixed_path);
             const size_match = actual_stat.size == cache_hash_file.stat.size;
             const mtime_match = actual_stat.mtime.nanoseconds == cache_hash_file.stat.mtime.nanoseconds;
             const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
 
-            if (!size_match or !mtime_match or !inode_match) {
+            if (!name_match or !size_match or !mtime_match or !inode_match) {
                 cache_hash_file.stat = .{
                     .size = actual_stat.size,
                     .mtime = actual_stat.mtime,
