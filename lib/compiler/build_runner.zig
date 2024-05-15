@@ -1123,7 +1123,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --fetch                      Exit after fetching dependency tree
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    lazy                       (Default) Lazy dependencies are fetched on need
+        \\    all                        Lazy dependencies are always fetched
         \\
         \\Project-Specific Options:
         \\
