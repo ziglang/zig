@@ -265,7 +265,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(bytes);
             },
             .copy => |file_source| {
-                _ = try man.addFile(file_source.getPath2(b, step), null);
+                _ = try man.addFile(file_source.getPath2(b, step), null, true);
             },
         }
     }

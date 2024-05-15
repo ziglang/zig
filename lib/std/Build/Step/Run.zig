@@ -232,7 +232,7 @@ pub fn addPrefixedOutputFileArg(
         run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
     }
 
-    return .{ .generated = .{ .file = &output.generated_file } };
+    return .{ .generated = .{ .file = &output.generated_file, .content_hashed = true } };
 }
 
 /// Appends an input file to the command line arguments.
@@ -596,7 +596,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 const file_path = file.lazy_path.getPath2(b, step);
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
                 man.hash.addBytes(file.prefix);
-                _ = try man.addFile(file_path, null);
+                const content_hashed = switch (file.lazy_path) {
+                    .generated => |gf| gf.content_hashed,
+                    else => false,
+                };
+                _ = try man.addFile(file_path, null, content_hashed);
             },
             .directory_source => |file| {
                 const file_path = file.lazy_path.getPath2(b, step);
@@ -613,7 +617,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
                 try argv_list.append(file_path);
 
-                _ = try man.addFile(file_path, null);
+                _ = try man.addFile(file_path, null, false);
             },
             .output_file, .output_directory => |output| {
                 man.hash.addBytes(output.prefix);
@@ -637,7 +641,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         },
         .lazy_path => |lazy_path| {
             const file_path = lazy_path.getPath2(b, step);
-            _ = try man.addFile(file_path, null);
+            _ = try man.addFile(file_path, null, true);
         },
         .none => {},
     }
@@ -653,10 +657,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     hashStdIo(&man.hash, run.stdio);
 
     for (run.extra_file_dependencies) |file_path| {
-        _ = try man.addFile(b.pathFromRoot(file_path), null);
+        _ = try man.addFile(b.pathFromRoot(file_path), null, false);
     }
     for (run.file_inputs.items) |lazy_path| {
-        _ = try man.addFile(lazy_path.getPath2(b, step), null);
+        _ = try man.addFile(lazy_path.getPath2(b, step), null, false);
     }
 
     if (try step.cacheHit(&man) and !has_side_effects) {

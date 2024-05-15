@@ -72,15 +72,15 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         comptime assert(Compilation.link_hash_implementation_version == 13);
 
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFile(obj.path, null, false);
             man.hash.add(obj.must_link);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFile(key.status.success.object_path, null, false);
         }
         if (!build_options.only_core_functionality) {
             for (comp.win32_resource_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.res_path, null);
+                _ = try man.addFile(key.status.success.res_path, null, false);
             }
         }
         try man.addOptionalFile(module_obj_path);

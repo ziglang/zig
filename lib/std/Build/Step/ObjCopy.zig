@@ -102,7 +102,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     man.hash.add(@as(u32, 0xe18b7baf));
 
     const full_src_path = objcopy.input_file.getPath2(b, step);
-    _ = try man.addFile(full_src_path, null);
+    _ = try man.addFile(full_src_path, null, false);
     man.hash.addOptionalListOfBytes(objcopy.only_sections);
     man.hash.addOptional(objcopy.pad_to);
     man.hash.addOptional(objcopy.format);

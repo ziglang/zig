@@ -861,7 +861,7 @@ pub const cache_helpers = struct {
     }
 
     pub fn hashCSource(self: *Cache.Manifest, c_source: CSourceFile) !void {
-        _ = try self.addFile(c_source.src_path, null);
+        _ = try self.addFile(c_source.src_path, null, false);
         // Hash the extra flags, with special care to call addFile for file parameters.
         // TODO this logic can likely be improved by utilizing clang_options_data.zig.
         const file_args = [_][]const u8{"-include"};
@@ -872,7 +872,7 @@ pub const cache_helpers = struct {
             for (file_args) |file_arg| {
                 if (mem.eql(u8, file_arg, arg) and arg_i + 1 < c_source.extra_flags.len) {
                     arg_i += 1;
-                    _ = try self.addFile(c_source.extra_flags[arg_i], null);
+                    _ = try self.addFile(c_source.extra_flags[arg_i], null, false);
                 }
             }
         }
@@ -1179,7 +1179,7 @@ fn addModuleTableToCacheHash(
             },
             .files => |man| if (mod.root_src_path.len != 0) {
                 const pkg_zig_file = try mod.root.joinString(arena, mod.root_src_path);
-                _ = try man.addFile(pkg_zig_file, null);
+                _ = try man.addFile(pkg_zig_file, null, false);
             },
         }
 
@@ -2403,13 +2403,13 @@ fn addNonIncrementalStuffToCacheManifest(
     }
 
     for (comp.objects) |obj| {
-        _ = try man.addFile(obj.path, null);
+        _ = try man.addFile(obj.path, null, false);
         man.hash.add(obj.must_link);
         man.hash.add(obj.loption);
     }
 
     for (comp.c_object_table.keys()) |key| {
-        _ = try man.addFile(key.src.src_path, null);
+        _ = try man.addFile(key.src.src_path, null, false);
         man.hash.addOptional(key.src.ext);
         man.hash.addListOfBytes(key.src.extra_flags);
     }
@@ -2418,11 +2418,11 @@ fn addNonIncrementalStuffToCacheManifest(
         for (comp.win32_resource_table.keys()) |key| {
             switch (key.src) {
                 .rc => |rc_src| {
-                    _ = try man.addFile(rc_src.src_path, null);
+                    _ = try man.addFile(rc_src.src_path, null, false);
                     man.hash.addListOfBytes(rc_src.extra_flags);
                 },
                 .manifest => |manifest_path| {
-                    _ = try man.addFile(manifest_path, null);
+                    _ = try man.addFile(manifest_path, null, false);
                 },
             }
         }
@@ -4770,7 +4770,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     // the XML data as a RT_MANIFEST resource. This means we can skip preprocessing,
     // include paths, CLI options, etc.
     if (win32_resource.src == .manifest) {
-        _ = try man.addFile(src_path, null);
+        _ = try man.addFile(src_path, null, false);
 
         const rc_basename = try std.fmt.allocPrint(arena, "{s}.rc", .{src_basename});
         const res_basename = try std.fmt.allocPrint(arena, "{s}.res", .{src_basename});
@@ -4853,7 +4853,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     // We now know that we're compiling an .rc file
     const rc_src = win32_resource.src.rc;
 
-    _ = try man.addFile(rc_src.src_path, null);
+    _ = try man.addFile(rc_src.src_path, null, false);
     man.hash.addListOfBytes(rc_src.extra_flags);
 
     const rc_basename_noext = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];

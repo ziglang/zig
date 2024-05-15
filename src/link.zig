@@ -44,7 +44,7 @@ pub fn hashAddSystemLibs(
     for (hm.values()) |value| {
         man.hash.add(value.needed);
         man.hash.add(value.weak);
-        if (value.path) |p| _ = try man.addFile(p, null);
+        if (value.path) |p| _ = try man.addFile(p, null, false);
     }
 }
 
@@ -736,16 +736,16 @@ pub const File = struct {
             base.releaseLock();
 
             for (objects) |obj| {
-                _ = try man.addFile(obj.path, null);
+                _ = try man.addFile(obj.path, null, false);
                 man.hash.add(obj.must_link);
                 man.hash.add(obj.loption);
             }
             for (comp.c_object_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.object_path, null);
+                _ = try man.addFile(key.status.success.object_path, null, false);
             }
             if (!build_options.only_core_functionality) {
                 for (comp.win32_resource_table.keys()) |key| {
-                    _ = try man.addFile(key.status.success.res_path, null);
+                    _ = try man.addFile(key.status.success.res_path, null, false);
                 }
             }
             try man.addOptionalFile(zcu_obj_path);

@@ -2148,6 +2148,9 @@ pub const LazyPath = union(enum) {
 
         /// Applied after `up`.
         sub_path: []const u8 = "",
+
+        /// If true, the file is hashed only on the suffix, not the full absolute path
+        content_hashed: bool = false,
     },
 
     /// An absolute path or a path relative to the current working directory of
@@ -2339,6 +2342,7 @@ pub const LazyPath = union(enum) {
                 .file = gen.file,
                 .up = gen.up,
                 .sub_path = b.dupePath(gen.sub_path),
+                .content_hashed = gen.content_hashed,
             } },
             .dependency => |dep| .{ .dependency = dep },
         };

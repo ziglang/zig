@@ -691,7 +691,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
     man.hash.add(target_version);
 
     const full_abilists_path = try comp.zig_lib_directory.join(arena, &.{abilists_path});
-    const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
+    const abilists_index = try man.addFile(full_abilists_path, abilists_max_size, false);
 
     if (try man.hit()) {
         const digest = man.final();

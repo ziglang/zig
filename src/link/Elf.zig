@@ -2217,12 +2217,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         man.hash.add(self.allow_undefined_version);
         man.hash.addOptional(self.enable_new_dtags);
         for (comp.objects) |obj| {
-            _ = try man.addFile(obj.path, null);
+            _ = try man.addFile(obj.path, null, false);
             man.hash.add(obj.must_link);
             man.hash.add(obj.loption);
         }
         for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.object_path, null);
+            _ = try man.addFile(key.status.success.object_path, null, false);
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFile(compiler_rt_path);
