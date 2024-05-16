@@ -38711,7 +38711,7 @@ fn abiSizeOfContainingDecl(
         },
         .field => |field| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(field.base))) |memsz| {
             const container_ty: Type = Type.childType(Type.fromInterned(sema.mod.intern_pool.typeOf(field.base)), sema.mod);
-            const field_offset: u64 = container_ty.structFieldOffset(field.index, sema.mod);
+            const field_offset: u64 = container_ty.structFieldOffset(try sema.usizeCast(block, src, field.index), sema.mod);
             return (memsz - field_offset) - ptr_key.byte_offset;
         },
         .arr_elem => |elem| if (try abiSizeOfContainingDecl(sema, block, src, Value.fromInterned(elem.base))) |memsz| {
@@ -38785,12 +38785,6 @@ const RuntimeSafety = struct {
             .cast_to_enum_from_invalid => sema.mod.backendSupportsFeature(.is_named_enum_value),
             else => true,
         };
-    }
-    /// Required to call panic handler function. Otherwise trap.
-    fn haveRuntimeSafetyPanic(sema: *Sema, block: *Sema.Block) !bool {
-        const ret: bool = sema.mod.backendSupportsFeature(.panic_fn);
-        if (!ret) _ = try block.addNoOp(.trap);
-        return ret;
     }
     /// Required to call special panic handler function with context data.
     /// 1. User must enable formatted panics for the panic cause.
@@ -39097,10 +39091,10 @@ const RuntimeSafety = struct {
         src: std.zig.LazySrcLoc,
         comptime id: std.builtin.PanicId,
     ) !void {
-        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, id);
             try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
-        }
+        } else _ = try parent_block.addNoOp(.trap);
     }
     fn panicWithMsg(
         sema: *Sema,
@@ -39109,11 +39103,11 @@ const RuntimeSafety = struct {
         msg_inst: Air.Inst.Ref,
         op: Sema.CallOperation,
     ) !void {
-        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .message);
             const panic_data_inst: Air.Inst.Ref = try sema.coerce(parent_block, Type.slice_const_u8, msg_inst, src);
             try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, op);
-        }
+        } else _ = try parent_block.addNoOp(.trap);
     }
     fn panicCastToEnumFromInvalid(
         sema: *Sema,
@@ -39122,11 +39116,11 @@ const RuntimeSafety = struct {
         dest_ty: Type,
         operand: Air.Inst.Ref,
     ) !void {
-        if (try haveRuntimeSafetyPanic(sema, parent_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
             try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
-        }
+        } else _ = try parent_block.addNoOp(.trap);
     }
     fn panicUnwrappedError(
         sema: *Sema,
@@ -39134,14 +39128,14 @@ const RuntimeSafety = struct {
         src: std.zig.LazySrcLoc,
         err: Air.Inst.Ref,
     ) !void {
-        if (try haveRuntimeSafetyPanic(sema, parent_block) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
                 const st: Air.Inst.Ref = try sema.getErrorReturnTrace(parent_block);
                 break :blk try parent_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause_inst), &.{ st, err });
             } else .void_value;
             try sema.callBuiltin(parent_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
-        }
+        } else _ = try parent_block.addNoOp(.trap);
     }
     fn checkAccessNullValue(
         sema: *Sema,
@@ -39151,7 +39145,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_null_value);
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
         }
@@ -39168,7 +39162,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addUnOp(is_non_err_tag, operand);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
                 const st: Air.Inst.Ref = try sema.getErrorReturnTrace(&fail_block);
@@ -39187,7 +39181,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .divided_by_zero);
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, .void_value }, .@"safety check");
         }
@@ -39204,7 +39198,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(cmp_op, dest_idx, src_len);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_bounds);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_idx, src_len });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39221,7 +39215,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_lte, dest_start, dest_end);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39244,7 +39238,7 @@ const RuntimeSafety = struct {
         ), src, null);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order_extra);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end, src_len });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39263,7 +39257,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .memcpy_argument_aliasing);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{
                 try fail_block.addUnOp(.int_from_ptr, dest_start), try fail_block.addUnOp(.int_from_ptr, dest_finish),
@@ -39283,7 +39277,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_memcpy_argument_lengths);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_len, src_len });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39300,7 +39294,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_for_loop_capture_lengths);
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ loop_len, arg_len });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39317,7 +39311,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .accessed_inactive_field = sema.typeOf(active_tag) });
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ active_tag, wanted_tag });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39336,7 +39330,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, expected, found);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .mismatched_sentinel = elem_ty });
             const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ expected, found });
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39354,7 +39348,7 @@ const RuntimeSafety = struct {
         const cond: Air.Inst.Ref = try parent_block.addBinOp(.cmp_eq, .zero_u8, found);
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_null_sentinel);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) found else .void_value;
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39371,7 +39365,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .shift_amt_overflowed = resolved_ty });
             const panic_data_inst: Air.Inst.Ref = try coerceShiftRHSOperand(sema, &fail_block, src, shift_amt);
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39390,7 +39384,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause: PanicCause = switch (tag) {
                 .mul => .{ .mul_overflowed = resolved_ty },
                 .add => .{ .add_overflowed = resolved_ty },
@@ -39420,7 +39414,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const int_ty: Type = Type.intTagType(dest_ty, sema.mod);
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) try parent_block.addBitCast(int_ty, operand) else .void_value;
@@ -39439,7 +39433,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39456,7 +39450,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const alignment: InternPool.Alignment = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema);
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = alignment });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
@@ -39475,7 +39469,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_int_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39493,7 +39487,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_truncated_data = .{ .to = dest_ty, .from = operand_ty } });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
@@ -39511,7 +39505,7 @@ const RuntimeSafety = struct {
     ) !void {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
-        if (try haveRuntimeSafetyPanic(sema, &fail_block)) {
+        if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_unsigned_from_negative = .{ .to = dest_ty, .from = operand_ty } });
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
             try sema.callBuiltin(&fail_block, src, sema.mod.safety.panic_fn_inst, .auto, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
