@@ -990,28 +990,13 @@ pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicImp
 fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
-    if (@TypeOf(data) == void) {
-        std.debug.panicImpl(@tagName(cause), null, @returnAddress());
-    }
+    if (@TypeOf(data) == void) @call(.auto, std.debug.panicImpl, .{
+        @field(std.debug.panic_messages, @tagName(cause)), null, @returnAddress(),
+    });
     switch (cause) {
         .message => {
             std.debug.panicImpl(data, null, @returnAddress());
         },
-        .accessed_null_value => @call(.auto, std.debug.panicImpl, .{
-            "attempted to use null value", null, @returnAddress(),
-        }),
-        .divided_by_zero => @call(.auto, std.debug.panicImpl, .{
-            "attempted to divide by zero", null, @returnAddress(),
-        }),
-        .returned_noreturn => @call(.auto, std.debug.panicImpl, .{
-            "returned from function marked 'noreturn'", null, @returnAddress(),
-        }),
-        .reached_unreachable => @call(.auto, std.debug.panicImpl, .{
-            "reached unreachable code", null, @returnAddress(),
-        }),
-        .corrupt_switch => @call(.auto, std.debug.panicImpl, .{
-            "corrupt switch", null, @returnAddress(),
-        }),
         .unwrapped_error => @call(.auto, std.debug.panicUnwrappedError, .{
             data.st, data.err, @returnAddress(),
         }),
@@ -1045,17 +1030,12 @@ fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
         .cast_to_error_from_invalid => |error_type| @call(.auto, std.debug.panicCastToErrorFromInvalid, .{
             error_type.from, @typeName(error_type.to), data, @returnAddress(),
         }),
-        .mul_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).mul, .{
-            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
-        }),
-        .add_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).add, .{
-            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
-        }),
-        .sub_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).sub, .{
-            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
-        }),
-        .div_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).div, .{
-            @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        .add_overflowed,
+        .sub_overflowed,
+        .mul_overflowed,
+        .div_overflowed,
+        => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).combined, .{
+            cause, @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
         .inc_overflowed, .dec_overflowed => {},
         .shl_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
@@ -1095,6 +1075,7 @@ fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
             std.meta.bestExtrema(num_types.to), data,
             @returnAddress(),
         }),
+        else => @trap(),
     }
 }
 
