@@ -61,6 +61,7 @@ test AllTypes {
         .g = .{ .inner = .{ .a = 4, .b = 5 }, .sum = 9 },
         .h = .{ .tag = Tag.init(.string_ia5, false, .universal), .bytes = "asdf" },
     };
+    // https://lapo.it/asn1js/#MC-gAwIBAqEFAwMABKCCAyoDBAwEYXNkZgQEZmRzYQICAQGjBgIBBAIBBRYEYXNkZg
     const path = "./der/testdata/all_types.der";
     const encoded = @embedFile(path);
     const actual = try asn1.der.decode(AllTypes, encoded);
