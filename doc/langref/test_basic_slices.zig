@@ -44,4 +44,4 @@ test "basic slices" {
     // asserts that the slice has len > 0.
 }
 
-// test_safety=index out of bounds
+// test_safety=index 10 out of bounds of length 4

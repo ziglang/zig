@@ -20,5 +20,5 @@ test "@setRuntimeSafety" {
     }
 }
 
-// test_safety=integer overflow
+// test_safety=add overflowed
 // optimize=ReleaseFast

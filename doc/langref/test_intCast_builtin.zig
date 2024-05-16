@@ -5,4 +5,4 @@ test "integer cast panic" {
     _ = b;
 }
 
-// test_error=cast truncated bits
+// test_error=cast to 'u8' from 'u16' truncated bits: 43981 above 'u8' maximum (255)
