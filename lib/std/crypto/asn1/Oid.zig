@@ -123,7 +123,8 @@ fn encodedLen(dot_notation: []const u8) usize {
     return oid.encoded.len;
 }
 
-pub fn encodeComptime(comptime dot_notation: []const u8) [encodedLen(dot_notation)]u8 {
+/// Returns encoded bytes of OID.
+fn encodeComptime(comptime dot_notation: []const u8) [encodedLen(dot_notation)]u8 {
     @setEvalBranchQuota(4000);
     comptime var buf: [256]u8 = undefined;
     const oid = comptime fromDot(dot_notation, &buf) catch unreachable;
@@ -135,6 +136,11 @@ test encodeComptime {
         hexToBytes("2b0601040182371514"),
         comptime encodeComptime("1.3.6.1.4.1.311.21.20"),
     );
+}
+
+pub fn fromDotComptime(comptime dot_notation: []const u8) Oid {
+    const tmp = comptime encodeComptime(dot_notation);
+    return Oid{ .encoded = &tmp };
 }
 
 /// Maps of:

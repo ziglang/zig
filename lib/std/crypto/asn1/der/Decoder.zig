@@ -13,6 +13,7 @@ index: Index = 0,
 /// This is needed because we might visit an implicitly tagged container with a `fn decodeDer`.
 field_tag: ?FieldTag = null,
 
+/// Expect a value.
 pub fn any(self: *Decoder, comptime T: type) !T {
     if (std.meta.hasFn(T, "decodeDer")) return try T.decodeDer(self);
 
@@ -80,11 +81,16 @@ pub fn any(self: *Decoder, comptime T: type) !T {
     }
 }
 
+//// Expect a sequence.
 pub fn sequence(self: *Decoder) !Element {
     return try self.element(ExpectedTag.init(.sequence, true, .universal));
 }
 
-pub fn element(self: *Decoder, expected: ExpectedTag) (error{ EndOfStream, UnexpectedElement } || Element.DecodeError)!Element {
+//// Expect an element.
+pub fn element(
+    self: *Decoder,
+    expected: ExpectedTag,
+) (error{ EndOfStream, UnexpectedElement } || Element.DecodeError)!Element {
     if (self.index >= self.bytes.len) return error.EndOfStream;
 
     const res = try Element.decode(self.bytes, self.index);
@@ -101,6 +107,7 @@ pub fn element(self: *Decoder, expected: ExpectedTag) (error{ EndOfStream, Unexp
     return res;
 }
 
+/// View of element bytes.
 pub fn view(self: Decoder, elem: Element) []const u8 {
     return elem.slice.view(self.bytes);
 }

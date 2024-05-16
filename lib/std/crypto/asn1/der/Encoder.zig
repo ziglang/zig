@@ -15,6 +15,7 @@ pub fn deinit(self: *Encoder) void {
     self.buffer.deinit();
 }
 
+/// Encode any value.
 pub fn any(self: *Encoder, val: anytype) !void {
     const T = @TypeOf(val);
     try self.anyTag(Tag.fromZig(T), val);
@@ -74,15 +75,10 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
     try self.tag(merged_tag);
 }
 
+/// Encode a tag.
 pub fn tag(self: *Encoder, tag_: Tag) !void {
     const t = self.mergedTag(tag_);
     try t.encode(self.writer());
-}
-
-pub fn tagBytes(self: *Encoder, tag_: Tag, bytes: []const u8) !void {
-    try self.buffer.prependSlice(bytes);
-    try self.length(bytes.len);
-    try self.tag(tag_);
 }
 
 fn mergedTag(self: *Encoder, tag_: Tag) Tag {
@@ -96,6 +92,7 @@ fn mergedTag(self: *Encoder, tag_: Tag) Tag {
     return res;
 }
 
+/// Encode a length.
 pub fn length(self: *Encoder, len: usize) !void {
     const writer_ = self.writer();
     if (len < 128) {
@@ -110,6 +107,13 @@ pub fn length(self: *Encoder, len: usize) !void {
         }
     }
     return error.InvalidLength;
+}
+
+/// Encode a tag and length-prefixed bytes.
+pub fn tagBytes(self: *Encoder, tag_: Tag, bytes: []const u8) !void {
+    try self.buffer.prependSlice(bytes);
+    try self.length(bytes.len);
+    try self.tag(tag_);
 }
 
 /// Warning: This writer writes backwards. `fn print` will NOT work as expected.
