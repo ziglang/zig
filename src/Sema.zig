@@ -27719,32 +27719,6 @@ fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !InternP
     return msg_decl_index;
 }
 
-fn addSafetyCheck(
-    sema: *Sema,
-    parent_block: *Block,
-    src: LazySrcLoc,
-    ok: Air.Inst.Ref,
-    panic_id: Module.PanicId,
-) !void {
-    const gpa = sema.gpa;
-    assert(!parent_block.is_comptime);
-
-    var fail_block: Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .src_decl = parent_block.src_decl,
-        .namespace = parent_block.namespace,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = false,
-    };
-
-    defer fail_block.instructions.deinit(gpa);
-
-    try sema.safetyPanic(&fail_block, src, panic_id);
-    try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
-}
-
 fn addSafetyCheckExtra(
     sema: *Sema,
     parent_block: *Block,
@@ -27752,6 +27726,9 @@ fn addSafetyCheckExtra(
     fail_block: *Block,
 ) !void {
     const gpa = sema.gpa;
+    if (fail_block.instructions.items.len == 0) {
+        _ = try fail_block.addNoOp(.trap);
+    }
 
     try parent_block.instructions.ensureUnusedCapacity(gpa, 1);
 
