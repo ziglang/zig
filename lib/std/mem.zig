@@ -3835,6 +3835,7 @@ fn CopyPtrAttrs(
     comptime source: type,
     comptime size: std.builtin.Type.Pointer.Size,
     comptime child: type,
+    comptime sentinel: ?*const anyopaque,
 ) type {
     const info = @typeInfo(source).Pointer;
     return @Type(.{
@@ -3846,14 +3847,14 @@ fn CopyPtrAttrs(
             .alignment = info.alignment,
             .address_space = info.address_space,
             .child = child,
-            .sentinel = null,
+            .sentinel = sentinel,
         },
     });
 }
 
 fn AsBytesReturnType(comptime P: type) type {
     const size = @sizeOf(std.meta.Child(P));
-    return CopyPtrAttrs(P, .One, [size]u8);
+    return CopyPtrAttrs(P, .One, [size]u8, null);
 }
 
 /// Given a pointer to a single item, returns a slice of the underlying bytes, preserving pointer attributes.
@@ -3936,7 +3937,7 @@ test toBytes {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    return CopyPtrAttrs(B, .One, T);
+    return CopyPtrAttrs(B, .One, T, null);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
@@ -4014,22 +4015,32 @@ test bytesToValue {
     try testing.expect(deadbeef == @as(u32, 0xDEADBEEF));
 }
 
-fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    return CopyPtrAttrs(bytesType, .Slice, T);
+fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type, comptime sentinel: ?*const anyopaque) type {
+    return CopyPtrAttrs(bytesType, .Slice, T, sentinel);
 }
 
 /// Given a slice of bytes, returns a slice of the specified type
 /// backed by those bytes, preserving pointer attributes.
-pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
+pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes), null) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
     if (bytes.len == 0) {
         return &[0]T{};
     }
 
-    const cast_target = CopyPtrAttrs(@TypeOf(bytes), .Many, T);
+    const cast_target = CopyPtrAttrs(@TypeOf(bytes), .Many, T, null);
 
     return @as(cast_target, @ptrCast(bytes))[0..@divExact(bytes.len, @sizeOf(T))];
+}
+
+/// Given a slice of bytes, returns a sentinel-terminated slice of the
+/// specified type backed by those bytes, preserving pointer attributes.
+///
+/// The final bytes must equal the sentinel value, otherwise safety-protected
+/// undefined behavior results.
+pub fn bytesAsSliceSentinel(comptime T: type, bytes: anytype, comptime sentinel: *const T) BytesAsSliceReturnType(T, @TypeOf(bytes), sentinel) {
+    const slice = bytesAsSlice(T, bytes);
+    return slice[0 .. slice.len - 1 :sentinel.*];
 }
 
 test bytesAsSlice {
@@ -4101,24 +4112,41 @@ test "bytesAsSlice preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
+test "bytesAsSliceSentinel" {
+    {
+        const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x01 };
+        const slice = bytesAsSliceSentinel(u16, bytes[0..], &0x0101);
+        try testing.expect(slice.len == 2);
+        try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
+        try testing.expect(bigToNative(u16, slice[1]) == 0xBEEF);
+        try testing.expect(bigToNative(u16, slice[slice.len]) == 0x0101);
+    }
+}
+
 fn SliceAsBytesReturnType(comptime Slice: type) type {
-    return CopyPtrAttrs(Slice, .Slice, u8);
+    return CopyPtrAttrs(Slice, .Slice, u8, null);
 }
 
 /// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
+///
+/// If slice is sentinel-terminated the sentinel value is included.
 pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // a slice of zero-bit values always occupies zero bytes
     if (@sizeOf(std.meta.Elem(Slice)) == 0) return &[0]u8{};
 
+    const has_sentinel = comptime std.meta.sentinel(Slice) != null;
+
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0 and std.meta.sentinel(Slice) == null) return &[0]u8{};
+    if (slice.len == 0 and !has_sentinel) return &[0]u8{};
 
-    const cast_target = CopyPtrAttrs(Slice, .Many, u8);
+    const cast_target = CopyPtrAttrs(Slice, .Many, u8, null);
 
-    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
+    const length = if (has_sentinel) slice.len + 1 else slice.len;
+
+    return @as(cast_target, @ptrCast(slice))[0 .. length * @sizeOf(std.meta.Elem(Slice))];
 }
 
 test sliceAsBytes {
@@ -4131,8 +4159,18 @@ test sliceAsBytes {
     }));
 }
 
-test "sliceAsBytes with sentinel slice" {
-    const empty_string: [:0]const u8 = "";
+test "sliceAsBytes with sentinel" {
+    const bytes = [_:1]u16{ 0xDEAD, 0xBEEF };
+    const slice = sliceAsBytes(bytes[0..]);
+    try testing.expect(slice.len == 6);
+    try testing.expect(eql(u8, slice, switch (native_endian) {
+        .big => "\xDE\xAD\xBE\xEF\x00\x01",
+        .little => "\xAD\xDE\xEF\xBE\x01\x00",
+    }));
+}
+
+test "sliceAsBytes with empty slice" {
+    const empty_string: []const u8 = &[0]u8{};
     const bytes = sliceAsBytes(empty_string);
     try testing.expect(bytes.len == 0);
 }
@@ -4198,6 +4236,28 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.is_volatile, out.is_volatile);
     try testing.expectEqual(in.is_allowzero, out.is_allowzero);
     try testing.expectEqual(in.alignment, out.alignment);
+}
+
+test "sliceAsBytes and bytesAsSliceSentinel roundtrip with sentinel" {
+    try testing.expect(@sizeOf(i32) == 4);
+
+    var array = [_:5]i32{ 1, 2, 3, 4 };
+    const slice: [:5]i32 = array[0..];
+
+    const bytes = sliceAsBytes(slice);
+    try testing.expect(bytes.len == 4 * 5);
+
+    var new_bytes = [_]u8{0} ** (4 * 5);
+    @memcpy(&new_bytes, bytes);
+
+    const remade = bytesAsSliceSentinel(i32, &new_bytes, &5);
+
+    try testing.expect(remade.len == 4);
+    try testing.expect(remade[0] == 1);
+    try testing.expect(remade[1] == 2);
+    try testing.expect(remade[2] == 3);
+    try testing.expect(remade[3] == 4);
+    try testing.expect(remade[remade.len] == 5);
 }
 
 /// Round an address up to the next (or current) aligned address.

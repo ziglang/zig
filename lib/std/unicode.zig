@@ -1321,13 +1321,13 @@ test utf8ToUtf16LeAllocZ {
     {
         const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "𐐷");
         defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(utf16));
+        try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc\x00\x00", mem.sliceAsBytes(utf16));
         try testing.expect(utf16[2] == 0);
     }
     {
         const utf16 = try utf8ToUtf16LeAllocZ(testing.allocator, "\u{10FFFF}");
         defer testing.allocator.free(utf16);
-        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(utf16));
+        try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf\x00\x00", mem.sliceAsBytes(utf16));
         try testing.expect(utf16[2] == 0);
     }
     {
@@ -1347,6 +1347,7 @@ test utf8ToUtf16LeAllocZ {
             ' ', 0, 'w', 0, 'i', 0, 't', 0, 'h', 0, ' ', 0, 'o', 0, 'n', 0, 'e', 0, ' ', 0, 'h', 0, 'u', 0, 'n', 0, 'd', 0, 'r', 0, 'e',  0,
             'd', 0, ' ', 0, 't', 0, 'w', 0, 'e', 0, 'n', 0, 't', 0, 'y', 0, '-', 0, 's', 0, 'e', 0, 'v', 0, 'e', 0, 'n', 0, ' ', 0, 'A',  0,
             'S', 0, 'C', 0, 'I', 0, 'I', 0, ' ', 0, 'c', 0, 'h', 0, 'a', 0, 'r', 0, 'a', 0, 'c', 0, 't', 0, 'e', 0, 'r', 0, 's', 0, '¡', 0,
+            0,   0,
         }, mem.sliceAsBytes(utf16));
     }
 }

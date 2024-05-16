@@ -306,12 +306,11 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).Pointer;
     const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
-    if (bytes_len == 0) return;
+    if (bytes.len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298
-    @memset(non_const_ptr[0..bytes_len], undefined);
-    self.rawFree(non_const_ptr[0..bytes_len], log2a(Slice.alignment), @returnAddress());
+    @memset(non_const_ptr[0..bytes.len], undefined);
+    self.rawFree(non_const_ptr[0..bytes.len], log2a(Slice.alignment), @returnAddress());
 }
 
 /// Copies `m` to newly allocated memory. Caller owns the memory.

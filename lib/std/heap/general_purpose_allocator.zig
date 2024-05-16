@@ -1430,3 +1430,27 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     buf = try allocator.realloc(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
 }
+
+test "resize with sentinel" {
+    var gpa = GeneralPurposeAllocator(test_config){};
+    defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
+    const allocator = gpa.allocator();
+
+    var buf = try allocator.allocWithOptions(u8, 6, null, 5);
+    try std.testing.expect(allocator.resize(buf, 3));
+    buf[2] = 5;
+    buf = buf[0..2 :5];
+
+    allocator.free(buf);
+}
+
+test "realloc with sentinel" {
+    var gpa = GeneralPurposeAllocator(test_config){};
+    defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
+    const allocator = gpa.allocator();
+
+    const buf = try allocator.allocWithOptions(u8, 6, null, 5);
+    const buf2 = try allocator.realloc(buf, 3);
+
+    allocator.free(buf2);
+}

@@ -246,7 +246,7 @@ pub const NameOrOrdinal = union(enum) {
     pub fn write(self: NameOrOrdinal, writer: anytype) !void {
         switch (self) {
             .name => |name| {
-                try writer.writeAll(std.mem.sliceAsBytes(name[0 .. name.len + 1]));
+                try writer.writeAll(std.mem.sliceAsBytes(name));
             },
             .ordinal => |ordinal| {
                 try writer.writeInt(u16, 0xffff, .little);
