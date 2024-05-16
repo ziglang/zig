@@ -3251,10 +3251,10 @@ pub fn writeAboveOrBelowLimit(
     limit: To,
 ) [*]u8 {
     @setRuntimeSafety(false);
-    buf[0..7].* = if (yn) " below ".* else " above ".*;
-    var ptr: [*]u8 = cpyEquTrunc(buf[7..][0..32], to_type_name);
-    ptr[0..10].* = if (yn) " minimum (".* else " maximum (".*;
-    ptr = formatIntDec(ptr[10..][0..32], limit);
+    buf[0..8].* = if (yn) " below '".* else " above '".*;
+    var ptr: [*]u8 = cpyEquTrunc(buf[8..][0..32], to_type_name);
+    ptr[0..11].* = if (yn) "' minimum (".* else "' maximum (".*;
+    ptr = formatIntDec(ptr[11..][0..32], limit);
     ptr[0] = ')';
     return ptr + 1;
 }
@@ -3265,7 +3265,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         const Format = panicArithOverflow(Scalar);
         const Absolute = @TypeOf(@abs(@as(Scalar, undefined)));
         const Extrema = std.meta.BestExtrema(Scalar);
-        const len: comptime_int = @typeInfo(Operand).Vector.len;
+        const len = @typeInfo(Operand).Vector.len;
         const simplify = builtin.zig_backend != .stage2_llvm;
 
         fn writeVecIdx(buf: [*]u8, idx: usize) [*]u8 {
@@ -3275,7 +3275,8 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             ptr[0..5].* = "]    ".*;
             return ptr + 5;
         }
-        pub fn add(
+        pub fn combined(
+            id: std.builtin.PanicId,
             type_name: []const u8,
             extrema: Extrema,
             lhs: Operand,
@@ -3284,72 +3285,18 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("add overflowed", null, ret_addr);
+            const op_name = switch (id) {
+                .add_overflowed => panic_messages.add_overflowed,
+                .sub_overflowed => panic_messages.sub_overflowed,
+                .mul_overflowed => panic_messages.mul_overflowed,
+                else => panic_messages.div_overflowed,
+            };
+            if (simplify) panicImpl(op_name, null, ret_addr);
             var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "add overflowed");
+            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, op_name);
             for (0..len) |idx| {
                 ptr = writeVecIdx(ptr, idx);
-                ptr = Format.writeAdd(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
-                ptr[0] = '\n';
-                ptr += 1;
-            }
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn sub(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (simplify) panicImpl("sub overflowed", null, ret_addr);
-            var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "sub overflowed");
-            for (0..len) |idx| {
-                ptr = writeVecIdx(ptr, idx);
-                ptr = Format.writeSub(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
-                ptr[0] = '\n';
-                ptr += 1;
-            }
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn mul(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (simplify) panicImpl("mul overflowed", null, ret_addr);
-            var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "mul overflowed");
-            for (0..len) |idx| {
-                ptr = writeVecIdx(ptr, idx);
-                ptr = Format.writeMul(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
-                ptr[0] = '\n';
-                ptr += 1;
-            }
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn div(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (simplify) panicImpl("div overflowed", null, ret_addr);
-            var buf: [len * 384]u8 = undefined;
-            var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "div overflowed");
-            for (0..len) |idx| {
-                ptr = writeVecIdx(ptr, idx);
-                ptr = Format.writeDiv(ptr, type_name, extrema, lhs[idx], rhs[idx], false);
+                ptr = Format.writeCombined(ptr, id, type_name, extrema, lhs[idx], rhs[idx], false);
                 ptr[0] = '\n';
                 ptr += 1;
             }
@@ -3364,7 +3311,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("left shift overflowed bits", null, ret_addr);
+            if (simplify) panicImpl(panic_messages.shl_overflowed, null, ret_addr);
             var buf: [len * 384]u8 = undefined;
             var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "left shift overflowed");
             for (0..len) |idx| {
@@ -3384,7 +3331,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("right shift overflowed bits", null, ret_addr);
+            if (simplify) panicImpl(panic_messages.shr_overflowed, null, ret_addr);
             var buf: [len * 384]u8 = undefined;
             var ptr: [*]u8 = writeWhatOverflowed(&buf, type_name, "right shift overflowed");
             for (0..len) |idx| {
@@ -3403,7 +3350,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (simplify) panicImpl("shift RHS overflowed", null, ret_addr);
+            if (simplify) panicImpl(panic_messages.shift_amt_overflowed, null, ret_addr);
             var buf: [len * 384]u8 = undefined;
             var ptr: [*]u8 = &buf;
             for (0..len) |idx| {
@@ -3421,9 +3368,9 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) [*]u8 {
             @setRuntimeSafety(false);
             var ptr: [*]u8 = cpyEqu(buf, op_name);
-            ptr[0] = ' ';
+            ptr[0..2].* = " '".*;
             ptr = cpyEquTrunc(ptr[1..][0..16], type_name);
-            ptr[0..2].* = ":\n".*;
+            ptr[0..3].* = "':\n".*;
             return ptr + 2;
         }
     };
@@ -3431,7 +3378,8 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         const Extrema = std.meta.BestExtrema(Operand);
         const Absolute = @TypeOf(@abs(@as(Operand, undefined)));
         const large: bool = @bitSizeOf(Operand) > 64;
-        pub fn add(
+        pub fn combined(
+            id: std.builtin.PanicId,
             type_name: []const u8,
             extrema: Extrema,
             lhs: Operand,
@@ -3440,51 +3388,14 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (large) panicImpl("add overflowed", null, ret_addr);
+            if (large) panicImpl(switch (id) {
+                .add_overflowed => panic_messages.add_overflowed,
+                .sub_overflowed => panic_messages.sub_overflowed,
+                .mul_overflowed => panic_messages.mul_overflowed,
+                else => panic_messages.div_overflowed,
+            }, null, ret_addr);
             var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeAdd(&buf, type_name, extrema, lhs, rhs, true);
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn sub(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (large) panicImpl("sub overflowed", null, ret_addr);
-            var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeSub(&buf, type_name, extrema, lhs, rhs, true);
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn mul(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (large) panicImpl("mul overflowed", null, ret_addr);
-            var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeMul(&buf, type_name, extrema, lhs, rhs, true);
-            panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
-        }
-        pub fn div(
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            ret_addr: usize,
-        ) noreturn {
-            @setCold(true);
-            @setRuntimeSafety(false);
-            if (large) panicImpl("div overflowed", null, ret_addr);
-            var buf: [256]u8 = undefined;
-            const ptr: [*]u8 = writeDiv(&buf, type_name, extrema, lhs, rhs, true);
+            const ptr: [*]u8 = writeCombined(&buf, id, type_name, extrema, lhs, rhs, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
         pub fn shl(
@@ -3496,7 +3407,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (large) panicImpl("shl overflowed", null, ret_addr);
+            if (large) panicImpl(panic_messages.shl_overflowed, null, ret_addr);
             var buf: [256]u8 = undefined;
             const ptr: [*]u8 = writeShl(&buf, type_name, value, shift_amt, mask, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
@@ -3510,7 +3421,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (large) panicImpl("shr overflowed", null, ret_addr);
+            if (large) panicImpl(panic_messages.shr_overflowed, null, ret_addr);
             var buf: [256]u8 = undefined;
             const ptr: [*]u8 = writeShr(&buf, type_name, value, shift_amt, mask, true);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
@@ -3523,13 +3434,14 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (large) panicImpl("shift RHS overflowed", null, ret_addr);
+            if (large) panicImpl(panic_messages.shift_amt_overflowed, null, ret_addr);
             var buf: [256]u8 = undefined;
             const ptr: [*]u8 = writeShiftRhs(&buf, type_name, bit_count, shift_amt);
             panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
-        fn writeAdd(
+        pub fn writeCombined(
             buf: [*]u8,
+            id: std.builtin.PanicId,
             type_name: []const u8,
             extrema: Extrema,
             lhs: Operand,
@@ -3537,56 +3449,33 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             what: bool,
         ) [*]u8 {
             @setRuntimeSafety(false);
-            const yn: bool = rhs < 0;
-            const ptr: [*]u8 = writeOverflowed(buf, "add overflowed ", type_name, " + ", lhs, rhs, &@addWithOverflow(lhs, rhs), what);
+            const yn: bool = switch (id) {
+                .add_overflowed => rhs < 0,
+                .sub_overflowed => rhs > 0,
+                else => @bitCast(
+                    (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
+                        (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
+                ),
+            };
+            const ptr: [*]u8 = writeOverflowed(buf, switch (id) {
+                .add_overflowed => panic_messages.add_overflowed,
+                .sub_overflowed => panic_messages.sub_overflowed,
+                .mul_overflowed => panic_messages.mul_overflowed,
+                else => panic_messages.div_overflowed,
+            }, type_name, switch (id) {
+                .add_overflowed => " + ",
+                .sub_overflowed => " - ",
+                .mul_overflowed => " * ",
+                else => " / ",
+            }, lhs, rhs, switch (id) {
+                .add_overflowed => @addWithOverflow(lhs, rhs),
+                .sub_overflowed => @subWithOverflow(lhs, rhs),
+                .mul_overflowed => @mulWithOverflow(lhs, rhs),
+                else => null,
+            }, what);
             return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
         }
-        fn writeSub(
-            buf: [*]u8,
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            what: bool,
-        ) [*]u8 {
-            @setRuntimeSafety(false);
-            const yn: bool = rhs > 0;
-            const ptr: [*]u8 = writeOverflowed(buf, "sub overflowed ", type_name, " - ", lhs, rhs, &@subWithOverflow(lhs, rhs), what);
-            return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
-        }
-        fn writeMul(
-            buf: [*]u8,
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            what: bool,
-        ) [*]u8 {
-            @setRuntimeSafety(false);
-            const ptr: [*]u8 = writeOverflowed(buf, "mul overflowed ", type_name, " * ", lhs, rhs, &@mulWithOverflow(lhs, rhs), what);
-            const yn: bool = @bitCast(
-                (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
-                    (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
-            );
-            return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
-        }
-        fn writeDiv(
-            buf: [*]u8,
-            type_name: []const u8,
-            extrema: Extrema,
-            lhs: Operand,
-            rhs: Operand,
-            what: bool,
-        ) [*]u8 {
-            @setRuntimeSafety(false);
-            const ptr: [*]u8 = writeOverflowed(buf, "div overflowed ", type_name, " / ", lhs, rhs, null, what);
-            const yn: bool = @bitCast(
-                (@intFromBool(rhs < 0) & @intFromBool(lhs > 0)) |
-                    (@intFromBool(lhs < 0) & @intFromBool(rhs > 0)),
-            );
-            return writeAboveOrBelowLimit(ptr, Operand, type_name, yn, if (yn) extrema.min else extrema.max);
-        }
-        fn writeShl(
+        pub fn writeShl(
             buf: [*]u8,
             type_name: []const u8,
             value: Operand,
@@ -3601,10 +3490,10 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             const b_pc: u16 = @popCount((absolute << @intCast(shift_amt)) & mask);
             var ptr: [*]u8 = buf;
             if (what) {
-                ptr[0..22].* = "left shift overflowed ".*;
-                ptr = cpyEquTrunc(ptr[22..][0..16], type_name);
-                ptr[0..2].* = ": ".*;
-                ptr += 2;
+                ptr[0..23].* = "left shift overflowed '".*;
+                ptr = cpyEquTrunc(ptr[23..][0..16], type_name);
+                ptr[0..3].* = "': ".*;
+                ptr += 3;
             }
             ptr = formatIntDec(ptr[0..32], value);
             ptr[0..4].* = " << ".*;
@@ -3612,7 +3501,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             if (a_pc <= b_pc) return ptr;
             return writeShiftedOutBits(ptr, a_pc -% b_pc);
         }
-        fn writeShr(
+        pub fn writeShr(
             buf: [*]u8,
             type_name: []const u8,
             value: Operand,
@@ -3627,10 +3516,10 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             const b_pc: u16 = @popCount((absolute >> @intCast(shift_amt)) & mask);
             var ptr: [*]u8 = buf;
             if (what) {
-                ptr[0..23].* = "right shift overflowed ".*;
-                ptr = cpyEquTrunc(ptr[23..][0..16], type_name);
-                ptr[0..2].* = ": ".*;
-                ptr += 2;
+                ptr[0..24].* = "right shift overflowed '".*;
+                ptr = cpyEquTrunc(ptr[24..][0..16], type_name);
+                ptr[0..3].* = "': ".*;
+                ptr += 3;
             }
             ptr = formatIntDec(ptr[0..32], value);
             ptr[0..4].* = " >> ".*;
@@ -3638,7 +3527,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             if (a_pc <= b_pc) return ptr;
             return writeShiftedOutBits(ptr, a_pc -% b_pc);
         }
-        fn writeShiftRhs(
+        pub fn writeShiftRhs(
             buf: [*]u8,
             type_name: []const u8,
             bit_count: u16,
@@ -3646,20 +3535,23 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
-            var ptr: [*]u8 = cpyEquTrunc(buf[0..16], type_name);
-            ptr[0..23].* = " RHS of shift too big: ".*;
-            ptr = formatIntDec(ptr[23..][0..32], @as(usize, shift_amt));
-            ptr[0..3].* = " > ".*;
-            return formatIntDec(ptr[3..][0..32], @as(usize, bit_count));
+            buf[0..18].* = "shift overflowed '".*;
+            var ptr: [*]u8 = cpyEquTrunc(buf[18..][0..16], type_name);
+            ptr[0..17].* = "': shift amount (".*;
+            ptr = formatIntDec(ptr[17..][0..32], @as(usize, shift_amt));
+            ptr[0..35].* = ") above bit width of integer type (".*;
+            ptr = formatIntDec(ptr[35..][0..32], @as(usize, bit_count));
+            ptr[0] = ')';
+            return ptr + 1;
         }
-        fn writeOverflowed(
+        pub fn writeOverflowed(
             buf: [*]u8,
             op_name: []const u8,
             type_name: []const u8,
             op_sym: *const [3]u8,
             lhs: Operand,
             rhs: Operand,
-            res_opt: ?*const struct { Operand, u1 },
+            res_opt: ?struct { Operand, u1 },
             what: bool,
         ) [*]u8 {
             @setCold(true);
@@ -3667,9 +3559,10 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             var ptr: [*]u8 = buf;
             if (what) {
                 ptr = cpyEqu(ptr, op_name);
-                ptr = cpyEquTrunc(ptr[0..16], type_name);
-                ptr[0..2].* = ": ".*;
-                ptr += 2;
+                ptr[0..2].* = " '".*;
+                ptr = cpyEquTrunc(ptr[2..18], type_name);
+                ptr[0..3].* = "': ".*;
+                ptr += 3;
             }
             ptr = formatIntDec(ptr[0..32], lhs);
             ptr[0..3].* = op_sym.*;
@@ -3684,7 +3577,7 @@ pub fn panicArithOverflow(comptime Operand: type) type {
             }
             return ptr;
         }
-        fn writeShiftedOutBits(
+        pub fn writeShiftedOutBits(
             buf: [*]u8,
             ov_bits: u16,
         ) [*]u8 {
@@ -3731,6 +3624,38 @@ fn formatIntDec(buf: []u8, value: anytype) [*]u8 {
 fn formatIntHex(buf: []u8, value: anytype) [*]u8 {
     return buf.ptr + std.fmt.formatIntBuf(buf, value, 16, .lower, .{});
 }
+
+pub const panic_messages = struct {
+    pub const unwrapped_error = "attempt to unwrap error";
+    pub const returned_noreturn = "'noreturn' function returned";
+    pub const reached_unreachable = "reached unreachable code";
+    pub const corrupt_switch = "switch on corrupt value";
+    pub const accessed_out_of_bounds = "index out of bounds";
+    pub const accessed_out_of_order = "start index is larger than end index";
+    pub const accessed_out_of_order_extra = accessed_out_of_bounds ++ " or " ++ accessed_out_of_order;
+    pub const accessed_inactive_field = "access of inactive union field";
+    pub const accessed_null_value = "attempt to use null value";
+    pub const divided_by_zero = "division by zero";
+    pub const memcpy_argument_aliasing = "@memcpy arguments alias";
+    pub const mismatched_memcpy_argument_lengths = "@memcpy arguments have non-equal lengths";
+    pub const mismatched_for_loop_capture_lengths = "for loop over objects with non-equal lengths";
+    pub const mismatched_sentinel = "sentinel mismatch";
+    pub const mismatched_null_sentinel = "mismatched null terminator";
+    pub const shl_overflowed = "left shift overflowed bits";
+    pub const shr_overflowed = "right shift overflowed bits";
+    pub const shift_amt_overflowed = "shift amount is greater than the type size";
+    pub const div_with_remainder = "exact division produced remainder";
+    pub const mul_overflowed = "mul overflowed";
+    pub const add_overflowed = "add overflowed";
+    pub const sub_overflowed = "sub overflowed";
+    pub const div_overflowed = "div overflowed";
+    pub const cast_truncated_data = "integer cast truncated bits";
+    pub const cast_to_enum_from_invalid = "invalid enum value";
+    pub const cast_to_error_from_invalid = "invalid error code";
+    pub const cast_to_ptr_from_invalid = "cast to invalid pointer";
+    pub const cast_to_int_from_invalid = "integer part of floating point value out of bounds";
+    pub const cast_to_unsigned_from_negative = "cast to unsigned integer from negative value";
+};
 
 test {
     _ = &dump_hex;
