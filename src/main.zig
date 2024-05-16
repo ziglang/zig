@@ -5097,6 +5097,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
+                    .use_latest_commit = false,
 
                     .package_root = undefined,
                     .error_bundle = undefined,
@@ -5105,6 +5106,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .actual_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
+                    .latest_commit = null,
 
                     .module = build_mod,
                 };
@@ -6894,6 +6896,8 @@ const usage_fetch =
     \\  --debug-hash                  Print verbose hash information to stdout
     \\  --save                        Add the fetched package to build.zig.zon
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
+    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
+    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
     \\
 ;
 
@@ -6908,7 +6912,11 @@ fn cmdFetch(
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
-    var save: union(enum) { no, yes, name: []const u8 } = .no;
+    var save: union(enum) {
+        no,
+        yes: ?[]const u8,
+        exact: ?[]const u8,
+    } = .no;
 
     {
         var i: usize = 0;
@@ -6926,9 +6934,13 @@ fn cmdFetch(
                 } else if (mem.eql(u8, arg, "--debug-hash")) {
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
-                    save = .yes;
+                    save = .{ .yes = null };
                 } else if (mem.startsWith(u8, arg, "--save=")) {
-                    save = .{ .name = arg["--save=".len..] };
+                    save = .{ .yes = arg["--save=".len..] };
+                } else if (mem.eql(u8, arg, "--save-exact")) {
+                    save = .{ .exact = null };
+                } else if (mem.startsWith(u8, arg, "--save-exact=")) {
+                    save = .{ .exact = arg["--save=".len..] };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -6988,6 +7000,7 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
+        .use_latest_commit = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
@@ -6996,6 +7009,7 @@ fn cmdFetch(
         .actual_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
+        .latest_commit = null,
 
         .module = null,
     };
@@ -7022,12 +7036,12 @@ fn cmdFetch(
             try io.getStdOut().writeAll(hex_digest ++ "\n");
             return cleanExit();
         },
-        .yes => n: {
+        .yes, .exact => |name| name: {
+            if (name) |n| break :name n;
             const fetched_manifest = fetch.manifest orelse
                 fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
-            break :n fetched_manifest.name;
+            break :name fetched_manifest.name;
         },
-        .name => |n| n,
     };
 
     const cwd_path = try process.getCwdAlloc(arena);
@@ -7052,13 +7066,43 @@ fn cmdFetch(
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
 
+    var saved_path_or_url = path_or_url;
+
+    if (fetch.latest_commit) |*latest_commit| resolved: {
+        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{std.fmt.fmtSliceHexLower(latest_commit)});
+
+        var uri = try std.Uri.parse(path_or_url);
+
+        if (uri.fragment) |fragment| {
+            const target_ref = try fragment.toRawMaybeAlloc(arena);
+
+            // the refspec may already be fully resolved
+            if (std.mem.eql(u8, target_ref, latest_commit_hex)) break :resolved;
+
+            std.log.info("resolved ref '{s}' to commit {s}", .{ target_ref, latest_commit_hex });
+
+            // include the original refspec in a query parameter, could be used to check for updates
+            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={%}", .{fragment}) };
+        } else {
+            std.log.info("resolved to commit {s}", .{latest_commit_hex});
+        }
+
+        // replace the refspec with the resolved commit SHA
+        uri.fragment = .{ .raw = latest_commit_hex };
+
+        switch (save) {
+            .yes => saved_path_or_url = try std.fmt.allocPrint(arena, "{}", .{uri}),
+            .no, .exact => {}, // keep the original URL
+        }
+    }
+
     const new_node_init = try std.fmt.allocPrint(arena,
         \\.{{
         \\            .url = "{}",
         \\            .hash = "{}",
         \\        }}
     , .{
-        std.zig.fmtEscapes(path_or_url),
+        std.zig.fmtEscapes(saved_path_or_url),
         std.zig.fmtEscapes(&hex_digest),
     });
 
@@ -7078,7 +7122,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, path_or_url)) {
+                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
