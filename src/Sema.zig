@@ -17561,12 +17561,6 @@ fn analyzeArithmetic(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
-        if (try sema.resolveValue(casted_rhs)) |casted_rhs_val| {
-            const res: Air.Inst.Ref = try RuntimeSafety.checkSimpleArithmeticOverflowOptimised(sema, block, src, air_tag, resolved_type, casted_lhs, casted_rhs, casted_rhs_val);
-            if (res != .none) {
-                return res;
-            }
-        }
         const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
             .add => .add_with_overflow,
             .sub => .sub_with_overflow,
