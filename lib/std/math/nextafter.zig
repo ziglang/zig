@@ -112,7 +112,8 @@ test "int" {
     try expect(nextAfter(u1, 0, 1) == 1);
     try expect(nextAfter(u1, 1, 1) == 1);
     try expect(nextAfter(u1, 1, 0) == 0);
-    inline for (.{ i8, i16, i32, i64, i128, i333 }) |T| {
+    const i_big = if (@import("builtin").zig_backend != .stage2_c) [1]type{i333} else [0]type{};
+    inline for (.{ i8, i16, i32, i64, i128 } ++ i_big) |T| {
         try expect(nextAfter(T, 3, 7) == 4);
         try expect(nextAfter(T, 3, -7) == 2);
         try expect(nextAfter(T, -3, -7) == -4);
@@ -123,7 +124,8 @@ test "int" {
         try expect(nextAfter(T, math.minInt(T), math.minInt(T)) == math.minInt(T));
         try expect(nextAfter(T, math.maxInt(T), math.maxInt(T)) == math.maxInt(T));
     }
-    inline for (.{ u8, u16, u32, u64, u128, u333 }) |T| {
+    const u_big = if (@import("builtin").zig_backend != .stage2_c) [1]type{u333} else [0]type{};
+    inline for (.{ u8, u16, u32, u64, u128 } ++ u_big) |T| {
         try expect(nextAfter(T, 3, 7) == 4);
         try expect(nextAfter(T, 7, 3) == 6);
         try expect(nextAfter(T, 5, 5) == 5);
