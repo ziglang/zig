@@ -6743,6 +6743,7 @@ fn addDbgVar(
         .dbg_var_val => operand_ty,
         else => unreachable,
     };
+    try sema.resolveTypeFully(val_ty);
     if (try sema.typeRequiresComptime(val_ty)) return;
     if (!(try sema.typeHasRuntimeBits(val_ty))) return;
     if (try sema.resolveValue(operand)) |operand_val| {
