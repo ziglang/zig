@@ -2256,7 +2256,10 @@ pub const LoadedStructType = struct {
 
     pub fn haveFieldTypes(s: LoadedStructType, ip: *const InternPool) bool {
         const types = s.field_types.get(ip);
-        return types.len == 0 or types[0] != .none;
+        for (types) |ty| {
+            if (ty == .none) return false;
+        }
+        return true;
     }
 
     pub fn haveFieldInits(s: LoadedStructType, ip: *const InternPool) bool {
