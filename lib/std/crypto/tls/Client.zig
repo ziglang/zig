@@ -102,12 +102,13 @@ pub fn InitError(comptime Stream: type) type {
         TlsCertificateNotVerified,
         TlsBadSignatureScheme,
         TlsBadRsaSignatureBitCount,
+        TlsDecryptError,
+        TlsConnectionTruncated,
+        TlsUnsupportedVersion,
+        TlsDecodeError,
         InvalidEncoding,
         IdentityElement,
         SignatureVerificationFailed,
-        TlsDecryptError,
-        TlsConnectionTruncated,
-        TlsDecodeError,
         MessageTooLong,
         NegativeIntoUnsigned,
         TargetTooSmall,
@@ -329,7 +330,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
                 const tls_version = if (supported_version == 0) legacy_version else supported_version;
                 if (tls_version != @intFromEnum(tls.ProtocolVersion.tls_1_3))
-                    return error.TlsIllegalParameter;
+                    return error.TlsUnsupportedVersion;
 
                 switch (cipher_suite_tag) {
                     inline .AES_128_GCM_SHA256,
