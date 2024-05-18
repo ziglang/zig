@@ -89,7 +89,7 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || Certificate.Error || error{
         InsufficientEntropy,
         DiskQuota,
         LockViolation,
@@ -99,19 +99,6 @@ pub fn InitError(comptime Stream: type) type {
         TlsDecryptFailure,
         TlsRecordOverflow,
         TlsBadRecordMac,
-        CertificateFieldHasInvalidLength,
-        CertificateHostMismatch,
-        CertificatePublicKeyInvalid,
-        CertificateExpired,
-        CertificateFieldHasWrongDataType,
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureNamedCurveUnsupported,
-        CertificateSignatureUnsupportedBitCount,
         TlsCertificateNotVerified,
         TlsBadSignatureScheme,
         TlsBadRsaSignatureBitCount,
@@ -121,10 +108,6 @@ pub fn InitError(comptime Stream: type) type {
         TlsDecryptError,
         TlsConnectionTruncated,
         TlsDecodeError,
-        UnsupportedCertificateVersion,
-        CertificateTimeInvalid,
-        CertificateHasUnrecognizedObjectId,
-        CertificateHasInvalidBitString,
         MessageTooLong,
         NegativeIntoUnsigned,
         TargetTooSmall,
