@@ -184,6 +184,10 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a17",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7-sysreg",
                 .flatten = true,
             },
@@ -205,6 +209,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "cortex-x3",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x4",
                 .flatten = true,
             },
             .{
@@ -255,6 +263,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "ampere1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "ampere1b",
                 .flatten = true,
             },
         },
@@ -680,6 +692,10 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "armv9.4-a",
                 .zig_name = "v9_4a",
+            },
+            .{
+                .llvm_name = "armv9.5-a",
+                .zig_name = "v9_5a",
             },
             .{
                 .llvm_name = "armv9-a",

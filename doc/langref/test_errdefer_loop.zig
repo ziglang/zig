@@ -1,9 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Foo = struct {
-    data: *u32
-};
+const Foo = struct { data: *u32 };
 
 fn getData() !u32 {
     return 666;

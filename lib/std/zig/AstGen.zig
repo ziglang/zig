@@ -7071,8 +7071,10 @@ fn switchExprErrUnion(
         .ctx = ri.ctx,
     };
 
-    const payload_is_ref = node_ty == .@"if" and
-        if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk;
+    const payload_is_ref = switch (node_ty) {
+        .@"if" => if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk,
+        .@"catch" => ri.rl == .ref or ri.rl == .ref_coerced_ty,
+    };
 
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.

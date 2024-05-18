@@ -36,7 +36,7 @@ fn add(
         .file = b.path("res/zig.rc"),
         .flags = &.{"/c65001"}, // UTF-8 code page
         .include_paths = &.{
-            .{ .generated = &generated_h_step.generated_directory },
+            .{ .generated = .{ .file = &generated_h_step.generated_directory } },
         },
     });
     exe.rc_includes = switch (rc_includes) {

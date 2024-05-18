@@ -1,25 +1,7 @@
-//! This file contains the functionality for lowering RISCV64 MIR into
-//! machine code
+//! This file contains the functionality for emitting RISC-V MIR as machine code
 
-const Emit = @This();
-const std = @import("std");
-const math = std.math;
-const Mir = @import("Mir.zig");
-const bits = @import("bits.zig");
-const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
-const ErrorMsg = Module.ErrorMsg;
-const assert = std.debug.assert;
-const Instruction = bits.Instruction;
-const Register = bits.Register;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
-
-mir: Mir,
-bin_file: *link.File,
+lower: Lower,
 debug_output: DebugInfoOutput,
-target: *const std.Target,
-err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,
@@ -27,195 +9,185 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-const InnerError = error{
-    OutOfMemory,
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
+relocs: std.ArrayListUnmanaged(Reloc) = .{},
+
+pub const Error = Lower.Error || error{
     EmitFail,
 };
 
-pub fn emitMir(
-    emit: *Emit,
-) InnerError!void {
-    const mir_tags = emit.mir.instructions.items(.tag);
+pub fn emitMir(emit: *Emit) Error!void {
+    log.debug("mir instruction len: {}", .{emit.lower.mir.instructions.len});
+    for (0..emit.lower.mir.instructions.len) |mir_i| {
+        const mir_index: Mir.Inst.Index = @intCast(mir_i);
+        try emit.code_offset_mapping.putNoClobber(
+            emit.lower.allocator,
+            mir_index,
+            @intCast(emit.code.items.len),
+        );
+        const lowered = try emit.lower.lowerMir(mir_index);
+        var lowered_relocs = lowered.relocs;
+        for (lowered.insts, 0..) |lowered_inst, lowered_index| {
+            const start_offset: u32 = @intCast(emit.code.items.len);
+            try lowered_inst.encode(emit.code.writer());
 
-    // Emit machine code
-    for (mir_tags, 0..) |tag, index| {
-        const inst = @as(u32, @intCast(index));
-        switch (tag) {
-            .add => try emit.mirRType(inst),
-            .sub => try emit.mirRType(inst),
+            while (lowered_relocs.len > 0 and
+                lowered_relocs[0].lowered_inst_index == lowered_index) : ({
+                lowered_relocs = lowered_relocs[1..];
+            }) switch (lowered_relocs[0].target) {
+                .inst => |target| try emit.relocs.append(emit.lower.allocator, .{
+                    .source = start_offset,
+                    .target = target,
+                    .offset = 0,
+                    .enc = std.meta.activeTag(lowered_inst.encoding.data),
+                }),
+                .load_symbol_reloc => |symbol| {
+                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                        const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                        const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
+                        const sym = elf_file.symbol(sym_index);
 
-            .addi => try emit.mirIType(inst),
-            .jalr => try emit.mirIType(inst),
-            .ld => try emit.mirIType(inst),
-            .sd => try emit.mirIType(inst),
+                        var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+                        var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
-            .ebreak => try emit.mirSystem(inst),
-            .ecall => try emit.mirSystem(inst),
-            .unimp => try emit.mirSystem(inst),
+                        if (sym.flags.needs_zig_got) {
+                            _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
 
-            .dbg_line => try emit.mirDbgLine(inst),
+                            hi_r_type = Elf.R_ZIG_GOT_HI20;
+                            lo_r_type = Elf.R_ZIG_GOT_LO12;
+                        }
 
-            .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
-            .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
+                        try atom_ptr.addReloc(elf_file, .{
+                            .r_offset = start_offset,
+                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
+                            .r_addend = 0,
+                        });
 
-            .mv => try emit.mirRR(inst),
+                        try atom_ptr.addReloc(elf_file, .{
+                            .r_offset = start_offset + 4,
+                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
+                            .r_addend = 0,
+                        });
+                    } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
+                },
+            };
+        }
+        std.debug.assert(lowered_relocs.len == 0);
 
-            .nop => try emit.mirNop(inst),
-            .ret => try emit.mirNop(inst),
+        if (lowered.insts.len == 0) {
+            const mir_inst = emit.lower.mir.instructions.get(mir_index);
+            switch (mir_inst.tag) {
+                else => unreachable,
+                .pseudo => switch (mir_inst.ops) {
+                    else => unreachable,
+                    .pseudo_dbg_prologue_end => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setPrologueEnd();
+                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_line_column => try emit.dbgAdvancePCAndLine(
+                        mir_inst.data.pseudo_dbg_line_column.line,
+                        mir_inst.data.pseudo_dbg_line_column.column,
+                    ),
+                    .pseudo_dbg_epilogue_begin => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setEpilogueBegin();
+                                log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dead => {},
+                },
+            }
+        }
+    }
+    try emit.fixupRelocs();
+}
 
-            .lui => try emit.mirUType(inst),
+pub fn deinit(emit: *Emit) void {
+    emit.relocs.deinit(emit.lower.allocator);
+    emit.code_offset_mapping.deinit(emit.lower.allocator);
+    emit.* = undefined;
+}
+
+const Reloc = struct {
+    /// Offset of the instruction.
+    source: usize,
+    /// Target of the relocation.
+    target: Mir.Inst.Index,
+    /// Offset of the relocation within the instruction.
+    offset: u32,
+    /// Encoding of the instruction, used to determine how to modify it.
+    enc: Encoding.InstEnc,
+};
+
+fn fixupRelocs(emit: *Emit) Error!void {
+    for (emit.relocs.items) |reloc| {
+        log.debug("target inst: {}", .{emit.lower.mir.instructions.get(reloc.target)});
+        const target = emit.code_offset_mapping.get(reloc.target) orelse
+            return emit.fail("relocation target not found!", .{});
+
+        const disp = @as(i32, @intCast(target)) - @as(i32, @intCast(reloc.source));
+        const code: *[4]u8 = emit.code.items[reloc.source + reloc.offset ..][0..4];
+
+        log.debug("disp: {x}", .{disp});
+
+        switch (reloc.enc) {
+            .J => riscv_util.writeInstJ(code, @bitCast(disp)),
+            .B => riscv_util.writeInstB(code, @bitCast(disp)),
+            else => return emit.fail("tried to reloc encoding type {s}", .{@tagName(reloc.enc)}),
         }
     }
 }
 
-pub fn deinit(emit: *Emit) void {
-    emit.* = undefined;
-}
-
-fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
-    const endian = emit.target.cpu.arch.endian();
-    std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
-}
-
-fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
-    assert(emit.err_msg == null);
-    const comp = emit.bin_file.comp;
-    const gpa = comp.gpa;
-    emit.err_msg = try ErrorMsg.create(gpa, emit.src_loc, format, args);
-    return error.EmitFail;
-}
-
-fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
-    const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(self.prev_di_line));
-    const delta_pc: usize = self.code.items.len - self.prev_di_pc;
-    switch (self.debug_output) {
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
+    const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
+    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
+    switch (emit.debug_output) {
         .dwarf => |dw| {
+            if (column != emit.prev_di_column) try dw.setColumn(column);
+            if (delta_line == 0) return; // TODO: fix these edge cases.
             try dw.advancePCAndLine(delta_line, delta_pc);
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-
-            // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, delta_line);
-            // increasing the pc
-            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
-                try dbg_out.dbg_line.append(@as(u8, @intCast(@divExact(d_pc_p9, dbg_out.pc_quanta) + 128)) - dbg_out.pc_quanta);
-                if (dbg_out.pcop_change_index) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @as(u32, @intCast(dbg_out.dbg_line.items.len - 1));
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the pc quanta does it for us
-            } else unreachable;
-            if (dbg_out.start_line == null)
-                dbg_out.start_line = self.prev_di_line;
-            dbg_out.end_line = line;
-            // only do this if the pc changed
-            self.prev_di_line = line;
-            self.prev_di_column = column;
-            self.prev_di_pc = self.code.items.len;
-        },
-        .none => {},
-    }
-}
-
-fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const r_type = emit.mir.instructions.items(.data)[inst].r_type;
-
-    switch (tag) {
-        .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
-        .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
-        else => unreachable,
-    }
-}
-
-fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const i_type = emit.mir.instructions.items(.data)[inst].i_type;
-
-    switch (tag) {
-        .addi => try emit.writeInstruction(Instruction.addi(i_type.rd, i_type.rs1, i_type.imm12)),
-        .jalr => try emit.writeInstruction(Instruction.jalr(i_type.rd, i_type.imm12, i_type.rs1)),
-        .ld => try emit.writeInstruction(Instruction.ld(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sd => try emit.writeInstruction(Instruction.sd(i_type.rd, i_type.imm12, i_type.rs1)),
-        else => unreachable,
-    }
-}
-
-fn mirSystem(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-
-    switch (tag) {
-        .ebreak => try emit.writeInstruction(Instruction.ebreak),
-        .ecall => try emit.writeInstruction(Instruction.ecall),
-        .unimp => try emit.writeInstruction(Instruction.unimp),
-        else => unreachable,
-    }
-}
-
-fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_line_column = emit.mir.instructions.items(.data)[inst].dbg_line_column;
-
-    switch (tag) {
-        .dbg_line => try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column),
-        else => unreachable,
-    }
-}
-
-fn mirDebugPrologueEnd(self: *Emit) !void {
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            try dw.setPrologueEnd();
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
+            emit.prev_di_line = line;
+            emit.prev_di_column = column;
+            emit.prev_di_pc = emit.code.items.len;
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn mirDebugEpilogueBegin(self: *Emit) !void {
-    switch (self.debug_output) {
-        .dwarf => |dw| {
-            try dw.setEpilogueBegin();
-            try self.dbgAdvancePCAndLine(self.prev_di_line, self.prev_di_column);
-        },
-        .plan9 => {},
-        .none => {},
-    }
+fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
+    return switch (emit.lower.fail(format, args)) {
+        error.LowerFail => error.EmitFail,
+        else => |e| e,
+    };
 }
 
-fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const rr = emit.mir.instructions.items(.data)[inst].rr;
+const link = @import("../../link.zig");
+const log = std.log.scoped(.emit);
+const mem = std.mem;
+const std = @import("std");
 
-    switch (tag) {
-        .mv => try emit.writeInstruction(Instruction.addi(rr.rd, rr.rs, 0)),
-        else => unreachable,
-    }
-}
-fn mirUType(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const u_type = emit.mir.instructions.items(.data)[inst].u_type;
-
-    switch (tag) {
-        .lui => try emit.writeInstruction(Instruction.lui(u_type.rd, u_type.imm20)),
-        else => unreachable,
-    }
-}
-
-fn mirNop(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-
-    switch (tag) {
-        .nop => try emit.writeInstruction(Instruction.addi(.zero, .zero, 0)),
-        .ret => try emit.writeInstruction(Instruction.jalr(.zero, 0, .ra)),
-        else => unreachable,
-    }
-}
+const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const Emit = @This();
+const Lower = @import("Lower.zig");
+const Mir = @import("Mir.zig");
+const riscv_util = @import("../../link/riscv.zig");
+const Encoding = @import("Encoding.zig");
+const Elf = @import("../../link/Elf.zig");

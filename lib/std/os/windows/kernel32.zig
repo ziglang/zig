@@ -82,7 +82,7 @@ pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
-    lpName: [*:0]const u16,
+    lpName: ?LPCWSTR,
     dwFlags: DWORD,
     dwDesiredAccess: DWORD,
 ) callconv(WINAPI) ?HANDLE;
@@ -165,6 +165,7 @@ pub extern "kernel32" fn GetCommandLineA() callconv(WINAPI) LPSTR;
 pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
 
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_dwMode: DWORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetConsoleOutputCP() callconv(WINAPI) UINT;
 

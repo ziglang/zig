@@ -10499,9 +10499,10 @@ fn intCast(
             const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(mod, operand_scalar_ty);
             const dest_max_val = try sema.splat(operand_ty, dest_max_val_scalar);
             const dest_max = Air.internedToRef(dest_max_val.toIntern());
-            const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
 
             if (actual_info.signedness == .signed) {
+                const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
+
                 // Reinterpret the sign-bit as part of the value. This will make
                 // negative differences (`operand` > `dest_max`) appear too big.
                 const unsigned_scalar_operand_ty = try mod.intType(.unsigned, actual_bits);
@@ -10542,7 +10543,7 @@ fn intCast(
                 try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
             } else {
                 const ok = if (is_vector) ok: {
-                    const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
+                    const is_in_range = try block.addCmpVector(operand, dest_max, .lte);
                     const all_in_range = try block.addInst(.{
                         .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
@@ -10552,7 +10553,7 @@ fn intCast(
                     });
                     break :ok all_in_range;
                 } else ok: {
-                    const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
+                    const is_in_range = try block.addBinOp(.cmp_lte, operand, dest_max);
                     break :ok is_in_range;
                 };
                 try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);

@@ -92,6 +92,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hsail64 => "hsail64",
         .spir => "spir",
         .spir64 => "spir64",
+        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -109,8 +110,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
-        .ananas => "ananas",
-        .cloudabi => "cloudabi",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
@@ -123,7 +122,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .windows => "windows",
         .zos => "zos",
         .haiku => "haiku",
-        .minix => "minix",
         .rtems => "rtems",
         .nacl => "nacl",
         .aix => "aix",
@@ -134,7 +132,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ps5 => "ps5",
         .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
-        .contiki => "contiki",
         .amdpal => "amdpal",
         .hermit => "hermit",
         .hurd => "hurd",
@@ -148,10 +145,17 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
         .liteos => "liteos",
+        .visionos => "xros",
+        .serenity => "serenity",
+        .vulkan => "vulkan",
+
         .opencl,
         .glsl450,
-        .vulkan,
         .plan9,
+        .ananas,
+        .cloudabi,
+        .minix,
+        .contiki,
         .other,
         => "unknown",
     };
@@ -216,10 +220,18 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
 pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
     return switch (os_tag) {
-        .freestanding, .other, .opencl, .glsl450, .vulkan, .plan9 => .UnknownOS,
+        .freestanding,
+        .other,
+        .opencl,
+        .glsl450,
+        .plan9,
+        .ananas,
+        .cloudabi,
+        .minix,
+        .contiki,
+        => .UnknownOS,
+
         .windows, .uefi => .Win32,
-        .ananas => .Ananas,
-        .cloudabi => .CloudABI,
         .dragonfly => .DragonFly,
         .freebsd => .FreeBSD,
         .fuchsia => .Fuchsia,
@@ -233,7 +245,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .solaris, .illumos => .Solaris,
         .zos => .ZOS,
         .haiku => .Haiku,
-        .minix => .Minix,
         .rtems => .RTEMS,
         .nacl => .NaCl,
         .aix => .AIX,
@@ -245,8 +256,8 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .elfiamcu => .ELFIAMCU,
         .tvos => .TvOS,
         .watchos => .WatchOS,
+        .visionos => .XROS,
         .mesa3d => .Mesa3D,
-        .contiki => .Contiki,
         .amdpal => .AMDPAL,
         .hermit => .HermitCore,
         .hurd => .Hurd,
@@ -255,6 +266,8 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .driverkit => .DriverKit,
         .shadermodel => .ShaderModel,
         .liteos => .LiteOS,
+        .vulkan => .Vulkan,
+        .serenity => .Serenity,
     };
 }
 
@@ -310,6 +323,9 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .hsail64 => .hsail64,
         .spir => .spir,
         .spir64 => .spir64,
+        .spirv => .spirv,
+        .spirv32 => .spirv32,
+        .spirv64 => .spirv64,
         .kalimba => .kalimba,
         .shave => .shave,
         .lanai => .lanai,
@@ -318,7 +334,7 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .renderscript32 => .renderscript32,
         .renderscript64 => .renderscript64,
         .ve => .ve,
-        .spu_2, .spirv32, .spirv64 => .UnknownArch,
+        .spu_2 => .UnknownArch,
     };
 }
 
@@ -593,7 +609,7 @@ const DataLayoutBuilder = struct {
         switch (kind) {
             .integer => {
                 if (self.target.ptrBitWidth() <= 16 and size >= 128) return;
-                abi = @min(abi, self.target.maxIntAlignment() * 8);
+                abi = @min(abi, Type.maxIntAlignment(self.target, true) * 8);
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,
@@ -602,7 +618,7 @@ const DataLayoutBuilder = struct {
                         abi = size;
                         pref = size;
                     } else switch (self.target.os.tag) {
-                        .macos, .ios => {},
+                        .macos, .ios, .watchos, .tvos, .visionos => {},
                         .uefi, .windows => {
                             pref = size;
                             force_abi = size >= 32;
@@ -654,6 +670,20 @@ const DataLayoutBuilder = struct {
                         pref = @max(size, 32);
                         abi = size;
                         force_abi = size == 64;
+                    },
+                    .x86 => switch (size) {
+                        128 => {
+                            abi = size;
+                            pref = size;
+                        },
+                        else => {},
+                    },
+                    .x86_64 => switch (size) {
+                        64, 128 => {
+                            abi = size;
+                            pref = size;
+                        },
+                        else => {},
                     },
                     else => {},
                 }
@@ -4744,8 +4774,8 @@ pub const DeclGen = struct {
                 debug_global_var,
                 debug_expression,
             );
-            if (!is_internal_linkage or decl.isExtern(zcu))
-                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+
+            variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
             try o.debug_globals.append(o.gpa, debug_global_var_expression);
         }
     }
@@ -10974,12 +11004,27 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, targ
     };
 }
 
+fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
+    if (isByRef(ty, zcu)) {
+        return true;
+    } else if (target.cpu.arch.isX86() and
+        !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+        ty.totalVectorBits(zcu) >= 512)
+    {
+        // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
+        // "512-bit vector arguments require 'evex512' for AVX512"
+        return true;
+    } else {
+        return false;
+    }
+}
+
 fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Target) bool {
     const return_type = Type.fromInterned(fn_info.return_type);
     if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
     return switch (fn_info.cc) {
-        .Unspecified, .Inline => isByRef(return_type, zcu),
+        .Unspecified, .Inline => returnTypeByRef(zcu, target, return_type),
         .C => switch (target.cpu.arch) {
             .mips, .mipsel => false,
             .x86 => isByRef(return_type, zcu),
@@ -11027,7 +11072,8 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
     switch (fn_info.cc) {
         .Unspecified,
         .Inline,
-        => return if (isByRef(return_type, mod)) .void else o.lowerType(return_type),
+        => return if (returnTypeByRef(mod, target, return_type)) .void else o.lowerType(return_type),
+
         .C => {
             switch (target.cpu.arch) {
                 .mips, .mipsel => return o.lowerType(return_type),
@@ -11086,6 +11132,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             }
                             return o.builder.structType(.normal, types[0..types_len]);
                         },
+                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11135,9 +11182,17 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
                 types_buffer[types_index] = .i64;
                 types_index += 1;
             },
-            .sse, .sseup => {
+            .sse => {
                 types_buffer[types_index] = .double;
                 types_index += 1;
+            },
+            .sseup => {
+                if (types_buffer[types_index - 1] == .double) {
+                    types_buffer[types_index - 1] = .fp128;
+                } else {
+                    types_buffer[types_index] = .double;
+                    types_index += 1;
+                }
             },
             .float => {
                 types_buffer[types_index] = .float;
@@ -11250,6 +11305,13 @@ const ParamTypeIterator = struct {
                     return .slice;
                 } else if (isByRef(ty, zcu)) {
                     return .byref;
+                } else if (target.cpu.arch.isX86() and
+                    !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+                    ty.totalVectorBits(zcu) >= 512)
+                {
+                    // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
+                    // "512-bit vector arguments require 'evex512' for AVX512"
+                    return .byref;
                 } else {
                     return .byval;
                 }
@@ -11328,6 +11390,7 @@ const ParamTypeIterator = struct {
                             it.llvm_index += it.types_len - 1;
                             return .multiple_llvm_types;
                         },
+                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11415,9 +11478,17 @@ const ParamTypeIterator = struct {
                     types_buffer[types_index] = .i64;
                     types_index += 1;
                 },
-                .sse, .sseup => {
+                .sse => {
                     types_buffer[types_index] = .double;
                     types_index += 1;
+                },
+                .sseup => {
+                    if (types_buffer[types_index - 1] == .double) {
+                        types_buffer[types_index - 1] = .fp128;
+                    } else {
+                        types_buffer[types_index] = .double;
+                        types_index += 1;
+                    }
                 },
                 .float => {
                     types_buffer[types_index] = .float;
@@ -11508,28 +11579,37 @@ fn ccAbiPromoteInt(
         .Int, .Enum, .ErrorSet => ty.intInfo(mod),
         else => return null,
     };
-    if (int_info.bits <= 16) return int_info.signedness;
-    switch (target.cpu.arch) {
-        .riscv64 => {
-            if (int_info.bits == 32) {
-                // LLVM always signextends 32 bit ints, unsure if bug.
-                return .signed;
-            }
-            if (int_info.bits < 64) {
-                return int_info.signedness;
-            }
+    return switch (target.os.tag) {
+        .macos, .ios, .watchos, .tvos, .visionos => switch (int_info.bits) {
+            0...16 => int_info.signedness,
+            else => null,
         },
-        .sparc64,
-        .powerpc64,
-        .powerpc64le,
-        => {
-            if (int_info.bits < 64) {
-                return int_info.signedness;
-            }
+        else => switch (target.cpu.arch) {
+            .riscv64 => switch (int_info.bits) {
+                0...16 => int_info.signedness,
+                32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
+                17...31, 33...63 => int_info.signedness,
+                else => null,
+            },
+
+            .sparc64,
+            .powerpc64,
+            .powerpc64le,
+            => switch (int_info.bits) {
+                0...63 => int_info.signedness,
+                else => null,
+            },
+
+            .aarch64,
+            .aarch64_be,
+            => null,
+
+            else => switch (int_info.bits) {
+                0...16 => int_info.signedness,
+                else => null,
+            },
         },
-        else => {},
-    }
-    return null;
+    };
 }
 
 /// This is the one source of truth for whether a type is passed around as an LLVM pointer,
@@ -11969,6 +12049,9 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .shave,
         .spir,
         .spir64,
+        .spirv,
+        .spirv32,
+        .spirv64,
         .kalimba,
         .renderscript32,
         .renderscript64,
@@ -11978,7 +12061,5 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         => {},
 
         .spu_2 => unreachable, // LLVM does not support this backend
-        .spirv32 => unreachable, // LLVM does not support this backend
-        .spirv64 => unreachable, // LLVM does not support this backend
     }
 }

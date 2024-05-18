@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cwchar>  // mbstate_t
+#include <cwchar>   // mbstate_t
 #include <limits.h> // MB_LEN_MAX
 #include <stdlib.h> // MB_CUR_MAX, size_t
 #include <string.h> // memcpy
@@ -17,11 +17,12 @@
 // converted from *src, excluding the null terminator.
 // Returns (size_t) -1 if an error occurs and sets errno.
 // If `dst` is NULL, `dst_size_bytes` is ignored and no bytes are copied to `dst`.
-_LIBCPP_EXPORTED_FROM_ABI
-size_t wcsnrtombs(char *__restrict dst, const wchar_t **__restrict src,
-                   size_t max_source_chars, size_t dst_size_bytes,
-                   mbstate_t *__restrict ps) {
-
+_LIBCPP_EXPORTED_FROM_ABI size_t wcsnrtombs(
+    char* __restrict dst,
+    const wchar_t** __restrict src,
+    size_t max_source_chars,
+    size_t dst_size_bytes,
+    mbstate_t* __restrict ps) {
   const size_t invalid_wchar = static_cast<size_t>(-1);
 
   size_t source_converted;
@@ -36,7 +37,7 @@ size_t wcsnrtombs(char *__restrict dst, const wchar_t **__restrict src,
   for (dest_converted = source_converted = 0;
        source_converted < max_source_chars && (!dst || dest_converted < dst_size_bytes);
        ++source_converted, dest_converted += result) {
-    wchar_t c = (*src)[source_converted];
+    wchar_t c             = (*src)[source_converted];
     size_t dest_remaining = dst_size_bytes - dest_converted;
 
     if (dst == nullptr) {
@@ -46,12 +47,12 @@ size_t wcsnrtombs(char *__restrict dst, const wchar_t **__restrict src,
       result = wcrtomb(dst + dest_converted, c, ps);
     } else {
       /*
-      * dst may not have enough space, so use a temporary buffer.
-      *
-      * We need to save a copy of the conversion state
-      * here so we can restore it if the multibyte
-      * character is too long for the buffer.
-      */
+       * dst may not have enough space, so use a temporary buffer.
+       *
+       * We need to save a copy of the conversion state
+       * here so we can restore it if the multibyte
+       * character is too long for the buffer.
+       */
       char buff[MB_LEN_MAX];
       mbstate_t mbstate_tmp;
 
