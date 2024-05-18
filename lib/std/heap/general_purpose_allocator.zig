@@ -732,6 +732,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
                         if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
+                            size_class = bucket.emptyBucketSizeClass();
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
@@ -850,6 +851,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
                         if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
+                            size_class = bucket.emptyBucketSizeClass();
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
