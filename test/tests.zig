@@ -412,13 +412,28 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .none,
-            },
-        },
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .none,
+        //    },
+        //    .use_llvm = true,
+        //},
+
+        // Disabled until LLVM fixes their O(N^2) codegen.
+        // https://github.com/ziglang/zig/issues/18872
+        //.{
+        //    .target = .{
+        //        .cpu_arch = .riscv64,
+        //        .os_tag = .linux,
+        //        .abi = .musl,
+        //    },
+        //    .link_libc = true,
+        //    .use_llvm = true,
+        //},
 
         .{
             .target = .{
@@ -426,7 +441,8 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .musl,
             },
-            .link_libc = true,
+            .use_llvm = false,
+            .use_lld = false,
         },
 
         // https://github.com/ziglang/zig/issues/3340
@@ -641,7 +657,7 @@ pub fn addStackTraceTests(
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
-        .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
+        .root_source_file = b.path("test/src/check-stack-trace.zig"),
         .target = b.host,
         .optimize = .Debug,
     });
@@ -817,12 +833,12 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
         defer dir.close();
-        dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
-        dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt1.zig", .data = unformatted_code }) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt2.zig", .data = unformatted_code }) catch @panic("unhandled");
         dir.makeDir("subdir") catch @panic("unhandled");
         var subdir = dir.openDir("subdir", .{}) catch @panic("unhandled");
         defer subdir.close();
-        subdir.writeFile("fmt3.zig", unformatted_code) catch @panic("unhandled");
+        subdir.writeFile(.{ .sub_path = "fmt3.zig", .data = unformatted_code }) catch @panic("unhandled");
 
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.graph.zig_exe, "fmt", "fmt1.zig" });
@@ -879,7 +895,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run6.step.dependOn(&write6.step);
 
         // TODO change this to an exact match
-        const check6 = b.addCheckFile(.{ .path = fmt6_path }, .{
+        const check6 = b.addCheckFile(.{ .cwd_relative = fmt6_path }, .{
             .expected_matches = &.{
                 "// no reason",
             },
@@ -1013,6 +1029,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
+        if (target.cpu.arch != .x86_64 and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
+            continue;
+
         if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
             test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
             mem.eql(u8, options.name, "std"))
@@ -1037,7 +1057,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             options.max_rss;
 
         const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = options.root_src },
+            .root_source_file = b.path(options.root_src),
             .optimize = test_target.optimize_mode,
             .target = resolved_target,
             .max_rss = max_rss,
@@ -1046,7 +1066,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
-            .zig_lib_dir = .{ .path = "lib" },
+            .zig_lib_dir = b.path("lib"),
             .pic = test_target.pic,
             .strip = test_target.strip,
         });
@@ -1062,7 +1082,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        for (options.include_paths) |include_path| these_tests.addIncludePath(.{ .path = include_path });
+        for (options.include_paths) |include_path| these_tests.addIncludePath(b.path(include_path));
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
@@ -1084,7 +1104,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = b.resolveTargetQuery(altered_query),
-                .zig_lib_dir = .{ .path = "lib" },
+                .zig_lib_dir = b.path("lib"),
             });
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
@@ -1092,8 +1112,16 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     // Tracking issue for making the C backend generate C89 compatible code:
                     // https://github.com/ziglang/zig/issues/19468
                     "-std=c99",
-                    "-pedantic",
                     "-Werror",
+
+                    "-Wall",
+                    "-Wembedded-directive",
+                    "-Wempty-translation-unit",
+                    "-Wextra",
+                    "-Wgnu",
+                    "-Winvalid-utf8",
+                    "-Wkeyword-macro",
+                    "-Woverlength-strings",
 
                     // Tracking issue for making the C backend generate code
                     // that does not trigger warnings:
@@ -1103,17 +1131,17 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-builtin-requires-header",
 
                     // spotted on linux
-                    "-Wno-gnu-folding-constant",
-                    "-Wno-incompatible-function-pointer-types",
-                    "-Wno-incompatible-pointer-types",
-                    "-Wno-overlength-strings",
+                    "-Wno-braced-scalar-init",
+                    "-Wno-excess-initializers",
+                    "-Wno-incompatible-pointer-types-discards-qualifiers",
+                    "-Wno-unused",
+                    "-Wno-unused-parameter",
 
                     // spotted on darwin
-                    "-Wno-dollar-in-identifier-extension",
-                    "-Wno-absolute-value",
+                    "-Wno-incompatible-pointer-types",
                 },
             });
-            compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
+            compile_c.addIncludePath(b.path("lib")); // for zig.h
             if (target.os.tag == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
@@ -1189,7 +1217,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
                     if (c_abi_target.pic == true) "-pic" else "",
                 }),
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .root_source_file = b.path("test/c_abi/main.zig"),
                 .target = resolved_target,
                 .optimize = optimize_mode,
                 .link_libc = true,
@@ -1199,7 +1227,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .strip = c_abi_target.strip,
             });
             test_step.addCSourceFile(.{
-                .file = .{ .path = "test/c_abi/cfuncs.c" },
+                .file = b.path("test/c_abi/cfuncs.c"),
                 .flags = &.{"-std=c99"},
             });
             for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);

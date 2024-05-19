@@ -30,7 +30,7 @@ export fn entry6() void {
 }
 export fn entry7() void {
     _ = @sizeOf(packed struct {
-        x: enum { A, B },
+        x: enum(u1) { A, B },
     });
 }
 export fn entry8() void {
@@ -70,6 +70,12 @@ export fn entry13() void {
         x: *type,
     });
 }
+export fn entry14() void {
+    const E = enum { implicit, backing, type };
+    _ = @sizeOf(packed struct {
+        x: E,
+    });
+}
 
 // error
 // backend=llvm
@@ -97,3 +103,5 @@ export fn entry13() void {
 // :70:12: error: packed structs cannot contain fields of type '*type'
 // :70:12: note: comptime-only pointer has no guaranteed in-memory representation
 // :70:12: note: types are not available at runtime
+// :76:12: error: packed structs cannot contain fields of type 'tmp.entry14.E'
+// :74:15: note: enum declared here

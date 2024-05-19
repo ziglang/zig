@@ -5,6 +5,7 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    backchain,
     bear_enhancement,
     deflate_conversion,
     dfp_packed_conversion,
@@ -57,6 +58,11 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@intFromEnum(Feature.backchain)] = .{
+        .llvm_name = "backchain",
+        .description = "Store the address of the caller's frame into the callee's stack frame",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.bear_enhancement)] = .{
         .llvm_name = "bear-enhancement",
         .description = "Assume that the BEAR-enhancement facility is installed",

@@ -242,6 +242,9 @@ pub const WriteToStreamOptions = struct {
 
     /// When true, include the fragment part of the URI. Ignored when `path` is false.
     fragment: bool = false,
+
+    /// When true, include the port part of the URI. Ignored when `port` is null.
+    port: bool = true,
 };
 
 pub fn writeToStream(
@@ -267,7 +270,9 @@ pub fn writeToStream(
         }
         if (uri.host) |host| {
             try writer.print("{host}", .{host});
-            if (uri.port) |port| try writer.print(":{d}", .{port});
+            if (options.port) {
+                if (uri.port) |port| try writer.print(":{d}", .{port});
+            }
         }
     }
     if (options.path) {

@@ -253,7 +253,7 @@ pub const Connection = struct {
         if (conn.read_end != conn.read_start) return;
 
         var iovecs = [1]std.posix.iovec{
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
         if (nread == 0) return error.EndOfStream;
@@ -289,8 +289,8 @@ pub const Connection = struct {
         }
 
         var iovecs = [2]std.posix.iovec{
-            .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = buffer.ptr, .len = buffer.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
 
@@ -805,7 +805,7 @@ pub const Request = struct {
         }
 
         req.uri = valid_uri;
-        req.connection = try req.client.connect(new_host, valid_uri.port.?, protocol);
+        req.connection = try req.client.connect(new_host, uriPort(valid_uri, protocol), protocol);
         req.redirect_behavior.subtractOne();
         req.response.parser.reset();
 
@@ -1264,7 +1264,7 @@ fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?
         .protocol = protocol,
         .host = valid_uri.host.?.raw,
         .authorization = authorization,
-        .port = valid_uri.port.?,
+        .port = uriPort(valid_uri, protocol),
         .supports_connect = true,
     };
     return proxy;
@@ -1570,7 +1570,7 @@ pub const RequestOptions = struct {
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+    const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },
@@ -1582,11 +1582,14 @@ fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } 
     valid_uri.host = .{
         .raw = try (uri.host orelse return error.UriMissingHost).toRawMaybeAlloc(arena),
     };
-    valid_uri.port = uri.port orelse switch (protocol) {
+    return .{ protocol, valid_uri };
+}
+
+fn uriPort(uri: Uri, protocol: Connection.Protocol) u16 {
+    return uri.port orelse switch (protocol) {
         .plain => 80,
         .tls => 443,
     };
-    return .{ protocol, valid_uri };
 }
 
 /// Open a connection to the host specified by `uri` and prepare to send a HTTP request.
@@ -1634,7 +1637,7 @@ pub fn open(
     }
 
     const conn = options.connection orelse
-        try client.connect(valid_uri.host.?.raw, valid_uri.port.?, protocol);
+        try client.connect(valid_uri.host.?.raw, uriPort(valid_uri, protocol), protocol);
 
     var req: Request = .{
         .uri = valid_uri,

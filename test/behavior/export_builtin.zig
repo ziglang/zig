@@ -5,7 +5,6 @@ const expect = std.testing.expect;
 test "exporting enum type and value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(c_int) { one, two };
@@ -20,7 +19,6 @@ test "exporting enum type and value" {
 test "exporting with internal linkage" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
         fn foo() callconv(.C) void {}
@@ -34,7 +32,6 @@ test "exporting with internal linkage" {
 test "exporting using field access" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const S = struct {
         const Inner = struct {
@@ -51,6 +48,7 @@ test "exporting using field access" {
 test "exporting comptime-known value" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
         builtin.target.ofmt != .macho and
@@ -70,6 +68,7 @@ test "exporting comptime-known value" {
 test "exporting comptime var" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
         builtin.target.ofmt != .macho and

@@ -43,7 +43,8 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
                 if (isReachable(atom, rel, macho_file)) continue;
                 try thunk.symbols.put(gpa, rel.target, {});
             }
-            atom.thunk_index = thunk_index;
+            try atom.addExtra(.{ .thunk = thunk_index }, macho_file);
+            atom.flags.thunk = true;
         }
 
         thunk.value = try advance(header, thunk.size(), .@"4");
@@ -99,7 +100,7 @@ pub const Thunk = struct {
             const sym = macho_file.getSymbol(sym_index);
             const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
             const taddr = sym.getAddress(.{}, macho_file);
-            const pages = try aarch64.calcNumberOfPages(saddr, taddr);
+            const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
             try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
             const off: u12 = @truncate(taddr);
             try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);

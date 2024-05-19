@@ -20,6 +20,7 @@ fn testDerefPtr() !void {
 test "pointer arithmetic" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var ptr: [*]const u8 = "abcd";
 
@@ -68,6 +69,7 @@ test "initialize const optional C pointer to null" {
 
 test "assigning integer to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: i32 = 0;
     var y: i32 = 1;
@@ -85,6 +87,7 @@ test "assigning integer to C pointer" {
 
 test "C pointer comparison and arithmetic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -154,6 +157,7 @@ test "implicit casting between C pointer and optional non-C pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var slice: []const u8 = "aoeu";
     _ = &slice;
@@ -170,6 +174,7 @@ test "implicit cast error unions with non-optional to optional pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -197,6 +202,7 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var ptr: [*]allowzero i32 = @ptrFromInt(0);
     const opt_ptr: ?[*]allowzero i32 = ptr;
@@ -216,6 +222,7 @@ test "assign null directly to C pointer and test null equality" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: [*c]i32 = null;
     _ = &x;
@@ -283,6 +290,7 @@ test "array initialization types" {
 test "null terminated pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -300,6 +308,7 @@ test "null terminated pointer" {
 test "allow any sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -315,6 +324,7 @@ test "allow any sentinel" {
 test "pointer sentinel with enums" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Number = enum {
@@ -337,6 +347,7 @@ test "pointer sentinel with optional element" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -353,6 +364,7 @@ test "pointer sentinel with +inf" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -430,6 +442,7 @@ test "indexing array with sentinel returns correct type" {
 test "element pointer to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -452,6 +465,7 @@ test "element pointer to slice" {
 test "element pointer arithmetic to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -476,6 +490,7 @@ test "element pointer arithmetic to slice" {
 
 test "array slicing to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -506,6 +521,7 @@ test "ptrCast comptime known slice to C pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const s: [:0]const u8 = "foo";
     var p: [*c]const u8 = @ptrCast(s);
@@ -525,6 +541,7 @@ test "pointer alignment and element type include call expression" {
 
 test "pointer to array has explicit alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Base = extern struct { a: u8 };
@@ -620,4 +637,40 @@ test "cast pointers with zero sized elements" {
     const c: *[0]u8 = undefined;
     const d: []u8 = c;
     _ = d;
+}
+
+test "comptime pointer equality through distinct fields with well-defined layout" {
+    const A = extern struct {
+        x: u32,
+        z: u16,
+    };
+    const B = extern struct {
+        x: u16,
+        y: u16,
+        z: u16,
+    };
+
+    const a: A = .{
+        .x = undefined,
+        .z = 123,
+    };
+
+    const ap: *const A = &a;
+    const bp: *const B = @ptrCast(ap);
+
+    comptime assert(&ap.z == &bp.z);
+    comptime assert(ap.z == 123);
+    comptime assert(bp.z == 123);
+}
+
+test "comptime pointer equality through distinct elements with well-defined layout" {
+    const buf: [2]u32 = .{ 123, 456 };
+
+    const ptr: *const [2]u32 = &buf;
+    const byte_ptr: *align(4) const [8]u8 = @ptrCast(ptr);
+    const second_elem: *const u32 = @ptrCast(byte_ptr[4..8]);
+
+    comptime assert(&buf[1] == second_elem);
+    comptime assert(buf[1] == 456);
+    comptime assert(second_elem.* == 456);
 }

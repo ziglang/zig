@@ -9,6 +9,7 @@ pub const Feature = enum {
     bulk_memory,
     exception_handling,
     extended_const,
+    multimemory,
     multivalue,
     mutable_globals,
     nontrapping_fptoint,
@@ -46,6 +47,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.extended_const)] = .{
         .llvm_name = "extended-const",
         .description = "Enable extended const expressions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.multimemory)] = .{
+        .llvm_name = "multimemory",
+        .description = "Enable multiple memories",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multivalue)] = .{

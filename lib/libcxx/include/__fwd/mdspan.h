@@ -42,14 +42,11 @@ struct layout_right {
   class mapping;
 };
 
-/*
-// Will be implemented with follow on revision
 // Layout policy with a unique mapping where strides are arbitrary
 struct layout_stride {
-  template<class Extents>
-    class mapping;
+  template <class _Extents>
+  class mapping;
 };
-*/
 
 #endif // _LIBCPP_STD_VER >= 23
 

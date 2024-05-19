@@ -49,7 +49,7 @@ Ensure you have the required dependencies:
 
  * CMake >= 3.5
  * System C/C++ Toolchain
- * LLVM, Clang, LLD development libraries == 17.x
+ * LLVM, Clang, LLD development libraries == 18.x
 
 Then it is the standard CMake build process:
 
@@ -85,8 +85,6 @@ therefore lacking these features:
 - [Some ELF linking features](https://github.com/ziglang/zig/issues/17749)
 - [Most COFF/PE linking features](https://github.com/ziglang/zig/issues/17751)
 - [Some WebAssembly linking features](https://github.com/ziglang/zig/issues/17750)
-- [Ability to output LLVM bitcode](https://github.com/ziglang/zig/issues/13265)
-- [Windows resource file compilation](https://github.com/ziglang/zig/issues/17752)
 - [Ability to create import libs from def files](https://github.com/ziglang/zig/issues/17807)
 - [Automatic importlib file generation for Windows DLLs](https://github.com/ziglang/zig/issues/17753)
 - [Ability to create static archives from object files](https://github.com/ziglang/zig/issues/9828)

@@ -40,22 +40,23 @@ namespace std
 
 */
 
+#include <__config>
+
+#ifdef _LIBCPP_HAS_NO_THREADS
+#  error "<latch> is not supported since libc++ has been configured without support for threads."
+#endif
+
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__atomic/atomic_base.h>
 #include <__atomic/atomic_sync.h>
 #include <__atomic/memory_order.h>
 #include <__availability>
-#include <__config>
 #include <cstddef>
 #include <limits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
-#endif
-
-#ifdef _LIBCPP_HAS_NO_THREADS
-# error "<latch> is not supported since libc++ has been configured without support for threads."
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -65,64 +66,48 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-class latch
-{
-    __atomic_base<ptrdiff_t> __a_;
+class latch {
+  __atomic_base<ptrdiff_t> __a_;
 
 public:
-    static _LIBCPP_HIDE_FROM_ABI constexpr ptrdiff_t max() noexcept {
-        return numeric_limits<ptrdiff_t>::max();
-    }
+  static _LIBCPP_HIDE_FROM_ABI constexpr ptrdiff_t max() noexcept { return numeric_limits<ptrdiff_t>::max(); }
 
-    inline _LIBCPP_INLINE_VISIBILITY
-    constexpr explicit latch(ptrdiff_t __expected) : __a_(__expected)
-    {
-        _LIBCPP_ASSERT_UNCATEGORIZED(__expected >= 0,
-                                     "latch::latch(ptrdiff_t): latch cannot be "
-                                     "initialized with a negative value");
-        _LIBCPP_ASSERT_UNCATEGORIZED(__expected <= max(),
-                                     "latch::latch(ptrdiff_t): latch cannot be "
-                                     "initialized with a value greater than max()");
-    }
+  inline _LIBCPP_HIDE_FROM_ABI constexpr explicit latch(ptrdiff_t __expected) : __a_(__expected) {
+    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
+        __expected >= 0,
+        "latch::latch(ptrdiff_t): latch cannot be "
+        "initialized with a negative value");
+    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
+        __expected <= max(),
+        "latch::latch(ptrdiff_t): latch cannot be "
+        "initialized with a value greater than max()");
+  }
 
-    _LIBCPP_HIDE_FROM_ABI ~latch() = default;
-    latch(const latch&) = delete;
-    latch& operator=(const latch&) = delete;
+  _LIBCPP_HIDE_FROM_ABI ~latch() = default;
+  latch(const latch&)            = delete;
+  latch& operator=(const latch&) = delete;
 
-    inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
-    void count_down(ptrdiff_t __update = 1)
-    {
-        _LIBCPP_ASSERT_UNCATEGORIZED(
-            __update >= 0, "latch::count_down called with a negative value");
-        auto const __old = __a_.fetch_sub(__update, memory_order_release);
-        _LIBCPP_ASSERT_UNCATEGORIZED(
-            __update <= __old, "latch::count_down called with a value greater "
-                               "than the internal counter");
-        if (__old == __update)
-            __a_.notify_all();
-    }
-    inline _LIBCPP_INLINE_VISIBILITY
-    bool try_wait() const noexcept
-    {
-        return 0 == __a_.load(memory_order_acquire);
-    }
-    inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
-    void wait() const
-    {
-        __cxx_atomic_wait(&__a_.__a_, [this]() -> bool {
-            return try_wait();
-        });
-    }
-    inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
-    void arrive_and_wait(ptrdiff_t __update = 1)
-    {
-        _LIBCPP_ASSERT_UNCATEGORIZED(
-            __update >= 0, "latch::arrive_and_wait called with a negative value");
-        // other preconditions on __update are checked in count_down()
+  inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void count_down(ptrdiff_t __update = 1) {
+    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(__update >= 0, "latch::count_down called with a negative value");
+    auto const __old = __a_.fetch_sub(__update, memory_order_release);
+    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(
+        __update <= __old,
+        "latch::count_down called with a value greater "
+        "than the internal counter");
+    if (__old == __update)
+      __a_.notify_all();
+  }
+  inline _LIBCPP_HIDE_FROM_ABI bool try_wait() const noexcept { return 0 == __a_.load(memory_order_acquire); }
+  inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void wait() const {
+    __cxx_atomic_wait(&__a_.__a_, [this]() -> bool { return try_wait(); });
+  }
+  inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI void arrive_and_wait(ptrdiff_t __update = 1) {
+    _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(__update >= 0, "latch::arrive_and_wait called with a negative value");
+    // other preconditions on __update are checked in count_down()
 
-        count_down(__update);
-        wait();
-    }
+    count_down(__update);
+    wait();
+  }
 };
 
 _LIBCPP_END_NAMESPACE_STD

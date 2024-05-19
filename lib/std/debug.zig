@@ -406,7 +406,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
-    panicExtra(null, null, format, args);
+    panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
@@ -661,7 +661,7 @@ pub const StackIterator = struct {
 
     fn isValidMemory(address: usize) bool {
         // We are unable to determine validity of memory for freestanding targets
-        if (native_os == .freestanding) return true;
+        if (native_os == .freestanding or native_os == .uefi) return true;
 
         const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
         if (aligned_address == 0) return false;
@@ -706,7 +706,7 @@ pub const StackIterator = struct {
         const unwind_state = &self.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
         switch (native_os) {
-            .macos, .ios, .watchos, .tvos => {
+            .macos, .ios, .watchos, .tvos, .visionos => {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
@@ -1150,7 +1150,7 @@ pub fn readElfDebugInfo(
         };
 
         const mapped_mem = try mapWholeFile(elf_file);
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.InvalidDebugInfo;
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
@@ -1524,7 +1524,7 @@ test printLineFromFileAnyOs {
     {
         const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+        try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
@@ -1535,11 +1535,14 @@ test printLineFromFileAnyOs {
     {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("three_lines.zig",
+        try test_dir.dir.writeFile(.{
+            .sub_path = "three_lines.zig",
+            .data =
             \\1
             \\2
             \\3
-        );
+            ,
+        });
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("1\n", output.items);
@@ -2129,7 +2132,7 @@ pub const DebugInfo = struct {
 };
 
 pub const ModuleDebugInfo = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
         mapped_memory: []align(mem.page_size) const u8,

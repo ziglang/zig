@@ -430,9 +430,9 @@ pub fn abiAndDynamicLinkerFromFile(
     query: Target.Query,
 ) AbiAndDynamicLinkerFromFileError!Target {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
-    _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32 = @as(*elf.Elf32_Ehdr, @ptrCast(&hdr_buf));
-    const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
+    _ = try preadAtLeast(file, &hdr_buf, 0, hdr_buf.len);
+    const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
+    const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
         elf.ELFDATA2LSB => .little,
@@ -469,7 +469,7 @@ pub fn abiAndDynamicLinkerFromFile(
         // Reserve some bytes so that we can deref the 64-bit struct fields
         // even when the ELF file is 32-bits.
         const ph_reserve: usize = @sizeOf(elf.Elf64_Phdr) - @sizeOf(elf.Elf32_Phdr);
-        const ph_read_byte_len = try preadMin(file, ph_buf[0 .. ph_buf.len - ph_reserve], phoff, phentsize);
+        const ph_read_byte_len = try preadAtLeast(file, ph_buf[0 .. ph_buf.len - ph_reserve], phoff, phentsize);
         var ph_buf_i: usize = 0;
         while (ph_buf_i < ph_read_byte_len and ph_i < phnum) : ({
             ph_i += 1;
@@ -484,13 +484,13 @@ pub fn abiAndDynamicLinkerFromFile(
                     const p_offset = elfInt(is_64, need_bswap, ph32.p_offset, ph64.p_offset);
                     const p_filesz = elfInt(is_64, need_bswap, ph32.p_filesz, ph64.p_filesz);
                     if (p_filesz > result.dynamic_linker.buffer.len) return error.NameTooLong;
-                    const filesz = @as(usize, @intCast(p_filesz));
-                    _ = try preadMin(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
+                    const filesz: usize = @intCast(p_filesz);
+                    _ = try preadAtLeast(file, result.dynamic_linker.buffer[0..filesz], p_offset, filesz);
                     // PT_INTERP includes a null byte in filesz.
                     const len = filesz - 1;
                     // dynamic_linker.max_byte is "max", not "len".
                     // We know it will fit in u8 because we check against dynamic_linker.buffer.len above.
-                    result.dynamic_linker.max_byte = @as(u8, @intCast(len - 1));
+                    result.dynamic_linker.len = @intCast(len);
 
                     // Use it to determine ABI.
                     const full_ld_path = result.dynamic_linker.buffer[0..len];
@@ -516,7 +516,7 @@ pub fn abiAndDynamicLinkerFromFile(
                         // Reserve some bytes so that we can deref the 64-bit struct fields
                         // even when the ELF file is 32-bits.
                         const dyn_reserve: usize = @sizeOf(elf.Elf64_Dyn) - @sizeOf(elf.Elf32_Dyn);
-                        const dyn_read_byte_len = try preadMin(
+                        const dyn_read_byte_len = try preadAtLeast(
                             file,
                             dyn_buf[0 .. dyn_buf.len - dyn_reserve],
                             dyn_off,
@@ -556,14 +556,14 @@ pub fn abiAndDynamicLinkerFromFile(
         var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
         if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
-        _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
+        _ = try preadAtLeast(file, &sh_buf, str_section_off, shentsize);
         const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
         const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
         const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
         const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
         var strtab_buf: [4096:0]u8 = undefined;
         const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
-        const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
+        const shstrtab_read_len = try preadAtLeast(file, &strtab_buf, shstrtab_off, shstrtab_len);
         const shstrtab = strtab_buf[0..shstrtab_read_len];
 
         const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
@@ -572,7 +572,7 @@ pub fn abiAndDynamicLinkerFromFile(
             // Reserve some bytes so that we can deref the 64-bit struct fields
             // even when the ELF file is 32-bits.
             const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-            const sh_read_byte_len = try preadMin(
+            const sh_read_byte_len = try preadAtLeast(
                 file,
                 sh_buf[0 .. sh_buf.len - sh_reserve],
                 shoff,
@@ -604,7 +604,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const rp_max_size = ds.size - rpoff;
 
                 const strtab_len = @min(rp_max_size, strtab_buf.len);
-                const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
+                const strtab_read_len = try preadAtLeast(file, &strtab_buf, rpoff_file, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
 
                 const rpath_list = mem.sliceTo(strtab, 0);
@@ -814,9 +814,9 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
 
 fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
-    _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
-    const hdr32 = @as(*elf.Elf32_Ehdr, @ptrCast(&hdr_buf));
-    const hdr64 = @as(*elf.Elf64_Ehdr, @ptrCast(&hdr_buf));
+    _ = try preadAtLeast(file, &hdr_buf, 0, hdr_buf.len);
+    const hdr32: *elf.Elf32_Ehdr = @ptrCast(&hdr_buf);
+    const hdr64: *elf.Elf64_Ehdr = @ptrCast(&hdr_buf);
     if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
     const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
         elf.ELFDATA2LSB => .little,
@@ -838,14 +838,14 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
     if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
-    _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
+    _ = try preadAtLeast(file, &sh_buf, str_section_off, shentsize);
     const shstr32: *elf.Elf32_Shdr = @ptrCast(@alignCast(&sh_buf));
     const shstr64: *elf.Elf64_Shdr = @ptrCast(@alignCast(&sh_buf));
     const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
     const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
     var strtab_buf: [4096:0]u8 = undefined;
     const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
-    const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
+    const shstrtab_read_len = try preadAtLeast(file, &strtab_buf, shstrtab_off, shstrtab_len);
     const shstrtab = strtab_buf[0..shstrtab_read_len];
     const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
     var sh_i: u16 = 0;
@@ -853,7 +853,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
         // Reserve some bytes so that we can deref the 64-bit struct fields
         // even when the ELF file is 32-bits.
         const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-        const sh_read_byte_len = try preadMin(
+        const sh_read_byte_len = try preadAtLeast(
             file,
             sh_buf[0 .. sh_buf.len - sh_reserve],
             shoff,
@@ -890,7 +890,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
 
     const dynstr_size: usize = @intCast(dynstr.size);
     const dynstr_bytes = buf[0..dynstr_size];
-    _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
+    _ = try preadAtLeast(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
     var it = mem.splitScalar(u8, dynstr_bytes, 0);
     var max_ver: std.SemanticVersion = .{ .major = 2, .minor = 2, .patch = 5 };
     while (it.next()) |s| {
@@ -983,7 +983,7 @@ fn detectAbiAndDynamicLinker(
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
-    const elf_file = blk: {
+    const elf_file = elf_file: {
         // This block looks for a shebang line in /usr/bin/env,
         // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
         // doing the same logic recursively in case it finds another shebang line.
@@ -995,9 +995,22 @@ fn detectAbiAndDynamicLinker(
             // Haiku does not have a /usr root directory.
             .haiku => "/bin/env",
         };
-        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
-        var buffer: [258]u8 = undefined;
+
+        // According to `man 2 execve`:
+        //
+        // The kernel imposes a maximum length on the text
+        // that follows the "#!" characters at the start of a script;
+        // characters beyond the limit are ignored.
+        // Before Linux 5.1, the limit is 127 characters.
+        // Since Linux 5.1, the limit is 255 characters.
+        //
+        // Tests show that bash and zsh consider 255 as total limit,
+        // *including* "#!" characters and ignoring newline.
+        // For safety, we set max length as 255 + \n (1).
+        var buffer: [255 + 1]u8 = undefined;
         while (true) {
+            // Interpreter path can be relative on Linux, but
+            // for simplicity we are asserting it is an absolute path.
             const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
                 error.NameTooLong => unreachable,
@@ -1027,27 +1040,55 @@ fn detectAbiAndDynamicLinker(
 
                 else => |e| return e,
             };
-            errdefer file.close();
+            var is_elf_file = false;
+            defer if (is_elf_file == false) file.close();
 
-            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
+            // Shortest working interpreter path is "#!/i" (4)
+            // (interpreter is "/i", assuming all pathes are absolute, like in above comment).
+            // ELF magic number length is also 4.
+            //
+            // If file is shorter than that, it is definitely not ELF file
+            // nor file with "shebang" line.
+            const min_len: usize = 4;
+
+            const len = preadAtLeast(file, &buffer, 0, min_len) catch |err| switch (err) {
                 error.UnexpectedEndOfFile,
                 error.UnableToReadElfFile,
-                => break :blk file,
+                => return defaultAbiAndDynamicLinker(cpu, os, query),
 
                 else => |e| return e,
             };
-            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
-            const line = buffer[0..newline];
-            if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenizeScalar(u8, line[2..], ' ');
-            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, query);
-            file.close();
+            const content = buffer[0..len];
+
+            if (mem.eql(u8, content[0..4], std.elf.MAGIC)) {
+                // It is very likely ELF file!
+                is_elf_file = true;
+                break :elf_file file;
+            } else if (mem.eql(u8, content[0..2], "#!")) {
+                // We detected shebang, now parse entire line.
+
+                // Trim leading "#!", spaces and tabs.
+                const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
+
+                // This line can have:
+                // * Interpreter path only,
+                // * Interpreter path and arguments, all separated by space, tab or NUL character.
+                // And optionally newline at the end.
+                const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
+
+                // Separate path and args.
+                const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;
+
+                file_name = path_maybe_args[0..path_end];
+                continue;
+            } else {
+                // Not a ELF file, not a shell script with "shebang line", invalid duck.
+                return defaultAbiAndDynamicLinker(cpu, os, query);
+            }
         }
     };
     defer elf_file.close();
 
-    // If Zig is statically linked, such as via distributed binary static builds, the above
-    // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
     // TODO: inline this function and combine the buffer we already read above to find
     // the possible shebang line with the buffer we use for the ELF header.
     return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, query) catch |err| switch (err) {
@@ -1075,7 +1116,7 @@ fn detectAbiAndDynamicLinker(
     };
 }
 
-fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Query) !Target {
+fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Query) Target {
     const abi = query.abi orelse Target.Abi.default(cpu.arch, os);
     return .{
         .cpu = cpu,
@@ -1083,7 +1124,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.standardDynamicLinkerPath_cpu_os_abi(cpu, os.tag, abi)
+            Target.DynamicLinker.standard(cpu, os.tag, abi)
         else
             query.dynamic_linker,
     };
@@ -1094,7 +1135,7 @@ const LdInfo = struct {
     abi: Target.Abi,
 };
 
-fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
+fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
     var i: usize = 0;
     while (i < min_read_len) {
         const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {

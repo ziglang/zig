@@ -597,11 +597,11 @@ pub const VaListX86_64 = extern struct {
 pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
-        .ios, .macos, .tvos, .watchos => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
     .arm => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
     .amdgcn => *u8,
@@ -611,7 +611,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
     .powerpc, .powerpcle => switch (builtin.os.tag) {
-        .ios, .macos, .tvos, .watchos, .aix => *u8,
+        .ios, .macos, .tvos, .watchos, .visionos, .aix => *u8,
         else => VaListPowerPc,
     },
     .powerpc64, .powerpc64le => *u8,
@@ -766,7 +766,6 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86 or
         (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_riscv64 or
         builtin.zig_backend == .stage2_sparc64 or
         builtin.zig_backend == .stage2_spirv64)
     {
@@ -774,6 +773,19 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             @breakpoint();
         }
     }
+
+    if (builtin.zig_backend == .stage2_riscv64) {
+        asm volatile ("ecall"
+            :
+            : [number] "{a7}" (64),
+              [arg1] "{a0}" (1),
+              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
+              [arg3] "{a2}" (msg.len),
+            : "memory"
+        );
+        std.posix.exit(127);
+    }
+
     switch (builtin.os.tag) {
         .freestanding => {
             while (true) {

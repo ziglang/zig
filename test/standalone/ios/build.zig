@@ -21,10 +21,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = target,
     });
-    exe.addCSourceFile(.{ .file = .{ .path = "main.m" }, .flags = &.{} });
-    exe.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include" }) });
-    exe.addSystemFrameworkPath(.{ .path = b.pathJoin(&.{ sdk, "/System/Library/Frameworks" }) });
-    exe.addLibraryPath(.{ .path = b.pathJoin(&.{ sdk, "/usr/lib" }) });
+    exe.addCSourceFile(.{ .file = b.path("main.m"), .flags = &.{} });
+    exe.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    exe.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/System/Library/Frameworks" }) });
+    exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/lib" }) });
     exe.linkFramework("Foundation");
     exe.linkFramework("UIKit");
     exe.linkLibC();

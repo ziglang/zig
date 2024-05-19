@@ -18,8 +18,10 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template<size_t _Ip> struct __priority_tag : __priority_tag<_Ip - 1> {};
-template<> struct __priority_tag<0> {};
+template <size_t _Ip>
+struct __priority_tag : __priority_tag<_Ip - 1> {};
+template <>
+struct __priority_tag<0> {};
 
 _LIBCPP_END_NAMESPACE_STD
 

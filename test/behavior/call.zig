@@ -60,6 +60,7 @@ test "tuple parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const add = struct {
         fn add(a: i32, b: i32) i32 {
@@ -93,6 +94,7 @@ test "result location of function call argument through runtime condition and st
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const E = enum { a, b };
     const S = struct {
@@ -112,6 +114,7 @@ test "result location of function call argument through runtime condition and st
 
 test "function call with 40 arguments" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(thirty_nine: i32) !void {
@@ -267,11 +270,11 @@ test "arguments to comptime parameters generated in comptime blocks" {
 test "forced tail call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
@@ -279,6 +282,8 @@ test "forced tail call" {
             return error.SkipZigTest;
         }
     }
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support always tail calls
 
     const S = struct {
         fn fibonacciTailInternal(n: u16, a: u16, b: u16) u16 {
@@ -301,11 +306,11 @@ test "forced tail call" {
 test "inline call preserves tail call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
@@ -313,6 +318,8 @@ test "inline call preserves tail call" {
             return error.SkipZigTest;
         }
     }
+
+    if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support always tail calls
 
     const max = std.math.maxInt(u16);
     const S = struct {
@@ -337,6 +344,7 @@ test "inline call preserves tail call" {
 test "inline call doesn't re-evaluate non generic struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(f: struct { a: u8, b: u8 }) !void {
@@ -403,6 +411,7 @@ test "recursive inline call with comptime known argument" {
 test "inline while with @call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn inc(a: *u32) void {
@@ -418,6 +427,8 @@ test "inline while with @call" {
 }
 
 test "method call as parameter type" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const S = struct {
         fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
             return y;
@@ -432,10 +443,10 @@ test "method call as parameter type" {
 
 test "non-anytype generic parameters provide result type" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn f(comptime T: type, y: T) !void {
@@ -463,10 +474,10 @@ test "non-anytype generic parameters provide result type" {
 
 test "argument to generic function has correct result type" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(_: anytype, e: enum { a, b }) bool {
@@ -502,6 +513,8 @@ test "call inline fn through pointer" {
 }
 
 test "call coerced function" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const T = struct {
         x: f64,
         const T = @This();

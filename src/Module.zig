@@ -528,21 +528,6 @@ pub const Decl = struct {
         return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
     }
 
-    pub fn dump(decl: *Decl) void {
-        const loc = std.zig.findLineColumn(decl.scope.source.bytes, decl.src);
-        std.debug.print("{s}:{d}:{d} name={d} status={s}", .{
-            decl.scope.sub_file_path,
-            loc.line + 1,
-            loc.column + 1,
-            @intFromEnum(decl.name),
-            @tagName(decl.analysis),
-        });
-        if (decl.has_tv) {
-            std.debug.print(" val={}", .{decl.val});
-        }
-        std.debug.print("\n", .{});
-    }
-
     pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
         return zcu.namespacePtr(decl.src_namespace).file_scope;
     }
@@ -659,6 +644,22 @@ pub const Decl = struct {
                 .lazy = lazy,
             },
         };
+    }
+
+    pub fn declPtrType(decl: Decl, zcu: *Zcu) !Type {
+        assert(decl.has_tv);
+        const decl_ty = decl.typeOf(zcu);
+        return zcu.ptrType(.{
+            .child = decl_ty.toIntern(),
+            .flags = .{
+                .alignment = if (decl.alignment == decl_ty.abiAlignment(zcu))
+                    .none
+                else
+                    decl.alignment,
+                .address_space = decl.@"addrspace",
+                .is_const = decl.getOwnedVariable(zcu) == null,
+            },
+        });
     }
 };
 
@@ -2335,24 +2336,24 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     };
     var iovecs = [_]std.posix.iovec_const{
         .{
-            .iov_base = @as([*]const u8, @ptrCast(&header)),
-            .iov_len = @sizeOf(Zir.Header),
+            .base = @as([*]const u8, @ptrCast(&header)),
+            .len = @sizeOf(Zir.Header),
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
-            .iov_len = file.zir.instructions.len,
+            .base = @as([*]const u8, @ptrCast(file.zir.instructions.items(.tag).ptr)),
+            .len = file.zir.instructions.len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = file.zir.instructions.len * 8,
+            .base = data_ptr,
+            .len = file.zir.instructions.len * 8,
         },
         .{
-            .iov_base = file.zir.string_bytes.ptr,
-            .iov_len = file.zir.string_bytes.len,
+            .base = file.zir.string_bytes.ptr,
+            .len = file.zir.string_bytes.len,
         },
         .{
-            .iov_base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
-            .iov_len = file.zir.extra.len * 4,
+            .base = @as([*]const u8, @ptrCast(file.zir.extra.ptr)),
+            .len = file.zir.extra.len * 4,
         },
     };
     cache_file.writevAll(&iovecs) catch |err| {
@@ -2423,20 +2424,20 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
 
     var iovecs = [_]std.posix.iovec{
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .iov_len = header.instructions_len,
+            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
+            .len = header.instructions_len,
         },
         .{
-            .iov_base = data_ptr,
-            .iov_len = header.instructions_len * 8,
+            .base = data_ptr,
+            .len = header.instructions_len * 8,
         },
         .{
-            .iov_base = zir.string_bytes.ptr,
-            .iov_len = header.string_bytes_len,
+            .base = zir.string_bytes.ptr,
+            .len = header.string_bytes_len,
         },
         .{
-            .iov_base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .iov_len = header.extra_len * 4,
+            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
+            .len = header.extra_len * 4,
         },
     };
     const amt_read = try cache_file.readvAll(&iovecs);
@@ -3535,6 +3536,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     }
 
     log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
+    log.debug("decl name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish decl name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
@@ -4122,10 +4127,11 @@ fn newEmbedFile(
     })).toIntern();
     const ptr_val = try ip.get(gpa, .{ .ptr = .{
         .ty = ptr_ty,
-        .addr = .{ .anon_decl = .{
+        .base_addr = .{ .anon_decl = .{
             .val = array_val,
             .orig_ty = ptr_ty,
         } },
+        .byte_offset = 0,
     } });
 
     result.* = new_file;
@@ -4488,6 +4494,11 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
+
+    log.debug("func name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
@@ -5332,7 +5343,7 @@ pub fn populateTestFunctions(
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = array: {
+    const array_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
@@ -5342,7 +5353,7 @@ pub fn populateTestFunctions(
             const test_decl = mod.declPtr(test_decl_index);
             const test_decl_name = try test_decl.fullyQualifiedName(mod);
             const test_decl_name_len = test_decl_name.length(ip);
-            const test_name_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = n: {
+            const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = n: {
                 const test_name_ty = try mod.arrayType(.{
                     .len = test_decl_name_len,
                     .child = .u8_type,
@@ -5363,7 +5374,8 @@ pub fn populateTestFunctions(
                     .ty = .slice_const_u8_type,
                     .ptr = try mod.intern(.{ .ptr = .{
                         .ty = .manyptr_const_u8_type,
-                        .addr = .{ .anon_decl = test_name_anon_decl },
+                        .base_addr = .{ .anon_decl = test_name_anon_decl },
+                        .byte_offset = 0,
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
@@ -5378,7 +5390,8 @@ pub fn populateTestFunctions(
                             .is_const = true,
                         },
                     } }),
-                    .addr = .{ .decl = test_decl_index },
+                    .base_addr = .{ .decl = test_decl_index },
+                    .byte_offset = 0,
                 } }),
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
@@ -5415,7 +5428,8 @@ pub fn populateTestFunctions(
             .ty = new_ty.toIntern(),
             .ptr = try mod.intern(.{ .ptr = .{
                 .ty = new_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = .{ .anon_decl = array_anon_decl },
+                .base_addr = .{ .anon_decl = array_anon_decl },
+                .byte_offset = 0,
             } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
@@ -5680,9 +5694,11 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
+    assert(x != 0 or ty.isAllowzeroPtr(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
+        .base_addr = .int,
+        .byte_offset = x,
     } });
     return Value.fromInterned(i);
 }
@@ -5960,6 +5976,8 @@ pub fn atomicPtrAlignment(
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
+
+        .spirv => @panic("TODO what should this value be?"),
     };
 
     const int_ty = switch (ty.zigTypeTag(mod)) {
@@ -6124,18 +6142,18 @@ pub const UnionLayout = struct {
     padding: u32,
 };
 
-pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
+pub fn getUnionLayout(mod: *Module, loaded_union: InternPool.LoadedUnionType) UnionLayout {
     const ip = &mod.intern_pool;
-    assert(u.haveLayout(ip));
+    assert(loaded_union.haveLayout(ip));
     var most_aligned_field: u32 = undefined;
     var most_aligned_field_size: u64 = undefined;
     var biggest_field: u32 = undefined;
     var payload_size: u64 = 0;
     var payload_align: Alignment = .@"1";
-    for (u.field_types.get(ip), 0..) |field_ty, i| {
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-        const explicit_align = u.fieldAlign(ip, @intCast(i));
+        const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
@@ -6143,16 +6161,16 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         const field_size = Type.fromInterned(field_ty).abiSize(mod);
         if (field_size > payload_size) {
             payload_size = field_size;
-            biggest_field = @intCast(i);
+            biggest_field = @intCast(field_index);
         }
         if (field_align.compare(.gte, payload_align)) {
             payload_align = field_align;
-            most_aligned_field = @intCast(i);
+            most_aligned_field = @intCast(field_index);
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
-    if (!have_tag or !Type.fromInterned(u.enum_tag_ty).hasRuntimeBits(mod)) {
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(mod)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
             .abi_align = payload_align,
@@ -6167,10 +6185,10 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         };
     }
 
-    const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
-    const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
+    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(mod);
+    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
-        .abi_size = u.size(ip).*,
+        .abi_size = loaded_union.size(ip).*,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6179,24 +6197,24 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = u.padding(ip).*,
+        .padding = loaded_union.padding(ip).*,
     };
 }
 
-pub fn unionAbiSize(mod: *Module, u: InternPool.LoadedUnionType) u64 {
-    return mod.getUnionLayout(u).abi_size;
+pub fn unionAbiSize(mod: *Module, loaded_union: InternPool.LoadedUnionType) u64 {
+    return mod.getUnionLayout(loaded_union).abi_size;
 }
 
 /// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment {
+pub fn unionAbiAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType) Alignment {
     const ip = &mod.intern_pool;
-    const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod);
-    for (u.field_types.get(ip), 0..) |field_ty, field_index| {
+    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(mod);
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
         if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
 
-        const field_align = mod.unionFieldNormalAlignment(u, @intCast(field_index));
+        const field_align = mod.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
         max_align = max_align.max(field_align);
     }
     return max_align;
@@ -6205,20 +6223,20 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment 
 /// Returns the field alignment, assuming the union is not packed.
 /// Keep implementation in sync with `Sema.unionFieldAlignment`.
 /// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.LoadedUnionType, field_index: u32) Alignment {
+pub fn unionFieldNormalAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
     const ip = &mod.intern_pool;
-    const field_align = u.fieldAlign(ip, field_index);
+    const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(u.field_types.get(ip)[field_index]);
+    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
     return field_ty.abiAlignment(mod);
 }
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, u: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
-    assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
-    return u.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
+    assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
+    return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
 /// Returns the field alignment of a non-packed struct in byte units.

@@ -11,6 +11,37 @@ pub const Class = enum {
     float,
     float_combine,
     integer_per_element,
+
+    fn isX87(class: Class) bool {
+        return switch (class) {
+            .x87, .x87up, .complex_x87 => true,
+            else => false,
+        };
+    }
+
+    /// Combine a field class with the prev one.
+    fn combineSystemV(prev_class: Class, next_class: Class) Class {
+        // "If both classes are equal, this is the resulting class."
+        if (prev_class == next_class)
+            return if (prev_class == .float) .float_combine else prev_class;
+
+        // "If one of the classes is NO_CLASS, the resulting class
+        // is the other class."
+        if (prev_class == .none) return next_class;
+
+        // "If one of the classes is MEMORY, the result is the MEMORY class."
+        if (prev_class == .memory or next_class == .memory) return .memory;
+
+        // "If one of the classes is INTEGER, the result is the INTEGER."
+        if (prev_class == .integer or next_class == .integer) return .integer;
+
+        // "If one of the classes is X87, X87UP, COMPLEX_X87 class,
+        // MEMORY is used as class."
+        if (prev_class.isX87() or next_class.isX87()) return .memory;
+
+        // "Otherwise class SSE is used."
+        return .sse;
+    }
 };
 
 pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
@@ -69,9 +100,7 @@ pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, zcu: *Zcu, ctx: Context) [8]Class {
-    const ip = &zcu.intern_pool;
-    const target = zcu.getTarget();
+pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
@@ -141,10 +170,6 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, ctx: Context) [8]Class {
                 // "Arguments of types __float128, _Decimal128 and __m128 are
                 // split into two halves.  The least significant ones belong
                 // to class SSE, the most significant one to class SSEUP."
-                if (ctx == .field) {
-                    result[0] = .memory;
-                    return result;
-                }
                 result[0] = .sse;
                 result[1] = .sseup;
                 return result;
@@ -231,137 +256,45 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, ctx: Context) [8]Class {
             }
             return memory_class;
         },
-        .Struct => {
+        .Struct, .Union => {
             // "If the size of an object is larger than eight eightbytes, or
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const loaded_struct = ip.loadStructType(ty.toIntern());
             const ty_size = ty.abiSize(zcu);
-            if (loaded_struct.layout == .@"packed") {
-                assert(ty_size <= 16);
-                result[0] = .integer;
-                if (ty_size > 8) result[1] = .integer;
-                return result;
+            switch (ty.containerLayout(zcu)) {
+                .auto, .@"extern" => {},
+                .@"packed" => {
+                    assert(ty_size <= 16);
+                    result[0] = .integer;
+                    if (ty_size > 8) result[1] = .integer;
+                    return result;
+                },
             }
             if (ty_size > 64)
                 return memory_class;
 
-            var byte_offset: u64 = 0;
-            classifySystemVStruct(&result, &byte_offset, loaded_struct, zcu);
+            _ = if (zcu.typeToStruct(ty)) |loaded_struct|
+                classifySystemVStruct(&result, 0, loaded_struct, zcu, target)
+            else if (zcu.typeToUnion(ty)) |loaded_union|
+                classifySystemVUnion(&result, 0, loaded_union, zcu, target)
+            else
+                unreachable;
 
             // Post-merger cleanup
 
             // "If one of the classes is MEMORY, the whole argument is passed in memory"
             // "If X87UP is not preceded by X87, the whole argument is passed in memory."
-            var found_sseup = false;
-            for (result, 0..) |item, i| switch (item) {
+            for (result, 0..) |class, i| switch (class) {
                 .memory => return memory_class,
                 .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
-                .sseup => found_sseup = true,
                 else => continue,
             };
             // "If the size of the aggregate exceeds two eightbytes and the first eight-
             // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
             // is passed in memory."
-            if (ty_size > 16 and (result[0] != .sse or !found_sseup)) return memory_class;
-
-            // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
-            for (&result, 0..) |*item, i| {
-                if (item.* == .sseup) switch (result[i - 1]) {
-                    .sse, .sseup => continue,
-                    else => item.* = .sse,
-                };
-            }
-            return result;
-        },
-        .Union => {
-            // "If the size of an object is larger than eight eightbytes, or
-            // it contains unaligned fields, it has class MEMORY"
-            // "If the size of the aggregate exceeds a single eightbyte, each is classified
-            // separately.".
-            const union_obj = zcu.typeToUnion(ty).?;
-            const ty_size = zcu.unionAbiSize(union_obj);
-            if (union_obj.getLayout(ip) == .@"packed") {
-                assert(ty_size <= 16);
-                result[0] = .integer;
-                if (ty_size > 8) result[1] = .integer;
-                return result;
-            }
-            if (ty_size > 64)
-                return memory_class;
-
-            for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
-                const field_align = union_obj.fieldAlign(ip, @intCast(field_index));
-                if (field_align != .none and
-                    field_align.compare(.lt, Type.fromInterned(field_ty).abiAlignment(zcu)))
-                {
-                    return memory_class;
-                }
-                // Combine this field with the previous one.
-                const field_class = classifySystemV(Type.fromInterned(field_ty), zcu, .field);
-                for (&result, 0..) |*result_item, i| {
-                    const field_item = field_class[i];
-                    // "If both classes are equal, this is the resulting class."
-                    if (result_item.* == field_item) {
-                        continue;
-                    }
-
-                    // "If one of the classes is NO_CLASS, the resulting class
-                    // is the other class."
-                    if (result_item.* == .none) {
-                        result_item.* = field_item;
-                        continue;
-                    }
-                    if (field_item == .none) {
-                        continue;
-                    }
-
-                    // "If one of the classes is MEMORY, the result is the MEMORY class."
-                    if (result_item.* == .memory or field_item == .memory) {
-                        result_item.* = .memory;
-                        continue;
-                    }
-
-                    // "If one of the classes is INTEGER, the result is the INTEGER."
-                    if (result_item.* == .integer or field_item == .integer) {
-                        result_item.* = .integer;
-                        continue;
-                    }
-
-                    // "If one of the classes is X87, X87UP, COMPLEX_X87 class,
-                    // MEMORY is used as class."
-                    if (result_item.* == .x87 or
-                        result_item.* == .x87up or
-                        result_item.* == .complex_x87 or
-                        field_item == .x87 or
-                        field_item == .x87up or
-                        field_item == .complex_x87)
-                    {
-                        result_item.* = .memory;
-                        continue;
-                    }
-
-                    // "Otherwise class SSE is used."
-                    result_item.* = .sse;
-                }
-            }
-
-            // Post-merger cleanup
-
-            // "If one of the classes is MEMORY, the whole argument is passed in memory"
-            // "If X87UP is not preceded by X87, the whole argument is passed in memory."
-            var found_sseup = false;
-            for (result, 0..) |item, i| switch (item) {
-                .memory => return memory_class,
-                .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
-                .sseup => found_sseup = true,
-                else => continue,
-            };
-            // "If the size of the aggregate exceeds two eightbytes and the first eight-
-            // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
-            // is passed in memory."
-            if (ty_size > 16 and (result[0] != .sse or !found_sseup)) return memory_class;
+            if (ty_size > 16 and (result[0] != .sse or
+                std.mem.indexOfNone(Class, result[1..], &.{ .sseup, .none }) != null)) return memory_class;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
             for (&result, 0..) |*item, i| {
@@ -391,78 +324,85 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, ctx: Context) [8]Class {
 
 fn classifySystemVStruct(
     result: *[8]Class,
-    byte_offset: *u64,
+    starting_byte_offset: u64,
     loaded_struct: InternPool.LoadedStructType,
     zcu: *Zcu,
-) void {
+    target: std.Target,
+) u64 {
     const ip = &zcu.intern_pool;
+    var byte_offset = starting_byte_offset;
     var field_it = loaded_struct.iterateRuntimeOrder(ip);
     while (field_it.next()) |field_index| {
         const field_ty = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
         const field_align = loaded_struct.fieldAlign(ip, field_index);
-        byte_offset.* = std.mem.alignForward(
+        byte_offset = std.mem.alignForward(
             u64,
-            byte_offset.*,
+            byte_offset,
             field_align.toByteUnits() orelse field_ty.abiAlignment(zcu).toByteUnits().?,
         );
         if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
-            if (field_loaded_struct.layout != .@"packed") {
-                classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu);
-                continue;
+            switch (field_loaded_struct.layout) {
+                .auto, .@"extern" => {
+                    byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu, target);
+                    continue;
+                },
+                .@"packed" => {},
+            }
+        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
+            switch (field_loaded_union.getLayout(ip)) {
+                .auto, .@"extern" => {
+                    byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
+                    continue;
+                },
+                .@"packed" => {},
             }
         }
-        const field_class = std.mem.sliceTo(&classifySystemV(field_ty, zcu, .field), .none);
-        const field_size = field_ty.abiSize(zcu);
-        combine: {
-            // Combine this field with the previous one.
-            const result_class = &result[@intCast(byte_offset.* / 8)];
-            // "If both classes are equal, this is the resulting class."
-            if (result_class.* == field_class[0]) {
-                if (result_class.* == .float) {
-                    result_class.* = .float_combine;
-                }
-                break :combine;
-            }
-
-            // "If one of the classes is NO_CLASS, the resulting class
-            // is the other class."
-            if (result_class.* == .none) {
-                result_class.* = field_class[0];
-                break :combine;
-            }
-            assert(field_class[0] != .none);
-
-            // "If one of the classes is MEMORY, the result is the MEMORY class."
-            if (result_class.* == .memory or field_class[0] == .memory) {
-                result_class.* = .memory;
-                break :combine;
-            }
-
-            // "If one of the classes is INTEGER, the result is the INTEGER."
-            if (result_class.* == .integer or field_class[0] == .integer) {
-                result_class.* = .integer;
-                break :combine;
-            }
-
-            // "If one of the classes is X87, X87UP, COMPLEX_X87 class,
-            // MEMORY is used as class."
-            if (result_class.* == .x87 or
-                result_class.* == .x87up or
-                result_class.* == .complex_x87 or
-                field_class[0] == .x87 or
-                field_class[0] == .x87up or
-                field_class[0] == .complex_x87)
-            {
-                result_class.* = .memory;
-                break :combine;
-            }
-
-            // "Otherwise class SSE is used."
-            result_class.* = .sse;
-        }
-        @memcpy(result[@intCast(byte_offset.* / 8 + 1)..][0 .. field_class.len - 1], field_class[1..]);
-        byte_offset.* += field_size;
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        for (result[@intCast(byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
+            result_class.* = result_class.combineSystemV(field_class);
+        byte_offset += field_ty.abiSize(zcu);
     }
+    const final_byte_offset = starting_byte_offset + loaded_struct.size(ip).*;
+    std.debug.assert(final_byte_offset == std.mem.alignForward(
+        u64,
+        byte_offset,
+        loaded_struct.flagsPtr(ip).alignment.toByteUnits().?,
+    ));
+    return final_byte_offset;
+}
+
+fn classifySystemVUnion(
+    result: *[8]Class,
+    starting_byte_offset: u64,
+    loaded_union: InternPool.LoadedUnionType,
+    zcu: *Zcu,
+    target: std.Target,
+) u64 {
+    const ip = &zcu.intern_pool;
+    for (0..loaded_union.field_types.len) |field_index| {
+        const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+            switch (field_loaded_struct.layout) {
+                .auto, .@"extern" => {
+                    _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, zcu, target);
+                    continue;
+                },
+                .@"packed" => {},
+            }
+        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
+            switch (field_loaded_union.getLayout(ip)) {
+                .auto, .@"extern" => {
+                    _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
+                    continue;
+                },
+                .@"packed" => {},
+            }
+        }
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
+            result_class.* = result_class.combineSystemV(field_class);
+    }
+    return starting_byte_offset + loaded_union.size(ip).*;
 }
 
 pub const SysV = struct {

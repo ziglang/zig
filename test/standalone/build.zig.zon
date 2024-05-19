@@ -104,6 +104,12 @@
         .windows_spawn = .{
             .path = "windows_spawn",
         },
+        .windows_argv = .{
+            .path = "windows_argv",
+        },
+        .windows_bat_args = .{
+            .path = "windows_bat_args",
+        },
         .self_exe_symlink = .{
             .path = "self_exe_symlink",
         },
@@ -154,6 +160,12 @@
         },
         .install_headers = .{
             .path = "install_headers",
+        },
+        .dependencyFromBuildZig = .{
+            .path = "dependencyFromBuildZig",
+        },
+        .run_output_paths = .{
+            .path = "run_output_paths",
         },
     },
     .paths = .{

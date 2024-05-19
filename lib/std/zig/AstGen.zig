@@ -7071,8 +7071,10 @@ fn switchExprErrUnion(
         .ctx = ri.ctx,
     };
 
-    const payload_is_ref = node_ty == .@"if" and
-        if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk;
+    const payload_is_ref = switch (node_ty) {
+        .@"if" => if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk,
+        .@"catch" => ri.rl == .ref or ri.rl == .ref_coerced_ty,
+    };
 
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
@@ -10125,7 +10127,7 @@ fn calleeExpr(
     }
 }
 
-const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
+const primitive_instrs = std.StaticStringMap(Zir.Inst.Ref).initComptime(.{
     .{ "anyerror", .anyerror_type },
     .{ "anyframe", .anyframe_type },
     .{ "anyopaque", .anyopaque_type },
@@ -10173,14 +10175,14 @@ const primitive_instrs = std.ComptimeStringMap(Zir.Inst.Ref, .{
 comptime {
     // These checks ensure that std.zig.primitives stays in sync with the primitive->Zir map.
     const primitives = std.zig.primitives;
-    for (primitive_instrs.kvs) |kv| {
-        if (!primitives.isPrimitive(kv.key)) {
-            @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(kv.value) ++ "'");
+    for (primitive_instrs.keys(), primitive_instrs.values()) |key, value| {
+        if (!primitives.isPrimitive(key)) {
+            @compileError("std.zig.isPrimitive() is not aware of Zir instr '" ++ @tagName(value) ++ "'");
         }
     }
-    for (primitives.names.kvs) |kv| {
-        if (primitive_instrs.get(kv.key) == null) {
-            @compileError("std.zig.primitives entry '" ++ kv.key ++ "' does not have a corresponding Zir instr");
+    for (primitives.names.keys()) |key| {
+        if (primitive_instrs.get(key) == null) {
+            @compileError("std.zig.primitives entry '" ++ key ++ "' does not have a corresponding Zir instr");
         }
     }
 }

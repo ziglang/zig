@@ -60,12 +60,14 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_Cold = 9,
     ZigLLVM_GHC = 10,
     ZigLLVM_HiPE = 11,
-    ZigLLVM_WebKit_JS = 12,
     ZigLLVM_AnyReg = 13,
     ZigLLVM_PreserveMost = 14,
     ZigLLVM_PreserveAll = 15,
     ZigLLVM_Swift = 16,
     ZigLLVM_CXX_FAST_TLS = 17,
+    ZigLLVM_Tail = 18,
+    ZigLLVM_CFGuard_Check = 19,
+    ZigLLVM_SwiftTail = 20,
     ZigLLVM_FirstTargetCC = 64,
     ZigLLVM_X86_StdCall = 64,
     ZigLLVM_X86_FastCall = 65,
@@ -99,6 +101,18 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_AMDGPU_LS = 95,
     ZigLLVM_AMDGPU_ES = 96,
     ZigLLVM_AArch64_VectorCall = 97,
+    ZigLLVM_AArch64_SVE_VectorCall = 98,
+    ZigLLVM_WASM_EmscriptenInvoke = 99,
+    ZigLLVM_AMDGPU_Gfx = 100,
+    ZigLLVM_M68k_INTR = 101,
+    ZigLLVM_AArch64_SME_ABI_Support_Routines_PreserveMost_From_X0 = 102,
+    ZigLLVM_AArch64_SME_ABI_Support_Routines_PreserveMost_From_X2 = 103,
+    ZigLLVM_AMDGPU_CS_Chain = 104,
+    ZigLLVM_AMDGPU_CS_ChainPreserve = 105,
+    ZigLLVM_M68k_RTD = 106,
+    ZigLLVM_GRAAL = 107,
+    ZigLLVM_ARM64EC_Thunk_X64 = 108,
+    ZigLLVM_ARM64EC_Thunk_Native = 109,
     ZigLLVM_MaxID = 1023,
 };
 
@@ -164,6 +178,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_hsail64,        // AMD HSAIL with 64-bit pointers
     ZigLLVM_spir,           // SPIR: standard portable IR for OpenCL 32-bit version
     ZigLLVM_spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+    ZigLLVM_spirv,          // SPIR-V with logical memory layout.
     ZigLLVM_spirv32,        // SPIR-V with 32-bit pointers
     ZigLLVM_spirv64,        // SPIR-V with 64-bit pointers
     ZigLLVM_kalimba,        // Kalimba: generic kalimba
@@ -189,7 +204,6 @@ enum ZigLLVM_VendorType {
     ZigLLVM_MipsTechnologies,
     ZigLLVM_NVIDIA,
     ZigLLVM_CSR,
-    ZigLLVM_Myriad,
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
     ZigLLVM_SUSE,
@@ -204,8 +218,6 @@ enum ZigLLVM_VendorType {
 enum ZigLLVM_OSType {
     ZigLLVM_UnknownOS,
 
-    ZigLLVM_Ananas,
-    ZigLLVM_CloudABI,
     ZigLLVM_Darwin,
     ZigLLVM_DragonFly,
     ZigLLVM_FreeBSD,
@@ -222,7 +234,6 @@ enum ZigLLVM_OSType {
     ZigLLVM_Win32,
     ZigLLVM_ZOS,
     ZigLLVM_Haiku,
-    ZigLLVM_Minix,
     ZigLLVM_RTEMS,
     ZigLLVM_NaCl,       // Native Client
     ZigLLVM_AIX,
@@ -235,8 +246,8 @@ enum ZigLLVM_OSType {
     ZigLLVM_TvOS,       // Apple tvOS
     ZigLLVM_WatchOS,    // Apple watchOS
     ZigLLVM_DriverKit,  // Apple DriverKit
+    ZigLLVM_XROS,       // Apple XROS
     ZigLLVM_Mesa3D,
-    ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
     ZigLLVM_HermitCore, // HermitCore Unikernel/Multikernel
     ZigLLVM_Hurd,       // GNU/Hurd
@@ -244,7 +255,9 @@ enum ZigLLVM_OSType {
     ZigLLVM_Emscripten,
     ZigLLVM_ShaderModel, // DirectX ShaderModel
     ZigLLVM_LiteOS,
-    ZigLLVM_LastOSType = ZigLLVM_LiteOS
+    ZigLLVM_Serenity,
+    ZigLLVM_Vulkan,      // Vulkan SPIR-V
+    ZigLLVM_LastOSType = ZigLLVM_Vulkan
 };
 
 // Synchronize with target.cpp::abi_list

@@ -2,13 +2,13 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const t = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .test_runner = b.path("test_runner/main.zig"),
     });
 
-    const module1 = b.createModule(.{ .root_source_file = .{ .path = "module1/main.zig" } });
+    const module1 = b.createModule(.{ .root_source_file = b.path("module1/main.zig") });
     const module2 = b.createModule(.{
-        .root_source_file = .{ .path = "module2/main.zig" },
+        .root_source_file = b.path("module2/main.zig"),
         .imports = &.{.{ .name = "module1", .module = module1 }},
     });
 

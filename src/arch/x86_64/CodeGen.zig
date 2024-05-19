@@ -12249,10 +12249,10 @@ fn genCall(self: *Self, info: union(enum) {
             const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
             switch (switch (func_key) {
                 else => func_key,
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
-                },
+                } else func_key,
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
@@ -14316,9 +14316,9 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
         .mmx => {},
         .sse => switch (ty.zigTypeTag(mod)) {
             else => {
-                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+                const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
                 assert(std.mem.indexOfNone(abi.Class, classes, &.{
-                    .integer, .sse, .memory, .float, .float_combine,
+                    .integer, .sse, .sseup, .memory, .float, .float_combine,
                 }) == null);
                 const abi_size = ty.abiSize(mod);
                 if (abi_size < 4 or
@@ -15050,10 +15050,11 @@ fn genSetMem(
                 .general_purpose, .segment, .x87 => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
+            const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
             if (src_size > mem_size) {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.init(.{
                     .size = src_size,
-                    .alignment = Alignment.fromNonzeroByteUnits(src_size),
+                    .alignment = src_align,
                 }));
                 const frame_mcv: MCValue = .{ .load_frame = .{ .index = frame_index } };
                 try (try self.moveStrategy(ty, src_alias.class(), true)).write(
@@ -15066,14 +15067,15 @@ fn genSetMem(
                 try self.genSetMem(base, disp, ty, frame_mcv, opts);
                 try self.freeValue(frame_mcv);
             } else try (try self.moveStrategy(ty, src_alias.class(), switch (base) {
-                .none => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                .none => src_align.check(@as(u32, @bitCast(disp))),
                 .reg => |reg| switch (reg) {
-                    .es, .cs, .ss, .ds => ty.abiAlignment(mod).check(@as(u32, @bitCast(disp))),
+                    .es, .cs, .ss, .ds => src_align.check(@as(u32, @bitCast(disp))),
                     else => false,
                 },
-                .frame => |frame_index| self.getFrameAddrAlignment(
-                    .{ .index = frame_index, .off = disp },
-                ).compare(.gte, ty.abiAlignment(mod)),
+                .frame => |frame_index| self.getFrameAddrAlignment(.{
+                    .index = frame_index,
+                    .off = disp,
+                }).compare(.gte, src_align),
                 .reloc => false,
             })).write(
                 self,
@@ -17875,8 +17877,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(mod),
+        lhs_ty.fmt(mod),                                    rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod, null),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }
@@ -18448,7 +18450,7 @@ fn airVaArg(self: *Self, inst: Air.Inst.Index) !void {
             const overflow_arg_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 8 } };
             const reg_save_area: MCValue = .{ .indirect = .{ .reg = ptr_arg_list_reg, .off = 16 } };
 
-            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, .arg), .none);
+            const classes = mem.sliceTo(&abi.classifySystemV(promote_ty, mod, self.target.*, .arg), .none);
             switch (classes[0]) {
                 .integer => {
                     assert(classes.len == 1);
@@ -18798,7 +18800,7 @@ fn resolveCallingConventionValues(
                 var ret_tracking_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, .ret), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ret_ty, mod, self.target.*, .ret), .none),
                     .Win64 => &.{abi.classifyWindows(ret_ty, mod)},
                     else => unreachable,
                 };
@@ -18873,7 +18875,7 @@ fn resolveCallingConventionValues(
                 var arg_mcv_i: usize = 0;
 
                 const classes = switch (resolved_cc) {
-                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, .arg), .none),
+                    .SysV => mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .arg), .none),
                     .Win64 => &.{abi.classifyWindows(ty, mod)},
                     else => unreachable,
                 };
@@ -19088,7 +19090,7 @@ fn memSize(self: *Self, ty: Type) Memory.Size {
 
 fn splitType(self: *Self, ty: Type) ![2]Type {
     const mod = self.bin_file.comp.module.?;
-    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, .other), .none);
+    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
     var parts: [2]Type = undefined;
     if (classes.len == 2) for (&parts, classes, 0..) |*part, class, part_i| {
         part.* = switch (class) {

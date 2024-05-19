@@ -205,7 +205,7 @@ pub const Instant = struct {
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
-            .macos, .ios, .tvos, .watchos => posix.CLOCK.UPTIME_RAW,
+            .macos, .ios, .tvos, .watchos, .visionos => posix.CLOCK.UPTIME_RAW,
             // On freebsd derivatives, use MONOTONIC_FAST as currently there's
             // no precision tradeoff.
             .freebsd, .dragonfly => posix.CLOCK.MONOTONIC_FAST,

@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
@@ -57,6 +58,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testReinterpretBytesAsExternStruct();
     try comptime testReinterpretBytesAsExternStruct();
@@ -231,6 +233,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var buf: [4]u8 = "aoeu".*;
     const x: ?[*]u8 = &buf;
@@ -243,6 +246,7 @@ test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(slice: []u32) []i32 {
@@ -277,7 +281,7 @@ test "@ptrCast undefined value at comptime" {
         }
     };
     comptime {
-        const x = S.transmute([]u8, i32, undefined);
+        const x = S.transmute(u64, i32, undefined);
         _ = x;
     }
 }
@@ -291,4 +295,61 @@ test "comptime @ptrCast with packed struct leaves value unmodified" {
     const p: *const [1]u3 = @ptrCast(&st);
     try expect(p.*[0] == 6);
     try expect(st.three == 6);
+}
+
+test "@ptrCast restructures comptime-only array" {
+    {
+        const a3a2: [3][2]comptime_int = .{
+            .{ 1, 2 },
+            .{ 3, 4 },
+            .{ 5, 6 },
+        };
+        const a2a3: *const [2][3]comptime_int = @ptrCast(&a3a2);
+        comptime assert(a2a3[0][0] == 1);
+        comptime assert(a2a3[0][1] == 2);
+        comptime assert(a2a3[0][2] == 3);
+        comptime assert(a2a3[1][0] == 4);
+        comptime assert(a2a3[1][1] == 5);
+        comptime assert(a2a3[1][2] == 6);
+    }
+
+    {
+        const a6a1: [6][1]comptime_int = .{
+            .{1}, .{2}, .{3}, .{4}, .{5}, .{6},
+        };
+        const a1a2a3: *const [1][2][3]comptime_int = @ptrCast(&a6a1);
+        comptime assert(a1a2a3[0][0][0] == 1);
+        comptime assert(a1a2a3[0][0][1] == 2);
+        comptime assert(a1a2a3[0][0][2] == 3);
+        comptime assert(a1a2a3[0][1][0] == 4);
+        comptime assert(a1a2a3[0][1][1] == 5);
+        comptime assert(a1a2a3[0][1][2] == 6);
+    }
+
+    {
+        const a1: [1]comptime_int = .{123};
+        const raw: *const comptime_int = @ptrCast(&a1);
+        comptime assert(raw.* == 123);
+    }
+
+    {
+        const raw: comptime_int = 123;
+        const a1: *const [1]comptime_int = @ptrCast(&raw);
+        comptime assert(a1[0] == 123);
+    }
+}
+
+test "@ptrCast restructures sliced comptime-only array" {
+    const a3a2: [4][2]comptime_int = .{
+        .{ 1, 2 },
+        .{ 3, 4 },
+        .{ 5, 6 },
+        .{ 7, 8 },
+    };
+
+    const sub: *const [4]comptime_int = @ptrCast(a3a2[1..]);
+    comptime assert(sub[0] == 3);
+    comptime assert(sub[1] == 4);
+    comptime assert(sub[2] == 5);
+    comptime assert(sub[3] == 6);
 }

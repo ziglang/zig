@@ -203,6 +203,7 @@ test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .Opaque = .{
@@ -260,6 +261,7 @@ test "Type.Struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).Struct;
@@ -383,6 +385,7 @@ test "Type.Union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Untagged = @Type(.{
         .Union = .{
@@ -757,4 +760,25 @@ test "matching captures causes opaque equivalence" {
     const b = S.UnsignedId(i8).id(123);
     comptime assert(@TypeOf(a) == @TypeOf(b));
     try testing.expect(a == b);
+}
+
+test "reify enum where fields refers to part of array" {
+    const fields: [3]std.builtin.Type.EnumField = .{
+        .{ .name = "foo", .value = 0 },
+        .{ .name = "bar", .value = 1 },
+        undefined,
+    };
+    const E = @Type(.{ .Enum = .{
+        .tag_type = u8,
+        .fields = fields[0..2],
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+    var a: E = undefined;
+    var b: E = undefined;
+    a = .foo;
+    b = .bar;
+    try testing.expect(a == .foo);
+    try testing.expect(b == .bar);
+    try testing.expect(a != b);
 }
