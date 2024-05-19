@@ -1282,7 +1282,11 @@ fn walk_field_accesses(
         .field_access => {
             try walk_field_accesses(file_index, out, object_node);
         },
-        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
             switch (file_index.categorize_expr(object_node)) {
                 .alias => |alias_decl| {
                     try alias_decl.get().fqn(out);
