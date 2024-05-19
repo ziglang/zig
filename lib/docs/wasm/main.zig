@@ -1041,7 +1041,23 @@ fn file_source_html(
                 try out.appendSlice(gpa, "</span>");
             },
 
-            .builtin => {
+            .builtin => b: {
+                if (std.mem.eql(u8, slice, "@import")) {
+                    if (file.imports.get(token_index)) |builtin_node| {
+                        switch (file_index.categorize_expr(builtin_node)) {
+                            .alias => |alias_decl| {
+                                try out.appendSlice(gpa, "<a class=\"tok-builtin import\" href=\"#");
+                                _ = missing_feature_url_escape;
+                                try alias_decl.get().fqn(out);
+                                try out.appendSlice(gpa, "\">");
+                                try appendEscaped(out, slice);
+                                try out.appendSlice(gpa, "</a>");
+                                break :b;
+                            },
+                            else => {},
+                        }
+                    }
+                }
                 try out.appendSlice(gpa, "<span class=\"tok-builtin\">");
                 try appendEscaped(out, slice);
                 try out.appendSlice(gpa, "</span>");
@@ -1265,6 +1281,14 @@ fn walk_field_accesses(
         },
         .field_access => {
             try walk_field_accesses(file_index, out, object_node);
+        },
+        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
+            switch (file_index.categorize_expr(object_node)) {
+                .alias => |alias_decl| {
+                    try alias_decl.get().fqn(out);
+                },
+                else => {},
+            }
         },
         else => {},
     }
