@@ -770,8 +770,10 @@ fn unpack_inner(tar_bytes: []u8) !void {
             .file => {
                 if (tar_file.size == 0 and tar_file.name.len == 0) break;
                 if (std.mem.endsWith(u8, tar_file.name, ".zig")) {
-                    log.debug("found file: '{s}'", .{tar_file.name});
                     const file_name = try gpa.dupe(u8, tar_file.name);
+                    // Tar created on Windows can contain wrong backslashes
+                    std.mem.replaceScalar(u8, file_name, '\\', '/');
+                    log.info("found file: '{s}'", .{file_name});
                     if (std.mem.indexOfScalar(u8, file_name, '/')) |pkg_name_end| {
                         const pkg_name = file_name[0..pkg_name_end];
                         const gop = try Walk.modules.getOrPut(gpa, pkg_name);
