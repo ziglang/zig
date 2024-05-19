@@ -143,6 +143,16 @@ pub inline fn setExtra(atom: Atom, extra: Extra, macho_file: *MachO) void {
 }
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
+    if (macho_file.base.isRelocatable()) {
+        const osec = macho_file.getSectionByName(sect.segName(), sect.sectName()) orelse
+            try macho_file.addSection(
+            sect.segName(),
+            sect.sectName(),
+            .{ .flags = sect.flags },
+        );
+        return osec;
+    }
+
     const segname, const sectname, const flags = blk: {
         if (sect.isCode()) break :blk .{
             "__TEXT",
@@ -200,18 +210,11 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
             else => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
         }
     };
-    const osec = macho_file.getSectionByName(segname, sectname) orelse try macho_file.addSection(
+    return macho_file.getSectionByName(segname, sectname) orelse try macho_file.addSection(
         segname,
         sectname,
         .{ .flags = flags },
     );
-    if (mem.eql(u8, segname, "__TEXT") and mem.eql(u8, sectname, "__text")) {
-        macho_file.text_sect_index = osec;
-    }
-    if (mem.eql(u8, segname, "__DATA") and mem.eql(u8, sectname, "__data")) {
-        macho_file.data_sect_index = osec;
-    }
-    return osec;
 }
 
 /// Returns how much room there is to grow in virtual address space.
