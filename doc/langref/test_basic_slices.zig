@@ -1,10 +1,17 @@
 const expect = @import("std").testing.expect;
+const expectEqualSlices = @import("std").testing.expectEqualSlices;
 
 test "basic slices" {
     var array = [_]i32{ 1, 2, 3, 4 };
     var known_at_runtime_zero: usize = 0;
     _ = &known_at_runtime_zero;
     const slice = array[known_at_runtime_zero..array.len];
+
+    // alternative initialization using result location
+    const alt_slice: []const i32 = &.{ 1, 2, 3, 4 };
+
+    try expectEqualSlices(i32, slice, alt_slice);
+
     try expect(@TypeOf(slice) == []i32);
     try expect(&slice[0] == &array[0]);
     try expect(slice.len == array.len);

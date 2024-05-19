@@ -262,7 +262,7 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                         &io,
                         null,
                         windows.FILE_ATTRIBUTE_NORMAL,
-                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
                         windows.FILE_OPEN,
                         // FILE_OPEN_REPARSE_POINT is the important thing here
                         windows.FILE_OPEN_REPARSE_POINT | windows.FILE_DIRECTORY_FILE | windows.FILE_SYNCHRONOUS_IO_NONALERT | windows.FILE_OPEN_FOR_BACKUP_INTENT,
