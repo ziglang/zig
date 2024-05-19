@@ -445,8 +445,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                 }
                 // free retained metadata for small allocations
-                var empty_it = self.empty_buckets.inorderIterator();
-                while (empty_it.next()) |node| {
+                while (self.empty_buckets.getMin()) |node| {
+                    // remove the node from the tree before destroying it
+                    var entry = self.empty_buckets.getEntryForExisting(node);
+                    entry.set(null);
+
                     var bucket = node.key;
                     if (config.never_unmap) {
                         // free page that was intentionally leaked by never_unmap
