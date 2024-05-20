@@ -60,13 +60,13 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             }
         };
 
-        fn extremeInSubtreeOnDirection(node: *Node, direction: usize) *Node {
+        fn extremeInSubtreeOnDirection(node: *Node, direction: u1) *Node {
             var cur = node;
             while (cur.children[direction]) |next| cur = next;
             return cur;
         }
 
-        fn nextOnDirection(node: *Node, direction: usize) ?*Node {
+        fn nextOnDirection(node: *Node, direction: u1) ?*Node {
             if (node.children[direction]) |child| {
                 return extremeInSubtreeOnDirection(child, direction ^ 1);
             }
