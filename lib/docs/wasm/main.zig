@@ -1035,29 +1035,28 @@ fn file_source_html(
             .string_literal,
             .char_literal,
             .multiline_string_literal_line,
-            => {
+            => s: {
+                if (file.imports.get(token_index)) |builtin_node| {
+                    switch (file_index.categorize_expr(builtin_node)) {
+                        .alias => |alias_decl| {
+                            try out.appendSlice(gpa, "<a class=\"tok-str import\" href=\"#");
+                            _ = missing_feature_url_escape;
+                            try alias_decl.get().fqn(out);
+                            try out.appendSlice(gpa, "\">");
+                            try appendEscaped(out, slice);
+                            try out.appendSlice(gpa, "</a>");
+                            break :s;
+                        },
+                        else => {},
+                    }
+                }
+
                 try out.appendSlice(gpa, "<span class=\"tok-str\">");
                 try appendEscaped(out, slice);
                 try out.appendSlice(gpa, "</span>");
             },
 
-            .builtin => b: {
-                if (std.mem.eql(u8, slice, "@import")) {
-                    if (file.imports.get(token_index)) |builtin_node| {
-                        switch (file_index.categorize_expr(builtin_node)) {
-                            .alias => |alias_decl| {
-                                try out.appendSlice(gpa, "<a class=\"tok-builtin import\" href=\"#");
-                                _ = missing_feature_url_escape;
-                                try alias_decl.get().fqn(out);
-                                try out.appendSlice(gpa, "\">");
-                                try appendEscaped(out, slice);
-                                try out.appendSlice(gpa, "</a>");
-                                break :b;
-                            },
-                            else => {},
-                        }
-                    }
-                }
+            .builtin => {
                 try out.appendSlice(gpa, "<span class=\"tok-builtin\">");
                 try appendEscaped(out, slice);
                 try out.appendSlice(gpa, "</span>");

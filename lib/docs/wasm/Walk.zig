@@ -35,7 +35,7 @@ pub const File = struct {
     node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .{},
     /// Maps function declarations to doctests.
     doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
-    /// Maps "@import" tokens to their Ast node.
+    /// Maps import string tokens to their import builtin Ast node.
     imports: std.AutoArrayHashMapUnmanaged(Ast.TokenIndex, Ast.Node.Index) = .{},
     /// root node => its namespace scope
     /// struct/union/enum/opaque decl node => its namespace scope
@@ -970,7 +970,9 @@ fn builtin_call(
     if (std.mem.eql(u8, builtin_name, "@This")) {
         try w.file.get().node_decls.put(gpa, node, scope.getNamespaceDecl());
     } else if (std.mem.eql(u8, builtin_name, "@import")) {
-        try w.file.get().imports.put(gpa, builtin_token, node);
+        assert(params.len == 1);
+        const import_string_token = main_tokens[params[0]];
+        try w.file.get().imports.put(gpa, import_string_token, node);
     }
 
     for (params) |param| {
