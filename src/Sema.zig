@@ -26239,7 +26239,7 @@ fn zirWasmMemoryGrow(
     const index: u32 = @intCast(try sema.resolveInt(block, index_src, extra.lhs, Type.u32, .{
         .needed_comptime_reason = "wasm memory size index must be comptime-known",
     }));
-    const delta = try sema.coerce(block, Type.u32, try sema.resolveInst(extra.rhs), delta_src);
+    const delta = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.rhs), delta_src);
 
     try sema.requireRuntimeBlock(block, builtin_src, null);
     return block.addInst(.{
