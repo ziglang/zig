@@ -152,7 +152,7 @@ pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTra
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
     PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
 }
-pub fn compilerPanicNew(comptime panic_cause: std.builtin.PanicCause, data: std.builtin.PanicData(panic_cause)) noreturn {
+pub fn compilerPanicNew(comptime panic_cause: std.builtin.PanicCause, data: anytype) noreturn {
     PanicSwitch.preDispatch();
     @setCold(true);
     const ret_addr = @returnAddress();
