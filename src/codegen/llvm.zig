@@ -212,6 +212,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .callable => "callable",
         .mesh => "mesh",
         .amplification => "amplification",
+        .ohos => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
 
