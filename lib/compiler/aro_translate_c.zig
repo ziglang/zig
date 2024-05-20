@@ -376,7 +376,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
         const has_alignment_attributes = record_decl.field_attributes != null or
             raw_record_ty.hasAttribute(.@"packed") or
             raw_record_ty.hasAttribute(.aligned);
-        const head_field_alignment: ?c_uint = headFieldAlignment(record_decl);
+        const head_field_alignment: ?c_uint = if (has_alignment_attributes) headFieldAlignment(record_decl) else null;
 
         // Iterate over field nodes so that we translate any type decls included in this record decl.
         // TODO: Move this logic into `fn transType()` instead of handling decl translation here.
@@ -734,8 +734,14 @@ fn headFieldAlignment(record_decl: *const Type.Record) ?c_uint {
     }
 }
 
-/// This function returns a ?c_uint to match Clang's behaviour of using c_uint.
-/// This can be changed to a u29 after the Clang frontend for translate-c is removed.
+/// This function inspects the generated layout of a record to determine the alignment for a
+/// particular field. This approach is necessary because unlike Zig, a C compiler is not
+/// required to fulfill the requested alignment, which means we'd risk generating different code
+/// if we only look at the user-requested alignment.
+///
+/// Returns a ?c_uint to match Clang's behaviour of using c_uint. The return type can be changed
+/// after the Clang frontend for translate-c is removed. A null value indicates that a field is
+/// 'naturally aligned'.
 fn alignmentForField(
     record_decl: *const Type.Record,
     head_field_alignment: ?c_uint,

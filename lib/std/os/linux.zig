@@ -5918,8 +5918,8 @@ pub const SIOCGIFINDEX = 0x8933;
 pub const IFNAMESIZE = 16;
 
 pub const ifmap = extern struct {
-    mem_start: u32,
-    mem_end: u32,
+    mem_start: usize,
+    mem_end: usize,
     base_addr: u16,
     irq: u8,
     dma: u8,
