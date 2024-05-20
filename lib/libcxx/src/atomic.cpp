@@ -25,15 +25,27 @@
 #  if !defined(SYS_futex) && defined(SYS_futex_time64)
 #    define SYS_futex SYS_futex_time64
 #  endif
+#  define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
 
 #elif defined(__FreeBSD__)
 
 #  include <sys/types.h>
 #  include <sys/umtx.h>
 
+#  define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
+
+#elif defined(__OpenBSD__)
+
+#  include <sys/futex.h>
+
+// OpenBSD has no indirect syscalls
+#  define _LIBCPP_FUTEX(...) futex(__VA_ARGS__)
+
 #else // <- Add other operating systems here
 
 // Baseline needs no new headers
+
+#  define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
 
 #endif
 
@@ -44,11 +56,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 static void
 __libcpp_platform_wait_on_address(__cxx_atomic_contention_t const volatile* __ptr, __cxx_contention_t __val) {
   static constexpr timespec __timeout = {2, 0};
-  syscall(SYS_futex, __ptr, FUTEX_WAIT_PRIVATE, __val, &__timeout, 0, 0);
+  _LIBCPP_FUTEX(__ptr, FUTEX_WAIT_PRIVATE, __val, &__timeout, 0, 0);
 }
 
 static void __libcpp_platform_wake_by_address(__cxx_atomic_contention_t const volatile* __ptr, bool __notify_one) {
-  syscall(SYS_futex, __ptr, FUTEX_WAKE_PRIVATE, __notify_one ? 1 : INT_MAX, 0, 0, 0);
+  _LIBCPP_FUTEX(__ptr, FUTEX_WAKE_PRIVATE, __notify_one ? 1 : INT_MAX, 0, 0, 0);
 }
 
 #elif defined(__APPLE__) && defined(_LIBCPP_USE_ULOCK)
