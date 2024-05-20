@@ -802,6 +802,14 @@ pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
 
 /// This type is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const PanicFnGeneric = fn (comptime PanicCause, anytype) noreturn;
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PanicFnSimple = fn (anytype) noreturn;
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const PanicId = @typeInfo(PanicCause).Union.tag_type.?;
 
 /// This type is used by the Zig language code generation and

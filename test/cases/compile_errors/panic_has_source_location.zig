@@ -6,7 +6,7 @@ export fn foo() void {
     @panic("oh no");
 }
 
-pub fn panicNew(_: anytype, _: anytype) noreturn {
+pub fn panicNew(_: std.builtin.PanicCause, _: anytype) noreturn {
     @compileError("panic");
 }
 
