@@ -242,6 +242,7 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .musleabihf,
         .muslx32,
         .none,
+        .ohos,
         => return "musl",
         .code16,
         .eabi,

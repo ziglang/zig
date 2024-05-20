@@ -45,7 +45,8 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC());
+        (linking_libc and target.isGnuLibC()) or
+        (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
