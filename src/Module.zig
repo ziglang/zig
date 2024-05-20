@@ -158,6 +158,15 @@ stage1_flags: packed struct {
     reserved: u2 = 0,
 } = .{},
 
+safety: struct {
+    panic_cause_ty: Type = .{ .ip_index = .none },
+    panic_cast_ty: Type = .{ .ip_index = .none },
+    panic_id_ty: Type = .{ .ip_index = .none },
+    panic_fn_inst: Air.Inst.Ref = .none,
+    panic_data_fn_inst: Air.Inst.Ref = .none,
+    interface_mode: enum { none, simple, generic } = .none,
+} = .{},
+
 compile_log_text: ArrayListUnmanaged(u8) = .{},
 
 emit_h: ?*GlobalEmitH,
@@ -175,19 +184,6 @@ panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
-
-safety: struct {
-    panic_cause_ty: Type = .{ .ip_index = .none },
-    panic_cast_ty: Type = .{ .ip_index = .none },
-
-    panic_fn_inst: Air.Inst.Ref = .none,
-    panic_data_fn_inst: Air.Inst.Ref = .none,
-
-    // Any first parameter.
-    panic_fn_id_arg_ty: InternPool.Index = .none,
-    // Any second parameter.
-    panic_fn_data_arg_ty: InternPool.Index = .none,
-} = .{},
 
 pub const PanicId = enum {
     unreach,
