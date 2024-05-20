@@ -89,15 +89,15 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
         /// Returns the smallest Node by key in the treap if there is one.
         /// Use `getEntryForExisting()` to replace/remove this Node from the treap.
         pub fn getMin(self: Self) ?*Node {
-            if (self.root == null) return null;
-            return extremeInSubtreeOnDirection(self.root, 0);
+            if (self.root) |root| return extremeInSubtreeOnDirection(root, 0);
+            return null;
         }
 
         /// Returns the largest Node by key in the treap if there is one.
         /// Use `getEntryForExisting()` to replace/remove this Node from the treap.
         pub fn getMax(self: Self) ?*Node {
-            if (self.root == null) return null;
-            return extremeInSubtreeOnDirection(self.root, 1);
+            if (self.root) |root| return extremeInSubtreeOnDirection(root, 1);
+            return null;
         }
 
         /// Lookup the Entry for the given key in the treap.
@@ -304,11 +304,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
         };
 
         pub fn inorderIterator(self: *Self) InorderIterator {
-            const node = if (self.root) |root|
-                extremeInSubtreeOnDirection(root, 0)
-            else
-                null;
-            return .{ .current = node };
+            return .{ .current = self.getMin() };
         }
     };
 }
@@ -482,6 +478,66 @@ test "inorderIterator" {
     }
 }
 
+test "getMin, getMax, simple" {
+    var treap = TestTreap{};
+    var nodes: [3]TestNode = undefined;
+
+    try testing.expectEqual(null, treap.getMin());
+    try testing.expectEqual(null, treap.getMax());
+    { // nodes[1]
+        var entry = treap.getEntryFor(1);
+        entry.set(&nodes[1]);
+        try testing.expectEqual(&nodes[1], treap.getMin());
+        try testing.expectEqual(&nodes[1], treap.getMax());
+    }
+    { // nodes[0]
+        var entry = treap.getEntryFor(0);
+        entry.set(&nodes[0]);
+        try testing.expectEqual(&nodes[0], treap.getMin());
+        try testing.expectEqual(&nodes[1], treap.getMax());
+    }
+    { // nodes[2]
+        var entry = treap.getEntryFor(2);
+        entry.set(&nodes[2]);
+        try testing.expectEqual(&nodes[0], treap.getMin());
+        try testing.expectEqual(&nodes[2], treap.getMax());
+    }
+}
+
+test "getMin, getMax, random" {
+    var nodes: [100]TestNode = undefined;
+    var prng = std.Random.DefaultPrng.init(0xdeadbeef);
+    var iter = SliceIterRandomOrder(TestNode).init(&nodes, prng.random());
+
+    var treap = TestTreap{};
+    var min: u64 = std.math.maxInt(u64);
+    var max: u64 = 0;
+
+    try testing.expectEqual(null, treap.getMin());
+    try testing.expectEqual(null, treap.getMax());
+
+    // Insert and check min/max after each insertion.
+    iter.reset();
+    while (iter.next()) |node| {
+        const key = prng.random().int(u64);
+
+        // Insert into `treap`.
+        var entry = treap.getEntryFor(key);
+        entry.set(node);
+
+        if (key < min) min = key;
+        if (key > max) max = key;
+
+        const min_node = treap.getMin().?;
+        try std.testing.expectEqual(null, min_node.prev());
+        try std.testing.expectEqual(min, min_node.key);
+
+        const max_node = treap.getMax().?;
+        try std.testing.expectEqual(null, max_node.next());
+        try std.testing.expectEqual(max, max_node.key);
+    }
+}
+
 test "node.{prev(),next()} with sequential insertion and deletion" {
     // Insert order: 50, 0, 1, 2, ..., 49, 51, 52, ..., 99.
     // Delete order: 0, 1, 2, ..., 49, 51, 52, ..., 99.
@@ -491,7 +547,7 @@ test "node.{prev(),next()} with sequential insertion and deletion" {
     {
         var entry = treap.getEntryFor(50);
         entry.set(&nodes[50]);
-        try testing.expectEqual(nodes[50].key, 50);
+        try testing.expectEqual(50, nodes[50].key);
         try testing.expectEqual(null, nodes[50].prev());
         try testing.expectEqual(null, nodes[50].next());
     }
@@ -502,7 +558,7 @@ test "node.{prev(),next()} with sequential insertion and deletion" {
         const node = &nodes[i];
         var entry = treap.getEntryFor(key);
         entry.set(node);
-        try testing.expectEqual(node.key, key);
+        try testing.expectEqual(key, node.key);
         try testing.expectEqual(node, nodes[50].prev());
         try testing.expectEqual(null, nodes[50].next());
     }
@@ -512,7 +568,7 @@ test "node.{prev(),next()} with sequential insertion and deletion" {
         const node = &nodes[i];
         var entry = treap.getEntryFor(key);
         entry.set(node);
-        try testing.expectEqual(node.key, key);
+        try testing.expectEqual(key, node.key);
         try testing.expectEqual(&nodes[49], nodes[50].prev());
         try testing.expectEqual(&nodes[51], nodes[50].next());
     }
