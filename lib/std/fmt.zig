@@ -480,7 +480,7 @@ pub fn formatType(
 ) @TypeOf(writer).Error!void {
     const T = @TypeOf(value);
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
-        defaultSpec(@TypeOf(value))
+        defaultSpec(T)
     else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
         .Optional, .ErrorUnion => fmt,
         else => stripOptionalOrErrorUnionSpec(fmt),
