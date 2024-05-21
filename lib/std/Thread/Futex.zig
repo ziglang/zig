@@ -186,13 +186,6 @@ const DarwinImpl = struct {
             timeout_ns = delay;
         }
 
-        // If we're using `__ulock_wait` and `timeout` is too big to fit inside a `u32` count of
-        // micro-seconds (around 70min), we'll request a shorter timeout. This is fine (users
-        // should handle spurious wakeups), but we need to remember that we did so, so that
-        // we don't return `Timeout` incorrectly. If that happens, we set this variable to
-        // true so that we we know to ignore the ETIMEDOUT result.
-        var timeout_overflowed = false;
-
         const addr: *const anyopaque = ptr;
         const flags = c.UL_COMPARE_AND_WAIT | c.ULF_NO_ERRNO;
         const status = c.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
@@ -208,7 +201,7 @@ const DarwinImpl = struct {
             // Only report Timeout if we didn't have to cap the timeout
             .TIMEDOUT => {
                 assert(timeout != null);
-                if (!timeout_overflowed) return error.Timeout;
+                return error.Timeout;
             },
             else => unreachable,
         }
