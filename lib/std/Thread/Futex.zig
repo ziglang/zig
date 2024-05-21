@@ -178,9 +178,7 @@ const DarwinImpl = struct {
         // This XNU version appears to correspond to 11.0.1:
         // https://kernelshaman.blogspot.com/2021/01/building-xnu-for-macos-big-sur-1101.html
         //
-        // ulock_wait() uses 32-bit micro-second timeouts where 0 = INFINITE or no-timeout
-        // ulock_wait2() uses 64-bit nano-second timeouts (with the same convention)
-        const supports_ulock_wait2 = builtin.target.os.version_range.semver.min.major >= 11;
+        // ulock_wait2() uses 64-bit nano-second timeouts.
 
         var timeout_ns: u64 = 0;
         if (timeout) |delay| {
@@ -197,18 +195,7 @@ const DarwinImpl = struct {
 
         const addr: *const anyopaque = ptr;
         const flags = c.UL_COMPARE_AND_WAIT | c.ULF_NO_ERRNO;
-        const status = blk: {
-            if (supports_ulock_wait2) {
-                break :blk c.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
-            }
-
-            const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) orelse overflow: {
-                timeout_overflowed = true;
-                break :overflow std.math.maxInt(u32);
-            };
-
-            break :blk c.__ulock_wait(flags, addr, expect, timeout_us);
-        };
+        const status = c.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
 
         if (status >= 0) return;
         switch (@as(c.E, @enumFromInt(-status))) {
