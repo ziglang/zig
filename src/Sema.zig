@@ -2238,6 +2238,7 @@ fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, non
         if (non_optional_ty.zigTypeTag(mod) == .ErrorUnion) {
             try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
+        try addDeclaredHereNote(sema, msg, non_optional_ty);
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
