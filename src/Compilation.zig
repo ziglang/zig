@@ -621,8 +621,10 @@ pub const CObject = struct {
                     },
                 };
 
-                const bundle = try gpa.create(Bundle);
                 assert(stack.items.len == 1);
+                if (stack.items[0].sub_diags.items.len == 0) return error.EmptyDiagnosticsBundle;
+
+                const bundle = try gpa.create(Bundle);
                 bundle.* = .{
                     .file_names = file_names,
                     .category_names = category_names,
