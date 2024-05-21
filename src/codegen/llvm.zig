@@ -3775,6 +3775,7 @@ pub const Object = struct {
             .float,
             .enum_tag,
             => {},
+            .opt => {}, // pointer like optional expected
             else => unreachable,
         }
         const bits = ty.bitSize(mod);
