@@ -2014,6 +2014,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .abs => try self.airAbs(inst),
 
+            .expect => unreachable,
+
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
