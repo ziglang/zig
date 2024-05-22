@@ -38,8 +38,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
     macho_step.dependOn(testLinkingStaticLib(b, .{ .target = default_target }));
     macho_step.dependOn(testLinksection(b, .{ .target = default_target }));
-    macho_step.dependOn(testMergeLiterals(b, .{ .target = aarch64_target }));
-    macho_step.dependOn(testMergeLiterals2(b, .{ .target = aarch64_target }));
+    macho_step.dependOn(testMergeLiteralsArm64(b, .{ .target = aarch64_target }));
+    macho_step.dependOn(testMergeLiteralsArm642(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
@@ -917,7 +917,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-fn testMergeLiterals(b: *Build, opts: Options) *Step {
+fn testMergeLiteralsArm64(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-literals", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
@@ -988,22 +988,27 @@ fn testMergeLiterals(b: *Build, opts: Options) *Step {
     \\}
     });
 
+    const runWithChecks = struct {
+        fn runWithChecks(step: *Step, exe: *Compile) void {
+            const run = addRunArtifact(exe);
+            run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
+            step.dependOn(&run.step);
+
+            const check = exe.checkObject();
+            check.dumpSection("__TEXT,__const");
+            check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
+            check.dumpSection("__TEXT,__cstring");
+            check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
+            step.dependOn(&check.step);
+        }
+    }.runWithChecks;
+
     {
         const exe = addExecutable(b, opts, .{ .name = "main1" });
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.addObject(main_o);
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
-        test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.dumpSection("__TEXT,__const");
-        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
-        check.dumpSection("__TEXT,__cstring");
-        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
-        test_step.dependOn(&check.step);
+        runWithChecks(test_step, exe);
     }
 
     {
@@ -1011,17 +1016,7 @@ fn testMergeLiterals(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(a_o);
         exe.addObject(main_o);
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
-        test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.dumpSection("__TEXT,__const");
-        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
-        check.dumpSection("__TEXT,__cstring");
-        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
-        test_step.dependOn(&check.step);
+        runWithChecks(test_step, exe);
     }
 
     {
@@ -1032,17 +1027,7 @@ fn testMergeLiterals(b: *Build, opts: Options) *Step {
 
         const exe = addExecutable(b, opts, .{ .name = "main3" });
         exe.addObject(c_o);
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
-        test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.dumpSection("__TEXT,__const");
-        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
-        check.dumpSection("__TEXT,__cstring");
-        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
-        test_step.dependOn(&check.step);
+        runWithChecks(test_step, exe);
     }
 
     return test_step;
@@ -1052,7 +1037,7 @@ fn testMergeLiterals(b: *Build, opts: Options) *Step {
 /// However, this is by design as we want to test that the linker does not panic when linking it
 /// which is also the case for the system linker and lld - linking succeeds, runtime segfaults.
 /// It should also be mentioned that runtime segfault is not due to the linker but faulty input asm.
-fn testMergeLiterals2(b: *Build, opts: Options) *Step {
+fn testMergeLiteralsArm642(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-literals-2", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
