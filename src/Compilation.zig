@@ -4568,7 +4568,10 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
-        const out_diag_path = try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
+        const out_diag_path = if (comp.clang_passthrough_mode)
+            undefined
+        else
+            try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
@@ -4603,6 +4606,13 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             dump_argv(argv.items);
         }
 
+        // Just to save disk space, we delete the files that are never needed again.
+        defer if (!comp.clang_passthrough_mode) zig_cache_tmp_dir.deleteFile(std.fs.path.basename(out_diag_path)) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
+        };
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+        };
         if (std.process.can_spawn) {
             var child = std.ChildProcess.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
@@ -4643,9 +4653,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                                 log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
                                 return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                             };
-                            zig_cache_tmp_dir.deleteFile(out_diag_path) catch |err| {
-                                log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
-                            };
                             return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
                         }
                     },
@@ -4685,10 +4692,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 },
                 .incremental => {},
             }
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
-            };
         }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -4924,10 +4927,6 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                     .incremental => {},
                 }
             }
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
-            };
         }
 
         // Rename into place.
