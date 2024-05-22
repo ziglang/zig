@@ -121,7 +121,7 @@ pub fn main() !void {
                 '"' => if (mem.indexOfScalar(u8, raw, '=')) |eq_pos| {
                     // X86_MICROARCH_LEVEL(...): line is of the form `"name"=prio'
                     assert(raw[eq_pos - 1] == '"');
-                    const raw_name = raw[2 .. eq_pos - 1];
+                    const raw_name = raw[1 .. eq_pos - 1];
                     const raw_prio = raw[eq_pos + 1 ..];
 
                     try enum_fields.append(.{
