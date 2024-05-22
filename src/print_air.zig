@@ -162,7 +162,6 @@ const Writer = struct {
             .memcpy,
             .memset,
             .memset_safe,
-            .expect,
             => try w.writeBinOp(s, inst),
 
             .is_null,

@@ -318,12 +318,6 @@ typedef char bool;
 #define zig_noreturn
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#define zig_expect(op, exp) __builtin_expect(op, exp)
-#else
-#define zig_expect(op, exp) (op)
-#endif
-
 #define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
 
 #define zig_compiler_rt_abbrev_uint32_t si

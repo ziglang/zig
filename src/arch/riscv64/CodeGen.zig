@@ -1200,8 +1200,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          =>  try self.airTry(inst),
             .try_ptr         =>  return self.fail("TODO: try_ptr", .{}),
 
-            .expect => unreachable,
-            
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),

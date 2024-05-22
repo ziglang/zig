@@ -3343,8 +3343,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .@"try"  => try airTry(f, inst),
             .try_ptr => try airTryPtr(f, inst),
-            
-            .expect => try airExpect(f, inst),
 
             .dbg_stmt => try airDbgStmt(f, inst),
             .dbg_inline_block => try airDbgInlineBlock(f, inst),
@@ -4704,27 +4702,6 @@ fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]);
     const err_union_ty = f.typeOf(extra.data.ptr).childType(zcu);
     return lowerTry(f, inst, extra.data.ptr, body, err_union_ty, true);
-}
-
-fn airExpect(f: *Function, inst: Air.Inst.Index) !CValue {
-    const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const operand = try f.resolveInst(bin_op.lhs);
-    const expected = try f.resolveInst(bin_op.rhs);
-
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, Type.bool);
-    const a = try Assignment.start(f, writer, CType.bool);
-    try f.writeCValue(writer, local, .Other);
-    try a.assign(f, writer);
-
-    try writer.writeAll("zig_expect(");
-    try f.writeCValue(writer, operand, .FunctionArgument);
-    try writer.writeAll(", ");
-    try f.writeCValue(writer, expected, .FunctionArgument);
-    try writer.writeAll(")");
-
-    try a.end(f, writer);
-    return local;
 }
 
 fn lowerTry(

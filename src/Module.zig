@@ -5546,7 +5546,6 @@ pub const Feature = enum {
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
     safety_checked_instructions,
-    can_expect,
 };
 
 pub fn backendSupportsFeature(zcu: Module, feature: Feature) bool {
