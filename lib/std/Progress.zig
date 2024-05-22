@@ -24,8 +24,6 @@ supports_ansi_escape_codes: bool,
 
 root: Node,
 
-/// Protects all the state shared between the update thread and the public API calls.
-mutex: std.Thread.Mutex,
 update_thread: ?std.Thread,
 
 /// Atomically set by SIGWINCH as well as the root done() function.
@@ -33,6 +31,7 @@ redraw_event: std.Thread.ResetEvent,
 /// Ensure there is only 1 global Progress object.
 initialized: bool,
 /// Indicates a request to shut down and reset global state.
+/// Accessed atomically.
 done: bool,
 
 refresh_rate_ns: u64,
@@ -65,10 +64,13 @@ pub const Options = struct {
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
 pub const Node = struct {
-    parent: ?*Node,
+    mutex: std.Thread.Mutex,
+    /// Links to the parent and child nodes.
+    parent_list_node: std.DoublyLinkedList(void).Node,
+    /// Links to the prev and next sibling nodes.
+    sibling_list_node: std.DoublyLinkedList(void).Node,
+
     name: []const u8,
-    /// Must be handled atomically to be thread-safe.
-    recently_updated_child: ?*Node = null,
     /// Must be handled atomically to be thread-safe. 0 means null.
     unprotected_estimated_total_items: usize,
     /// Must be handled atomically to be thread-safe.
@@ -78,47 +80,54 @@ pub const Node = struct {
 
     /// Create a new child progress node. Thread-safe.
     ///
-    /// Call `Node.end` when done.
+    /// It is expected for the memory of the result to be stored in the
+    /// caller's stack and therefore is required to call `activate` immediately
+    /// on the result after initializing the memory location and `end` when done.
     ///
     /// Passing 0 for `estimated_total_items` means unknown.
     pub fn start(self: *Node, name: []const u8, estimated_total_items: usize) Node {
         return .{
-            .parent = self,
+            .mutex = .{},
+            .parent_list_node = .{
+                .prev = &self.parent_list_node,
+                .next = null,
+                .data = {},
+            },
+            .sibling_list_node = .{ .data = {} },
             .name = name,
             .unprotected_estimated_total_items = estimated_total_items,
             .unprotected_completed_items = 0,
         };
     }
 
+    /// To be called exactly once after `start`.
+    pub fn activate(n: *Node) void {
+        const p = n.parent().?;
+        p.mutex.lock();
+        defer p.mutex.unlock();
+        assert(p.parent_list_node.next == null);
+        p.parent_list_node.next = &n.parent_list_node;
+    }
+
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .monotonic);
-        self.activate();
     }
 
     /// Finish a started `Node`. Thread-safe.
-    pub fn end(self: *Node) void {
-        if (self.parent) |parent| {
-            parent.completeOne();
+    pub fn end(child: *Node) void {
+        if (child.parent()) |p| {
+            // Make sure the other thread doesn't access this memory that is
+            // about to be released.
+            child.mutex.lock();
+
+            const other = if (child.sibling_list_node.next) |n| n else child.sibling_list_node.prev;
+            _ = @cmpxchgStrong(std.DoublyLinkedList(void).Node, &p.parent_list_node.next, child, other, .seq_cst, .seq_cst);
+            p.completeOne();
         } else {
-            {
-                global_progress.mutex.lock();
-                defer global_progress.mutex.unlock();
-                global_progress.done = true;
-            }
+            @atomicStore(bool, &global_progress.done, true, .seq_cst);
             global_progress.redraw_event.set();
             if (global_progress.update_thread) |thread| thread.join();
-        }
-    }
-
-    /// Tell the parent node that this node is actively being worked on. Thread-safe.
-    pub fn activate(self: *Node) void {
-        var parent = self.parent;
-        var child = self;
-        while (parent) |p| {
-            @atomicStore(?*Node, &p.recently_updated_child, child, .release);
-            child = p;
-            parent = p.parent;
         }
     }
 
@@ -131,6 +140,11 @@ pub const Node = struct {
     pub fn setCompletedItems(self: *Node, completed_items: usize) void {
         @atomicStore(usize, &self.unprotected_completed_items, completed_items, .monotonic);
     }
+
+    fn parent(child: *Node) ?*Node {
+        const parent_node = child.parent_list_node.prev orelse return null;
+        return @fieldParentPtr("parent_list_node", parent_node);
+    }
 };
 
 var global_progress: Progress = .{
@@ -138,7 +152,6 @@ var global_progress: Progress = .{
     .is_windows_terminal = false,
     .supports_ansi_escape_codes = false,
     .root = undefined,
-    .mutex = .{},
     .update_thread = null,
     .redraw_event = .{},
     .initialized = false,
@@ -169,7 +182,9 @@ pub fn start(options: Options) *Node {
         global_progress.terminal = stderr;
     }
     global_progress.root = .{
-        .parent = null,
+        .mutex = .{},
+        .parent_list_node = .{ .data = {} },
+        .sibling_list_node = .{ .data = {} },
         .name = options.root_name,
         .unprotected_estimated_total_items = options.estimated_total_items,
         .unprotected_completed_items = 0,
@@ -220,10 +235,8 @@ fn updateThreadRun() void {
         maybeUpdateSize(resize_flag);
 
         const buffer = b: {
-            global_progress.mutex.lock();
-            defer global_progress.mutex.unlock();
-
-            if (global_progress.done) return clearTerminal();
+            if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+                return clearTerminal();
 
             break :b computeRedraw();
         };
@@ -235,10 +248,8 @@ fn updateThreadRun() void {
         maybeUpdateSize(resize_flag);
 
         const buffer = b: {
-            global_progress.mutex.lock();
-            defer global_progress.mutex.unlock();
-
-            if (global_progress.done) return clearTerminal();
+            if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+                return clearTerminal();
 
             break :b computeRedraw();
         };
@@ -270,7 +281,6 @@ fn computeRedraw() []u8 {
     i = prefix.len;
 
     // Walk the tree and write the progress output to the buffer.
-
     var node: *Node = &global_progress.root;
     while (true) {
         const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
