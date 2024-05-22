@@ -314,7 +314,14 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
     }
 }
 
-pub fn dedupLiterals(self: *ZigObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+pub fn resolveLiterals(self: *ZigObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+    _ = self;
+    _ = lp;
+    _ = macho_file;
+    // TODO
+}
+
+pub fn dedupLiterals(self: *ZigObject, lp: MachO.LiteralPool, macho_file: *MachO) void {
     _ = self;
     _ = lp;
     _ = macho_file;

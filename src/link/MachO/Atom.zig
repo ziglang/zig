@@ -113,12 +113,18 @@ pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
     return macho_file.getThunk(extra.thunk);
 }
 
+pub fn getLiteralPoolIndex(self: Atom, macho_file: *MachO) ?MachO.LiteralPool.Index {
+    if (!self.flags.literal_pool) return null;
+    return self.getExtra(macho_file).?.literal_index;
+}
+
 const AddExtraOpts = struct {
     thunk: ?u32 = null,
     rel_index: ?u32 = null,
     rel_count: ?u32 = null,
     unwind_index: ?u32 = null,
     unwind_count: ?u32 = null,
+    literal_index: ?u32 = null,
 };
 
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) !void {
@@ -1177,7 +1183,7 @@ pub const Flags = packed struct {
     /// Specifies whether this atom is alive or has been garbage collected.
     alive: bool = true,
 
-    /// Specifies if the atom has been visited during garbage collection.
+    /// Specifies if this atom has been visited during garbage collection.
     visited: bool = false,
 
     /// Whether this atom has a range extension thunk.
@@ -1188,6 +1194,9 @@ pub const Flags = packed struct {
 
     /// Whether this atom has any unwind records.
     unwind: bool = false,
+
+    /// Whether this atom has LiteralPool entry.
+    literal_pool: bool = false,
 };
 
 pub const Extra = struct {
@@ -1205,6 +1214,9 @@ pub const Extra = struct {
 
     /// Count of relocations belonging to this atom.
     unwind_count: u32 = 0,
+
+    /// Index into LiteralPool entry for this atom.
+    literal_index: u32 = 0,
 };
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;

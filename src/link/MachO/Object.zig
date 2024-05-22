@@ -527,11 +527,8 @@ fn initPointerLiterals(self: *Object, macho_file: *MachO) !void {
     }
 }
 
-pub fn dedupLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+pub fn resolveLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
-
-    var killed_atoms = std.AutoHashMap(Atom.Index, Atom.Index).init(gpa);
-    defer killed_atoms.deinit();
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -548,10 +545,9 @@ pub fn dedupLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO) !
                 const res = try lp.insert(gpa, header.type(), atom_data);
                 if (!res.found_existing) {
                     res.atom.* = sub.atom;
-                    continue;
                 }
-                atom.flags.alive = false;
-                try killed_atoms.putNoClobber(sub.atom, res.atom.*);
+                atom.flags.literal_pool = true;
+                try atom.addExtra(.{ .literal_index = res.index }, macho_file);
             }
         } else if (isPtrLiteral(header)) {
             for (subs.items) |sub| {
@@ -572,33 +568,46 @@ pub fn dedupLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO) !
                 buffer.clearRetainingCapacity();
                 if (!res.found_existing) {
                     res.atom.* = sub.atom;
-                    continue;
                 }
-                atom.flags.alive = false;
-                try killed_atoms.putNoClobber(sub.atom, res.atom.*);
+                atom.flags.literal_pool = true;
+                try atom.addExtra(.{ .literal_index = res.index }, macho_file);
             }
         }
     }
+}
 
+pub fn dedupLiterals(self: Object, lp: MachO.LiteralPool, macho_file: *MachO) void {
     for (self.atoms.items) |atom_index| {
-        if (killed_atoms.get(atom_index)) |_| continue;
         const atom = macho_file.getAtom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
         if (!atom.flags.relocs) continue;
 
         const relocs = blk: {
             const extra = atom.getExtra(macho_file).?;
-            const relocs = slice.items(.relocs)[atom.n_sect].items;
+            const relocs = self.sections.items(.relocs)[atom.n_sect].items;
             break :blk relocs[extra.rel_index..][0..extra.rel_count];
         };
         for (relocs) |*rel| switch (rel.tag) {
-            .local => if (killed_atoms.get(rel.target)) |new_target| {
-                rel.target = new_target;
+            .local => {
+                const target = macho_file.getAtom(rel.target).?;
+                if (target.getLiteralPoolIndex(macho_file)) |lp_index| {
+                    const lp_atom = lp.getAtom(lp_index, macho_file);
+                    if (target.atom_index != lp_atom.atom_index) {
+                        target.flags.alive = false;
+                        rel.target = lp_atom.atom_index;
+                    }
+                }
             },
             .@"extern" => {
-                const target = rel.getTargetSymbol(macho_file);
-                if (killed_atoms.get(target.atom)) |new_atom| {
-                    target.atom = new_atom;
+                const target_sym = rel.getTargetSymbol(macho_file);
+                if (target_sym.getAtom(macho_file)) |target_atom| {
+                    if (target_atom.getLiteralPoolIndex(macho_file)) |lp_index| {
+                        const lp_atom = lp.getAtom(lp_index, macho_file);
+                        if (target_atom.atom_index != lp_atom.atom_index) {
+                            target_atom.flags.alive = false;
+                            target_sym.atom = lp_atom.atom_index;
+                        }
+                    }
                 }
             },
         };

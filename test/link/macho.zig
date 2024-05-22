@@ -38,6 +38,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
     macho_step.dependOn(testLinkingStaticLib(b, .{ .target = default_target }));
     macho_step.dependOn(testLinksection(b, .{ .target = default_target }));
+    macho_step.dependOn(testMergeLiterals(b, .{ .target = aarch64_target }));
+    macho_step.dependOn(testMergeLiterals2(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
@@ -909,6 +911,215 @@ fn testLinksection(b: *Build, opts: Options) *Step {
         check.checkContains("(__TEXT,__TestGenFnA) _a.testGenericFn__anon_");
     }
 
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testMergeLiterals(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-literals", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _q1
+    \\.globl _s1
+    \\
+    \\.align 4
+    \\_q1:
+    \\  adrp x8, L._q1@PAGE
+    \\  ldr d0, [x8, L._q1@PAGEOFF]
+    \\  ret
+    \\ 
+    \\.section __TEXT,__cstring,cstring_literals
+    \\l._s1:
+    \\  .asciz "hello"
+    \\
+    \\.section __TEXT,__literal8,8byte_literals
+    \\.align 8
+    \\L._q1:
+    \\  .double 1.2345
+    \\
+    \\.section __DATA,__data
+    \\.align 8
+    \\_s1:
+    \\  .quad l._s1
+    });
+
+    const b_o = addObject(b, opts, .{ .name = "b", .asm_source_bytes = 
+    \\.globl _q2
+    \\.globl _s2
+    \\.globl _s3
+    \\
+    \\.align 4
+    \\_q2:
+    \\  adrp x8, L._q2@PAGE
+    \\  ldr d0, [x8, L._q2@PAGEOFF]
+    \\  ret
+    \\ 
+    \\.section __TEXT,__cstring,cstring_literals
+    \\l._s2:
+    \\  .asciz "hello"
+    \\l._s3:
+    \\  .asciz "world"
+    \\
+    \\.section __TEXT,__literal8,8byte_literals
+    \\.align 8
+    \\L._q2:
+    \\  .double 1.2345
+    \\
+    \\.section __DATA,__data
+    \\.align 8
+    \\_s2:
+    \\   .quad l._s2
+    \\_s3:
+    \\   .quad l._s3
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\extern double q1();
+    \\extern double q2();
+    \\extern const char* s1;
+    \\extern const char* s2;
+    \\extern const char* s3;
+    \\int main() {
+    \\  printf("%s, %s, %s, %f, %f", s1, s2, s3, q1(), q2());
+    \\  return 0;
+    \\}
+    });
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.addObject(main_o);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection("__TEXT,__const");
+        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
+        check.dumpSection("__TEXT,__cstring");
+        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(b_o);
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection("__TEXT,__const");
+        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
+        check.dumpSection("__TEXT,__cstring");
+        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const c_o = addObject(b, opts, .{ .name = "c" });
+        c_o.addObject(a_o);
+        c_o.addObject(b_o);
+        c_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(c_o);
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("hello, hello, world, 1.234500, 1.234500");
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.dumpSection("__TEXT,__const");
+        check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
+        check.dumpSection("__TEXT,__cstring");
+        check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
+        test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+/// This particular test case will generate invalid machine code that will segfault at runtime.
+/// However, this is by design as we want to test that the linker does not panic when linking it
+/// which is also the case for the system linker and lld - linking succeeds, runtime segfaults.
+/// It should also be mentioned that runtime segfault is not due to the linker but faulty input asm.
+fn testMergeLiterals2(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-literals-2", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _q1
+    \\.globl _s1
+    \\
+    \\.align 4
+    \\_q1:
+    \\  adrp x0, L._q1@PAGE
+    \\  ldr x0, [x0, L._q1@PAGEOFF]
+    \\  ret
+    \\ 
+    \\.section __TEXT,__cstring,cstring_literals
+    \\_s1:
+    \\  .asciz "hello"
+    \\
+    \\.section __TEXT,__literal8,8byte_literals
+    \\.align 8
+    \\L._q1:
+    \\  .double 1.2345
+    });
+
+    const b_o = addObject(b, opts, .{ .name = "b", .asm_source_bytes = 
+    \\.globl _q2
+    \\.globl _s2
+    \\.globl _s3
+    \\
+    \\.align 4
+    \\_q2:
+    \\  adrp x0, L._q2@PAGE
+    \\  ldr x0, [x0, L._q2@PAGEOFF]
+    \\  ret
+    \\ 
+    \\.section __TEXT,__cstring,cstring_literals
+    \\_s2:
+    \\  .asciz "hello"
+    \\_s3:
+    \\  .asciz "world"
+    \\
+    \\.section __TEXT,__literal8,8byte_literals
+    \\.align 8
+    \\L._q2:
+    \\  .double 1.2345
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\extern double q1();
+    \\extern double q2();
+    \\extern const char* s1;
+    \\extern const char* s2;
+    \\extern const char* s3;
+    \\int main() {
+    \\  printf("%s, %s, %s, %f, %f", s1, s2, s3, q1(), q2());
+    \\  return 0;
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main1" });
+    exe.addObject(a_o);
+    exe.addObject(b_o);
+    exe.addObject(main_o);
+
+    const check = exe.checkObject();
+    check.dumpSection("__TEXT,__const");
+    check.checkContains("\x8d\x97n\x12\x83\xc0\xf3?");
+    check.dumpSection("__TEXT,__cstring");
+    check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
     test_step.dependOn(&check.step);
 
     return test_step;

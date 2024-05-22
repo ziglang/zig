@@ -1500,14 +1500,25 @@ pub fn dedupLiterals(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     var lp: LiteralPool = .{};
     defer lp.deinit(gpa);
+
     if (self.getZigObject()) |zo| {
-        try zo.dedupLiterals(&lp, self);
+        try zo.resolveLiterals(&lp, self);
     }
     for (self.objects.items) |index| {
-        try self.getFile(index).?.object.dedupLiterals(&lp, self);
+        try self.getFile(index).?.object.resolveLiterals(&lp, self);
     }
     if (self.getInternalObject()) |object| {
-        try object.dedupLiterals(&lp, self);
+        try object.resolveLiterals(&lp, self);
+    }
+
+    if (self.getZigObject()) |zo| {
+        zo.dedupLiterals(lp, self);
+    }
+    for (self.objects.items) |index| {
+        self.getFile(index).?.object.dedupLiterals(lp, self);
+    }
+    if (self.getInternalObject()) |object| {
+        object.dedupLiterals(lp, self);
     }
 }
 
@@ -4415,8 +4426,14 @@ pub const LiteralPool = struct {
         lp.data.deinit(allocator);
     }
 
+    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
+        assert(index < lp.values.items.len);
+        return macho_file.getAtom(lp.values.items[index]).?;
+    }
+
     const InsertResult = struct {
         found_existing: bool,
+        index: Index,
         atom: *Atom.Index,
     };
 
@@ -4434,6 +4451,7 @@ pub const LiteralPool = struct {
         }
         return .{
             .found_existing = gop.found_existing,
+            .index = @intCast(gop.index),
             .atom = &lp.values.items[gop.index],
         };
     }
@@ -4472,6 +4490,8 @@ pub const LiteralPool = struct {
             return key.hash(ctx.lp);
         }
     };
+
+    pub const Index = u32;
 };
 
 const HotUpdateState = struct {
