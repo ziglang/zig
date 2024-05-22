@@ -83,6 +83,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
             macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.host }));
             macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
             macho_step.dependOn(testLinkDirectlyCppTbd(b, .{ .target = b.host }));
+            macho_step.dependOn(testMergeLiteralsObjc(b, .{ .target = b.host }));
             macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
             macho_step.dependOn(testObjc(b, .{ .target = b.host }));
             macho_step.dependOn(testObjcpp(b, .{ .target = b.host }));
@@ -1121,6 +1122,96 @@ fn testMergeLiterals2(b: *Build, opts: Options) *Step {
     check.dumpSection("__TEXT,__cstring");
     check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testMergeLiteralsObjc(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-literals-objc", opts);
+
+    const main_o = addObject(b, opts, .{ .name = "main", .objc_source_bytes = 
+    \\#import <Foundation/Foundation.h>;
+    \\
+    \\extern void foo();
+    \\
+    \\int main() {
+    \\  NSString *thing = @"aaa";
+    \\
+    \\  SEL sel = @selector(lowercaseString);
+    \\  NSString *lower = (([thing respondsToSelector:sel]) ? @"YES" : @"NO");
+    \\  NSLog (@"Responds to lowercaseString: %@", lower);
+    \\  if ([thing respondsToSelector:sel]) //(lower == @"YES")
+    \\      NSLog(@"lowercaseString is: %@", [thing lowercaseString]);
+    \\
+    \\  foo();
+    \\}
+    });
+
+    const a_o = addObject(b, opts, .{ .name = "a", .objc_source_bytes = 
+    \\#import <Foundation/Foundation.h>;
+    \\
+    \\void foo() {
+    \\  NSString *thing = @"aaa";
+    \\  SEL sel = @selector(lowercaseString);
+    \\  NSString *lower = (([thing respondsToSelector:sel]) ? @"YES" : @"NO");
+    \\  NSLog (@"Responds to lowercaseString in foo(): %@", lower);
+    \\  if ([thing respondsToSelector:sel]) //(lower == @"YES")
+    \\      NSLog(@"lowercaseString in foo() is: %@", [thing lowercaseString]);
+    \\  SEL sel2 = @selector(uppercaseString);
+    \\  NSString *upper = (([thing respondsToSelector:sel2]) ? @"YES" : @"NO");
+    \\  NSLog (@"Responds to uppercaseString in foo(): %@", upper);
+    \\  if ([thing respondsToSelector:sel2]) //(upper == @"YES")
+    \\      NSLog(@"uppercaseString in foo() is: %@", [thing uppercaseString]);
+    \\}
+    });
+
+    const runWithChecks = struct {
+        fn runWithChecks(step: *Step, exe: *Compile) void {
+            const builder = step.owner;
+            const run = addRunArtifact(exe);
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("Responds to lowercaseString: YES") });
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("lowercaseString is: aaa") });
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("Responds to lowercaseString in foo(): YES") });
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("lowercaseString in foo() is: aaa") });
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("Responds to uppercaseString in foo(): YES") });
+            run.addCheck(.{ .expect_stderr_match = builder.dupe("uppercaseString in foo() is: AAA") });
+            step.dependOn(&run.step);
+
+            const check = exe.checkObject();
+            check.dumpSection("__TEXT,__objc_methname");
+            check.checkContains("lowercaseString\x00");
+            check.dumpSection("__TEXT,__objc_methname");
+            check.checkContains("uppercaseString\x00");
+            step.dependOn(&check.step);
+        }
+    }.runWithChecks;
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.root_module.linkFramework("Foundation", .{});
+        runWithChecks(test_step, exe);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+        exe.root_module.linkFramework("Foundation", .{});
+        runWithChecks(test_step, exe);
+    }
+
+    {
+        const b_o = addObject(b, opts, .{ .name = "b" });
+        b_o.addObject(a_o);
+        b_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(b_o);
+        exe.root_module.linkFramework("Foundation", .{});
+        runWithChecks(test_step, exe);
+    }
 
     return test_step;
 }
