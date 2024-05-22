@@ -120,6 +120,13 @@ comptime {
         // unimplemented in LLVM's llvm/lib/Target/X86/X86.td.
         .{ "avx5124vnniw", {} },
         .{ "avx5124fmaps", {} },
+
+        // These represent aggregate microarchitecture levels and
+        // thus do not correspond to individual features.
+        .{ "x86_64", {} },
+        .{ "x86_64_v2", {} },
+        .{ "x86_64_v3", {} },
+        .{ "x86_64_v4", {} },
     });
 
     var errors: []const u8 = "";

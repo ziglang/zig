@@ -29,6 +29,7 @@ pub const Type = enum(u32) {
     zhaoxin_fam7h,
     intel_sierraforest,
     intel_grandridge,
+    intel_clearwaterforest,
 };
 pub const Subtype = enum(u32) {
     unknown,
@@ -63,6 +64,9 @@ pub const Subtype = enum(u32) {
     amdfam19h_znver4,
     intel_corei7_graniterapids,
     intel_corei7_graniterapids_d,
+    intel_corei7_arrowlake,
+    intel_corei7_arrowlake_s,
+    intel_corei7_pantherlake,
 };
 pub const Feature = enum(u32) {
     cmov = 0,
@@ -103,4 +107,10 @@ pub const Feature = enum(u32) {
     avx512bitalg = 35,
     avx512bf16 = 36,
     avx512vp2intersect = 37,
+    f16c = 49,
+    avx512fp16 = 94,
+    x86_64 = 95,
+    x86_64_v2 = 96,
+    x86_64_v3 = 97,
+    x86_64_v4 = 98,
 };
