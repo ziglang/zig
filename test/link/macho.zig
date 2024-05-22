@@ -62,8 +62,8 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_version_min = .{ .semver = .{ .major = 10, .minor = 13, .patch = 0 } },
     }) }));
 
-    // Tests requiring symlinks when tested on Windows
-    if (build_opts.has_symlinks_windows) {
+    // Tests requiring symlinks
+    if (build_opts.has_symlinks) {
         macho_step.dependOn(testEntryPointArchive(b, .{ .target = default_target }));
         macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
@@ -836,9 +836,9 @@ fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
         ,
         .cpp_source_flags = &.{ "-nostdlib++", "-nostdinc++" },
     });
-    exe.root_module.addSystemIncludePath(b.path(b.pathJoin(&.{ sdk, "/usr/include" })));
-    exe.root_module.addIncludePath(b.path(b.pathJoin(&.{ sdk, "/usr/include/c++/v1" })));
-    exe.root_module.addObjectFile(b.path(b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" })));
+    exe.root_module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    exe.root_module.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include/c++/v1" }) });
+    exe.root_module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" }) });
 
     const check = exe.checkObject();
     check.checkInSymtab();
