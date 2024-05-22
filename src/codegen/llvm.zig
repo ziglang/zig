@@ -550,7 +550,8 @@ const DataLayoutBuilder = struct {
             try self.typeAlignment(.float, 64, 64, 64, true, writer);
         }
         if (stack_abi != ptr_bit_width or self.target.cpu.arch == .msp430 or
-            self.target.os.tag == .uefi or self.target.os.tag == .windows)
+            self.target.os.tag == .uefi or self.target.os.tag == .windows or
+            self.target.cpu.arch == .riscv32)
             try writer.print("-S{d}", .{stack_abi});
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {

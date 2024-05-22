@@ -1686,4 +1686,14 @@ pub const cpu = struct {
             .zksh,
         }),
     };
+    pub const pvm = CpuModel{
+        .name = "pvm",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+            .e,
+            .a,
+            .m,
+        }),
+    };
 };
