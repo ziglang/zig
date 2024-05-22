@@ -28,7 +28,7 @@ comptime {
 }
 
 // Based on LLVM's compiler-rt implementation.
-// (https://github.com/llvm/llvm-project/blob/0e5da2eceb89f1e947e8b9b4aa42804e4ea89acc/compiler-rt/lib/builtins/cpu_model.c)
+// (https://github.com/llvm/llvm-project/blob/llvmorg-18.1.6/compiler-rt/lib/builtins/cpu_model/x86.c)
 
 var cpu: Model = .{};
 var cpu_extra_features: [feature_set_size - 1]u32 = [_]u32{0} ** (feature_set_size - 1);
@@ -51,6 +51,36 @@ fn init() callconv(.C) c_int {
             const index: Target.Cpu.Feature.Set.Index = f.value;
             if (comptime !@hasField(Feature, f.name)) continue;
             if (detected.isEnabled(index)) setFeature(&features, @field(Feature, f.name));
+        }
+
+        const isDetected = struct {
+            fn isDetected(set: Target.Cpu.Feature.Set, feats: []const Target.x86.Feature) bool {
+                for (feats) |f| {
+                    if (!set.isEnabled(@intFromEnum(f))) return false;
+                }
+                return true;
+            }
+        }.isDetected;
+
+        // From upstream LLVM:
+        //  - FEATURE_LM -> @"64bit"
+        if (isDetected(detected, &.{ .@"64bit", .sse2 })) {
+            setFeature(&features, .x86_64);
+
+            // From upstream LLVM:
+            //  - FEATURE_CMPXCHG16B -> cx16
+            //  - FEATURE_LAHF_LM -> sahf
+            if (isDetected(detected, &.{ .cx16, .popcnt, .sahf, .sse4_2 })) {
+                setFeature(&features, .x86_64_v2);
+
+                if (isDetected(detected, &.{ .avx2, .bmi, .bmi2, .f16c, .fma, .lzcnt, .movbe })) {
+                    setFeature(&features, .x86_64_v3);
+
+                    if (isDetected(detected, &.{ .avx512bw, .avx512cd, .avx512dq, .avx512vl })) {
+                        setFeature(&features, .x86_64_v4);
+                    }
+                }
+            }
         }
 
         break :blk features;
