@@ -94,6 +94,7 @@ pub const E = enum(u16) {
     OVERFLOW,
     LOOP,
     TXTBSY,
+    ILSEQ,
 
     pub fn init(r: usize) E {
         const signed_r: isize = @bitCast(r);
@@ -276,11 +277,11 @@ pub fn pread(fd: i32, buf: [*]const u8, count: usize, offset: isize) usize {
     return syscall_bits.syscall4(.PREAD, @bitCast(@as(isize, fd)), @intFromPtr(buf), count, @bitCast(offset));
 }
 
-pub fn open(path: [*:0]const u8, flags: u32) usize {
-    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @bitCast(@as(isize, flags)));
+pub fn open(path: [*:0]const u8, flags: O) usize {
+    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @as(u32, @bitCast(flags)));
 }
 
-pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, _: mode_t) usize {
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: O, _: mode_t) usize {
     // we skip perms because only create supports perms
     if (dirfd == AT.FDCWD) { // openat(AT_FDCWD, ...) == open(...)
         return open(path, flags);
@@ -334,7 +335,7 @@ pub const AccessMode = enum(u2) {
 };
 
 pub const O = packed struct(u32) {
-    access: AccessMode,
+    ACCMODE: AccessMode,
     _2: u2 = 0,
     TRUNC: bool = false,
     CEXEC: bool = false,
