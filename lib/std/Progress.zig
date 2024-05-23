@@ -367,12 +367,23 @@ fn clearTerminal() void {
     buf[i..][0..start_sync.len].* = start_sync.*;
     i += start_sync.len;
 
+    i = computeClear(buf, i);
+
+    buf[i..][0..finish_sync.len].* = finish_sync.*;
+    i += finish_sync.len;
+
+    write(buf[0..i]);
+}
+
+fn computeClear(buf: []u8, start_i: usize) usize {
+    var i = start_i;
+
     const prev_nl_n = global_progress.newline_count;
     if (prev_nl_n > 0) {
         global_progress.newline_count = 0;
         buf[i] = '\r';
         i += 1;
-        for (0..prev_nl_n) |_| {
+        for (1..prev_nl_n) |_| {
             buf[i..][0..up_one_line.len].* = up_one_line.*;
             i += up_one_line.len;
         }
@@ -381,10 +392,7 @@ fn clearTerminal() void {
     buf[i..][0..clear.len].* = clear.*;
     i += clear.len;
 
-    buf[i..][0..finish_sync.len].* = finish_sync.*;
-    i += finish_sync.len;
-
-    write(buf[0..i]);
+    return i;
 }
 
 const Children = struct {
@@ -467,25 +475,13 @@ fn computeRedraw() []u8 {
     buf[i..][0..start_sync.len].* = start_sync.*;
     i += start_sync.len;
 
-    const prev_nl_n = global_progress.newline_count;
-    if (prev_nl_n > 0) {
-        global_progress.newline_count = 0;
-        buf[i] = '\r';
-        i += 1;
-        for (0..prev_nl_n) |_| {
-            buf[i..][0..up_one_line.len].* = up_one_line.*;
-            i += up_one_line.len;
-        }
-    }
-
-    buf[i..][0..clear.len].* = clear.*;
-    i += clear.len;
+    i = computeClear(buf, i);
 
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, root_node_index);
 
     // Truncate trailing newline.
-    //if (buf[i - 1] == '\n') i -= 1;
+    if (buf[i - 1] == '\n') i -= 1;
 
     buf[i..][0..finish_sync.len].* = finish_sync.*;
     i += finish_sync.len;
