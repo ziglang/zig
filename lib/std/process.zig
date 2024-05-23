@@ -6,12 +6,12 @@ const math = std.math;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
-const child_process = @import("child_process.zig");
 const native_os = builtin.os.tag;
 const posix = std.posix;
 const windows = std.os.windows;
+const unicode = std.unicode;
 
-pub const Child = child_process.ChildProcess;
+pub const Child = @import("process/Child.zig");
 pub const abort = posix.abort;
 pub const exit = posix.exit;
 pub const changeCurDir = posix.chdir;
@@ -86,7 +86,7 @@ pub const EnvMap = struct {
             _ = self;
             if (native_os == .windows) {
                 var h = std.hash.Wyhash.init(0);
-                var it = std.unicode.Wtf8View.initUnchecked(s).iterator();
+                var it = unicode.Wtf8View.initUnchecked(s).iterator();
                 while (it.nextCodepoint()) |cp| {
                     const cp_upper = upcase(cp);
                     h.update(&[_]u8{
@@ -103,8 +103,8 @@ pub const EnvMap = struct {
         pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
             _ = self;
             if (native_os == .windows) {
-                var it_a = std.unicode.Wtf8View.initUnchecked(a).iterator();
-                var it_b = std.unicode.Wtf8View.initUnchecked(b).iterator();
+                var it_a = unicode.Wtf8View.initUnchecked(a).iterator();
+                var it_b = unicode.Wtf8View.initUnchecked(b).iterator();
                 while (true) {
                     const c_a = it_a.nextCodepoint() orelse break;
                     const c_b = it_b.nextCodepoint() orelse return false;
@@ -141,7 +141,7 @@ pub const EnvMap = struct {
     /// If `putMove` fails, the ownership of key and value does not transfer.
     /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
     pub fn putMove(self: *EnvMap, key: []u8, value: []u8) !void {
-        assert(std.unicode.wtf8ValidateSlice(key));
+        assert(unicode.wtf8ValidateSlice(key));
         const get_or_put = try self.hash_map.getOrPut(key);
         if (get_or_put.found_existing) {
             self.free(get_or_put.key_ptr.*);
@@ -154,7 +154,7 @@ pub const EnvMap = struct {
     /// `key` and `value` are copied into the EnvMap.
     /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
     pub fn put(self: *EnvMap, key: []const u8, value: []const u8) !void {
-        assert(std.unicode.wtf8ValidateSlice(key));
+        assert(unicode.wtf8ValidateSlice(key));
         const value_copy = try self.copy(value);
         errdefer self.free(value_copy);
         const get_or_put = try self.hash_map.getOrPut(key);
@@ -173,7 +173,7 @@ pub const EnvMap = struct {
     /// The returned pointer is invalidated if the map resizes.
     /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
     pub fn getPtr(self: EnvMap, key: []const u8) ?*[]const u8 {
-        assert(std.unicode.wtf8ValidateSlice(key));
+        assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.getPtr(key);
     }
 
@@ -182,7 +182,7 @@ pub const EnvMap = struct {
     /// key is removed from the map.
     /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
     pub fn get(self: EnvMap, key: []const u8) ?[]const u8 {
-        assert(std.unicode.wtf8ValidateSlice(key));
+        assert(unicode.wtf8ValidateSlice(key));
         return self.hash_map.get(key);
     }
 
@@ -190,7 +190,7 @@ pub const EnvMap = struct {
     /// This invalidates the value returned by get() for this key.
     /// On Windows `key` must be a valid [WTF-8](https://simonsapin.github.io/wtf-8/) string.
     pub fn remove(self: *EnvMap, key: []const u8) void {
-        assert(std.unicode.wtf8ValidateSlice(key));
+        assert(unicode.wtf8ValidateSlice(key));
         const kv = self.hash_map.fetchRemove(key) orelse return;
         self.free(kv.key);
         self.free(kv.value);
@@ -260,7 +260,7 @@ test EnvMap {
         try testing.expectEqualStrings("something else", env.get("кириллица").?);
 
         // and WTF-8 that's not valid UTF-8
-        const wtf8_with_surrogate_pair = try std.unicode.wtf16LeToWtf8Alloc(testing.allocator, &[_]u16{
+        const wtf8_with_surrogate_pair = try unicode.wtf16LeToWtf8Alloc(testing.allocator, &[_]u16{
             std.mem.nativeToLittle(u16, 0xD83D), // unpaired high surrogate
         });
         defer testing.allocator.free(wtf8_with_surrogate_pair);
@@ -300,7 +300,7 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             const key_w = ptr[key_start..i];
-            const key = try std.unicode.wtf16LeToWtf8Alloc(allocator, key_w);
+            const key = try unicode.wtf16LeToWtf8Alloc(allocator, key_w);
             errdefer allocator.free(key);
 
             if (ptr[i] == '=') i += 1;
@@ -308,7 +308,7 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
             const value_start = i;
             while (ptr[i] != 0) : (i += 1) {}
             const value_w = ptr[value_start..i];
-            const value = try std.unicode.wtf16LeToWtf8Alloc(allocator, value_w);
+            const value = try unicode.wtf16LeToWtf8Alloc(allocator, value_w);
             errdefer allocator.free(value);
 
             i += 1; // skip over null byte
@@ -401,13 +401,13 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
         const result_w = blk: {
             var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
             const stack_allocator = stack_alloc.get();
-            const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
+            const key_w = try unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
             defer stack_allocator.free(key_w);
 
             break :blk getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         };
         // wtf16LeToWtf8Alloc can only fail with OutOfMemory
-        return std.unicode.wtf16LeToWtf8Alloc(allocator, result_w);
+        return unicode.wtf16LeToWtf8Alloc(allocator, result_w);
     } else if (native_os == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
         defer envmap.deinit();
@@ -422,7 +422,7 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
 /// On Windows, `key` must be valid UTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
@@ -445,7 +445,7 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
     if (native_os == .windows) {
         var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
         const stack_allocator = stack_alloc.get();
-        const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
+        const key_w = try unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
         defer stack_allocator.free(key_w);
         return getenvW(key_w) != null;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -659,7 +659,7 @@ pub const ArgIteratorWindows = struct {
     /// The iterator makes a copy of `cmd_line_w` converted WTF-8 and keeps it; it does *not* take
     /// ownership of `cmd_line_w`.
     pub fn init(allocator: Allocator, cmd_line_w: [*:0]const u16) InitError!ArgIteratorWindows {
-        const cmd_line = try std.unicode.wtf16LeToWtf8Alloc(allocator, mem.sliceTo(cmd_line_w, 0));
+        const cmd_line = try unicode.wtf16LeToWtf8Alloc(allocator, mem.sliceTo(cmd_line_w, 0));
         errdefer allocator.free(cmd_line);
 
         const buffer = try allocator.alloc(u8, cmd_line.len + 1);
@@ -728,17 +728,17 @@ pub const ArgIteratorWindows = struct {
             // must be 6 bytes for a surrogate pair to exist.
             if (self.end - self.start >= 6) {
                 const window = self.buffer[self.end - 6 .. self.end];
-                const view = std.unicode.Wtf8View.init(window) catch return;
+                const view = unicode.Wtf8View.init(window) catch return;
                 var it = view.iterator();
                 var pair: [2]u16 = undefined;
                 pair[0] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!std.unicode.utf16IsHighSurrogate(std.mem.littleToNative(u16, pair[0]))) return;
+                if (!unicode.utf16IsHighSurrogate(std.mem.littleToNative(u16, pair[0]))) return;
                 pair[1] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!std.unicode.utf16IsLowSurrogate(std.mem.littleToNative(u16, pair[1]))) return;
+                if (!unicode.utf16IsLowSurrogate(std.mem.littleToNative(u16, pair[1]))) return;
                 // We know we have a valid surrogate pair, so convert
                 // it to UTF-8, overwriting the surrogate pair's bytes
                 // and then chop off the extra bytes.
-                const len = std.unicode.utf16LeToUtf8(window, &pair) catch unreachable;
+                const len = unicode.utf16LeToUtf8(window, &pair) catch unreachable;
                 const delta = 6 - len;
                 self.end -= delta;
             }
@@ -1341,7 +1341,7 @@ test ArgIteratorWindows {
 }
 
 fn testArgIteratorWindows(cmd_line: []const u8, expected_args: []const []const u8) !void {
-    const cmd_line_w = try std.unicode.wtf8ToWtf16LeAllocZ(testing.allocator, cmd_line);
+    const cmd_line_w = try unicode.wtf8ToWtf16LeAllocZ(testing.allocator, cmd_line);
     defer testing.allocator.free(cmd_line_w);
 
     // next
@@ -1642,7 +1642,7 @@ pub fn execve(
 
     const envp = m: {
         if (env_map) |m| {
-            const envp_buf = try child_process.createNullDelimitedEnvMap(arena, m);
+            const envp_buf = try createNullDelimitedEnvMap(arena, m);
             break :m envp_buf.ptr;
         } else if (builtin.link_libc) {
             break :m std.c.environ;
@@ -1788,4 +1788,91 @@ pub fn raiseFileDescriptorLimit() void {
 
 test raiseFileDescriptorLimit {
     raiseFileDescriptorLimit();
+}
+
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
+    const envp_count = env_map.count();
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
+    {
+        var it = env_map.iterator();
+        var i: usize = 0;
+        while (it.next()) |pair| : (i += 1) {
+            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
+            @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
+            env_buf[pair.key_ptr.len] = '=';
+            @memcpy(env_buf[pair.key_ptr.len + 1 ..][0..pair.value_ptr.len], pair.value_ptr.*);
+            envp_buf[i] = env_buf.ptr;
+        }
+        assert(i == envp_count);
+    }
+    return envp_buf;
+}
+
+test createNullDelimitedEnvMap {
+    const allocator = testing.allocator;
+    var envmap = EnvMap.init(allocator);
+    defer envmap.deinit();
+
+    try envmap.put("HOME", "/home/ifreund");
+    try envmap.put("WAYLAND_DISPLAY", "wayland-1");
+    try envmap.put("DISPLAY", ":1");
+    try envmap.put("DEBUGINFOD_URLS", " ");
+    try envmap.put("XCURSOR_SIZE", "24");
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const environ = try createNullDelimitedEnvMap(arena.allocator(), &envmap);
+
+    try testing.expectEqual(@as(usize, 5), environ.len);
+
+    inline for (.{
+        "HOME=/home/ifreund",
+        "WAYLAND_DISPLAY=wayland-1",
+        "DISPLAY=:1",
+        "DEBUGINFOD_URLS= ",
+        "XCURSOR_SIZE=24",
+    }) |target| {
+        for (environ) |variable| {
+            if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
+        } else {
+            try testing.expect(false); // Environment variable not found
+        }
+    }
+}
+
+/// Caller must free result.
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
+    // count bytes needed
+    const max_chars_needed = x: {
+        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+        var it = env_map.iterator();
+        while (it.next()) |pair| {
+            // +1 for '='
+            // +1 for null byte
+            max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
+        }
+        break :x max_chars_needed;
+    };
+    const result = try allocator.alloc(u16, max_chars_needed);
+    errdefer allocator.free(result);
+
+    var it = env_map.iterator();
+    var i: usize = 0;
+    while (it.next()) |pair| {
+        i += try unicode.wtf8ToWtf16Le(result[i..], pair.key_ptr.*);
+        result[i] = '=';
+        i += 1;
+        i += try unicode.wtf8ToWtf16Le(result[i..], pair.value_ptr.*);
+        result[i] = 0;
+        i += 1;
+    }
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    result[i] = 0;
+    i += 1;
+    return try allocator.realloc(result, i);
 }
