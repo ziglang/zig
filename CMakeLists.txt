@@ -728,6 +728,9 @@ if(NOT MSVC)
     -Wno-missing-braces
     -Wno-comment
   )
+else()
+target_compile_options(zigcpp PRIVATE /Zc:preprocessor)
+set_property(TARGET zigcpp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 target_include_directories(zigcpp PUBLIC
