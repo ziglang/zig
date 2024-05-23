@@ -361,7 +361,30 @@ const tree_line = "\x1B\x28\x30\x78\x1B\x28\x42  "; // │
 const tree_langle = "\x1B\x28\x30\x6d\x71\x1B\x28\x42 "; // └─
 
 fn clearTerminal() void {
-    write(clear);
+    var i: usize = 0;
+    const buf = global_progress.draw_buffer;
+
+    buf[i..][0..start_sync.len].* = start_sync.*;
+    i += start_sync.len;
+
+    const prev_nl_n = global_progress.newline_count;
+    if (prev_nl_n > 0) {
+        global_progress.newline_count = 0;
+        buf[i] = '\r';
+        i += 1;
+        for (0..prev_nl_n) |_| {
+            buf[i..][0..up_one_line.len].* = up_one_line.*;
+            i += up_one_line.len;
+        }
+    }
+
+    buf[i..][0..clear.len].* = clear.*;
+    i += clear.len;
+
+    buf[i..][0..finish_sync.len].* = finish_sync.*;
+    i += finish_sync.len;
+
+    write(buf[0..i]);
 }
 
 const Children = struct {
@@ -428,8 +451,8 @@ fn computeRedraw() []u8 {
         const children_node = &children[@intFromEnum(parent_index)];
         if (children_node.child.unwrap()) |existing_child_index| {
             const existing_child = &children[@intFromEnum(existing_child_index)];
-            existing_child.sibling = child_index.toOptional();
             children[@intFromEnum(child_index)].sibling = existing_child.sibling;
+            existing_child.sibling = child_index.toOptional();
         } else {
             children_node.child = child_index.toOptional();
         }
@@ -445,7 +468,7 @@ fn computeRedraw() []u8 {
     i += start_sync.len;
 
     const prev_nl_n = global_progress.newline_count;
-    if (global_progress.newline_count > 0) {
+    if (prev_nl_n > 0) {
         global_progress.newline_count = 0;
         buf[i] = '\r';
         i += 1;
@@ -539,11 +562,8 @@ fn computeNode(
         i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, child);
     }
 
-    {
-        var opt_sibling = children[@intFromEnum(node_index)].sibling;
-        while (opt_sibling.unwrap()) |sibling| {
-            i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, sibling);
-        }
+    if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
+        i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, sibling);
     }
 
     return i;
