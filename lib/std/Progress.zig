@@ -35,6 +35,9 @@ initial_delay_ns: u64,
 
 rows: u16,
 cols: u16,
+/// Needed because terminal escape codes require one to take scrolling into
+/// account.
+newline_count: u16,
 
 /// Accessed only by the update thread.
 draw_buffer: []u8,
@@ -240,6 +243,7 @@ var global_progress: Progress = .{
     .initial_delay_ns = undefined,
     .rows = 0,
     .cols = 0,
+    .newline_count = 0,
     .draw_buffer = undefined,
     .done = false,
 
@@ -346,6 +350,7 @@ fn updateThreadRun() void {
 }
 
 const start_sync = "\x1b[?2026h";
+const up_one_line = "\x1bM";
 const clear = "\x1b[J";
 const save = "\x1b7";
 const restore = "\x1b8";
@@ -431,22 +436,32 @@ fn computeRedraw() []u8 {
     }
 
     // The strategy is: keep the cursor at the beginning, and then with every redraw:
-    // erase, save, write, restore
+    // erase to end of screen, write, move cursor to beginning of line, move cursor up N lines
 
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
 
-    const prefix = start_sync ++ clear ++ save;
-    const suffix = restore ++ finish_sync;
+    buf[i..][0..start_sync.len].* = start_sync.*;
+    i += start_sync.len;
 
-    buf[0..prefix.len].* = prefix.*;
-    i = prefix.len;
+    buf[0..clear.len].* = clear.*;
+    i = clear.len;
 
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, root_node_index);
 
-    buf[i..][0..suffix.len].* = suffix.*;
-    i += suffix.len;
+    if (buf[i - 1] == '\n') {
+        buf[i - 1] = '\r';
+        const prev_nl_n = global_progress.newline_count - 1;
+        global_progress.newline_count = 0;
+        for (0..prev_nl_n) |_| {
+            buf[i..][0..up_one_line.len].* = up_one_line.*;
+            i += up_one_line.len;
+        }
+    }
+
+    buf[i..][0..finish_sync.len].* = finish_sync.*;
+    i += finish_sync.len;
 
     return buf[0..i];
 }
@@ -514,6 +529,7 @@ fn computeNode(
     i = @min(global_progress.cols + start_i, i);
     buf[i] = '\n';
     i += 1;
+    global_progress.newline_count += 1;
 
     if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
         i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, child);
