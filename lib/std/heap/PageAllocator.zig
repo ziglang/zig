@@ -19,18 +19,22 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = log2_align;
     assert(n > 0);
     if (n > maxInt(usize) - (mem.page_size - 1)) return null;
-    const aligned_len = mem.alignForward(usize, n, mem.page_size);
 
     if (native_os == .windows) {
         const addr = windows.VirtualAlloc(
             null,
-            aligned_len,
+
+            // VirtualAlloc will round the length to a multiple of page size.
+            // VirtualAlloc docs: If the lpAddress parameter is NULL, this value is rounded up to the next page boundary
+            n,
+
             windows.MEM_COMMIT | windows.MEM_RESERVE,
             windows.PAGE_READWRITE,
         ) catch return null;
         return @ptrCast(addr);
     }
 
+    const aligned_len = mem.alignForward(usize, n, mem.page_size);
     const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .unordered);
     const slice = posix.mmap(
         hint,
