@@ -660,6 +660,19 @@ fn resolveRelocInner(
     // Address of the __got_zig table entry if any.
     const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(macho_file)));
 
+    const divExact = struct {
+        fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
+            return math.divExact(u12, num, den) catch {
+                try ctx.reportParseError2(atom.getFile(ctx).getIndex(), "{s}: unexpected remainder when resolving {s} at offset 0x{x}", .{
+                    atom.getName(ctx),
+                    r.fmtPretty(ctx.getTarget().cpu.arch),
+                    r.offset,
+                });
+                return error.UnexpectedRemainder;
+            };
+        }
+    }.divExact;
+
     switch (rel.tag) {
         .local => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] atom({d})", .{
             P,
@@ -831,12 +844,12 @@ fn resolveRelocInner(
                 };
                 inst.load_store_register.offset = switch (inst.load_store_register.size) {
                     0 => if (inst.load_store_register.v == 1)
-                        try math.divExact(u12, @truncate(target), 16)
+                        try divExact(self, rel, @truncate(target), 16, macho_file)
                     else
                         @truncate(target),
-                    1 => try math.divExact(u12, @truncate(target), 2),
-                    2 => try math.divExact(u12, @truncate(target), 4),
-                    3 => try math.divExact(u12, @truncate(target), 8),
+                    1 => try divExact(self, rel, @truncate(target), 2, macho_file),
+                    2 => try divExact(self, rel, @truncate(target), 4, macho_file),
+                    3 => try divExact(self, rel, @truncate(target), 8, macho_file),
                 };
                 try writer.writeInt(u32, inst.toU32(), .little);
             }
@@ -847,7 +860,7 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, G + A) orelse return error.Overflow;
-            aarch64.writeLoadStoreRegInst(try math.divExact(u12, @truncate(target), 8), code[rel_offset..][0..4]);
+            aarch64.writeLoadStoreRegInst(try divExact(self, rel, @truncate(target), 8, macho_file), code[rel_offset..][0..4]);
         },
 
         .tlvp_pageoff => {
@@ -899,7 +912,7 @@ fn resolveRelocInner(
                 .load_store_register = .{
                     .rt = reg_info.rd,
                     .rn = reg_info.rn,
-                    .offset = try math.divExact(u12, @truncate(target), 8),
+                    .offset = try divExact(self, rel, @truncate(target), 8, macho_file),
                     .opc = 0b01,
                     .op1 = 0b01,
                     .v = 0,
