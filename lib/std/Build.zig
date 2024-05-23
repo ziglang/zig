@@ -2075,6 +2075,10 @@ pub const Dependency = struct {
             }
         }
         return found orelse {
+            if (d.builder.graph.needed_lazy_dependencies.entries.len != 0) {
+                // The artifact might become available after missing lazy dependencies have been resolved.
+                process.exit(3);
+            }
             for (d.builder.install_tls.step.dependencies.items) |dep_step| {
                 const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
                 log.info("available artifact: '{s}'", .{inst.artifact.name});
