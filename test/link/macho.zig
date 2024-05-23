@@ -41,6 +41,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testMergeLiteralsX64(b, .{ .target = x86_64_target }));
     macho_step.dependOn(testMergeLiteralsArm64(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testMergeLiteralsArm642(b, .{ .target = aarch64_target }));
+    macho_step.dependOn(testMergeLiteralsAlignment(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testNoExportsDylib(b, .{ .target = default_target }));
@@ -1224,6 +1225,85 @@ fn testMergeLiteralsArm642(b: *Build, opts: Options) *Step {
     check.dumpSection("__TEXT,__cstring");
     check.checkContains("hello\x00world\x00%s, %s, %s, %f, %f\x00");
     test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
+fn testMergeLiteralsAlignment(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "merge-literals-alignment", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    \\.globl _s1
+    \\.globl _s2
+    \\
+    \\.section __TEXT,__cstring,cstring_literals
+    \\.align 3
+    \\_s1:
+    \\  .asciz "str1"
+    \\_s2:
+    \\  .asciz "str2"
+    });
+
+    const b_o = addObject(b, opts, .{ .name = "b", .asm_source_bytes = 
+    \\.globl _s3
+    \\.globl _s4
+    \\
+    \\.section __TEXT,__cstring,cstring_literals
+    \\.align 2
+    \\_s3:
+    \\  .asciz "str1"
+    \\_s4:
+    \\  .asciz "str2"
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <assert.h>
+    \\#include <stdint.h>
+    \\#include <stdio.h>
+    \\extern const char* s1;
+    \\extern const char* s2;
+    \\extern const char* s3;
+    \\extern const char* s4;
+    \\int main() {
+    \\  assert((uintptr_t)(&s1) % 8 == 0 && s1 == s3);
+    \\  assert((uintptr_t)(&s2) % 8 == 0 && s2 == s4);
+    \\  printf("%s%s%s%s", &s1, &s2, &s3, &s4);
+    \\  return 0;
+    \\}
+    , .c_source_flags = &.{"-Wno-format"} });
+
+    const runWithChecks = struct {
+        fn runWithChecks(step: *Step, exe: *Compile) void {
+            const run = addRunArtifact(exe);
+            run.expectStdOutEqual("str1str2str1str2");
+            step.dependOn(&run.step);
+
+            const check = exe.checkObject();
+            check.dumpSection("__TEXT,__cstring");
+            check.checkContains("str1\x00\x00\x00\x00str2\x00");
+            check.checkInHeaders();
+            check.checkExact("segname __TEXT");
+            check.checkExact("sectname __cstring");
+            check.checkExact("align 3");
+            step.dependOn(&check.step);
+        }
+    }.runWithChecks;
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(a_o);
+        exe.addObject(b_o);
+        exe.addObject(main_o);
+        runWithChecks(test_step, exe);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(b_o);
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+        runWithChecks(test_step, exe);
+    }
 
     return test_step;
 }

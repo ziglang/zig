@@ -508,7 +508,7 @@ fn initPointerLiterals(self: *Object, macho_file: *MachO) !void {
             );
             return error.MalformedObject;
         }
-        const num_ptrs = @divExact(sect.size, rec_size);
+        const num_ptrs = math.cast(usize, @divExact(sect.size, rec_size)) orelse return error.Overflow;
 
         for (0..num_ptrs) |i| {
             const pos: u32 = @as(u32, @intCast(i)) * rec_size;
@@ -541,7 +541,9 @@ pub fn resolveLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO)
 
             for (subs.items) |sub| {
                 const atom = macho_file.getAtom(sub.atom).?;
-                const atom_data = data[atom.off..][0..atom.size];
+                const atom_off = math.cast(usize, atom.off) orelse return error.Overflow;
+                const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+                const atom_data = data[atom_off..][0..atom_size];
                 const res = try lp.insert(gpa, header.type(), atom_data);
                 if (!res.found_existing) {
                     res.atom.* = sub.atom;
@@ -561,8 +563,9 @@ pub fn resolveLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO)
                 };
                 const addend = math.cast(u32, rel.addend) orelse return error.Overflow;
                 const target_atom = macho_file.getAtom(target).?;
-                try buffer.ensureUnusedCapacity(target_atom.size);
-                buffer.resize(target_atom.size) catch unreachable;
+                const target_atom_size = math.cast(usize, target_atom.size) orelse return error.Overflow;
+                try buffer.ensureUnusedCapacity(target_atom_size);
+                buffer.resize(target_atom_size) catch unreachable;
                 try target_atom.getData(macho_file, buffer.items);
                 const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
                 buffer.clearRetainingCapacity();

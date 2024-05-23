@@ -134,8 +134,9 @@ pub fn resolveLiterals(self: InternalObject, lp: *MachO.LiteralPool, macho_file:
             assert(rel.tag == .local);
             const target = macho_file.getAtom(rel.target).?;
             const addend = std.math.cast(u32, rel.addend) orelse return error.Overflow;
-            try buffer.ensureUnusedCapacity(target.size);
-            buffer.resize(target.size) catch unreachable;
+            const target_size = std.math.cast(usize, target.size) orelse return error.Overflow;
+            try buffer.ensureUnusedCapacity(target_size);
+            buffer.resize(target_size) catch unreachable;
             try target.getData(macho_file, buffer.items);
             const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
             buffer.clearRetainingCapacity();
