@@ -60,7 +60,7 @@ pub const Options = struct {
     /// Must be at least 200 bytes.
     draw_buffer: []u8,
     /// How many nanoseconds between writing updates to the terminal.
-    refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
+    refresh_rate_ns: u64 = 60 * std.time.ns_per_ms,
     /// How many nanoseconds to keep the output hidden
     initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
     /// If provided, causes the progress item to have a denominator.
@@ -435,8 +435,8 @@ fn computeRedraw() []u8 {
         }
     }
 
-    // The strategy is: keep the cursor at the beginning, and then with every redraw:
-    // erase to end of screen, write, move cursor to beginning of line, move cursor up N lines
+    // The strategy is: keep the cursor at the end, and then with every redraw:
+    // move cursor to beginning of line, move cursor up N lines, erase to end of screen, write
 
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
@@ -444,21 +444,25 @@ fn computeRedraw() []u8 {
     buf[i..][0..start_sync.len].* = start_sync.*;
     i += start_sync.len;
 
-    buf[0..clear.len].* = clear.*;
-    i = clear.len;
-
-    const root_node_index: Node.Index = @enumFromInt(0);
-    i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, root_node_index);
-
-    if (buf[i - 1] == '\n') {
-        buf[i - 1] = '\r';
-        const prev_nl_n = global_progress.newline_count - 1;
+    const prev_nl_n = global_progress.newline_count;
+    if (global_progress.newline_count > 0) {
         global_progress.newline_count = 0;
+        buf[i] = '\r';
+        i += 1;
         for (0..prev_nl_n) |_| {
             buf[i..][0..up_one_line.len].* = up_one_line.*;
             i += up_one_line.len;
         }
     }
+
+    buf[i..][0..clear.len].* = clear.*;
+    i += clear.len;
+
+    const root_node_index: Node.Index = @enumFromInt(0);
+    i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, root_node_index);
+
+    // Truncate trailing newline.
+    //if (buf[i - 1] == '\n') i -= 1;
 
     buf[i..][0..finish_sync.len].* = finish_sync.*;
     i += finish_sync.len;
