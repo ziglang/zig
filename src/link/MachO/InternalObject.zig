@@ -165,6 +165,7 @@ pub fn dedupLiterals(self: InternalObject, lp: MachO.LiteralPool, macho_file: *M
                 if (target.getLiteralPoolIndex(macho_file)) |lp_index| {
                     const lp_atom = lp.getAtom(lp_index, macho_file);
                     if (target.atom_index != lp_atom.atom_index) {
+                        lp_atom.alignment = lp_atom.alignment.max(target.alignment);
                         target.flags.alive = false;
                         rel.target = lp_atom.atom_index;
                     }
@@ -176,6 +177,7 @@ pub fn dedupLiterals(self: InternalObject, lp: MachO.LiteralPool, macho_file: *M
                     if (target_atom.getLiteralPoolIndex(macho_file)) |lp_index| {
                         const lp_atom = lp.getAtom(lp_index, macho_file);
                         if (target_atom.atom_index != lp_atom.atom_index) {
+                            lp_atom.alignment = lp_atom.alignment.max(target_atom.alignment);
                             target_atom.flags.alive = false;
                             target_sym.atom = lp_atom.atom_index;
                         }
@@ -193,6 +195,7 @@ pub fn dedupLiterals(self: InternalObject, lp: MachO.LiteralPool, macho_file: *M
         if (atom.getLiteralPoolIndex(macho_file)) |lp_index| {
             const lp_atom = lp.getAtom(lp_index, macho_file);
             if (atom.atom_index != lp_atom.atom_index) {
+                lp_atom.alignment = lp_atom.alignment.max(atom.alignment);
                 atom.flags.alive = false;
                 extra.objc_selrefs = lp_atom.atom_index;
                 sym.setExtra(extra, macho_file);
