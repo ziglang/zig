@@ -74,7 +74,7 @@ pub const Options = struct {
 pub const Node = struct {
     index: OptionalIndex,
 
-    pub const max_name_len = 38;
+    pub const max_name_len = 40;
 
     const Storage = extern struct {
         /// Little endian.
@@ -268,17 +268,7 @@ var node_freelist_buffer: [default_node_storage_buffer_len]Node.OptionalIndex = 
 pub fn start(options: Options) Node {
     // Ensure there is only 1 global Progress object.
     assert(global_progress.node_end_index == 0);
-    const stderr = std.io.getStdErr();
-    if (stderr.supportsAnsiEscapeCodes()) {
-        global_progress.terminal = stderr;
-        global_progress.supports_ansi_escape_codes = true;
-    } else if (builtin.os.tag == .windows and stderr.isTty()) {
-        global_progress.is_windows_terminal = true;
-        global_progress.terminal = stderr;
-    } else if (builtin.os.tag != .windows) {
-        // we are in a "dumb" terminal like in acme or writing to a file
-        global_progress.terminal = stderr;
-    }
+
     @memset(global_progress.node_parents, .unused);
     const root_node = Node.init(@enumFromInt(0), .none, options.root_name, options.estimated_total_items);
     global_progress.done = false;
@@ -289,22 +279,51 @@ pub fn start(options: Options) Node {
     global_progress.refresh_rate_ns = options.refresh_rate_ns;
     global_progress.initial_delay_ns = options.initial_delay_ns;
 
-    var act: posix.Sigaction = .{
-        .handler = .{ .sigaction = handleSigWinch },
-        .mask = posix.empty_sigset,
-        .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
-    };
-    posix.sigaction(posix.SIG.WINCH, &act, null) catch {
-        global_progress.terminal = null;
-        return root_node;
-    };
-
-    if (global_progress.terminal != null) {
-        if (std.Thread.spawn(.{}, updateThreadRun, .{})) |thread| {
+    if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
+        if (std.Thread.spawn(.{}, ipcThreadRun, .{ipc_fd})) |thread| {
             global_progress.update_thread = thread;
-        } else |_| {
-            global_progress.terminal = null;
+        } else |err| {
+            std.log.warn("failed to spawn IPC thread for communicating progress to parent: {s}", .{@errorName(err)});
+            return .{ .index = .none };
         }
+    } else |env_err| switch (env_err) {
+        error.EnvironmentVariableNotFound => {
+            const stderr = std.io.getStdErr();
+            if (stderr.supportsAnsiEscapeCodes()) {
+                global_progress.terminal = stderr;
+                global_progress.supports_ansi_escape_codes = true;
+            } else if (builtin.os.tag == .windows and stderr.isTty()) {
+                global_progress.is_windows_terminal = true;
+                global_progress.terminal = stderr;
+            } else if (builtin.os.tag != .windows) {
+                // we are in a "dumb" terminal like in acme or writing to a file
+                global_progress.terminal = stderr;
+            }
+
+            if (global_progress.terminal == null) {
+                return .{ .index = .none };
+            }
+
+            var act: posix.Sigaction = .{
+                .handler = .{ .sigaction = handleSigWinch },
+                .mask = posix.empty_sigset,
+                .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
+            };
+            posix.sigaction(posix.SIG.WINCH, &act, null) catch |err| {
+                std.log.warn("failed to install SIGWINCH signal handler for noticing terminal resizes: {s}", .{@errorName(err)});
+            };
+
+            if (std.Thread.spawn(.{}, updateThreadRun, .{})) |thread| {
+                global_progress.update_thread = thread;
+            } else |err| {
+                std.log.warn("unable to spawn thread for printing progress to terminal: {s}", .{@errorName(err)});
+                return .{ .index = .none };
+            }
+        },
+        else => |e| {
+            std.log.warn("invalid ZIG_PROGRESS file descriptor integer: {s}", .{@errorName(e)});
+            return .{ .index = .none };
+        },
     }
 
     return root_node;
@@ -326,12 +345,10 @@ fn updateThreadRun() void {
         const resize_flag = wait(global_progress.initial_delay_ns);
         maybeUpdateSize(resize_flag);
 
-        const buffer = b: {
-            if (@atomicLoad(bool, &global_progress.done, .seq_cst))
-                return clearTerminal();
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+            return clearTerminal();
 
-            break :b computeRedraw();
-        };
+        const buffer = computeRedraw();
         write(buffer);
     }
 
@@ -339,13 +356,33 @@ fn updateThreadRun() void {
         const resize_flag = wait(global_progress.refresh_rate_ns);
         maybeUpdateSize(resize_flag);
 
-        const buffer = b: {
-            if (@atomicLoad(bool, &global_progress.done, .seq_cst))
-                return clearTerminal();
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+            return clearTerminal();
 
-            break :b computeRedraw();
-        };
+        const buffer = computeRedraw();
         write(buffer);
+    }
+}
+
+fn ipcThreadRun(fd: posix.fd_t) void {
+    {
+        _ = wait(global_progress.initial_delay_ns);
+
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+            return;
+
+        const serialized = serialize();
+        writeIpc(fd, serialized);
+    }
+
+    while (true) {
+        _ = wait(global_progress.refresh_rate_ns);
+
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+            return clearTerminal();
+
+        const serialized = serialize();
+        writeIpc(fd, serialized);
     }
 }
 
@@ -400,11 +437,17 @@ const Children = struct {
     sibling: Node.OptionalIndex,
 };
 
-fn computeRedraw() []u8 {
-    // TODO make this configurable
-    var serialized_node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefined;
-    var serialized_node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
-    var serialized_node_map_buffer: [default_node_storage_buffer_len]Node.Index = undefined;
+// TODO make this configurable
+var serialized_node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefined;
+var serialized_node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
+var serialized_node_map_buffer: [default_node_storage_buffer_len]Node.Index = undefined;
+
+const Serialized = struct {
+    parents: []Node.Parent,
+    storage: []Node.Storage,
+};
+
+fn serialize() Serialized {
     var serialized_len: usize = 0;
 
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
@@ -447,12 +490,21 @@ fn computeRedraw() []u8 {
         };
     }
 
+    return .{
+        .parents = serialized_node_parents,
+        .storage = serialized_node_storage,
+    };
+}
+
+fn computeRedraw() []u8 {
+    const serialized = serialize();
+
     var children_buffer: [default_node_storage_buffer_len]Children = undefined;
-    const children = children_buffer[0..serialized_len];
+    const children = children_buffer[0..serialized.parents.len];
 
     @memset(children, .{ .child = .none, .sibling = .none });
 
-    for (serialized_node_parents, 0..) |parent, child_index_usize| {
+    for (serialized.parents, 0..) |parent, child_index_usize| {
         const child_index: Node.Index = @enumFromInt(child_index_usize);
         assert(parent != .unused);
         const parent_index = parent.unwrap() orelse continue;
@@ -478,7 +530,7 @@ fn computeRedraw() []u8 {
     i = computeClear(buf, i);
 
     const root_node_index: Node.Index = @enumFromInt(0);
-    i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, root_node_index);
+    i = computeNode(buf, i, serialized, children, root_node_index);
 
     // Truncate trailing newline.
     if (buf[i - 1] == '\n') i -= 1;
@@ -492,15 +544,14 @@ fn computeRedraw() []u8 {
 fn computePrefix(
     buf: []u8,
     start_i: usize,
-    serialized_node_storage: []const Node.Storage,
-    serialized_node_parents: []const Node.Parent,
+    serialized: Serialized,
     children: []const Children,
     node_index: Node.Index,
 ) usize {
     var i = start_i;
-    const parent_index = serialized_node_parents[@intFromEnum(node_index)].unwrap() orelse return i;
-    if (serialized_node_parents[@intFromEnum(parent_index)] == .none) return i;
-    i = computePrefix(buf, i, serialized_node_storage, serialized_node_parents, children, parent_index);
+    const parent_index = serialized.parents[@intFromEnum(node_index)].unwrap() orelse return i;
+    if (serialized.parents[@intFromEnum(parent_index)] == .none) return i;
+    i = computePrefix(buf, i, serialized, children, parent_index);
     if (children[@intFromEnum(parent_index)].sibling == .none) {
         buf[i..][0..3].* = "   ".*;
         i += 3;
@@ -514,19 +565,18 @@ fn computePrefix(
 fn computeNode(
     buf: []u8,
     start_i: usize,
-    serialized_node_storage: []const Node.Storage,
-    serialized_node_parents: []const Node.Parent,
+    serialized: Serialized,
     children: []const Children,
     node_index: Node.Index,
 ) usize {
     var i = start_i;
-    i = computePrefix(buf, i, serialized_node_storage, serialized_node_parents, children, node_index);
+    i = computePrefix(buf, i, serialized, children, node_index);
 
-    const storage = &serialized_node_storage[@intFromEnum(node_index)];
+    const storage = &serialized.storage[@intFromEnum(node_index)];
     const estimated_total = storage.estimated_total_count;
     const completed_items = storage.completed_count;
     const name = if (std.mem.indexOfScalar(u8, &storage.name, 0)) |end| storage.name[0..end] else &storage.name;
-    const parent = serialized_node_parents[@intFromEnum(node_index)];
+    const parent = serialized.parents[@intFromEnum(node_index)];
 
     if (parent != .none) {
         if (children[@intFromEnum(node_index)].sibling == .none) {
@@ -555,11 +605,11 @@ fn computeNode(
     global_progress.newline_count += 1;
 
     if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
-        i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, child);
+        i = computeNode(buf, i, serialized, children, child);
     }
 
     if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
-        i = computeNode(buf, i, serialized_node_storage, serialized_node_parents, children, sibling);
+        i = computeNode(buf, i, serialized, children, sibling);
     }
 
     return i;
@@ -569,6 +619,27 @@ fn write(buf: []const u8) void {
     const tty = global_progress.terminal orelse return;
     tty.writeAll(buf) catch {
         global_progress.terminal = null;
+    };
+}
+
+fn writeIpc(fd: posix.fd_t, serialized: Serialized) void {
+    assert(serialized.parents.len == serialized.storage.len);
+    const header = std.mem.asBytes(&serialized.parents.len);
+    const storage = std.mem.sliceAsBytes(serialized.storage);
+    const parents = std.mem.sliceAsBytes(serialized.parents);
+
+    var vecs: [3]std.posix.iovec_const = .{
+        .{ .base = header.ptr, .len = header.len },
+        .{ .base = storage.ptr, .len = storage.len },
+        .{ .base = parents.ptr, .len = parents.len },
+    };
+
+    // TODO: if big endian, byteswap
+    // this is needed because the parent or child process might be running in qemu
+
+    const file: std.fs.File = .{ .handle = fd };
+    file.writevAll(&vecs) catch |err| {
+        std.log.warn("failed to send progress to parent process: {s}", .{@errorName(err)});
     };
 }
 

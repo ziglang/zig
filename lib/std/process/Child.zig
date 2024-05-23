@@ -12,6 +12,7 @@ const EnvMap = std.process.EnvMap;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
+const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
 
 pub const Id = switch (native_os) {
@@ -91,6 +92,13 @@ request_resource_usage_statistics: bool = false,
 /// `request_resource_usage_statistics` was set to `true` before calling
 /// `spawn`.
 resource_usage_statistics: ResourceUsageStatistics = .{},
+
+/// When populated, a pipe will be created for the child process to
+/// communicate progress back to the parent. The file descriptor of the
+/// write end of the pipe will be specified in the `ZIG_PROGRESS`
+/// environment variable inside the child process. The progress reported by
+/// the child will be attached to this progress node in the parent process.
+parent_progress_node: std.Progress.Node = .{ .index = .none },
 
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
@@ -572,6 +580,16 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         if (any_ignore) posix.close(dev_null_fd);
     }
 
+    const prog_pipe: [2]posix.fd_t = p: {
+        if (self.parent_progress_node.index == .none) {
+            break :p .{ -1, -1 };
+        } else {
+            // No CLOEXEC because the child needs access to this file descriptor.
+            break :p try posix.pipe2(.{});
+        }
+    };
+    errdefer destroyPipe(prog_pipe);
+
     var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -588,16 +606,35 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
     for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
-    const envp = m: {
+    const envp: [*:null]const ?[*:0]const u8 = m: {
+        const extra_usizes: []const process.CreateEnvironOptions.ExtraUsize = if (prog_pipe[1] == -1) &.{} else &.{
+            .{ .name = "ZIG_PROGRESS", .value = @intCast(prog_pipe[1]) },
+        };
         if (self.env_map) |env_map| {
-            const envp_buf = try process.createNullDelimitedEnvMap(arena, env_map);
-            break :m envp_buf.ptr;
+            break :m (try process.createEnviron(arena, .{
+                .env_map = env_map,
+                .extra_usizes = extra_usizes,
+            })).ptr;
         } else if (builtin.link_libc) {
-            break :m std.c.environ;
+            if (extra_usizes.len == 0) {
+                break :m std.c.environ;
+            } else {
+                break :m (try process.createEnviron(arena, .{
+                    .existing = std.c.environ,
+                    .extra_usizes = extra_usizes,
+                })).ptr;
+            }
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
-            // TODO type-safety for null-termination of `os.environ`.
-            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
+            if (extra_usizes.len == 0) {
+                break :m @ptrCast(std.os.environ.ptr);
+            } else {
+                break :m (try process.createEnviron(arena, .{
+                    // TODO type-safety for null-termination of `os.environ`.
+                    .existing = @ptrCast(std.os.environ.ptr),
+                    .extra_usizes = extra_usizes,
+                })).ptr;
+            }
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -962,7 +999,7 @@ fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !
 }
 
 fn destroyPipe(pipe: [2]posix.fd_t) void {
-    posix.close(pipe[0]);
+    if (pipe[0] != -1) posix.close(pipe[0]);
     if (pipe[0] != pipe[1]) posix.close(pipe[1]);
 }
 

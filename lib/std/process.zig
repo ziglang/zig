@@ -431,6 +431,29 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
+pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariableNotFound};
+
+/// Parses an environment variable as an integer.
+///
+/// Since the key is comptime-known, no allocation is needed.
+///
+/// On Windows, `key` must be valid UTF-8.
+pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
+    if (native_os == .windows) {
+        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        // For this implementation perhaps std.fmt.parseInt can be expanded to be generic across
+        // []u8 and []u16 like how many std.mem functions work.
+        _ = text;
+        @compileError("TODO implement this");
+    } else if (native_os == .wasi and !builtin.link_libc) {
+        @compileError("parseEnvVarInt is not supported for WASI without libc");
+    } else {
+        const text = posix.getenv(key) orelse return error.EnvironmentVariableNotFound;
+        return std.fmt.parseInt(I, text, base);
+    }
+}
+
 pub const HasEnvVarError = error{
     OutOfMemory,
 
@@ -1790,22 +1813,59 @@ test raiseFileDescriptorLimit {
     raiseFileDescriptorLimit();
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
-    const envp_count = env_map.count();
-    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
-    {
-        var it = env_map.iterator();
-        var i: usize = 0;
-        while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
-            @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
-            env_buf[pair.key_ptr.len] = '=';
-            @memcpy(env_buf[pair.key_ptr.len + 1 ..][0..pair.value_ptr.len], pair.value_ptr.*);
-            envp_buf[i] = env_buf.ptr;
+pub const CreateEnvironOptions = struct {
+    env_map: ?*const EnvMap = null,
+    existing: ?[*:null]const ?[*:0]const u8 = null,
+    extra_usizes: []const ExtraUsize = &.{},
+
+    pub const ExtraUsize = struct {
+        name: []const u8,
+        value: usize,
+    };
+};
+
+/// Creates a null-deliminated environment variable block in the format
+/// expected by POSIX, by combining all the sources of key-value pairs together
+/// from `options`.
+pub fn createEnviron(arena: Allocator, options: CreateEnvironOptions) Allocator.Error![:null]?[*:0]u8 {
+    const envp_count = c: {
+        var count: usize = 0;
+        if (options.existing) |env| {
+            while (env[count]) |_| : (count += 1) {}
         }
-        assert(i == envp_count);
+        if (options.env_map) |env_map| {
+            count += env_map.count();
+        }
+        count += options.extra_usizes.len;
+        break :c count;
+    };
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
+    var i: usize = 0;
+
+    if (options.existing) |env| {
+        while (env[i]) |line| : (i += 1) {
+            envp_buf[i] = try arena.dupeZ(u8, mem.span(line));
+        }
     }
+
+    for (options.extra_usizes, envp_buf[i..][0..options.extra_usizes.len]) |extra_usize, *out| {
+        out.* = try std.fmt.allocPrintZ(arena, "{s}={d}", .{ extra_usize.name, extra_usize.value });
+    }
+    i += options.extra_usizes.len;
+
+    if (options.env_map) |env_map| {
+        var it = env_map.iterator();
+        while (it.next()) |pair| : (i += 1) {
+            envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+        }
+    }
+
+    assert(i == envp_count);
     return envp_buf;
+}
+
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
+    return createEnviron(arena, .{ .env_map = env_map });
 }
 
 test createNullDelimitedEnvMap {
