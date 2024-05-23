@@ -570,10 +570,11 @@ fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     atom.type = sym_t;
     // write the symbol
     // we already have the got index
+    const decl_name = decl.name.toSlice(&mod.intern_pool);
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
         .type = atom.type,
-        .name = try gpa.dupe(u8, decl.name.toSlice(&mod.intern_pool)),
+        .name = try gpa.dupe(u8, decl_name),
     };
 
     if (atom.sym_index) |s| {
@@ -1095,6 +1096,9 @@ fn freeUnnamedConsts(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom_idx| {
         const atom = self.getAtom(atom_idx);
+        if (atom.code.getOwnedCode()) |c| {
+            gpa.free(c);
+        }
         gpa.free(self.syms.items[atom.sym_index.?].name);
         self.syms.items[atom.sym_index.?] = aout.Sym.undefined_symbol;
         self.syms_index_free_list.append(gpa, atom.sym_index.?) catch {};
@@ -1263,12 +1267,19 @@ pub fn deinit(self: *Plan9) void {
     self.unnamed_const_atoms.deinit(gpa);
     var it_lzc = self.lazy_syms.iterator();
     while (it_lzc.next()) |kv| {
-        if (kv.value_ptr.text_state != .unused)
-            gpa.free(self.syms.items[self.getAtom(kv.value_ptr.text_atom).sym_index.?].name);
-        if (kv.value_ptr.rodata_state != .unused)
-            gpa.free(self.syms.items[self.getAtom(kv.value_ptr.rodata_atom).sym_index.?].name);
+        if (kv.value_ptr.text_state != .unused) {
+            const atom = self.getAtom(kv.value_ptr.text_atom);
+            gpa.free(self.syms.items[atom.sym_index.?].name);
+            gpa.free(atom.code.getOwnedCode().?);
+        }
+        if (kv.value_ptr.rodata_state != .unused) {
+            const atom = self.getAtom(kv.value_ptr.rodata_atom);
+            gpa.free(self.syms.items[atom.sym_index.?].name);
+            gpa.free(atom.code.getOwnedCode().?);
+        }
     }
     self.lazy_syms.deinit(gpa);
+    // free the symbols corresponding to the fn and data decls
     var itf_files = self.fn_decl_table.iterator();
     while (itf_files.next()) |ent| {
         // get the submap
@@ -1276,6 +1287,12 @@ pub fn deinit(self: *Plan9) void {
         defer submap.deinit(gpa);
         var itf = submap.iterator();
         while (itf.next()) |entry| {
+            const decl_index = entry.key_ptr.*;
+            const metadata = self.decls.getEntry(decl_index).?;
+            const atom_idx = metadata.value_ptr.*.index;
+            const atom = self.getAtom(atom_idx);
+            const sym = self.syms.items[atom.sym_index.?];
+            gpa.free(sym.name);
             gpa.free(entry.value_ptr.code);
             gpa.free(entry.value_ptr.lineinfo);
         }
@@ -1283,33 +1300,42 @@ pub fn deinit(self: *Plan9) void {
     self.fn_decl_table.deinit(gpa);
     var itd = self.data_decl_table.iterator();
     while (itd.next()) |entry| {
+        const decl_index = entry.key_ptr.*;
+        const metadata = self.decls.getEntry(decl_index).?;
+        const atom_idx = metadata.value_ptr.*.index;
+        const atom = self.getAtom(atom_idx);
+        const sym = self.syms.items[atom.sym_index.?];
+        gpa.free(sym.name);
         gpa.free(entry.value_ptr.*);
     }
     var it_anon = self.anon_decls.iterator();
     while (it_anon.next()) |entry| {
         const sym_index = self.getAtom(entry.value_ptr.*).sym_index.?;
         gpa.free(self.syms.items[sym_index].name);
+        const atom_idx = entry.value_ptr.*;
+        const atom = self.getAtom(atom_idx);
+        const code = atom.code.getOwnedCode().?;
+        gpa.free(code);
     }
+    self.anon_decls.deinit(gpa);
     self.data_decl_table.deinit(gpa);
-    self.syms.deinit(gpa);
     self.got_index_free_list.deinit(gpa);
     self.syms_index_free_list.deinit(gpa);
     self.file_segments.deinit(gpa);
     self.path_arena.deinit();
-    for (self.atoms.items) |a| {
-        if (a.code.getOwnedCode()) |c| {
-            gpa.free(c);
-        }
-    }
     self.atoms.deinit(gpa);
 
     {
         var it = self.decls.iterator();
         while (it.next()) |entry| {
+            for (entry.value_ptr.exports.items) |sym| {
+                gpa.free(self.syms.items[sym].name);
+            }
             entry.value_ptr.exports.deinit(gpa);
         }
         self.decls.deinit(gpa);
     }
+    self.syms.deinit(gpa);
 }
 
 pub fn open(
@@ -1552,11 +1578,11 @@ pub fn lowerAnonDecl(
         const index = try self.createAtom();
         const got_index = self.allocateGotIndex();
         gop.value_ptr.* = index;
-        // we need to free name latex
         var code_buffer = std.ArrayList(u8).init(gpa);
+        defer code_buffer.deinit();
         const res = try codegen.generateSymbol(&self.base, src_loc, val, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
         const code = switch (res) {
-            .ok => code_buffer.items,
+            .ok => try code_buffer.toOwnedSlice(),
             .fail => |em| return .{ .fail = em },
         };
         const atom_ptr = self.getAtomPtr(index);
