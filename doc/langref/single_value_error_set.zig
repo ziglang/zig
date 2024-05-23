@@ -1,3 +1,3 @@
-const err = (error {FileNotFound}).FileNotFound;
+const err = (error{FileNotFound}).FileNotFound;
 
 // syntax

@@ -340,7 +340,7 @@ pub const Mutable = struct {
         }
 
         const req_limbs = calcTwosCompLimbCount(bit_count);
-        const bit = @as(Log2Limb, @truncate(bit_count - 1));
+        const bit: Log2Limb = @truncate(bit_count - 1);
         const signmask = @as(Limb, 1) << bit; // 0b0..010..0 where 1 is the sign bit.
         const mask = (signmask << 1) -% 1; // 0b0..011..1 where the leftmost 1 is the sign bit.
 
@@ -2186,7 +2186,7 @@ pub const Const = struct {
                     return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
-                        return @as(T, @intCast(r));
+                        return @intCast(r);
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
@@ -2201,8 +2201,8 @@ pub const Const = struct {
     }
 
     /// To allow `std.fmt.format` to work with this type.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(
@@ -2231,13 +2231,11 @@ pub const Const = struct {
             std.fmt.invalidFmtError(fmt, self);
         }
 
-        var limbs: [128]Limb = undefined;
-        const needed_limbs = calcDivLimbsBufferLen(self.limbs.len, 1);
-        if (needed_limbs > limbs.len)
+        const available_len = 64;
+        if (self.limbs.len > available_len)
             return out_stream.writeAll("(BigInt)");
 
-        // This is the inverse of calcDivLimbsBufferLen
-        const available_len = (limbs.len / 3) - 2;
+        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
@@ -2804,8 +2802,8 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(

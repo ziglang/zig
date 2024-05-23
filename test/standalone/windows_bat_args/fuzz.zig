@@ -51,15 +51,15 @@ pub fn main() anyerror!void {
     const preamble_len = buf.items.len;
 
     try buf.appendSlice(" %*");
-    try tmp.dir.writeFile("args1.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
-    try tmp.dir.writeFile("args2.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
-    try tmp.dir.writeFile("args3.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     var i: u64 = 0;

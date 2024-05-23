@@ -217,7 +217,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
             &iosb,
             null,
             0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             FILE_OPEN,
             FILE_SYNCHRONOUS_IO_NONALERT,
             null,
@@ -283,7 +283,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         &iosb,
         null,
         0,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         FILE_OPEN,
         FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
         null,
@@ -304,7 +304,7 @@ pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags:
     return CreateEventExW(attributes, nameW.span().ptr, flags, desired_access);
 }
 
-pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, flags: DWORD, desired_access: DWORD) !HANDLE {
+pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: ?LPCWSTR, flags: DWORD, desired_access: DWORD) !HANDLE {
     const handle = kernel32.CreateEventExW(attributes, nameW, flags, desired_access);
     if (handle) |h| {
         return h;
@@ -892,7 +892,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
         &io,
         null,
         FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         FILE_OPEN,
         FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
         null,
@@ -1311,7 +1311,7 @@ pub fn GetFinalPathNameByHandle(
             const mgmt_path_u16 = std.unicode.utf8ToUtf16LeStringLiteral("\\??\\MountPointManager");
             const mgmt_handle = OpenFile(mgmt_path_u16, .{
                 .access_mask = SYNCHRONIZE,
-                .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE,
+                .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 .creation = FILE_OPEN,
             }) catch |err| switch (err) {
                 error.IsDir => return error.Unexpected,
@@ -2868,6 +2868,12 @@ pub const LRESULT = LONG_PTR;
 
 pub const va_list = *opaque {};
 
+pub const TCHAR = @compileError("Deprecated: choose between `CHAR` or `WCHAR` directly instead.");
+pub const LPTSTR = @compileError("Deprecated: choose between `LPSTR` or `LPWSTR` directly instead.");
+pub const LPCTSTR = @compileError("Deprecated: choose between `LPCSTR` or `LPCWSTR` directly instead.");
+pub const PTSTR = @compileError("Deprecated: choose between `PSTR` or `PWSTR` directly instead.");
+pub const PCTSTR = @compileError("Deprecated: choose between `PCSTR` or `PCWSTR` directly instead.");
+
 pub const TRUE = 1;
 pub const FALSE = 0;
 
@@ -3928,6 +3934,7 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
 };
 
 pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
+pub const DISABLE_NEWLINE_AUTO_RETURN = 0x8;
 
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;

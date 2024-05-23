@@ -1,9 +1,19 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.2073+402fe565a"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
 $MCPU = "baseline"
+$ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
+
+if (!(Test-Path "$PREFIX_PATH.zip")) {
+    Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
+    Invoke-WebRequest -Uri "$ZIG_LLVM_CLANG_LLD_URL" -OutFile "$PREFIX_PATH.zip"
+
+    Write-Output "Extracting..."
+    Add-Type -AssemblyName System.IO.Compression.FileSystem ;
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PREFIX_PATH.zip", "$PREFIX_PATH\..")
+}
 
 function CheckLastExitCode {
     if (!$?) {
@@ -24,6 +34,12 @@ Write-Output "Building from source..."
 Remove-Item -Path 'build-release' -Recurse -Force -ErrorAction Ignore
 New-Item -Path 'build-release' -ItemType Directory
 Set-Location -Path 'build-release'
+
+# Override the cache directories because they won't actually help other CI runs
+# which will be testing alternate versions of zig, and ultimately would just
+# fill up space on the hard drive for no reason.
+$Env:ZIG_GLOBAL_CACHE_DIR="$(Get-Location)\zig-global-cache"
+$Env:ZIG_LOCAL_CACHE_DIR="$(Get-Location)\zig-local-cache"
 
 # CMake gives a syntax error when file paths with backward slashes are used.
 # Here, we use forward slashes only to work around this.

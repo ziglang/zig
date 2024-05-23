@@ -178,7 +178,7 @@ pub fn main() !void {
     defer allocator.free(full_input);
 
     if (options.preprocess == .only) {
-        try std.fs.cwd().writeFile(options.output_filename, full_input);
+        try std.fs.cwd().writeFile(.{ .sub_path = options.output_filename, .data = full_input });
         return;
     }
 

@@ -12,7 +12,7 @@ pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
     return ov[0];
 }
 
-const Error = error {
+const Error = error{
     Overflow,
 };
 

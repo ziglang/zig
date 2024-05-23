@@ -42,8 +42,12 @@ concept floating_point = is_floating_point_v<_Tp>;
 
 template <class _Tp>
 concept __libcpp_unsigned_integer = __libcpp_is_unsigned_integer<_Tp>::value;
+
 template <class _Tp>
 concept __libcpp_signed_integer = __libcpp_is_signed_integer<_Tp>::value;
+
+template <class _Tp>
+concept __libcpp_integer = __libcpp_unsigned_integer<_Tp> || __libcpp_signed_integer<_Tp>;
 
 #endif // _LIBCPP_STD_VER >= 20
 

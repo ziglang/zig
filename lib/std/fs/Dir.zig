@@ -1104,27 +1104,29 @@ pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) 
     return file;
 }
 
+pub const MakeError = posix.MakeDirError;
+
 /// Creates a single directory with a relative or absolute path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsolute`.
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn makeDir(self: Dir, sub_path: []const u8) !void {
+pub fn makeDir(self: Dir, sub_path: []const u8) MakeError!void {
     try posix.mkdirat(self.fd, sub_path, default_mode);
 }
 
 /// Same as `makeDir`, but `sub_path` is null-terminated.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteZ`.
-pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
+pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) MakeError!void {
     try posix.mkdiratZ(self.fd, sub_path, default_mode);
 }
 
 /// Creates a single directory with a relative or absolute null-terminated WTF-16 LE-encoded path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteW`.
-pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
+pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
     try posix.mkdiratW(self.fd, sub_path, default_mode);
 }
 
@@ -1144,7 +1146,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
 /// - On other platforms, `..` are not resolved before the path is passed to `mkdirat`,
 ///   meaning a `sub_path` like "first/../second" will create both a `./first`
 ///   and a `./second` directory.
-pub fn makePath(self: Dir, sub_path: []const u8) !void {
+pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!void {
     var it = try fs.path.componentIterator(sub_path);
     var component = it.last() orelse return;
     while (true) {
@@ -1178,7 +1180,7 @@ pub fn makePath(self: Dir, sub_path: []const u8) !void {
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
 /// `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) OpenError!Dir {
+fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
     const w = windows;
     var it = try fs.path.componentIterator(sub_path);
     // If there are no components in the path, then create a dummy component with the full path.
@@ -1198,12 +1200,27 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
                 component = it.previous() orelse return e;
                 continue;
             },
+            error.PathAlreadyExists => result: {
+                assert(!is_last);
+                // stat the file and return an error if it's not a directory
+                // this is important because otherwise a dangling symlink
+                // could cause an infinite loop
+                check_dir: {
+                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
+                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
+                        error.IsDir => break :check_dir,
+                        else => |e| return e,
+                    };
+                    if (fstat.kind != .directory) return error.NotDir;
+                }
+                break :result null;
+            },
             else => |e| return e,
         };
-
-        component = it.next() orelse return result;
         // Don't leak the intermediate file handles
-        result.close();
+        errdefer if (result) |*dir| dir.close();
+
+        component = it.next() orelse return result.?;
     }
 }
 
@@ -1213,7 +1230,7 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
+pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) (MakeError || OpenError || StatFileError)!Dir {
     return switch (native_os) {
         .windows => {
             const w = windows;
@@ -1308,7 +1325,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
     const w = windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
-    const share_access = w.FILE_SHARE_READ;
+    const share_access = w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE;
     const creation = w.FILE_OPEN;
     const h_file = blk: {
         const res = w.OpenFile(pathname, .{
@@ -1516,10 +1533,17 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) Ope
     const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
         w.SYNCHRONIZE | w.FILE_TRAVERSE;
     const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-    const dir = try self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
+    const dir = self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
         .no_follow = args.no_follow,
         .create_disposition = w.FILE_OPEN,
-    });
+    }) catch |err| switch (err) {
+        error.ReadOnlyFileSystem => unreachable,
+        error.DiskQuota => unreachable,
+        error.NoSpaceLeft => unreachable,
+        error.PathAlreadyExists => unreachable,
+        error.LinkQuotaExceeded => unreachable,
+        else => |e| return e,
+    };
     return dir;
 }
 
@@ -1544,7 +1568,7 @@ const MakeOpenDirAccessMaskWOptions = struct {
     create_disposition: u32,
 };
 
-fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: MakeOpenDirAccessMaskWOptions) OpenError!Dir {
+fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: MakeOpenDirAccessMaskWOptions) (MakeError || OpenError)!Dir {
     const w = windows;
 
     var result = Dir{
@@ -1574,7 +1598,7 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
         &io,
         null,
         w.FILE_ATTRIBUTE_NORMAL,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
+        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
         flags.create_disposition,
         w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
         null,
@@ -1585,6 +1609,7 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
         .SUCCESS => return result,
         .OBJECT_NAME_INVALID => return error.BadPathName,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NOT_A_DIRECTORY => return error.NotDir,
         // This can happen if the directory has 'List folder contents' permission set to 'Deny'
@@ -2339,18 +2364,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 
 pub const WriteFileError = File.WriteError || File.OpenError;
 
-/// Deprecated: use `writeFile2`.
-/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `sub_path` should be encoded as valid UTF-8.
-/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
-    return writeFile2(self, .{
-        .sub_path = sub_path,
-        .data = data,
-        .flags = .{},
-    });
-}
-
 pub const WriteFileOptions = struct {
     /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
     /// On WASI, `sub_path` should be encoded as valid UTF-8.
@@ -2361,11 +2374,13 @@ pub const WriteFileOptions = struct {
 };
 
 /// Writes content to the file system, using the file creation flags provided.
-pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
+pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
     var file = try self.createFile(options.sub_path, options.flags);
     defer file.close();
     try file.writeAll(options.data);
 }
+
+pub const writeFile2 = @compileError("deprecated; renamed to writeFile");
 
 pub const AccessError = posix.AccessError;
 

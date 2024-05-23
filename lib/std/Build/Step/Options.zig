@@ -7,7 +7,7 @@ const LazyPath = std.Build.LazyPath;
 
 const Options = @This();
 
-pub const base_id = .options;
+pub const base_id: Step.Id = .options;
 
 step: Step,
 generated_file: GeneratedFile,
@@ -17,8 +17,8 @@ args: std.ArrayList(Arg),
 encountered_types: std.StringHashMap(void),
 
 pub fn create(owner: *std.Build) *Options {
-    const self = owner.allocator.create(Options) catch @panic("OOM");
-    self.* = .{
+    const options = owner.allocator.create(Options) catch @panic("OOM");
+    options.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = "options",
@@ -30,21 +30,21 @@ pub fn create(owner: *std.Build) *Options {
         .args = std.ArrayList(Arg).init(owner.allocator),
         .encountered_types = std.StringHashMap(void).init(owner.allocator),
     };
-    self.generated_file = .{ .step = &self.step };
+    options.generated_file = .{ .step = &options.step };
 
-    return self;
+    return options;
 }
 
-pub fn addOption(self: *Options, comptime T: type, name: []const u8, value: T) void {
-    return addOptionFallible(self, T, name, value) catch @panic("unhandled error");
+pub fn addOption(options: *Options, comptime T: type, name: []const u8, value: T) void {
+    return addOptionFallible(options, T, name, value) catch @panic("unhandled error");
 }
 
-fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: T) !void {
-    const out = self.contents.writer();
-    try printType(self, out, T, value, 0, name);
+fn addOptionFallible(options: *Options, comptime T: type, name: []const u8, value: T) !void {
+    const out = options.contents.writer();
+    try printType(options, out, T, value, 0, name);
 }
 
-fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u8, name: ?[]const u8) !void {
+fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent: u8, name: ?[]const u8) !void {
     switch (T) {
         []const []const u8 => {
             if (name) |payload| {
@@ -159,7 +159,7 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             try out.print("{s} {{\n", .{@typeName(T)});
             for (value) |item| {
                 try out.writeByteNTimes(' ', indent + 4);
-                try printType(self, out, @TypeOf(item), item, indent + 4, null);
+                try printType(options, out, @TypeOf(item), item, indent + 4, null);
             }
             try out.writeByteNTimes(' ', indent);
             try out.writeAll("}");
@@ -183,7 +183,7 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
             for (value) |item| {
                 try out.writeByteNTimes(' ', indent + 4);
-                try printType(self, out, @TypeOf(item), item, indent + 4, null);
+                try printType(options, out, @TypeOf(item), item, indent + 4, null);
             }
             try out.writeByteNTimes(' ', indent);
             try out.writeAll("}");
@@ -201,10 +201,10 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             }
 
             if (value) |inner| {
-                try printType(self, out, @TypeOf(inner), inner, indent + 4, null);
+                try printType(options, out, @TypeOf(inner), inner, indent + 4, null);
                 // Pop the '\n' and ',' chars
-                _ = self.contents.pop();
-                _ = self.contents.pop();
+                _ = options.contents.pop();
+                _ = options.contents.pop();
             } else {
                 try out.writeAll("null");
             }
@@ -231,7 +231,7 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         .Enum => |info| {
-            try printEnum(self, out, T, info, indent);
+            try printEnum(options, out, T, info, indent);
 
             if (name) |some| {
                 try out.print("pub const {}: {} = .{p_};\n", .{
@@ -243,14 +243,14 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         .Struct => |info| {
-            try printStruct(self, out, T, info, indent);
+            try printStruct(options, out, T, info, indent);
 
             if (name) |some| {
                 try out.print("pub const {}: {} = ", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
-                try printStructValue(self, out, info, value, indent);
+                try printStructValue(options, out, info, value, indent);
             }
             return;
         },
@@ -258,20 +258,20 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
     }
 }
 
-fn printUserDefinedType(self: *Options, out: anytype, comptime T: type, indent: u8) !void {
+fn printUserDefinedType(options: *Options, out: anytype, comptime T: type, indent: u8) !void {
     switch (@typeInfo(T)) {
         .Enum => |info| {
-            return try printEnum(self, out, T, info, indent);
+            return try printEnum(options, out, T, info, indent);
         },
         .Struct => |info| {
-            return try printStruct(self, out, T, info, indent);
+            return try printStruct(options, out, T, info, indent);
         },
         else => {},
     }
 }
 
-fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Enum, indent: u8) !void {
-    const gop = try self.encountered_types.getOrPut(@typeName(T));
+fn printEnum(options: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Enum, indent: u8) !void {
+    const gop = try options.encountered_types.getOrPut(@typeName(T));
     if (gop.found_existing) return;
 
     try out.writeByteNTimes(' ', indent);
@@ -291,8 +291,8 @@ fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.b
     try out.writeAll("};\n");
 }
 
-fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
-    const gop = try self.encountered_types.getOrPut(@typeName(T));
+fn printStruct(options: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
+    const gop = try options.encountered_types.getOrPut(@typeName(T));
     if (gop.found_existing) return;
 
     try out.writeByteNTimes(' ', indent);
@@ -325,9 +325,9 @@ fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std
             switch (@typeInfo(@TypeOf(default_value))) {
                 .Enum => try out.print(".{s},\n", .{@tagName(default_value)}),
                 .Struct => |info| {
-                    try printStructValue(self, out, info, default_value, indent + 4);
+                    try printStructValue(options, out, info, default_value, indent + 4);
                 },
-                else => try printType(self, out, @TypeOf(default_value), default_value, indent, null),
+                else => try printType(options, out, @TypeOf(default_value), default_value, indent, null),
             }
         } else {
             try out.writeAll(",\n");
@@ -340,17 +340,17 @@ fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std
     try out.writeAll("};\n");
 
     inline for (val.fields) |field| {
-        try printUserDefinedType(self, out, field.type, 0);
+        try printUserDefinedType(options, out, field.type, 0);
     }
 }
 
-fn printStructValue(self: *Options, out: anytype, comptime struct_val: std.builtin.Type.Struct, val: anytype, indent: u8) !void {
+fn printStructValue(options: *Options, out: anytype, comptime struct_val: std.builtin.Type.Struct, val: anytype, indent: u8) !void {
     try out.writeAll(".{\n");
 
     if (struct_val.is_tuple) {
         inline for (struct_val.fields) |field| {
             try out.writeByteNTimes(' ', indent);
-            try printType(self, out, @TypeOf(@field(val, field.name)), @field(val, field.name), indent, null);
+            try printType(options, out, @TypeOf(@field(val, field.name)), @field(val, field.name), indent, null);
         }
     } else {
         inline for (struct_val.fields) |field| {
@@ -361,9 +361,9 @@ fn printStructValue(self: *Options, out: anytype, comptime struct_val: std.built
             switch (@typeInfo(@TypeOf(field_name))) {
                 .Enum => try out.print(".{s},\n", .{@tagName(field_name)}),
                 .Struct => |struct_info| {
-                    try printStructValue(self, out, struct_info, field_name, indent + 4);
+                    try printStructValue(options, out, struct_info, field_name, indent + 4);
                 },
-                else => try printType(self, out, @TypeOf(field_name), field_name, indent, null),
+                else => try printType(options, out, @TypeOf(field_name), field_name, indent, null),
             }
         }
     }
@@ -379,25 +379,25 @@ fn printStructValue(self: *Options, out: anytype, comptime struct_val: std.built
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionPath(
-    self: *Options,
+    options: *Options,
     name: []const u8,
     path: LazyPath,
 ) void {
-    self.args.append(.{
-        .name = self.step.owner.dupe(name),
-        .path = path.dupe(self.step.owner),
+    options.args.append(.{
+        .name = options.step.owner.dupe(name),
+        .path = path.dupe(options.step.owner),
     }) catch @panic("OOM");
-    path.addStepDependencies(&self.step);
+    path.addStepDependencies(&options.step);
 }
 
 /// Deprecated: use `addOptionPath(options, name, artifact.getEmittedBin())` instead.
-pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compile) void {
-    return addOptionPath(self, name, artifact.getEmittedBin());
+pub fn addOptionArtifact(options: *Options, name: []const u8, artifact: *Step.Compile) void {
+    return addOptionPath(options, name, artifact.getEmittedBin());
 }
 
-pub fn createModule(self: *Options) *std.Build.Module {
-    return self.step.owner.createModule(.{
-        .root_source_file = self.getOutput(),
+pub fn createModule(options: *Options) *std.Build.Module {
+    return options.step.owner.createModule(.{
+        .root_source_file = options.getOutput(),
     });
 }
 
@@ -406,8 +406,8 @@ pub const getSource = getOutput;
 
 /// Returns the main artifact of this Build Step which is a Zig source file
 /// generated from the key-value pairs of the Options.
-pub fn getOutput(self: *Options) LazyPath {
-    return .{ .generated = &self.generated_file };
+pub fn getOutput(options: *Options) LazyPath {
+    return .{ .generated = .{ .file = &options.generated_file } };
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
@@ -415,13 +415,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
-    const self: *Options = @fieldParentPtr("step", step);
+    const options: *Options = @fieldParentPtr("step", step);
 
-    for (self.args.items) |item| {
-        self.addOption(
+    for (options.args.items) |item| {
+        options.addOption(
             []const u8,
             item.name,
-            item.path.getPath(b),
+            item.path.getPath2(b, step),
         );
     }
 
@@ -432,10 +432,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
     hash.add(@as(u32, 0xad95e922));
-    hash.addBytes(self.contents.items);
+    hash.addBytes(options.contents.items);
     const sub_path = "c" ++ fs.path.sep_str ++ hash.final() ++ fs.path.sep_str ++ basename;
 
-    self.generated_file.path = try b.cache_root.join(b.allocator, &.{sub_path});
+    options.generated_file.path = try b.cache_root.join(b.allocator, &.{sub_path});
 
     // Optimize for the hot path. Stat the file, and if it already exists,
     // cache hit.
@@ -464,7 +464,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 });
             };
 
-            b.cache_root.handle.writeFile(tmp_sub_path, self.contents.items) catch |err| {
+            b.cache_root.handle.writeFile(.{ .sub_path = tmp_sub_path, .data = options.contents.items }) catch |err| {
                 return step.fail("unable to write options to '{}{s}': {s}", .{
                     b.cache_root, tmp_sub_path, @errorName(err),
                 });

@@ -14318,7 +14318,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
             else => {
                 const classes = mem.sliceTo(&abi.classifySystemV(ty, mod, self.target.*, .other), .none);
                 assert(std.mem.indexOfNone(abi.Class, classes, &.{
-                    .integer, .sse, .memory, .float, .float_combine,
+                    .integer, .sse, .sseup, .memory, .float, .float_combine,
                 }) == null);
                 const abi_size = ty.abiSize(mod);
                 if (abi_size < 4 or

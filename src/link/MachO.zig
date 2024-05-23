@@ -539,6 +539,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.convertTentativeDefinitions();
     try self.createObjcSections();
+    try self.dedupLiterals();
     try self.claimUnresolved();
 
     if (self.base.gc_sections) {
@@ -890,6 +891,10 @@ pub fn resolveLibSystem(
                 if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
             },
         };
+
+        for (self.lib_dirs) |dir| {
+            if (try accessLibPath(arena, &test_path, &checked_paths, dir, "System")) break :success;
+        }
 
         try self.reportMissingLibraryError(checked_paths.items, "unable to find libSystem system library", .{});
         return error.MissingLibSystem;
@@ -1487,6 +1492,33 @@ fn createObjcSections(self: *MachO) !void {
         const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
         const selrefs_index = try internal.addObjcMsgsendSections(name, self);
         try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
+        sym.flags.objc_stubs = true;
+    }
+}
+
+pub fn dedupLiterals(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+    var lp: LiteralPool = .{};
+    defer lp.deinit(gpa);
+
+    if (self.getZigObject()) |zo| {
+        try zo.resolveLiterals(&lp, self);
+    }
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.resolveLiterals(&lp, self);
+    }
+    if (self.getInternalObject()) |object| {
+        try object.resolveLiterals(&lp, self);
+    }
+
+    if (self.getZigObject()) |zo| {
+        zo.dedupLiterals(lp, self);
+    }
+    for (self.objects.items) |index| {
+        self.getFile(index).?.object.dedupLiterals(lp, self);
+    }
+    if (self.getInternalObject()) |object| {
+        object.dedupLiterals(lp, self);
     }
 }
 
@@ -1724,20 +1756,18 @@ fn initOutputSections(self: *MachO) !void {
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
         }
     }
-    if (self.text_sect_index == null) {
-        self.text_sect_index = try self.addSection("__TEXT", "__text", .{
-            .alignment = switch (self.getTarget().cpu.arch) {
-                .x86_64 => 0,
-                .aarch64 => 2,
-                else => unreachable,
-            },
-            .flags = macho.S_REGULAR |
-                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-    }
-    if (self.data_sect_index == null) {
-        self.data_sect_index = try self.addSection("__DATA", "__data", .{});
-    }
+    self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
+        try self.addSection("__TEXT", "__text", .{
+        .alignment = switch (self.getTarget().cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable,
+        },
+        .flags = macho.S_REGULAR |
+            macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+    });
+    self.data_sect_index = self.getSectionByName("__DATA", "__data") orelse
+        try self.addSection("__DATA", "__data", .{});
 }
 
 fn initSyntheticSections(self: *MachO) !void {
@@ -3676,10 +3706,17 @@ pub inline fn getPageSize(self: MachO) u16 {
 
 pub fn requiresCodeSig(self: MachO) bool {
     if (self.entitlements) |_| return true;
+    // TODO: enable once we support this linker option
     // if (self.options.adhoc_codesign) |cs| return cs;
-    return switch (self.getTarget().cpu.arch) {
-        .aarch64 => true,
-        else => false,
+    const target = self.getTarget();
+    return switch (target.cpu.arch) {
+        .aarch64 => switch (target.os.tag) {
+            .macos => true,
+            .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
+            else => false,
+        },
+        .x86_64 => false,
+        else => unreachable,
     };
 }
 
@@ -4376,6 +4413,87 @@ const Section = struct {
     last_atom_index: Atom.Index = 0,
 };
 
+pub const LiteralPool = struct {
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+    keys: std.ArrayListUnmanaged(Key) = .{},
+    values: std.ArrayListUnmanaged(Atom.Index) = .{},
+    data: std.ArrayListUnmanaged(u8) = .{},
+
+    pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
+        lp.table.deinit(allocator);
+        lp.keys.deinit(allocator);
+        lp.values.deinit(allocator);
+        lp.data.deinit(allocator);
+    }
+
+    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
+        assert(index < lp.values.items.len);
+        return macho_file.getAtom(lp.values.items[index]).?;
+    }
+
+    const InsertResult = struct {
+        found_existing: bool,
+        index: Index,
+        atom: *Atom.Index,
+    };
+
+    pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
+        const size: u32 = @intCast(string.len);
+        try lp.data.ensureUnusedCapacity(allocator, size);
+        const off: u32 = @intCast(lp.data.items.len);
+        lp.data.appendSliceAssumeCapacity(string);
+        const adapter = Adapter{ .lp = lp };
+        const key = Key{ .off = off, .size = size, .seed = @"type" };
+        const gop = try lp.table.getOrPutAdapted(allocator, key, adapter);
+        if (!gop.found_existing) {
+            try lp.keys.append(allocator, key);
+            _ = try lp.values.addOne(allocator);
+        }
+        return .{
+            .found_existing = gop.found_existing,
+            .index = @intCast(gop.index),
+            .atom = &lp.values.items[gop.index],
+        };
+    }
+
+    const Key = struct {
+        off: u32,
+        size: u32,
+        seed: u8,
+
+        fn getData(key: Key, lp: *const LiteralPool) []const u8 {
+            return lp.data.items[key.off..][0..key.size];
+        }
+
+        fn eql(key: Key, other: Key, lp: *const LiteralPool) bool {
+            const key_data = key.getData(lp);
+            const other_data = other.getData(lp);
+            return mem.eql(u8, key_data, other_data);
+        }
+
+        fn hash(key: Key, lp: *const LiteralPool) u32 {
+            const data = key.getData(lp);
+            return @truncate(Hash.hash(key.seed, data));
+        }
+    };
+
+    const Adapter = struct {
+        lp: *const LiteralPool,
+
+        pub fn eql(ctx: @This(), key: Key, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            const other = ctx.lp.keys.items[b_map_index];
+            return key.eql(other, ctx.lp);
+        }
+
+        pub fn hash(ctx: @This(), key: Key) u32 {
+            return key.hash(ctx.lp);
+        }
+    };
+
+    pub const Index = u32;
+};
+
 const HotUpdateState = struct {
     mach_task: ?std.c.MachTask = null,
 };
@@ -4424,6 +4542,7 @@ pub const Platform = struct {
                         .TVOS, .TVOSSIMULATOR => .tvos,
                         .WATCHOS, .WATCHOSSIMULATOR => .watchos,
                         .MACCATALYST => .ios,
+                        .VISIONOS, .VISIONOSSIMULATOR => .visionos,
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
@@ -4431,6 +4550,7 @@ pub const Platform = struct {
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
                         .WATCHOSSIMULATOR,
+                        .VISIONOSSIMULATOR,
                         => .simulator,
                         else => .none,
                     },
@@ -4481,6 +4601,7 @@ pub const Platform = struct {
             },
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
             .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
+            .visionos => if (plat.abi == .simulator) .VISIONOSSIMULATOR else .VISIONOS,
             else => unreachable,
         };
     }
@@ -4549,13 +4670,15 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .macos,   .none,      0xA0E00, 0xA0800 },
-    .{ .ios,     .none,      0xC0000, 0x70000 },
-    .{ .tvos,    .none,      0xC0000, 0x70000 },
-    .{ .watchos, .none,      0x50000, 0x20000 },
-    .{ .ios,     .simulator, 0xD0000, 0x80000 },
-    .{ .tvos,    .simulator, 0xD0000, 0x80000 },
-    .{ .watchos, .simulator, 0x60000, 0x20000 },
+    .{ .macos,    .none,      0xA0E00, 0xA0800 },
+    .{ .ios,      .none,      0xC0000, 0x70000 },
+    .{ .tvos,     .none,      0xC0000, 0x70000 },
+    .{ .watchos,  .none,      0x50000, 0x20000 },
+    .{ .visionos, .none,      0x10000, 0x10000 },
+    .{ .ios,      .simulator, 0xD0000, 0x80000 },
+    .{ .tvos,     .simulator, 0xD0000, 0x80000 },
+    .{ .watchos,  .simulator, 0x60000, 0x20000 },
+    .{ .visionos, .simulator, 0x10000, 0x10000 },
 };
 // zig fmt: on
 
@@ -4722,6 +4845,7 @@ const Dylib = @import("MachO/Dylib.zig");
 const ExportTrieSection = synthetic.ExportTrieSection;
 const File = @import("MachO/file.zig").File;
 const GotSection = synthetic.GotSection;
+const Hash = std.hash.Wyhash;
 const Indsymtab = synthetic.Indsymtab;
 const InternalObject = @import("MachO/InternalObject.zig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;

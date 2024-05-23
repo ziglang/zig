@@ -22,28 +22,14 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Perform division by two quickly for positive integers (llvm.org/PR39129)
 
-template <typename _Integral>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-typename enable_if
-<
-    is_integral<_Integral>::value,
-    _Integral
->::type
-__half_positive(_Integral __value)
-{
-    return static_cast<_Integral>(static_cast<__make_unsigned_t<_Integral> >(__value) / 2);
+template <typename _Integral, __enable_if_t<is_integral<_Integral>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Integral __half_positive(_Integral __value) {
+  return static_cast<_Integral>(static_cast<__make_unsigned_t<_Integral> >(__value) / 2);
 }
 
-template <typename _Tp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-typename enable_if
-<
-    !is_integral<_Tp>::value,
-    _Tp
->::type
-__half_positive(_Tp __value)
-{
-    return __value / 2;
+template <typename _Tp, __enable_if_t<!is_integral<_Tp>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Tp __half_positive(_Tp __value) {
+  return __value / 2;
 }
 
 _LIBCPP_END_NAMESPACE_STD

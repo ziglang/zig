@@ -19,8 +19,8 @@
     template <class T> class propagate_const;
 
     // [propagate_const.underlying], underlying pointer access
-    constexpr const _Tp& _VSTD_LFTS_V2::get_underlying(const propagate_const<T>& pt) noexcept;
-    constexpr T& _VSTD_LFTS_V2::get_underlying(propagate_const<T>& pt) noexcept;
+    constexpr const _Tp& get_underlying(const propagate_const<T>& pt) noexcept;
+    constexpr T& get_underlying(propagate_const<T>& pt) noexcept;
 
     // [propagate_const.relational], relational operators
     template <class T> constexpr bool operator==(const propagate_const<T>& pt, nullptr_t);
@@ -93,15 +93,15 @@
   } // namespace experimental
 
   // [propagate_const.hash], hash support
-  template <class T> struct hash<experimental::fundamentals_v2::propagate_const<T>>;
+  template <class T> struct hash<experimental::propagate_const<T>>;
 
   // [propagate_const.comparison_function_objects], comparison function objects
-  template <class T> struct equal_to<experimental::fundamentals_v2::propagate_const<T>>;
-  template <class T> struct not_equal_to<experimental::fundamentals_v2::propagate_const<T>>;
-  template <class T> struct less<experimental::fundamentals_v2::propagate_const<T>>;
-  template <class T> struct greater<experimental::fundamentals_v2::propagate_const<T>>;
-  template <class T> struct less_equal<experimental::fundamentals_v2::propagate_const<T>>;
-  template <class T> struct greater_equal<experimental::fundamentals_v2::propagate_const<T>>;
+  template <class T> struct equal_to<experimental::propagate_const<T>>;
+  template <class T> struct not_equal_to<experimental::propagate_const<T>>;
+  template <class T> struct less<experimental::propagate_const<T>>;
+  template <class T> struct greater<experimental::propagate_const<T>>;
+  template <class T> struct less_equal<experimental::propagate_const<T>>;
+  template <class T> struct greater_equal<experimental::propagate_const<T>>;
 
 } // namespace std
 
@@ -146,69 +146,58 @@ template <class _Tp>
 class propagate_const;
 
 template <class _Up>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-const _Up& get_underlying(const propagate_const<_Up>& __pu) _NOEXCEPT;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const _Up& get_underlying(const propagate_const<_Up>& __pu) _NOEXCEPT;
 
 template <class _Up>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-_Up& get_underlying(propagate_const<_Up>& __pu) _NOEXCEPT;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _Up& get_underlying(propagate_const<_Up>& __pu) _NOEXCEPT;
 
 template <class _Tp>
-class propagate_const
-{
+class propagate_const {
 public:
   typedef remove_reference_t<decltype(*std::declval<_Tp&>())> element_type;
 
-  static_assert(!is_array<_Tp>::value,
-      "Instantiation of propagate_const with an array type is ill-formed.");
-  static_assert(!is_reference<_Tp>::value,
-      "Instantiation of propagate_const with a reference type is ill-formed.");
+  static_assert(!is_array<_Tp>::value, "Instantiation of propagate_const with an array type is ill-formed.");
+  static_assert(!is_reference<_Tp>::value, "Instantiation of propagate_const with a reference type is ill-formed.");
   static_assert(!(is_pointer<_Tp>::value && is_function<__remove_pointer_t<_Tp> >::value),
-      "Instantiation of propagate_const with a function-pointer type is ill-formed.");
+                "Instantiation of propagate_const with a function-pointer type is ill-formed.");
   static_assert(!(is_pointer<_Tp>::value && is_same<__remove_cv_t<__remove_pointer_t<_Tp> >, void>::value),
-      "Instantiation of propagate_const with a pointer to (possibly cv-qualified) void is ill-formed.");
+                "Instantiation of propagate_const with a pointer to (possibly cv-qualified) void is ill-formed.");
 
 private:
   template <class _Up>
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* __get_pointer(_Up* __u)
-  {
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* __get_pointer(_Up* __u) {
     return __u;
   }
 
   template <class _Up>
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* __get_pointer(_Up& __u)
-  {
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* __get_pointer(_Up& __u) {
     return __get_pointer(__u.get());
   }
 
   template <class _Up>
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* __get_pointer(const _Up* __u)
-  {
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* __get_pointer(const _Up* __u) {
     return __u;
   }
 
   template <class _Up>
-  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* __get_pointer(const _Up& __u)
-  {
+  static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* __get_pointer(const _Up& __u) {
     return __get_pointer(__u.get());
   }
 
   template <class _Up>
-  struct __is_propagate_const : false_type
-  {
-  };
+  struct __is_propagate_const : false_type {};
 
   template <class _Up>
-  struct __is_propagate_const<propagate_const<_Up>> : true_type
-  {
-  };
+  struct __is_propagate_const<propagate_const<_Up>> : true_type {};
 
   _Tp __t_;
 
 public:
-
-  template <class _Up> friend _LIBCPP_CONSTEXPR const _Up& ::_VSTD_LFTS_V2::get_underlying(const propagate_const<_Up>& __pu) _NOEXCEPT;
-  template <class _Up> friend _LIBCPP_CONSTEXPR _Up& ::_VSTD_LFTS_V2::get_underlying(propagate_const<_Up>& __pu) _NOEXCEPT;
+  template <class _Up>
+  friend _LIBCPP_CONSTEXPR const _Up&
+  experimental::fundamentals_v2::get_underlying(const propagate_const<_Up>& __pu) _NOEXCEPT;
+  template <class _Up>
+  friend _LIBCPP_CONSTEXPR _Up& experimental::fundamentals_v2::get_underlying(propagate_const<_Up>& __pu) _NOEXCEPT;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const() = default;
 
@@ -216,286 +205,204 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(propagate_const&&) = default;
 
-  template <class _Up, enable_if_t<!is_convertible<_Up, _Tp>::value &&
-                                 is_constructible<_Tp, _Up&&>::value,bool> = true>
+  template <class _Up,
+            enable_if_t<!is_convertible<_Up, _Tp>::value && is_constructible<_Tp, _Up&&>::value, bool> = true>
   explicit _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(propagate_const<_Up>&& __pu)
-      : __t_(std::move(_VSTD_LFTS_V2::get_underlying(__pu)))
-  {
-  }
+      : __t_(std::move(experimental::get_underlying(__pu))) {}
 
-  template <class _Up, enable_if_t<is_convertible<_Up&&, _Tp>::value &&
-                                 is_constructible<_Tp, _Up&&>::value,bool> = false>
+  template <class _Up,
+            enable_if_t<is_convertible<_Up&&, _Tp>::value && is_constructible<_Tp, _Up&&>::value, bool> = false>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(propagate_const<_Up>&& __pu)
-      : __t_(std::move(_VSTD_LFTS_V2::get_underlying(__pu)))
-  {
-  }
+      : __t_(std::move(experimental::get_underlying(__pu))) {}
 
-  template <class _Up, enable_if_t<!is_convertible<_Up&&, _Tp>::value &&
-                                 is_constructible<_Tp, _Up&&>::value &&
-                                 !__is_propagate_const<decay_t<_Up>>::value,bool> = true>
-  explicit _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(_Up&& __u)
-      : __t_(std::forward<_Up>(__u))
-  {
-  }
+  template <class _Up,
+            enable_if_t<!is_convertible<_Up&&, _Tp>::value && is_constructible<_Tp, _Up&&>::value &&
+                            !__is_propagate_const<decay_t<_Up>>::value,
+                        bool> = true>
+  explicit _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(_Up&& __u) : __t_(std::forward<_Up>(__u)) {}
 
-  template <class _Up, enable_if_t<is_convertible<_Up&&, _Tp>::value &&
-                                 is_constructible<_Tp, _Up&&>::value &&
-                                 !__is_propagate_const<decay_t<_Up>>::value,bool> = false>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(_Up&& __u)
-      : __t_(std::forward<_Up>(__u))
-  {
-  }
+  template <class _Up,
+            enable_if_t<is_convertible<_Up&&, _Tp>::value && is_constructible<_Tp, _Up&&>::value &&
+                            !__is_propagate_const<decay_t<_Up>>::value,
+                        bool> = false>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const(_Up&& __u) : __t_(std::forward<_Up>(__u)) {}
 
   propagate_const& operator=(const propagate_const&) = delete;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const& operator=(propagate_const&&) = default;
 
   template <class _Up>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const& operator=(propagate_const<_Up>&& __pu)
-  {
-    __t_ = std::move(_VSTD_LFTS_V2::get_underlying(__pu));
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const& operator=(propagate_const<_Up>&& __pu) {
+    __t_ = std::move(experimental::get_underlying(__pu));
     return *this;
   }
 
   template <class _Up, class _Vp = enable_if_t<!__is_propagate_const<decay_t<_Up>>::value>>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const& operator=(_Up&& __u)
-  {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR propagate_const& operator=(_Up&& __u) {
     __t_ = std::forward<_Up>(__u);
     return *this;
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* get() const
-  {
-    return __get_pointer(__t_);
-  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* get() const { return __get_pointer(__t_); }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* get()
-  {
-    return __get_pointer(__t_);
-  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* get() { return __get_pointer(__t_); }
 
-  _LIBCPP_HIDE_FROM_ABI explicit _LIBCPP_CONSTEXPR operator bool() const
-  {
-    return get() != nullptr;
-  }
+  _LIBCPP_HIDE_FROM_ABI explicit _LIBCPP_CONSTEXPR operator bool() const { return get() != nullptr; }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* operator->() const
-  {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type* operator->() const { return get(); }
+
+  template <class _Dummy = _Tp, class _Up = enable_if_t<is_convertible< const _Dummy, const element_type*>::value>>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator const element_type*() const {
     return get();
   }
 
-  template <class _Dummy = _Tp, class _Up = enable_if_t<is_convertible<
-                                  const _Dummy, const element_type *>::value>>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator const element_type *() const {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type& operator*() const { return *get(); }
+
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* operator->() { return get(); }
+
+  template <class _Dummy = _Tp, class _Up = enable_if_t< is_convertible<_Dummy, element_type*>::value>>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator element_type*() {
     return get();
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const element_type& operator*() const
-  {
-    return *get();
-  }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type* operator->()
-  {
-    return get();
-  }
-
-  template <class _Dummy = _Tp, class _Up = enable_if_t<
-                                  is_convertible<_Dummy, element_type *>::value>>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator element_type *() {
-    return get();
-  }
-
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type& operator*()
-  {
-    return *get();
-  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR element_type& operator*() { return *get(); }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR void swap(propagate_const& __pt)
       _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value) {
-    using _VSTD::swap;
+    using std::swap;
     swap(__t_, __pt.__t_);
   }
 };
 
-
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator==(const propagate_const<_Tp>& __pt, nullptr_t)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) == nullptr;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator==(const propagate_const<_Tp>& __pt, nullptr_t) {
+  return experimental::get_underlying(__pt) == nullptr;
 }
 
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator==(nullptr_t, const propagate_const<_Tp>& __pt)
-{
-  return nullptr == _VSTD_LFTS_V2::get_underlying(__pt);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator==(nullptr_t, const propagate_const<_Tp>& __pt) {
+  return nullptr == experimental::get_underlying(__pt);
 }
 
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator!=(const propagate_const<_Tp>& __pt, nullptr_t)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) != nullptr;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator!=(const propagate_const<_Tp>& __pt, nullptr_t) {
+  return experimental::get_underlying(__pt) != nullptr;
 }
 
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator!=(nullptr_t, const propagate_const<_Tp>& __pt)
-{
-  return nullptr != _VSTD_LFTS_V2::get_underlying(__pt);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator!=(nullptr_t, const propagate_const<_Tp>& __pt) {
+  return nullptr != experimental::get_underlying(__pt);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator==(const propagate_const<_Tp>& __pt,
-                          const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) == _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator==(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) == experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator!=(const propagate_const<_Tp>& __pt,
-                          const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) != _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator!=(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) != experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<(const propagate_const<_Tp>& __pt,
-                         const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) < _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator<(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) < experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>(const propagate_const<_Tp>& __pt,
-                         const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) > _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator>(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) > experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<=(const propagate_const<_Tp>& __pt,
-                          const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) <= _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator<=(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) <= experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>=(const propagate_const<_Tp>& __pt,
-                          const propagate_const<_Up>& __pu)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) >= _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool
+operator>=(const propagate_const<_Tp>& __pt, const propagate_const<_Up>& __pu) {
+  return experimental::get_underlying(__pt) >= experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator==(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) == __u;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator==(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) == __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator!=(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) != __u;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator!=(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) != __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) < __u;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator<(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) < __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) > __u;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator>(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) > __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<=(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) <= __u;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator<=(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) <= __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>=(const propagate_const<_Tp>& __pt, const _Up& __u)
-{
-  return _VSTD_LFTS_V2::get_underlying(__pt) >= __u;
-}
-
-
-template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator==(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t == _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator>=(const propagate_const<_Tp>& __pt, const _Up& __u) {
+  return experimental::get_underlying(__pt) >= __u;
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator!=(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t != _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator==(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t == experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t < _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator!=(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t != experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t > _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator<(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t < experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator<=(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t <= _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator>(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t > experimental::get_underlying(__pu);
 }
 
 template <class _Tp, class _Up>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR bool operator>=(const _Tp& __t, const propagate_const<_Up>& __pu)
-{
-  return __t >= _VSTD_LFTS_V2::get_underlying(__pu);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator<=(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t <= experimental::get_underlying(__pu);
+}
+
+template <class _Tp, class _Up>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool operator>=(const _Tp& __t, const propagate_const<_Up>& __pu) {
+  return __t >= experimental::get_underlying(__pu);
 }
 
 template <class _Tp>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR void swap(propagate_const<_Tp>& __pc1, propagate_const<_Tp>& __pc2) _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value)
-{
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR void swap(propagate_const<_Tp>& __pc1, propagate_const<_Tp>& __pc2)
+    _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value) {
   __pc1.swap(__pc2);
 }
 
 template <class _Tp>
-_LIBCPP_CONSTEXPR const _Tp& get_underlying(const propagate_const<_Tp>& __pt) _NOEXCEPT
-{
+_LIBCPP_CONSTEXPR const _Tp& get_underlying(const propagate_const<_Tp>& __pt) _NOEXCEPT {
   return __pt.__t_;
 }
 
 template <class _Tp>
-_LIBCPP_CONSTEXPR _Tp& get_underlying(propagate_const<_Tp>& __pt) _NOEXCEPT
-{
+_LIBCPP_CONSTEXPR _Tp& get_underlying(propagate_const<_Tp>& __pt) _NOEXCEPT {
   return __pt.__t_;
 }
 
@@ -504,92 +411,78 @@ _LIBCPP_END_NAMESPACE_LFTS_V2
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct hash<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
+struct hash<experimental::propagate_const<_Tp>> {
   typedef size_t result_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> argument_type;
+  typedef experimental::propagate_const<_Tp> argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI size_t operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1) const
-  {
-    return std::hash<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1));
+  _LIBCPP_HIDE_FROM_ABI size_t operator()(const experimental::propagate_const<_Tp>& __pc1) const {
+    return std::hash<_Tp>()(experimental::get_underlying(__pc1));
   }
 };
 
 template <class _Tp>
-struct equal_to<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct equal_to<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::equal_to<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::equal_to<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 
 template <class _Tp>
-struct not_equal_to<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct not_equal_to<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::not_equal_to<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::not_equal_to<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 
 template <class _Tp>
-struct less<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct less<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::less<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::less<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 
 template <class _Tp>
-struct greater<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct greater<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::greater<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::greater<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 
 template <class _Tp>
-struct less_equal<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct less_equal<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::less_equal<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::less_equal<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 
 template <class _Tp>
-struct greater_equal<experimental::fundamentals_v2::propagate_const<_Tp>>
-{
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> first_argument_type;
-  typedef experimental::fundamentals_v2::propagate_const<_Tp> second_argument_type;
+struct greater_equal<experimental::propagate_const<_Tp>> {
+  typedef experimental::propagate_const<_Tp> first_argument_type;
+  typedef experimental::propagate_const<_Tp> second_argument_type;
 
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const experimental::fundamentals_v2::propagate_const<_Tp>& __pc1,
-      const experimental::fundamentals_v2::propagate_const<_Tp>& __pc2) const
-  {
-    return std::greater_equal<_Tp>()(_VSTD_LFTS_V2::get_underlying(__pc1), _VSTD_LFTS_V2::get_underlying(__pc2));
+  _LIBCPP_HIDE_FROM_ABI bool
+  operator()(const experimental::propagate_const<_Tp>& __pc1, const experimental::propagate_const<_Tp>& __pc2) const {
+    return std::greater_equal<_Tp>()(experimental::get_underlying(__pc1), experimental::get_underlying(__pc2));
   }
 };
 

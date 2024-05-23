@@ -21,6 +21,7 @@ test "ir block deps" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect((foo(1) catch unreachable) == 0);
     try expect((foo(2) catch unreachable) == 0);

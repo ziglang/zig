@@ -17,13 +17,13 @@
 
 #if _LIBCPP_STD_VER >= 20
 
-#include <__iterator/concepts.h>
+#  include <__iterator/concepts.h>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 
-enum class _LIBCPP_ENUM_VIS subrange_kind : bool { unsized, sized };
+enum class subrange_kind : bool { unsized, sized };
 
 template <input_or_output_iterator _Iter, sentinel_for<_Iter> _Sent, subrange_kind _Kind>
   requires(_Kind == subrange_kind::sized || !sized_sentinel_for<_Sent, _Iter>)

@@ -116,8 +116,16 @@ pub fn BoundedArrayAligned(
         }
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
-        /// The return value is a slice pointing to the uninitialized elements.
+        /// The return value is a pointer to the array of uninitialized elements.
         pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
+            const prev_len = self.len;
+            try self.resize(self.len + n);
+            return self.slice()[prev_len..][0..n];
+        }
+
+        /// Resize the slice, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the uninitialized elements.
+        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment) T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -381,6 +389,10 @@ test BoundedArray {
     const swapped = a.swapRemove(0);
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
+
+    const added_slice = try a.addManyAsSlice(3);
+    try testing.expectEqual(added_slice.len, 3);
+    try testing.expectEqual(a.len, 36);
 
     while (a.popOrNull()) |_| {}
     const w = a.writer();

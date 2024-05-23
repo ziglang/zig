@@ -1312,10 +1312,10 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align = Type.intAbiAlignment(int_info.bits, target.*);
+                const abi_align = Type.intAbiAlignment(int_info.bits, target.*, false);
                 const abi_align_bytes = abi_align.toByteUnits().?;
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*), abi_align_bytes),
+                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*, false), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1443,7 +1443,7 @@ pub const Pool = struct {
                         .name = .{ .index = .len },
                         .ctype = CType.usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            Type.intAbiAlignment(target.ptrBitWidth(), target.*),
+                            Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
                         ),
                     },
                 };
@@ -1468,7 +1468,6 @@ pub const Pool = struct {
             .bool_false,
             .empty_struct,
             .generic_poison,
-            .var_args_param_type,
             .none,
             => unreachable,
 
@@ -1546,7 +1545,7 @@ pub const Pool = struct {
                                 .name = .{ .index = .len },
                                 .ctype = CType.usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*),
+                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
                                 ),
                             },
                         };
@@ -1666,7 +1665,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.intAbiAlignment(error_set_bits, target.*),
+                                Type.intAbiAlignment(error_set_bits, target.*, false),
                             ),
                         },
                         .{

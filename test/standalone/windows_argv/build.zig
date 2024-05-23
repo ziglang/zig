@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
 
     const lib_gnu = b.addStaticLibrary(.{
         .name = "toargv-gnu",
-        .root_source_file = .{ .path = "lib.zig" },
+        .root_source_file = b.path("lib.zig"),
         .target = b.resolveTargetQuery(.{
             .abi = .gnu,
         }),
@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     verify_gnu.addCSourceFile(.{
-        .file = .{ .path = "verify.c" },
+        .file = b.path("verify.c"),
         .flags = &.{ "-DUNICODE", "-D_UNICODE" },
     });
     verify_gnu.mingw_unicode_entry_point = true;
@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) !void {
 
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
-        .root_source_file = .{ .path = "fuzz.zig" },
+        .root_source_file = b.path("fuzz.zig"),
         .target = b.host,
         .optimize = optimize,
     });
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) !void {
     if (has_msvc) {
         const lib_msvc = b.addStaticLibrary(.{
             .name = "toargv-msvc",
-            .root_source_file = .{ .path = "lib.zig" },
+            .root_source_file = b.path("lib.zig"),
             .target = b.resolveTargetQuery(.{
                 .abi = .msvc,
             }),
@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         verify_msvc.addCSourceFile(.{
-            .file = .{ .path = "verify.c" },
+            .file = b.path("verify.c"),
             .flags = &.{ "-DUNICODE", "-D_UNICODE" },
         });
         verify_msvc.linkLibrary(lib_msvc);

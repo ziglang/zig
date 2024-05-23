@@ -9,12 +9,12 @@ pub fn build(b: *std.Build) void {
     const enable_ios_sdk = b.option(bool, "enable_ios_sdk", "Run tests requiring presence of iOS SDK and frameworks") orelse false;
     const enable_macos_sdk = b.option(bool, "enable_macos_sdk", "Run tests requiring presence of macOS SDK and frameworks") orelse enable_ios_sdk;
     const enable_symlinks_windows = b.option(bool, "enable_symlinks_windows", "Run tests requiring presence of symlinks on Windows") orelse false;
-    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
+    const has_symlinks = builtin.os.tag != .windows or enable_symlinks_windows;
 
     const build_opts: link.BuildOptions = .{
         .has_ios_sdk = enable_ios_sdk,
         .has_macos_sdk = enable_macos_sdk,
-        .has_symlinks_windows = omit_symlinks,
+        .has_symlinks = has_symlinks,
     };
     step.dependOn(@import("elf.zig").testAll(b, build_opts));
     step.dependOn(@import("macho.zig").testAll(b, build_opts));
@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) void {
                     pkg.build_zig.requires_macos_sdk;
                 const requires_symlinks = @hasDecl(pkg.build_zig, "requires_symlinks") and
                     pkg.build_zig.requires_symlinks;
-                if ((requires_symlinks and omit_symlinks) or
+                if ((requires_symlinks and !has_symlinks) or
                     (requires_macos_sdk and !enable_macos_sdk) or
                     (requires_ios_sdk and !enable_ios_sdk))
                 {

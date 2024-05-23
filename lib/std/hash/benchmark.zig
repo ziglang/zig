@@ -56,12 +56,8 @@ const hashes = [_]Hash{
         .name = "adler32",
     },
     Hash{
-        .ty = hash.crc.Crc32WithPoly(.IEEE),
-        .name = "crc32-slicing-by-8",
-    },
-    Hash{
-        .ty = hash.crc.Crc32SmallWithPoly(.IEEE),
-        .name = "crc32-half-byte-lookup",
+        .ty = hash.crc.Crc32,
+        .name = "crc32",
     },
     Hash{
         .ty = hash.CityHash32,

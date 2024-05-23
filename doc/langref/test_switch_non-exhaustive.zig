@@ -12,8 +12,7 @@ test "switch on non-exhaustive enum" {
     const number = Number.one;
     const result = switch (number) {
         .one => true,
-        .two,
-        .three => false,
+        .two, .three => false,
         _ => false,
     };
     try expect(result);
