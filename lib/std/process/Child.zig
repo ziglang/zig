@@ -98,7 +98,10 @@ resource_usage_statistics: ResourceUsageStatistics = .{},
 /// write end of the pipe will be specified in the `ZIG_PROGRESS`
 /// environment variable inside the child process. The progress reported by
 /// the child will be attached to this progress node in the parent process.
-parent_progress_node: std.Progress.Node = .{ .index = .none },
+///
+/// The child's progress tree will be grafted into the parent's progress tree,
+/// by substituting this node with the child's root node.
+progress_node: std.Progress.Node = .{ .index = .none },
 
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
@@ -581,11 +584,11 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     const prog_pipe: [2]posix.fd_t = p: {
-        if (self.parent_progress_node.index == .none) {
+        if (self.progress_node.index == .none) {
             break :p .{ -1, -1 };
         } else {
             // No CLOEXEC because the child needs access to this file descriptor.
-            break :p try posix.pipe2(.{});
+            break :p try posix.pipe2(.{ .NONBLOCK = true });
         }
     };
     errdefer destroyPipe(prog_pipe);
@@ -685,18 +688,18 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
     // we are the parent
     const pid: i32 = @intCast(pid_result);
-    if (self.stdin_behavior == StdIo.Pipe) {
-        self.stdin = File{ .handle = stdin_pipe[1] };
+    if (self.stdin_behavior == .Pipe) {
+        self.stdin = .{ .handle = stdin_pipe[1] };
     } else {
         self.stdin = null;
     }
-    if (self.stdout_behavior == StdIo.Pipe) {
-        self.stdout = File{ .handle = stdout_pipe[0] };
+    if (self.stdout_behavior == .Pipe) {
+        self.stdout = .{ .handle = stdout_pipe[0] };
     } else {
         self.stdout = null;
     }
-    if (self.stderr_behavior == StdIo.Pipe) {
-        self.stderr = File{ .handle = stderr_pipe[0] };
+    if (self.stderr_behavior == .Pipe) {
+        self.stderr = .{ .handle = stderr_pipe[0] };
     } else {
         self.stderr = null;
     }
@@ -705,15 +708,17 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     self.err_pipe = err_pipe;
     self.term = null;
 
-    if (self.stdin_behavior == StdIo.Pipe) {
+    if (self.stdin_behavior == .Pipe) {
         posix.close(stdin_pipe[0]);
     }
-    if (self.stdout_behavior == StdIo.Pipe) {
+    if (self.stdout_behavior == .Pipe) {
         posix.close(stdout_pipe[1]);
     }
-    if (self.stderr_behavior == StdIo.Pipe) {
+    if (self.stderr_behavior == .Pipe) {
         posix.close(stderr_pipe[1]);
     }
+
+    self.progress_node.setIpcFd(prog_pipe[0]);
 }
 
 fn spawnWindows(self: *ChildProcess) SpawnError!void {
