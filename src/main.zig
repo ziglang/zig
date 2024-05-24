@@ -3408,7 +3408,11 @@ fn buildOutputType(
         return cmdTranslateC(comp, arena, null);
     }
 
-    updateModule(comp, color) catch |err| switch (err) {
+    const root_prog_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
+
+    updateModule(comp, color, root_prog_node) catch |err| switch (err) {
         error.SemanticAnalyzeFail => {
             assert(listen == .none);
             saveState(comp, debug_incremental);
@@ -4381,16 +4385,8 @@ fn runOrTestHotSwap(
     }
 }
 
-fn updateModule(comp: *Compilation, color: Color) !void {
-    {
-        // If the terminal is dumb, we dont want to show the user all the output.
-        const main_progress_node = std.Progress.start(.{
-            .disable_printing = color == .off,
-        });
-        defer main_progress_node.end();
-
-        try comp.update(main_progress_node);
-    }
+fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) !void {
+    try comp.update(prog_node);
 
     var errors = try comp.getAllErrorsAlloc();
     defer errors.deinit(comp.gpa);
@@ -4797,6 +4793,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     const color: Color = .auto;
+    const root_prog_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
+    defer root_prog_node.end();
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
@@ -4952,10 +4952,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     config,
                 );
             } else {
-                const root_prog_node = std.Progress.start(.{
-                    .root_name = "Fetch Packages",
-                });
-                defer root_prog_node.end();
+                const fetch_prog_node = root_prog_node.start("Fetch Packages", 0);
+                defer fetch_prog_node.end();
 
                 var job_queue: Package.Fetch.JobQueue = .{
                     .http_client = &http_client,
@@ -4996,7 +4994,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .lazy_status = .eager,
                     .parent_package_root = build_mod.root,
                     .parent_manifest_ast = null,
-                    .prog_node = root_prog_node,
+                    .prog_node = fetch_prog_node,
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
@@ -5135,7 +5133,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             };
             defer comp.destroy();
 
-            updateModule(comp, color) catch |err| switch (err) {
+            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
                 error.SemanticAnalyzeFail => process.exit(2),
                 else => |e| return e,
             };
@@ -5229,7 +5227,7 @@ const JitCmdOptions = struct {
     prepend_zig_exe_path: bool = false,
     depend_on_aro: bool = false,
     capture: ?*[]u8 = null,
-    /// Send progress and error bundles via std.zig.Server over stdout
+    /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
 };
 
@@ -5240,6 +5238,9 @@ fn jitCmd(
     options: JitCmdOptions,
 ) !void {
     const color: Color = .auto;
+    const root_prog_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
@@ -5377,14 +5378,13 @@ fn jitCmd(
         defer comp.destroy();
 
         if (options.server) {
-            const main_progress_node = std.Progress.start(.{});
             var server = std.zig.Server{
                 .out = std.io.getStdOut(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             };
 
-            try comp.update(main_progress_node);
+            try comp.update(root_prog_node);
 
             var error_bundle = try comp.getAllErrorsAlloc();
             defer error_bundle.deinit(comp.gpa);
@@ -5393,7 +5393,7 @@ fn jitCmd(
                 process.exit(2);
             }
         } else {
-            updateModule(comp, color) catch |err| switch (err) {
+            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
                 error.SemanticAnalyzeFail => process.exit(2),
                 else => |e| return e,
             };
