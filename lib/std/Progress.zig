@@ -88,7 +88,14 @@ pub const Node = struct {
             if (s.estimated_total_count != std.math.maxInt(u32))
                 return null;
 
-            return @bitCast(s.completed_count);
+            const low: u16 = @truncate(s.completed_count);
+            return low;
+        }
+
+        fn getMainStorageIndex(s: Storage) Node.Index {
+            assert(s.estimated_total_count == std.math.maxInt(u32));
+            const i: u16 = @truncate(s.completed_count >> 16);
+            return @enumFromInt(i);
         }
 
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
@@ -387,7 +394,7 @@ fn updateThreadRun() void {
     }
 }
 
-fn ipcThreadRun(fd: posix.fd_t) void {
+fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
     {
         _ = wait(global_progress.initial_delay_ns);
 
@@ -395,7 +402,9 @@ fn ipcThreadRun(fd: posix.fd_t) void {
             return;
 
         const serialized = serialize();
-        writeIpc(fd, serialized);
+        writeIpc(fd, serialized) catch |err| switch (err) {
+            error.BrokenPipe => return,
+        };
     }
 
     while (true) {
@@ -405,7 +414,9 @@ fn ipcThreadRun(fd: posix.fd_t) void {
             return clearTerminal();
 
         const serialized = serialize();
-        writeIpc(fd, serialized);
+        writeIpc(fd, serialized) catch |err| switch (err) {
+            error.BrokenPipe => return,
+        };
     }
 }
 
@@ -487,7 +498,10 @@ fn serialize() Serialized {
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .monotonic);
 
-            any_ipc = any_ipc or dest_storage.getIpcFd() != null;
+            if (dest_storage.getIpcFd() != null) {
+                any_ipc = true;
+                dest_storage.completed_count |= @as(u32, @intCast(i)) << 16;
+            }
 
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
             if (begin_parent == end_parent) {
@@ -539,7 +553,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
     var serialized_len = start_serialized_len;
     var pipe_buf: [4096]u8 align(4) = undefined;
 
-    for (
+    main_loop: for (
         serialized_node_parents_buffer[0..serialized_len],
         serialized_node_storage_buffer[0..serialized_len],
         0..,
@@ -554,7 +568,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
                     std.log.warn("failed to read child progress data: {s}", .{@errorName(e)});
                     main_storage.completed_count = 0;
                     main_storage.estimated_total_count = 0;
-                    continue;
+                    continue :main_loop;
                 },
             };
         }
@@ -570,7 +584,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
                 std.log.warn("short read: {d} out of 4 header bytes", .{input.len});
                 // TODO keep track of the short read to trash odd bytes with the next read
                 serialized_len = useSavedIpcData(serialized_len, main_storage, main_index);
-                continue;
+                continue :main_loop;
             }
             const subtree_len = std.mem.readInt(u32, input[0..4], .little);
             const expected_bytes = 4 + subtree_len * (@sizeOf(Node.Storage) + @sizeOf(Node.Parent));
@@ -578,7 +592,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
                 std.log.warn("short read: {d} out of {d} ({d} nodes)", .{ input.len, expected_bytes, subtree_len });
                 // TODO keep track of the short read to trash odd bytes with the next read
                 serialized_len = useSavedIpcData(serialized_len, main_storage, main_index);
-                continue;
+                continue :main_loop;
             }
             if (input.len > expected_bytes) {
                 input = @alignCast(input[expected_bytes..]);
@@ -593,7 +607,8 @@ fn serializeIpc(start_serialized_len: usize) usize {
         };
 
         // Remember in case the pipe is empty on next update.
-        @as(*SavedMetadata, @ptrCast(&main_storage.name)).* = .{
+        const real_storage: *Node.Storage = Node.storageByIndex(main_storage.getMainStorageIndex());
+        @as(*SavedMetadata, @ptrCast(&real_storage.name)).* = .{
             .start_index = @intCast(serialized_len),
             .nodes_len = @intCast(parents.len),
             .main_index = @intCast(main_index),
@@ -642,6 +657,14 @@ fn useSavedIpcData(start_serialized_len: usize, main_storage: *Node.Storage, mai
     const start_index = saved_metadata.start_index;
     const nodes_len = saved_metadata.nodes_len;
     const old_main_index = saved_metadata.main_index;
+
+    const real_storage: *Node.Storage = Node.storageByIndex(main_storage.getMainStorageIndex());
+    @as(*SavedMetadata, @ptrCast(&real_storage.name)).* = .{
+        .start_index = @intCast(start_serialized_len),
+        .nodes_len = nodes_len,
+        .main_index = @intCast(main_index),
+        .flags = .saved,
+    };
 
     const parents = parents_copy[start_index..][0 .. nodes_len - 1];
     const storage = storage_copy[start_index..][0 .. nodes_len - 1];
@@ -793,7 +816,7 @@ fn write(buf: []const u8) void {
     };
 }
 
-fn writeIpc(fd: posix.fd_t, serialized: Serialized) void {
+fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     assert(serialized.parents.len == serialized.storage.len);
     const serialized_len: u32 = @intCast(serialized.parents.len);
     const header = std.mem.asBytes(&serialized_len);
@@ -818,7 +841,11 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) void {
         }
     } else |err| switch (err) {
         error.WouldBlock => {},
-        else => |e| std.log.warn("failed to send progress to parent process: {s}", .{@errorName(e)}),
+        error.BrokenPipe => return error.BrokenPipe,
+        else => |e| {
+            std.log.warn("failed to send progress to parent process: {s}", .{@errorName(e)});
+            return error.BrokenPipe;
+        },
     }
 }
 
