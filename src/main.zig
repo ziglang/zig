@@ -5151,7 +5151,12 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
 
-            const term = try child.spawnAndWait();
+            const term = t: {
+                std.debug.lockStdErr();
+                defer std.debug.unlockStdErr();
+                break :t try child.spawnAndWait();
+            };
+
             switch (term) {
                 .Exited => |code| {
                     if (code == 0) return cleanExit();
