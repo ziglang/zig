@@ -837,9 +837,7 @@ pub const PanicCause = union(enum(u8)) {
     div_with_remainder: type,
     mul_overflowed: type,
     add_overflowed: type,
-    inc_overflowed: type,
     sub_overflowed: type,
-    dec_overflowed: type,
     div_overflowed: type,
     cast_truncated_data: Cast,
     cast_to_enum_from_invalid: type,
@@ -962,11 +960,6 @@ pub fn PanicData(comptime cause: PanicCause) type {
                     return u16;
                 },
             }
-        },
-        .inc_overflowed,
-        .dec_overflowed,
-        => |val_type| {
-            return val_type;
         },
         .cast_to_ptr_from_invalid => {
             return usize;

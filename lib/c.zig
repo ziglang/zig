@@ -61,7 +61,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
     }
 }
 /// TODO: Rename to `panic` when old interface is removed.
-pub fn panicNew(comptime _: std.builtin.PanicCause, data: anytype) noreturn {
+pub fn panic2(comptime _: std.builtin.PanicCause, data: anytype) noreturn {
     @setCold(true);
     if (builtin.is_test) {
         std.debug.panic("{any}", .{data});

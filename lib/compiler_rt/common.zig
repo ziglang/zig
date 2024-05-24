@@ -66,7 +66,7 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 /// TODO: Rename to `panic` when old interface is removed.
-pub fn panicNew(_: std.builtin.PanicCause, _: anytype) noreturn {
+pub fn panic2(_: std.builtin.PanicCause, _: anytype) noreturn {
     @setRuntimeSafety(false);
     unreachable;
 }
