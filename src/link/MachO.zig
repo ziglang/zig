@@ -535,6 +535,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.addUndefinedGlobals();
     try self.resolveSymbols();
+    try self.parseDebugInfo();
     try self.resolveSyntheticSymbols();
 
     try self.convertTentativeDefinitions();
@@ -1406,6 +1407,12 @@ fn markLive(self: *MachO) void {
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         if (object.alive) object.markLive(self);
+    }
+}
+
+pub fn parseDebugInfo(self: *MachO) !void {
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.parseDebugInfo(self);
     }
 }
 
@@ -4840,7 +4847,6 @@ const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const DwarfInfo = @import("MachO/DwarfInfo.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const ExportTrieSection = synthetic.ExportTrieSection;
 const File = @import("MachO/file.zig").File;
