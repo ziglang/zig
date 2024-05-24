@@ -2482,7 +2482,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
             std.debug.print("compile error during Sema:\n", .{});
             var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
             error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-            crash_report.compilerPanic("unexpected compile error occurred", null, null);
+            crash_report.compilerPanicSimple("unexpected compile error occurred");
         }
 
         try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
@@ -11472,32 +11472,18 @@ fn analyzeSlice2(
     }
     if (sa.start_le_len == .known) {
         if (sa.dest_sent == .known and sa.src_sent == .unknown and
-            !try sema.compareScalar(dest_start_val, .lt, src_len2_val, Type.usize))
+            try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize))
         {
-            if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_start_src, "slice sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                } else {
-                    return sema.fail(block, dest_start_src, "slice sentinel out of bounds: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                }
+            if (!src_ptr_explicit_len) {
+                return sema.fail(block, dest_start_src, "slice sentinel always out of bounds of reinterpreted memory: start {}, length {}", .{
+                    dest_start_val.fmtValue(sema.mod, sema),
+                    src_len2_val.fmtValue(sema.mod, sema),
+                });
             } else {
-                if (!src_ptr_explicit_len) {
-                    return sema.fail(block, dest_start_src, "slice start out of bounds of reinterpreted memory: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                } else {
-                    return sema.fail(block, dest_start_src, "slice start out of bounds: start {}(+1), length {}", .{
-                        dest_start_val.fmtValue(sema.mod, sema),
-                        src_len2_val.fmtValue(sema.mod, sema),
-                    });
-                }
+                return sema.fail(block, dest_start_src, "slice sentinel always out of bounds: start {}, length {}", .{
+                    dest_start_val.fmtValue(sema.mod, sema),
+                    src_len2_val.fmtValue(sema.mod, sema),
+                });
             }
         } else if (!try sema.compareScalar(dest_start_val, .lte, src_len2_val, Type.usize)) {
             if (!src_ptr_explicit_len) {
