@@ -14961,8 +14961,8 @@ fn zirShr(
     }
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-    const result = try block.addBinOp(air_tag, lhs, rhs);
     if (block.wantSafety()) {
+        const result: Air.Inst.Ref = try block.addBinOp(.shr, lhs, rhs);
         const bit_count = scalar_ty.intInfo(mod).bits;
         if (!std.math.isPowerOfTwo(bit_count)) {
             const bit_count_val = try mod.intValue(rhs_ty.scalarType(mod), bit_count);
@@ -15000,8 +15000,9 @@ fn zirShr(
 
             try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, rhs, ok, air_tag);
         }
+        return result;
     }
-    return result;
+    return block.addBinOp(air_tag, lhs, rhs);
 }
 
 fn zirBitwise(
