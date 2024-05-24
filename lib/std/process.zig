@@ -1814,49 +1814,63 @@ test raiseFileDescriptorLimit {
 }
 
 pub const CreateEnvironOptions = struct {
-    env_map: ?*const EnvMap = null,
-    existing: ?[*:null]const ?[*:0]const u8 = null,
-    extra_usizes: []const ExtraUsize = &.{},
-
-    pub const ExtraUsize = struct {
-        name: []const u8,
-        value: usize,
-    };
+    /// `null` means to leave the `ZIG_PROGRESS` environment variable unmodified.
+    /// If non-null, negative means to remove the environment variable, and >= 0
+    /// means to provide it with the given integer.
+    zig_progress_fd: ?i32 = null,
 };
 
 /// Creates a null-deliminated environment variable block in the format
-/// expected by POSIX, by combining all the sources of key-value pairs together
-/// from `options`.
-pub fn createEnviron(arena: Allocator, options: CreateEnvironOptions) Allocator.Error![:null]?[*:0]u8 {
-    const envp_count = c: {
-        var count: usize = 0;
-        if (options.existing) |env| {
-            while (env[count]) |_| : (count += 1) {}
+/// expected by POSIX, from a hash map plus options.
+pub fn createEnvironFromMap(
+    arena: Allocator,
+    map: *const EnvMap,
+    options: CreateEnvironOptions,
+) Allocator.Error![:null]?[*:0]u8 {
+    const ZigProgressAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: ZigProgressAction = a: {
+        const fd = options.zig_progress_fd orelse break :a .nothing;
+        const contains = map.get("ZIG_PROGRESS") != null;
+        if (fd >= 0) {
+            break :a if (contains) .edit else .add;
+        } else {
+            if (contains) break :a .delete;
         }
-        if (options.env_map) |env_map| {
-            count += env_map.count();
-        }
-        count += options.extra_usizes.len;
-        break :c count;
+        break :a .nothing;
     };
+
+    const envp_count: usize = @intCast(@as(isize, map.count()) + @as(isize, switch (zig_progress_action) {
+        .add => 1,
+        .delete => -1,
+        .nothing, .edit => 0,
+    }));
+
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     var i: usize = 0;
 
-    if (options.existing) |env| {
-        while (env[i]) |line| : (i += 1) {
-            envp_buf[i] = try arena.dupeZ(u8, mem.span(line));
-        }
+    if (zig_progress_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        i += 1;
     }
 
-    for (options.extra_usizes, envp_buf[i..][0..options.extra_usizes.len]) |extra_usize, *out| {
-        out.* = try std.fmt.allocPrintZ(arena, "{s}={d}", .{ extra_usize.name, extra_usize.value });
-    }
-    i += options.extra_usizes.len;
+    {
+        var it = map.iterator();
+        while (it.next()) |pair| {
+            if (mem.eql(u8, pair.key_ptr.*, "ZIG_PROGRESS")) switch (zig_progress_action) {
+                .add => unreachable,
+                .delete => continue,
+                .edit => {
+                    envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={d}", .{
+                        pair.key_ptr.*, options.zig_progress_fd.?,
+                    });
+                    i += 1;
+                    continue;
+                },
+                .nothing => {},
+            };
 
-    if (options.env_map) |env_map| {
-        var it = env_map.iterator();
-        while (it.next()) |pair| : (i += 1) {
             envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+            i += 1;
         }
     }
 
@@ -1864,8 +1878,68 @@ pub fn createEnviron(arena: Allocator, options: CreateEnvironOptions) Allocator.
     return envp_buf;
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
-    return createEnviron(arena, .{ .env_map = env_map });
+/// Creates a null-deliminated environment variable block in the format
+/// expected by POSIX, from a hash map plus options.
+pub fn createEnvironFromExisting(
+    arena: Allocator,
+    existing: [*:null]const ?[*:0]const u8,
+    options: CreateEnvironOptions,
+) Allocator.Error![:null]?[*:0]u8 {
+    const existing_count, const contains_zig_progress = c: {
+        var count: usize = 0;
+        var contains = false;
+        while (existing[count]) |line| : (count += 1) {
+            contains = contains or mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS");
+        }
+        break :c .{ count, contains };
+    };
+    const ZigProgressAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: ZigProgressAction = a: {
+        const fd = options.zig_progress_fd orelse break :a .nothing;
+        if (fd >= 0) {
+            break :a if (contains_zig_progress) .edit else .add;
+        } else {
+            if (contains_zig_progress) break :a .delete;
+        }
+        break :a .nothing;
+    };
+
+    const envp_count: usize = @intCast(@as(isize, @intCast(existing_count)) + @as(isize, switch (zig_progress_action) {
+        .add => 1,
+        .delete => -1,
+        .nothing, .edit => 0,
+    }));
+
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
+    var i: usize = 0;
+    var existing_index: usize = 0;
+
+    if (zig_progress_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        i += 1;
+    }
+
+    while (existing[existing_index]) |line| : (existing_index += 1) {
+        if (mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS")) switch (zig_progress_action) {
+            .add => unreachable,
+            .delete => continue,
+            .edit => {
+                envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                i += 1;
+                continue;
+            },
+            .nothing => {},
+        };
+        envp_buf[i] = try arena.dupeZ(u8, mem.span(line));
+        i += 1;
+    }
+
+    assert(i == envp_count);
+    return envp_buf;
+}
+
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) Allocator.Error![:null]?[*:0]u8 {
+    return createEnvironFromMap(arena, env_map, .{});
 }
 
 test createNullDelimitedEnvMap {
