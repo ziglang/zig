@@ -17548,6 +17548,16 @@ fn analyzeArithmetic(
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (block.wantSafety() and want_safety and scalar_tag == .Int) blk: {
+        if (mod.backendSupportsFeature(.safety_checked_instructions) and
+            sema.mod.safety.fn_cache[1] != .none)
+        {
+            return block.addBinOp(switch (air_tag) {
+                .add => .add_safe,
+                .sub => .sub_safe,
+                .mul => .mul_safe,
+                else => break :blk,
+            }, casted_lhs, casted_rhs);
+        }
         const op_ov_tag: Air.Inst.Tag = switch (air_tag) {
             .add => .add_with_overflow,
             .sub => .sub_with_overflow,
