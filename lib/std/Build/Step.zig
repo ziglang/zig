@@ -313,16 +313,13 @@ pub fn evalZigProcess(
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    const sub_prog_node = prog_node.start("", 0);
-    defer sub_prog_node.end();
-
     var child = std.process.Child.init(argv, arena);
     child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     child.request_resource_usage_statistics = true;
-    child.progress_node = sub_prog_node;
+    child.progress_node = prog_node;
 
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
