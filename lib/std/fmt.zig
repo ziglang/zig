@@ -1236,14 +1236,7 @@ pub fn formatInt(
 
 pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
-
-    formatInt(value, base, case, FormatOptions{
-        .alignment = options.alignment,
-        .fill = options.fill,
-        .precision = options.precision,
-        .width = options.width,
-        .signed = false,
-    }, fbs.writer()) catch unreachable;
+    formatInt(value, base, case, options, fbs.writer()) catch unreachable;
     return fbs.pos;
 }
 
@@ -2512,9 +2505,9 @@ test "formatIntValue with comptime_int" {
 
 test "formatIntBuf with signed integer" {
     var buf: [4]u8 = undefined;
-    const ilen = formatIntBuf(&buf, @as(i64, 3), 10, .lower, .{ .fill = '0', .width = 4 });
+    const ilen = formatIntBuf(&buf, @as(i64, 3), 10, .lower, .{ .fill = '0', .width = 4, .signed = false });
     try std.testing.expectEqualStrings("0003", buf[0..ilen]);
-    const ulen = formatIntBuf(&buf, @as(u64, 3), 10, .lower, .{ .fill = '0', .width = 4 });
+    const ulen = formatIntBuf(&buf, @as(u64, 3), 10, .lower, .{ .fill = '0', .width = 4, .signed = false });
     try std.testing.expectEqualStrings("0003", buf[0..ulen]);
 }
 
