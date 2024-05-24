@@ -1,4 +1,4 @@
-pub fn panicNew(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
+pub fn panic2(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
     if (cause == .shift_amt_overflowed) {
         std.process.exit(0);
     }

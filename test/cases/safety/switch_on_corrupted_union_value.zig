@@ -1,4 +1,4 @@
-pub fn panicNew(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
+pub fn panic2(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
     if (cause == .corrupt_switch) {
         std.process.exit(0);
     }

@@ -1,7 +1,7 @@
 const std = @import("std");
 var test_idx: usize = 0;
 var expect_id: std.builtin.PanicId = .message;
-pub fn panicNew(found_id: anytype) noreturn {
+pub fn panic2(found_id: anytype) noreturn {
     if (@TypeOf(found_id) != []const u8) {
         if (found_id != expect_id) {
             std.process.exit(1);
