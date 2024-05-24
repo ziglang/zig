@@ -976,14 +976,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
-            // C99 introduced designated initializers for structs. Omitted fields are implicitly
-            // initialized to zero. Some C APIs are designed with this in mind. Defaulting to zero
-            // values for translated struct fields permits Zig code to comfortably use such an API.
-            const default_value = if (record_decl.isStruct())
-                try Tag.std_mem_zeroes.create(c.arena, field_type)
-            else
-                null;
-
             if (is_anon) {
                 try c.decl_table.putNoClobber(c.gpa, @intFromPtr(field_decl.getCanonicalDecl()), field_name);
             }
@@ -992,7 +984,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .name = field_name,
                 .type = field_type,
                 .alignment = alignment,
-                .default_value = default_value,
             });
         }
 

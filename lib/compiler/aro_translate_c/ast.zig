@@ -575,7 +575,6 @@ pub const Payload = struct {
             name: []const u8,
             type: Node,
             alignment: ?c_uint,
-            default_value: ?Node,
         };
     };
 
@@ -2110,46 +2109,33 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
-        const align_expr = if (field.alignment) |alignment| blk: {
-            _ = try c.addToken(.keyword_align, "align");
-            _ = try c.addToken(.l_paren, "(");
-            const align_expr = try c.addNode(.{
-                .tag = .number_literal,
-                .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
-                .data = undefined,
+        const alignment = field.alignment orelse {
+            members[i] = try c.addNode(.{
+                .tag = .container_field_init,
+                .main_token = name_tok,
+                .data = .{
+                    .lhs = type_expr,
+                    .rhs = 0,
+                },
             });
-            _ = try c.addToken(.r_paren, ")");
-            break :blk align_expr;
-        } else 0;
+            _ = try c.addToken(.comma, ",");
+            continue;
+        };
+        _ = try c.addToken(.keyword_align, "align");
+        _ = try c.addToken(.l_paren, "(");
+        const align_expr = try c.addNode(.{
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
+            .data = undefined,
+        });
+        _ = try c.addToken(.r_paren, ")");
 
-        const value_expr = if (field.default_value) |value| blk: {
-            _ = try c.addToken(.equal, "=");
-            break :blk try renderNode(c, value);
-        } else 0;
-
-        members[i] = try c.addNode(if (align_expr == 0) .{
-            .tag = .container_field_init,
-            .main_token = name_tok,
-            .data = .{
-                .lhs = type_expr,
-                .rhs = value_expr,
-            },
-        } else if (value_expr == 0) .{
+        members[i] = try c.addNode(.{
             .tag = .container_field_align,
             .main_token = name_tok,
             .data = .{
                 .lhs = type_expr,
                 .rhs = align_expr,
-            },
-        } else .{
-            .tag = .container_field,
-            .main_token = name_tok,
-            .data = .{
-                .lhs = type_expr,
-                .rhs = try c.addExtra(std.zig.Ast.Node.ContainerField{
-                    .align_expr = align_expr,
-                    .value_expr = value_expr,
-                }),
             },
         });
         _ = try c.addToken(.comma, ",");
