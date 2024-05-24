@@ -982,13 +982,13 @@ pub fn PanicData(comptime cause: PanicCause) type {
     }
 }
 
-// TODO: Rename to `panic` when the old interface is removed.
-pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicImpl;
+pub const panic2 = if (@hasDecl(root, "panic2")) root.panic2 else panicImplData;
 
-/// The backend/os logic is not here, because this function is a combination
-/// of all the special handler functions `panic*`, which also never checked
-/// the backend/os before attempting to write error messages.
-fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
+fn panicImpl(id: anytype) noreturn {
+    std.debug.panicImpl(if (@TypeOf(id) != []const u8) @tagName(id) else id, @errorReturnTrace(), @returnAddress());
+}
+
+fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
     if (@TypeOf(data) == void) @call(.auto, std.debug.panicImpl, .{
@@ -1038,7 +1038,6 @@ fn panicImpl(comptime cause: PanicCause, data: anytype) noreturn {
         => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).combined, .{
             cause, @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
         }),
-        .inc_overflowed, .dec_overflowed => {},
         .shl_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
             @typeName(std.meta.Scalar(int_type)), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
         }),
