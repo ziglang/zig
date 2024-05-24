@@ -2201,8 +2201,8 @@ pub const Const = struct {
     }
 
     /// To allow `std.fmt.format` to work with this type.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(
@@ -2231,13 +2231,11 @@ pub const Const = struct {
             std.fmt.invalidFmtError(fmt, self);
         }
 
-        var limbs: [128]Limb = undefined;
-        const needed_limbs = calcDivLimbsBufferLen(self.limbs.len, 1);
-        if (needed_limbs > limbs.len)
+        const available_len = 64;
+        if (self.limbs.len > available_len)
             return out_stream.writeAll("(BigInt)");
 
-        // This is the inverse of calcDivLimbsBufferLen
-        const available_len = (limbs.len / 3) - 2;
+        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
@@ -2804,8 +2802,8 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(
