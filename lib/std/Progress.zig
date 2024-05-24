@@ -592,7 +592,7 @@ const SavedMetadata = extern struct {
 
 fn serializeIpc(start_serialized_len: usize) usize {
     var serialized_len = start_serialized_len;
-    var pipe_buf: [4096]u8 align(4) = undefined;
+    var pipe_buf: [2 * 4096]u8 align(4) = undefined;
 
     main_loop: for (
         serialized_node_parents_buffer[0..serialized_len],
@@ -836,10 +836,13 @@ fn computeNode(
         }
     }
 
-    i = @min(global_progress.cols + start_i, i);
-    buf[i] = '\n';
-    i += 1;
-    global_progress.newline_count += 1;
+    const is_empty_root = @intFromEnum(node_index) == 0 and serialized.storage[0].name[0] == 0;
+    if (!is_empty_root) {
+        i = @min(global_progress.cols + start_i, i);
+        buf[i] = '\n';
+        i += 1;
+        global_progress.newline_count += 1;
+    }
 
     if (global_progress.newline_count < global_progress.rows) {
         if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
