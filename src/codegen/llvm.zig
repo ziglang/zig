@@ -5545,24 +5545,21 @@ pub const FuncGen = struct {
         }
     }
 
-    fn buildSimplePanic(fg: *FuncGen, panic_id: Module.PanicId) !void {
+    fn buildSimplePanic(fg: *FuncGen, intrinsic: Builder.Intrinsic) !void {
         const o = fg.dg.object;
         const mod = o.module;
-        const msg_decl_index = mod.panic_messages[@intFromEnum(panic_id)].unwrap().?;
-        const msg_decl = mod.declPtr(msg_decl_index);
-        const msg_len = msg_decl.typeOf(mod).childType(mod).arrayLen(mod);
-        const msg_ptr = try o.lowerValue(msg_decl.val.toIntern());
-        const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = mod.getTarget();
-        const llvm_usize = try o.lowerType(Type.usize);
-        // example:
-        // call fastcc void @test2.panic(
-        //   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
-        //   i64 16,                                                 ; msg.len
-        //   ptr null,                                               ; stack trace
-        //   ptr @2,                                                 ; addr (null ?usize)
-        // )
-        const panic_func = mod.funcInfo(mod.panic_func_index);
+        const panic_id: std.builtin.PanicId = switch (intrinsic) {
+            .@"sadd.with.overflow", .@"uadd.with.overflow" => .add_overflowed,
+            .@"ssub.with.overflow", .@"usub.with.overflow" => .sub_overflowed,
+            .@"smul.with.overflow", .@"umul.with.overflow" => .mul_overflowed,
+            else => .reached_unreachable,
+        };
+        const tag_value: Value = try mod.enumValueFieldIndex(Type.fromInterned(mod.safety.panic_id_ty), @intFromEnum(panic_id));
+        const tag: Builder.Constant = try o.lowerValue(tag_value.toIntern());
+        const panic_fn_idx: InternPool.Index = mod.safety.fn_cache[1];
+        assert(panic_fn_idx != .none);
+        const panic_func = mod.funcInfo(panic_fn_idx);
         const panic_decl = mod.declPtr(panic_func.owner_decl);
         const fn_info = mod.typeToFunc(panic_decl.typeOf(mod)).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
@@ -5572,12 +5569,7 @@ pub const FuncGen = struct {
             .none,
             panic_global.typeOf(&o.builder),
             panic_global.toValue(&o.builder),
-            &.{
-                msg_ptr.toValue(),
-                try o.builder.intValue(llvm_usize, msg_len),
-                try o.builder.nullValue(.ptr),
-                null_opt_addr_global.toValue(),
-            },
+            &.{tag.toValue()},
             "",
         );
         _ = try fg.wip.@"unreachable"();
@@ -7740,8 +7732,7 @@ pub const FuncGen = struct {
 
         const intrinsic = if (scalar_ty.isSignedInt(mod)) signed_intrinsic else unsigned_intrinsic;
         const llvm_inst_ty = try o.lowerType(inst_ty);
-        const results =
-            try fg.wip.callIntrinsic(.normal, .none, intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
+        const results = try fg.wip.callIntrinsic(.normal, .none, intrinsic, &.{llvm_inst_ty}, &.{ lhs, rhs }, "");
 
         const overflow_bits = try fg.wip.extractValue(results, &.{1}, "");
         const overflow_bits_ty = overflow_bits.typeOfWip(&fg.wip);
@@ -7762,8 +7753,7 @@ pub const FuncGen = struct {
         _ = try fg.wip.brCond(overflow_bit, fail_block, ok_block);
 
         fg.wip.cursor = .{ .block = fail_block };
-        try fg.buildSimplePanic(.integer_overflow);
-
+        try fg.buildSimplePanic(intrinsic);
         fg.wip.cursor = .{ .block = ok_block };
         return fg.wip.extractValue(results, &.{0}, "");
     }
