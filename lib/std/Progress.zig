@@ -293,12 +293,14 @@ var global_progress: Progress = .{
     .node_end_index = 0,
 };
 
-const default_node_storage_buffer_len = 100;
+const default_node_storage_buffer_len = 200;
 var node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefined;
 var node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
 var node_freelist_buffer: [default_node_storage_buffer_len]Node.OptionalIndex = undefined;
 
-var default_draw_buffer: [2000]u8 = undefined;
+var default_draw_buffer: [4096]u8 = undefined;
+
+var debug_start_trace = std.debug.Trace.init;
 
 /// Initializes a global Progress instance.
 ///
@@ -307,7 +309,11 @@ var default_draw_buffer: [2000]u8 = undefined;
 /// Call `Node.end` when done.
 pub fn start(options: Options) Node {
     // Ensure there is only 1 global Progress object.
-    assert(global_progress.node_end_index == 0);
+    if (global_progress.node_end_index != 0) {
+        debug_start_trace.dump();
+        unreachable;
+    }
+    debug_start_trace.add("first initialized here");
 
     @memset(global_progress.node_parents, .unused);
     const root_node = Node.init(@enumFromInt(0), .none, options.root_name, options.estimated_total_items);
@@ -347,14 +353,16 @@ pub fn start(options: Options) Node {
                 return .{ .index = .none };
             }
 
-            var act: posix.Sigaction = .{
-                .handler = .{ .sigaction = handleSigWinch },
-                .mask = posix.empty_sigset,
-                .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
-            };
-            posix.sigaction(posix.SIG.WINCH, &act, null) catch |err| {
-                std.log.warn("failed to install SIGWINCH signal handler for noticing terminal resizes: {s}", .{@errorName(err)});
-            };
+            if (have_sigwinch) {
+                var act: posix.Sigaction = .{
+                    .handler = .{ .sigaction = handleSigWinch },
+                    .mask = posix.empty_sigset,
+                    .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
+                };
+                posix.sigaction(posix.SIG.WINCH, &act, null) catch |err| {
+                    std.log.warn("failed to install SIGWINCH signal handler for noticing terminal resizes: {s}", .{@errorName(err)});
+                };
+            }
 
             if (std.Thread.spawn(.{}, updateThreadRun, .{})) |thread| {
                 global_progress.update_thread = thread;
@@ -595,7 +603,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
         const fd = main_storage.getIpcFd() orelse continue;
         var bytes_read: usize = 0;
         while (true) {
-            bytes_read += posix.read(fd, pipe_buf[bytes_read..]) catch |err| switch (err) {
+            const n = posix.read(fd, pipe_buf[bytes_read..]) catch |err| switch (err) {
                 error.WouldBlock => break,
                 else => |e| {
                     std.log.warn("failed to read child progress data: {s}", .{@errorName(e)});
@@ -604,6 +612,8 @@ fn serializeIpc(start_serialized_len: usize) usize {
                     continue :main_loop;
                 },
             };
+            if (n == 0) break;
+            bytes_read += n;
         }
         // Ignore all but the last message on the pipe.
         var input: []align(2) u8 = pipe_buf[0..bytes_read];
@@ -831,12 +841,16 @@ fn computeNode(
     i += 1;
     global_progress.newline_count += 1;
 
-    if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
-        i = computeNode(buf, i, serialized, children, child);
+    if (global_progress.newline_count < global_progress.rows) {
+        if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
+            i = computeNode(buf, i, serialized, children, child);
+        }
     }
 
-    if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
-        i = computeNode(buf, i, serialized, children, sibling);
+    if (global_progress.newline_count < global_progress.rows) {
+        if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
+            i = computeNode(buf, i, serialized, children, sibling);
+        }
     }
 
     return i;
@@ -909,5 +923,24 @@ fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) 
     assert(sig == posix.SIG.WINCH);
     global_progress.redraw_event.set();
 }
+
+const have_sigwinch = switch (builtin.os.tag) {
+    .linux,
+    .plan9,
+    .solaris,
+    .netbsd,
+    .openbsd,
+    .haiku,
+    .macos,
+    .ios,
+    .watchos,
+    .tvos,
+    .visionos,
+    .dragonfly,
+    .freebsd,
+    => true,
+
+    else => false,
+};
 
 var stderr_mutex: std.Thread.Mutex = .{};
