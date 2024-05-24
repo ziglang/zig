@@ -794,7 +794,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             \\    _ = error_return_trace;
             \\    zig_panic();
             \\}
-            \\pub fn panicNew(
+            \\pub fn panic2(
             \\    comptime panic_cause: @import("std").builtin.PanicCause,
             \\    _: @import("std").builtin.PanicData(panic_cause),
             \\) noreturn {
