@@ -83,6 +83,14 @@ pub fn StaticStringMapWithEql(
                 var sorted_vals: [kvs_list.len]V = undefined;
 
                 self.initSortedKVs(kvs_list, &sorted_keys, &sorted_vals);
+
+                // Check and disallow duplicate keys. Since they are sorted now
+                // we only need to check for equivalent adjacent keys.
+                for (sorted_keys[0 .. kvs_list.len - 1], sorted_keys[1..]) |key1, key2| {
+                    if (std.mem.eql(u8, key1, key2)) {
+                        @compileError("duplicate key: " ++ key1);
+                    }
+                }
                 const final_keys = sorted_keys;
                 const final_vals = sorted_vals;
                 self.kvs = &.{
