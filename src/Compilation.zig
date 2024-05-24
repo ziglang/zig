@@ -3254,31 +3254,22 @@ pub fn performAllTheWork(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    const zir_prog_node = main_progress_node.start("AST Lowering", 0);
-    defer zir_prog_node.end();
-
-    const wasm_prog_node = main_progress_node.start("Compile Autodocs", 0);
-    defer wasm_prog_node.end();
-
-    const c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
-    defer c_obj_prog_node.end();
-
-    const win32_resource_prog_node = main_progress_node.start("Compile Win32 Resources", comp.rc_source_files.len);
-    defer win32_resource_prog_node.end();
-
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
 
     if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.docs_emit != null) {
             comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerDocsCopy, .{comp});
-            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, wasm_prog_node });
+            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
         }
     }
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
+
+        const zir_prog_node = main_progress_node.start("AST Lowering", 0);
+        defer zir_prog_node.end();
 
         comp.astgen_wait_group.reset();
         defer comp.astgen_wait_group.wait();
@@ -3323,14 +3314,14 @@ pub fn performAllTheWork(
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
             comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateCObject, .{
-                comp, c_object, c_obj_prog_node,
+                comp, c_object, main_progress_node,
             });
         }
 
         if (!build_options.only_core_functionality) {
             while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
                 comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateWin32Resource, .{
-                    comp, win32_resource, win32_resource_prog_node,
+                    comp, win32_resource, main_progress_node,
                 });
             }
         }
@@ -3800,7 +3791,10 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     }
 }
 
-fn workerDocsWasm(comp: *Compilation, prog_node: std.Progress.Node) void {
+fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void {
+    const prog_node = parent_prog_node.start("Compile Autodocs", 0);
+    defer prog_node.end();
+
     workerDocsWasmFallible(comp, prog_node) catch |err| {
         comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
             @errorName(err),
