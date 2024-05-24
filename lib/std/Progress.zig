@@ -472,6 +472,7 @@ const Serialized = struct {
 
 fn serialize() Serialized {
     var serialized_len: usize = 0;
+    var any_ipc = false;
 
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
     // without atomics.
@@ -485,6 +486,8 @@ fn serialize() Serialized {
             @memcpy(&dest_storage.name, &storage_ptr.name);
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .monotonic);
+
+            any_ipc = any_ipc or dest_storage.getIpcFd() != null;
 
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
             if (begin_parent == end_parent) {
@@ -508,6 +511,32 @@ fn serialize() Serialized {
     }
 
     // Find nodes which correspond to child processes.
+    if (any_ipc)
+        serialized_len = serializeIpc(serialized_len);
+
+    return .{
+        .parents = serialized_node_parents_buffer[0..serialized_len],
+        .storage = serialized_node_storage_buffer[0..serialized_len],
+    };
+}
+
+var parents_copy: [default_node_storage_buffer_len]Node.Parent = undefined;
+var storage_copy: [default_node_storage_buffer_len]Node.Storage = undefined;
+
+const SavedMetadata = extern struct {
+    start_index: u16,
+    nodes_len: u16,
+    main_index: u16,
+    flags: Flags,
+
+    const Flags = enum(u16) {
+        saved = std.math.maxInt(u16),
+        _,
+    };
+};
+
+fn serializeIpc(start_serialized_len: usize) usize {
+    var serialized_len = start_serialized_len;
     var pipe_buf: [4096]u8 align(4) = undefined;
 
     for (
@@ -532,24 +561,23 @@ fn serialize() Serialized {
         // Ignore all but the last message on the pipe.
         var input: []align(2) u8 = pipe_buf[0..bytes_read];
         if (input.len == 0) {
-            main_storage.completed_count = 0;
-            main_storage.estimated_total_count = 0;
+            serialized_len = useSavedIpcData(serialized_len, main_storage, main_index);
             continue;
         }
 
         const storage, const parents = while (true) {
             if (input.len < 4) {
                 std.log.warn("short read: {d} out of 4 header bytes", .{input.len});
-                main_storage.completed_count = 0;
-                main_storage.estimated_total_count = 0;
+                // TODO keep track of the short read to trash odd bytes with the next read
+                serialized_len = useSavedIpcData(serialized_len, main_storage, main_index);
                 continue;
             }
             const subtree_len = std.mem.readInt(u32, input[0..4], .little);
             const expected_bytes = 4 + subtree_len * (@sizeOf(Node.Storage) + @sizeOf(Node.Parent));
             if (input.len < expected_bytes) {
                 std.log.warn("short read: {d} out of {d} ({d} nodes)", .{ input.len, expected_bytes, subtree_len });
-                main_storage.completed_count = 0;
-                main_storage.estimated_total_count = 0;
+                // TODO keep track of the short read to trash odd bytes with the next read
+                serialized_len = useSavedIpcData(serialized_len, main_storage, main_index);
                 continue;
             }
             if (input.len > expected_bytes) {
@@ -562,6 +590,14 @@ fn serialize() Serialized {
                 std.mem.bytesAsSlice(Node.Storage, storage_bytes),
                 std.mem.bytesAsSlice(Node.Parent, parents_bytes),
             };
+        };
+
+        // Remember in case the pipe is empty on next update.
+        @as(*SavedMetadata, @ptrCast(&main_storage.name)).* = .{
+            .start_index = @intCast(serialized_len),
+            .nodes_len = @intCast(parents.len),
+            .main_index = @intCast(main_index),
+            .flags = .saved,
         };
 
         // Mount the root here.
@@ -580,6 +616,7 @@ fn serialize() Serialized {
                 // Root node is being mounted here.
                 @as(Node.Parent, @enumFromInt(0)) => @enumFromInt(main_index),
                 // Other nodes mounted at the end.
+                // TODO check for bad data pointing outside the expected range
                 _ => |off| @enumFromInt(serialized_len + @intFromEnum(off) - 1),
             };
         }
@@ -587,10 +624,43 @@ fn serialize() Serialized {
         serialized_len += storage.len - 1;
     }
 
-    return .{
-        .parents = serialized_node_parents_buffer[0..serialized_len],
-        .storage = serialized_node_storage_buffer[0..serialized_len],
-    };
+    // Save a copy in case any pipes are empty on the next update.
+    @memcpy(parents_copy[0..serialized_len], serialized_node_parents_buffer[0..serialized_len]);
+    @memcpy(storage_copy[0..serialized_len], serialized_node_storage_buffer[0..serialized_len]);
+
+    return serialized_len;
+}
+
+fn useSavedIpcData(start_serialized_len: usize, main_storage: *Node.Storage, main_index: usize) usize {
+    const saved_metadata: *SavedMetadata = @ptrCast(&main_storage.name);
+    if (saved_metadata.flags != .saved) {
+        main_storage.completed_count = 0;
+        main_storage.estimated_total_count = 0;
+        return start_serialized_len;
+    }
+
+    const start_index = saved_metadata.start_index;
+    const nodes_len = saved_metadata.nodes_len;
+    const old_main_index = saved_metadata.main_index;
+
+    const parents = parents_copy[start_index..][0 .. nodes_len - 1];
+    const storage = storage_copy[start_index..][0 .. nodes_len - 1];
+
+    main_storage.* = storage_copy[old_main_index];
+
+    @memcpy(serialized_node_storage_buffer[start_serialized_len..][0..storage.len], storage);
+
+    for (serialized_node_parents_buffer[start_serialized_len..][0..parents.len], parents) |*dest, p| {
+        dest.* = switch (p) {
+            .none, .unused => .none,
+            _ => |prev| @enumFromInt(if (@intFromEnum(prev) == old_main_index)
+                main_index
+            else
+                @intFromEnum(prev) - start_index + start_serialized_len),
+        };
+    }
+
+    return start_serialized_len + storage.len;
 }
 
 fn computeRedraw() []u8 {
