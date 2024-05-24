@@ -119,7 +119,8 @@ pub const InfoReader = struct {
         switch (form) {
             dwarf.FORM.strp => {
                 const off = try p.readOffset(cuh.format);
-                return mem.sliceTo(@as([*:0]const u8, @ptrCast(p.strtab.ptr + off)), 0);
+                const off_u = math.cast(usize, off) orelse return error.Overflow;
+                return mem.sliceTo(@as([*:0]const u8, @ptrCast(p.strtab.ptr + off_u)), 0);
             },
             dwarf.FORM.string => {
                 const start = p.pos;
@@ -163,7 +164,7 @@ pub const InfoReader = struct {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
         const value: Type = try leb.readULEB128(Type, creader.reader());
-        p.pos += creader.bytes_read;
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
 
@@ -171,7 +172,7 @@ pub const InfoReader = struct {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
         const value: Type = try leb.readILEB128(Type, creader.reader());
-        p.pos += creader.bytes_read;
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
 
@@ -226,7 +227,7 @@ pub const AbbrevReader = struct {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
         const value: Type = try leb.readULEB128(Type, creader.reader());
-        p.pos += creader.bytes_read;
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
 
