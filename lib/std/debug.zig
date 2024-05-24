@@ -2759,12 +2759,18 @@ pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
 
 pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime is_enabled: bool) type {
     return struct {
-        addrs: [actual_size][stack_frame_count]usize = undefined,
-        notes: [actual_size][]const u8 = undefined,
-        index: Index = 0,
+        addrs: [actual_size][stack_frame_count]usize,
+        notes: [actual_size][]const u8,
+        index: Index,
 
         const actual_size = if (enabled) size else 0;
         const Index = if (enabled) usize else u0;
+
+        pub const init: @This() = .{
+            .addrs = undefined,
+            .notes = undefined,
+            .index = 0,
+        };
 
         pub const enabled = is_enabled;
 
