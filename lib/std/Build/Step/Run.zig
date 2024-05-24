@@ -1236,7 +1236,7 @@ fn spawnChildAndCollect(
     }
 
     if (run.stdio != .zig_test) {
-        child.progress_node = prog_node.start("", 0);
+        child.progress_node = prog_node;
     }
 
     try child.spawn();
