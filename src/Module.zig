@@ -2942,11 +2942,12 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
 
     log.debug("ensureDeclAnalyzed '{d}' (name '{}')", .{
         @intFromEnum(decl_index),
-        decl.name.fmt(&mod.intern_pool),
+        decl.name.fmt(ip),
     });
 
     // Determine whether or not this Decl is outdated, i.e. requires re-analysis
@@ -2991,9 +2992,6 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         try mod.deleteDeclExports(decl_index);
     }
 
-    const decl_prog_node = mod.sema_prog_node.start("", 0);
-    defer decl_prog_node.end();
-
     const sema_result: SemaDeclResult = blk: {
         if (decl.zir_decl_index == .none and !mod.declIsRoot(decl_index)) {
             // Anonymous decl. We don't semantically analyze these.
@@ -3010,6 +3008,9 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 .invalidate_decl_ref = changed,
             };
         }
+
+        const decl_prog_node = mod.sema_prog_node.start(decl.name.toSlice(ip), 0);
+        defer decl_prog_node.end();
 
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
             error.AnalysisFail => {
