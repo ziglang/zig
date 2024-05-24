@@ -38788,18 +38788,18 @@ const RuntimeSafety = struct {
     fn wantRuntimeSafetyPanicData(sema: *Sema) bool {
         return sema.mod.comp.formatted_panics and
             sema.mod.backendSupportsFeature(.safety_check_formatted) and
-            sema.mod.safety.interface_mode == .generic;
+            sema.mod.safety.panic_fn_sig == .generic;
     }
-
     fn preparePanicData(
         sema: *Sema,
         fail_block: *Sema.Block,
         src: std.zig.LazySrcLoc,
+        panic_cause: PanicCause,
         panic_cause_inst: Air.Inst.Ref,
         args: []const Air.Inst.Ref,
     ) !Air.Inst.Ref {
         if (wantRuntimeSafetyPanicData(sema)) {
-            return try fail_block.addAggregateInit(try callPanicData(sema, fail_block, src, panic_cause_inst), args);
+            return try fail_block.addAggregateInit(try callPanicData(sema, fail_block, src, panic_cause, panic_cause_inst), args);
         } else {
             return .void_value;
         }
@@ -38808,10 +38808,17 @@ const RuntimeSafety = struct {
         sema: *Sema,
         block: *Sema.Block,
         src: std.zig.LazySrcLoc,
+        panic_cause: PanicCause,
         panic_cause_inst: Air.Inst.Ref,
     ) Module.CompileError!Type {
         const branch_count: u32 = sema.branch_count;
         defer sema.branch_count = branch_count;
+        const cache_ptr: ?*InternPool.Index = getSafetyCachePtr(sema, panic_cause, &sema.mod.safety.ty_cache);
+        if (cache_ptr) |ptr| {
+            if (ptr.* != .none) {
+                return Type.fromInterned(ptr.*);
+            }
+        }
         const res: Air.Inst.Ref = try sema.analyzeCall(
             block,
             sema.mod.safety.panic_data_fn_inst,
@@ -38824,13 +38831,17 @@ const RuntimeSafety = struct {
             null,
             .call,
         );
-        return Air.Inst.Ref.toType(res);
+        const ret: Type = Air.Inst.Ref.toType(res);
+        if (cache_ptr) |ptr| {
+            ptr.* = ret.ip_index;
+        }
+        return ret;
     }
     fn callPanicFn(
         sema: *Sema,
         block: *Sema.Block,
         src: std.zig.LazySrcLoc,
-        id: std.builtin.PanicId,
+        panic_cause: PanicCause,
         all_args: *const [2]Air.Inst.Ref,
         op: CallOperation,
     ) !void {
@@ -38838,18 +38849,32 @@ const RuntimeSafety = struct {
         defer sema.branch_count = branch_count;
         var buf: [2]Air.Inst.Ref = all_args.*;
         var args: []Air.Inst.Ref = &buf;
-        if (sema.mod.safety.interface_mode == .simple) {
-            if (id == .message) {
+        const panic_id_inst: Air.Inst.Ref = try sema.coerce(block, Type.fromInterned(sema.mod.safety.panic_id_ty), args[0], src);
+        const cache_ptr: ?*InternPool.Index = getSafetyCachePtr(sema, panic_cause, &sema.mod.safety.fn_cache);
+        if (sema.mod.safety.panic_fn_sig == .simple) {
+            if (panic_cause == .message) {
                 args[0] = args[1];
             } else {
-                args[0] = try sema.coerce(block, sema.mod.safety.panic_id_ty, args[0], src);
+                args[0] = panic_id_inst;
             }
             args.len = 1;
         }
+        const panic_fn_inst = blk: {
+            if (cache_ptr) |ptr| {
+                if (ptr.* != .none) {
+                    if (sema.mod.safety.panic_fn_sig != .simple) {
+                        args = args[1..];
+                    }
+                    break :blk Air.internedToRef(ptr.*);
+                }
+            }
+            break :blk sema.mod.safety.panic_fn_inst;
+        };
+        const panic_fn_ty: Type = sema.typeOf(panic_fn_inst);
         const res: Air.Inst.Ref = try sema.analyzeCall(
             block,
-            sema.mod.safety.panic_fn_inst,
-            sema.typeOf(sema.mod.safety.panic_fn_inst),
+            panic_fn_inst,
+            panic_fn_ty,
             src,
             src,
             .auto,
@@ -38858,75 +38883,182 @@ const RuntimeSafety = struct {
             null,
             op,
         );
-        assert(sema.typeOf(res).ip_index == .noreturn_type);
-    }
+        if (cache_ptr) |ptr| {
+            if (ptr.* == .none) {
+                const idx: usize = sema.air_instructions.len -% 2;
 
-    fn prepareRuntimeSafety(sema: *Sema) !void {
-        if (sema.mod.safety.panic_fn_inst == .none) {
-            // TODO: Source locations if possible.
-            const panic_fn_inst: Air.Inst.Ref = try sema.getBuiltin("panicNew");
-            const callee_ty: Type = sema.typeOf(panic_fn_inst);
-            const panic_fn_ty: Type = blk: {
-                const callee_ty_tag: std.builtin.TypeId = callee_ty.zigTypeTag(sema.mod);
-                if (callee_ty_tag == .Fn) {
-                    break :blk callee_ty;
+                assert(sema.typeOf(res).ip_index == .noreturn_type);
+                assert(sema.air_instructions.items(.tag)[idx] == .call);
+
+                const operand: Air.Inst.Ref = sema.air_instructions.items(.data)[idx].pl_op.operand;
+                if (operand.toInterned()) |panic_fn_idx| {
+                    ptr.* = panic_fn_idx;
                 }
-                if (callee_ty_tag == .Pointer) {
-                    const ptr_info: InternPool.Key.PtrType = callee_ty.ptrInfo(sema.mod);
-                    if (ptr_info.flags.size == .One and
-                        Type.fromInterned(ptr_info.child).zigTypeTag(sema.mod) == .Fn)
-                    {
-                        break :blk Type.fromInterned(ptr_info.child);
-                    }
-                }
-                std.debug.panic("'builtin.panic' must be a function or function pointer, is '{}'", .{
-                    callee_ty.fmt(sema.mod),
-                });
-            };
-            sema.mod.safety.panic_fn_inst = panic_fn_inst;
-            const func_ty_info: InternPool.Key.FuncType = sema.mod.typeToFunc(panic_fn_ty).?;
-            if (func_ty_info.return_type != .noreturn_type) {
-                std.debug.panic("'builtin.panic': expected return type 'noreturn', found '{}'", .{
-                    Type.fromInterned(func_ty_info.return_type).fmt(sema.mod),
-                });
-            }
-            const param_types: []InternPool.Index = func_ty_info.param_types.get(&sema.mod.intern_pool);
-            sema.mod.safety.panic_cause_ty = try sema.getBuiltinType("PanicCause");
-            sema.mod.safety.panic_id_ty = try sema.getBuiltinType("PanicId");
-            sema.mod.safety.panic_cast_ty = try sema.getBuiltinType("Cast");
-            switch (param_types.len) {
-                2 => {
-                    // To use this mode properly, the user must declare:
-                    // `fn panic(std.builtin.PanicCause, anytype) noreturn`.
-                    sema.mod.safety.interface_mode = .generic;
-                    sema.mod.safety.panic_data_fn_inst = try sema.getBuiltin("PanicData");
-                },
-                1 => {
-                    // To use this mode, the user must declare:
-                    // `fn panic(anytype) noreturn`.
-                    //
-                    // For every panic cause except `message`, the function
-                    // signature is: `fn panic(std.builtin.PanicId) noreturn`
-                    //
-                    // For panic cause `message` the function signature is:
-                    // `fn panic([]const u8) noreturn`
-                    sema.mod.safety.interface_mode = .simple;
-                },
-                else => std.debug.panic("'builtin.panic': expected 2 parameters, found {}", .{
-                    func_ty_info.param_types.len,
-                }),
             }
         }
     }
-    fn preparePanicCause(sema: *Sema, cause: PanicCause) !Air.Inst.Ref {
+
+    /// Returns the number of cache positions allowed for each panic ID.
+    fn cacheAllowance(id: std.builtin.PanicId) usize {
+        switch (id) {
+            .message,
+            .unwrapped_error,
+            .returned_noreturn,
+            .reached_unreachable,
+            .corrupt_switch,
+            .accessed_out_of_bounds,
+            .accessed_out_of_order,
+            .accessed_out_of_order_extra,
+            .accessed_null_value,
+            .divided_by_zero,
+            .memcpy_argument_aliasing,
+            .mismatched_null_sentinel,
+            .mismatched_memcpy_argument_lengths,
+            .mismatched_for_loop_capture_lengths,
+            => {
+                return 1;
+            },
+            .shl_overflowed,
+            .shr_overflowed,
+            .shift_amt_overflowed,
+            .div_with_remainder,
+            .mul_overflowed,
+            .add_overflowed,
+            .sub_overflowed,
+            .div_overflowed,
+            => {
+                return 8;
+            },
+            .cast_to_ptr_from_invalid => {
+                return 4;
+            },
+            .cast_truncated_data => {
+                return 16;
+            },
+            .cast_to_unsigned_from_negative => {
+                return 4;
+            },
+            .mismatched_sentinel,
+            .accessed_inactive_field,
+            .cast_to_enum_from_invalid,
+            .cast_to_int_from_invalid,
+            .cast_to_error_from_invalid,
+            => {
+                return 0;
+            },
+        }
+    }
+    fn getSafetyCachePtr(
+        sema: *Sema,
+        panic_cause: PanicCause,
+        cache: []InternPool.Index,
+    ) ?*InternPool.Index {
+        const idx: usize = switch (sema.mod.safety.panic_fn_sig) {
+            .simple => @intFromBool(panic_cause != .message),
+            .generic => cacheOffset(panic_cause) +% @as(usize, switch (panic_cause) {
+                .message,
+                .unwrapped_error,
+                .returned_noreturn,
+                .reached_unreachable,
+                .corrupt_switch,
+                .accessed_out_of_bounds,
+                .accessed_out_of_order,
+                .accessed_out_of_order_extra,
+                .accessed_null_value,
+                .divided_by_zero,
+                .memcpy_argument_aliasing,
+                .mismatched_memcpy_argument_lengths,
+                .mismatched_for_loop_capture_lengths,
+                .mismatched_null_sentinel,
+                => 0,
+                .shl_overflowed,
+                .shr_overflowed,
+                .shift_amt_overflowed,
+                .div_with_remainder,
+                .mul_overflowed,
+                .add_overflowed,
+                .sub_overflowed,
+                .div_overflowed,
+                => |int_type| switch (int_type.ip_index) {
+                    .u8_type => 0,
+                    .i8_type => 1,
+                    .u16_type => 2,
+                    .i16_type => 3,
+                    .u32_type => 4,
+                    .i32_type => 5,
+                    .u64_type => 6,
+                    .i64_type => 7,
+                    else => {
+                        return null;
+                    },
+                },
+                .cast_to_ptr_from_invalid => |alignment| switch (alignment) {
+                    .@"1" => 0,
+                    .@"2" => 1,
+                    .@"4" => 2,
+                    .@"8" => 3,
+                    else => {
+                        return null;
+                    },
+                },
+                .cast_truncated_data => |cast| switch (argTyId(.{ cast.to.ip_index, cast.from.ip_index })) {
+                    argTyId(.{ .i64_type, .u64_type }) => 0,
+                    argTyId(.{ .i32_type, .u32_type }) => 1,
+                    argTyId(.{ .i16_type, .u16_type }) => 2,
+                    argTyId(.{ .i8_type, .u8_type }) => 3,
+                    argTyId(.{ .u32_type, .u64_type }) => 4,
+                    argTyId(.{ .u16_type, .u64_type }) => 5,
+                    argTyId(.{ .u8_type, .u64_type }) => 6,
+                    argTyId(.{ .i32_type, .i64_type }) => 7,
+                    argTyId(.{ .i16_type, .i64_type }) => 8,
+                    argTyId(.{ .i8_type, .i64_type }) => 9,
+                    argTyId(.{ .u16_type, .u32_type }) => 10,
+                    argTyId(.{ .u8_type, .u32_type }) => 11,
+                    argTyId(.{ .i16_type, .i32_type }) => 12,
+                    argTyId(.{ .i8_type, .i32_type }) => 13,
+                    argTyId(.{ .u8_type, .u16_type }) => 14,
+                    argTyId(.{ .i8_type, .i16_type }) => 15,
+                    else => {
+                        return null;
+                    },
+                },
+                .cast_to_unsigned_from_negative => |cast| switch (argTyId(.{ cast.to.ip_index, cast.from.ip_index })) {
+                    argTyId(.{ .u64_type, .i64_type }) => 0,
+                    argTyId(.{ .u32_type, .i32_type }) => 1,
+                    argTyId(.{ .u16_type, .i16_type }) => 2,
+                    argTyId(.{ .u8_type, .i8_type }) => 3,
+                    else => {
+                        return null;
+                    },
+                },
+                .accessed_inactive_field,
+                .mismatched_sentinel,
+
+                .cast_to_int_from_invalid,
+                .cast_to_error_from_invalid,
+                .cast_to_enum_from_invalid,
+                => {
+                    return null;
+                },
+            }),
+            .none => 1,
+        };
+        return &cache[idx];
+    }
+    fn preparePanicCause(
+        sema: *Sema,
+        panic_cause: PanicCause,
+    ) !Air.Inst.Ref {
         try prepareRuntimeSafety(sema);
-        const panic_id_ty: Type = sema.mod.safety.panic_cause_ty.unionTagType(sema.mod).?;
-        const tag_val: Value = try sema.mod.enumValueFieldIndex(panic_id_ty, @intFromEnum(cause));
+        const tag_val: Value = try sema.mod.enumValueFieldIndex(
+            Type.fromInterned(sema.mod.safety.panic_id_ty),
+            @intFromEnum(panic_cause),
+        );
         return Air.internedToRef(try sema.mod.intern(.{
             .un = .{
-                .ty = Type.toIntern(sema.mod.safety.panic_cause_ty),
+                .ty = sema.mod.safety.panic_cause_ty,
                 .tag = Value.toIntern(tag_val),
-                .val = switch (cause) {
+                .val = switch (panic_cause) {
                     // These panic causes each instantiate a single function.
                     .message,
                     .unwrapped_error,
@@ -38956,9 +39088,7 @@ const RuntimeSafety = struct {
                     .div_with_remainder,
                     .mul_overflowed,
                     .add_overflowed,
-                    .inc_overflowed,
                     .sub_overflowed,
-                    .dec_overflowed,
                     .div_overflowed,
                     .cast_to_enum_from_invalid,
                     => |payload| operand_ty: {
@@ -38994,12 +39124,12 @@ const RuntimeSafety = struct {
                     => |payload| cast_ty: {
                         if (wantRuntimeSafetyPanicData(sema)) {
                             break :cast_ty try sema.mod.intern(.{ .aggregate = .{
-                                .ty = Type.toIntern(sema.mod.safety.panic_cast_ty),
+                                .ty = sema.mod.safety.panic_cast_ty,
                                 .storage = .{ .elems = &.{ Type.toIntern(payload.to), Type.toIntern(payload.from) } },
                             } });
                         } else {
                             break :cast_ty try sema.mod.intern(.{ .aggregate = .{
-                                .ty = Type.toIntern(sema.mod.safety.panic_cast_ty),
+                                .ty = sema.mod.safety.panic_cast_ty,
                                 .storage = .{ .elems = &.{ InternPool.Index.void_type, InternPool.Index.void_type } },
                             } });
                         }
@@ -39008,6 +39138,84 @@ const RuntimeSafety = struct {
             },
         }));
     }
+    fn prepareRuntimeSafety(sema: *Sema) !void {
+        if (sema.mod.safety.panic_fn_inst == .none) {
+            // TODO: Source locations if possible.
+            const panic_fn_inst: Air.Inst.Ref = try sema.getBuiltin("panic2");
+            const callee_ty: Type = sema.typeOf(panic_fn_inst);
+            const panic_fn_ty: Type = blk: {
+                const callee_ty_tag: std.builtin.TypeId = callee_ty.zigTypeTag(sema.mod);
+                if (callee_ty_tag == .Fn) {
+                    break :blk callee_ty;
+                }
+                if (callee_ty_tag == .Pointer) {
+                    const ptr_info: InternPool.Key.PtrType = callee_ty.ptrInfo(sema.mod);
+                    if (ptr_info.flags.size == .One and
+                        Type.fromInterned(ptr_info.child).zigTypeTag(sema.mod) == .Fn)
+                    {
+                        break :blk Type.fromInterned(ptr_info.child);
+                    }
+                }
+                std.debug.panic("'builtin.panic' must be a function or function pointer, is '{}'", .{
+                    callee_ty.fmt(sema.mod),
+                });
+            };
+            sema.mod.safety.panic_fn_inst = panic_fn_inst;
+            const func_ty_info: InternPool.Key.FuncType = sema.mod.typeToFunc(panic_fn_ty).?;
+            if (func_ty_info.return_type != .noreturn_type) {
+                std.debug.panic("'builtin.panic': expected return type 'noreturn', found '{}'", .{
+                    Type.fromInterned(func_ty_info.return_type).fmt(sema.mod),
+                });
+            }
+            const param_types: []InternPool.Index = func_ty_info.param_types.get(&sema.mod.intern_pool);
+            sema.mod.safety.panic_cause_ty = Type.toIntern(try sema.getBuiltinType("PanicCause"));
+            sema.mod.safety.panic_id_ty = Type.toIntern(try sema.getBuiltinType("PanicId"));
+            sema.mod.safety.panic_cast_ty = Type.toIntern(try sema.getBuiltinType("Cast"));
+            switch (param_types.len) {
+                2 => {
+                    // To use this mode properly, the user must declare:
+                    // `fn panic(std.builtin.PanicCause, anytype) noreturn`.
+                    sema.mod.safety.panic_fn_sig = .generic;
+                    sema.mod.safety.panic_data_fn_inst = try sema.getBuiltin("PanicData");
+                },
+                1 => {
+                    // To use this mode, the user must declare:
+                    // `fn panic(anytype) noreturn`.
+                    //
+                    // For every panic cause except `message`, the function
+                    // signature is: `fn panic(std.builtin.PanicId) noreturn`
+                    //
+                    // For panic cause `message` the function signature is:
+                    // `fn panic([]const u8) noreturn`
+                    sema.mod.safety.panic_fn_sig = .simple;
+                },
+                else => std.debug.panic("'builtin.panic': expected 2 parameters, found {}", .{
+                    func_ty_info.param_types.len,
+                }),
+            }
+        }
+    }
+
+    fn argTyId(param_types: [2]InternPool.Index) u64 {
+        return @bitCast(param_types);
+    }
+    fn cacheOffset(id: std.builtin.PanicId) usize {
+        comptime var off: comptime_int = 2;
+        inline for (@typeInfo(std.builtin.PanicId).Enum.fields) |field| {
+            if (@field(std.builtin.PanicId, field.name) == id) {
+                return off;
+            }
+            off +%= comptime cacheAllowance(@field(std.builtin.PanicId, field.name));
+        }
+        return off;
+    }
+    const cache_len = blk: {
+        var off: usize = 2;
+        for (@typeInfo(std.builtin.PanicId).Enum.fields) |field| {
+            off +%= cacheAllowance(@enumFromInt(field.value));
+        }
+        break :blk off;
+    };
 
     fn failBlock(sema: *Sema, parent_block: *Sema.Block) Sema.Block {
         return .{
@@ -39051,6 +39259,41 @@ const RuntimeSafety = struct {
             .child = Type.toIntern(Type.u16),
         });
         return sema.coerce(block, vector_ty, rhs, src);
+    }
+    // The basic purpose of this function is to convert `usize` -> `u64`, etc.
+    // This is done so that operations such as `@intCast(i64, @as(u64, 1))` use
+    // the same function instance as `@intCast(isize, @as(usize, 01)`.
+    fn coerceIntegerType(sema: *Sema, int_ty: Type) !Type {
+        const tag: std.builtin.TypeId = int_ty.zigTypeTag(sema.mod);
+        if (tag == .Vector) {
+            return sema.mod.vectorType(.{
+                .len = int_ty.vectorLen(sema.mod),
+                .child = Type.toIntern(try coerceIntegerType(sema, int_ty.scalarType(sema.mod))),
+            });
+        }
+        if (tag != .Int) {
+            return int_ty;
+        }
+        const int_info: InternPool.Key.IntType = int_ty.intInfo(sema.mod);
+        switch (int_info.signedness) {
+            .signed => switch (int_info.bits) {
+                8 => return Type.i8,
+                16 => return Type.i16,
+                32 => return Type.i32,
+                64 => return Type.i64,
+                128 => return Type.i128,
+                else => {},
+            },
+            .unsigned => switch (int_info.bits) {
+                8 => return Type.u8,
+                16 => return Type.u16,
+                32 => return Type.u32,
+                64 => return Type.u64,
+                128 => return Type.u128,
+                else => {},
+            },
+        }
+        return sema.mod.intType(int_info.signedness, int_info.bits);
     }
 
     /// This optimises addition and subtraction operations
@@ -39142,9 +39385,10 @@ const RuntimeSafety = struct {
         operand: Air.Inst.Ref,
     ) !void {
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
+            const panic_cause: PanicCause = .{ .cast_to_enum_from_invalid = dest_ty };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, parent_block, src, .cast_to_enum_from_invalid, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, parent_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         } else _ = try parent_block.addNoOp(.trap);
     }
     fn panicUnwrappedError(
@@ -39154,10 +39398,12 @@ const RuntimeSafety = struct {
         err: Air.Inst.Ref,
     ) !void {
         if (sema.mod.backendSupportsFeature(.panic_fn) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
+            const panic_cause: PanicCause = .unwrapped_error;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
                 const st: Air.Inst.Ref = try sema.getErrorReturnTrace(parent_block);
-                break :blk try parent_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause_inst), &.{ st, err });
+                const panic_data_args: [2]Air.Inst.Ref = .{ st, err };
+                break :blk try parent_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause, panic_cause_inst), &panic_data_args);
             } else .void_value;
             try callPanicFn(sema, parent_block, src, .unwrapped_error, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         } else _ = try parent_block.addNoOp(.trap);
@@ -39188,11 +39434,13 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn) and sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .unwrapped_error);
+            const panic_cause: PanicCause = .unwrapped_error;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) blk: {
                 const st: Air.Inst.Ref = try sema.getErrorReturnTrace(&fail_block);
                 const err: Air.Inst.Ref = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
-                break :blk try fail_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause_inst), &.{ st, err });
+                const panic_data_args: [2]Air.Inst.Ref = .{ st, err };
+                break :blk try fail_block.addAggregateInit(try callPanicData(sema, parent_block, src, panic_cause, panic_cause_inst), &panic_data_args);
             } else .void_value;
             try callPanicFn(sema, &fail_block, src, .unwrapped_error, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
@@ -39224,8 +39472,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_bounds);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_idx, src_len });
+            const panic_cause: PanicCause = .accessed_out_of_bounds;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [2]Air.Inst.Ref = .{ dest_idx, src_len };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .accessed_out_of_bounds, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39241,8 +39491,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end });
+            const panic_cause: PanicCause = .accessed_out_of_order;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [2]Air.Inst.Ref = .{ dest_start, dest_end };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .accessed_out_of_order, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39264,8 +39516,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .accessed_out_of_order_extra);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_start, dest_end, src_len });
+            const panic_cause: PanicCause = .accessed_out_of_order_extra;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [3]Air.Inst.Ref = .{ dest_start, dest_end, src_len };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .accessed_out_of_order_extra, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39283,11 +39537,13 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .memcpy_argument_aliasing);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{
+            const panic_cause: PanicCause = .memcpy_argument_aliasing;
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [4]Air.Inst.Ref = .{
                 try fail_block.addUnOp(.int_from_ptr, dest_start), try fail_block.addUnOp(.int_from_ptr, dest_finish),
                 try fail_block.addUnOp(.int_from_ptr, src_start),  try fail_block.addUnOp(.int_from_ptr, src_finish),
-            });
+            };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .memcpy_argument_aliasing, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39303,8 +39559,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
+            const panic_cause: PanicCause = .mismatched_memcpy_argument_lengths;
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_memcpy_argument_lengths);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ dest_len, src_len });
+            const panic_data_args: [2]Air.Inst.Ref = .{ dest_len, src_len };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .mismatched_memcpy_argument_lengths, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39320,8 +39578,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
+            const panic_cause: PanicCause = .mismatched_for_loop_capture_lengths;
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .mismatched_for_loop_capture_lengths);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ loop_len, arg_len });
+            const panic_data_args: [2]Air.Inst.Ref = .{ loop_len, arg_len };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
             try callPanicFn(sema, &fail_block, src, .mismatched_for_loop_capture_lengths, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39337,9 +39597,11 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .accessed_inactive_field = sema.typeOf(active_tag) });
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ active_tag, wanted_tag });
-            try callPanicFn(sema, &fail_block, src, .accessed_inactive_field, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            const panic_cause: PanicCause = .{ .accessed_inactive_field = sema.typeOf(active_tag) };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [2]Air.Inst.Ref = .{ active_tag, wanted_tag };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39356,9 +39618,11 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .mismatched_sentinel = elem_ty });
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ expected, found });
-            try callPanicFn(sema, &fail_block, src, .mismatched_sentinel, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            const panic_cause: PanicCause = .{ .mismatched_sentinel = elem_ty };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
+            const panic_data_args: [2]Air.Inst.Ref = .{ expected, found };
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &panic_data_args);
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39391,9 +39655,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .shift_amt_overflowed = resolved_ty });
+            const panic_cause: PanicCause = .{ .shift_amt_overflowed = resolved_ty };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = try coerceShiftRHSOperand(sema, &fail_block, src, shift_amt);
-            try callPanicFn(sema, &fail_block, src, .shift_amt_overflowed, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39410,21 +39675,22 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
+            const int_ty: Type = try coerceIntegerType(sema, resolved_ty);
             const panic_cause: PanicCause = switch (tag) {
-                .mul => .{ .mul_overflowed = resolved_ty },
-                .add => .{ .add_overflowed = resolved_ty },
-                .sub => .{ .sub_overflowed = resolved_ty },
-                else => .{ .div_overflowed = resolved_ty },
-                .shl_exact => .{ .shl_overflowed = resolved_ty },
-                .shr_exact => .{ .shr_overflowed = resolved_ty },
-                .div_exact => .{ .div_with_remainder = resolved_ty },
+                .mul => .{ .mul_overflowed = int_ty },
+                .add => .{ .add_overflowed = int_ty },
+                .sub => .{ .sub_overflowed = int_ty },
+                else => .{ .div_overflowed = int_ty },
+                .shl_exact => .{ .shl_overflowed = int_ty },
+                .shr_exact => .{ .shr_overflowed = int_ty },
+                .div_exact => .{ .div_with_remainder = int_ty },
             };
             const casted_rhs: Air.Inst.Ref = switch (tag) {
                 .shl_exact, .shr_exact => try coerceShiftRHSOperand(sema, &fail_block, src, rhs),
                 else => rhs,
             };
             const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
-            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause_inst, &.{ lhs, casted_rhs });
+            const panic_data_inst: Air.Inst.Ref = try preparePanicData(sema, &fail_block, src, panic_cause, panic_cause_inst, &.{ lhs, casted_rhs });
             try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
@@ -39441,9 +39707,10 @@ const RuntimeSafety = struct {
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const int_ty: Type = Type.intTagType(dest_ty, sema.mod);
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_enum_from_invalid = dest_ty });
+            const panic_cause: PanicCause = .{ .cast_to_enum_from_invalid = dest_ty };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) try parent_block.addBitCast(int_ty, operand) else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_to_enum_from_invalid, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39459,9 +39726,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_cause: PanicCause = .{ .cast_to_error_from_invalid = .{ .to = dest_ty, .from = operand_ty } };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_to_error_from_invalid, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39477,9 +39745,10 @@ const RuntimeSafety = struct {
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
             const alignment: InternPool.Alignment = try dest_ty.ptrAlignmentAdvanced(sema.mod, sema);
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_ptr_from_invalid = alignment });
+            const panic_cause: PanicCause = .{ .cast_to_ptr_from_invalid = alignment };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_to_ptr_from_invalid, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39495,9 +39764,10 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_int_from_invalid = .{ .to = dest_ty, .from = operand_ty } });
+            const panic_cause: PanicCause = .{ .cast_to_int_from_invalid = .{ .to = dest_ty, .from = operand_ty } };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_to_int_from_invalid, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39513,9 +39783,12 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_truncated_data = .{ .to = dest_ty, .from = operand_ty } });
+            const lhs_ty: Type = try coerceIntegerType(sema, dest_ty);
+            const rhs_ty: Type = try coerceIntegerType(sema, operand_ty);
+            const panic_cause: PanicCause = .{ .cast_truncated_data = .{ .to = lhs_ty, .from = rhs_ty } };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_truncated_data, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
@@ -39531,9 +39804,12 @@ const RuntimeSafety = struct {
         var fail_block: Sema.Block = failBlock(sema, parent_block);
         defer fail_block.instructions.deinit(sema.gpa);
         if (sema.mod.backendSupportsFeature(.panic_fn)) {
-            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, .{ .cast_to_unsigned_from_negative = .{ .to = dest_ty, .from = operand_ty } });
+            const lhs_ty: Type = try coerceIntegerType(sema, dest_ty);
+            const rhs_ty: Type = try coerceIntegerType(sema, operand_ty);
+            const panic_cause: PanicCause = .{ .cast_to_unsigned_from_negative = .{ .to = lhs_ty, .from = rhs_ty } };
+            const panic_cause_inst: Air.Inst.Ref = try preparePanicCause(sema, panic_cause);
             const panic_data_inst: Air.Inst.Ref = if (wantRuntimeSafetyPanicData(sema)) operand else .void_value;
-            try callPanicFn(sema, &fail_block, src, .cast_to_unsigned_from_negative, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
+            try callPanicFn(sema, &fail_block, src, panic_cause, &.{ panic_cause_inst, panic_data_inst }, .@"safety check");
         }
         try addSafetyCheckExtra(sema, parent_block, cond, &fail_block);
     }
