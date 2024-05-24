@@ -27656,40 +27656,6 @@ fn explainWhyTypeIsNotPacked(
     }
 }
 
-fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
-    const mod = sema.mod;
-
-    if (mod.panic_func_index == .none) {
-        const decl_index = (try sema.getBuiltinDecl(block, "panic"));
-        // decl_index may be an alias; we must find the decl that actually
-        // owns the function.
-        try sema.ensureDeclAnalyzed(decl_index);
-        const fn_val = try mod.declPtr(decl_index).valueOrFail();
-        try sema.declareDependency(.{ .decl_val = decl_index });
-        assert(fn_val.typeOf(mod).zigTypeTag(mod) == .Fn);
-        assert(try sema.fnHasRuntimeBits(fn_val.typeOf(mod)));
-        try mod.ensureFuncBodyAnalysisQueued(fn_val.toIntern());
-        mod.panic_func_index = fn_val.toIntern();
-    }
-
-    if (mod.null_stack_trace == .none) {
-        const stack_trace_ty = try sema.getBuiltinType("StackTrace");
-        try sema.resolveTypeFields(stack_trace_ty);
-        const target = mod.getTarget();
-        const ptr_stack_trace_ty = try sema.ptrType(.{
-            .child = stack_trace_ty.toIntern(),
-            .flags = .{
-                .address_space = target_util.defaultAddressSpace(target, .global_constant),
-            },
-        });
-        const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
-        mod.null_stack_trace = try mod.intern(.{ .opt = .{
-            .ty = opt_ptr_stack_trace_ty.toIntern(),
-            .val = .none,
-        } });
-    }
-}
-
 /// Backends depend on panic decls being available when lowering safety-checked
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
@@ -39138,6 +39104,15 @@ const RuntimeSafety = struct {
             },
         }));
     }
+
+    // Old method:
+    //   const decl_index = (try sema.getBuiltinDecl(block, "panic"));
+    //   try sema.ensureDeclAnalyzed(decl_index);
+    //   const fn_val = try mod.declPtr(decl_index).valueOrFail();
+    //   try sema.declareDependency(.{ .decl_val = decl_index });
+    //   try mod.ensureFuncBodyAnalysisQueued(fn_val.toIntern());
+    //   mod.panic_func_index = fn_val.toIntern();
+    //
     fn prepareRuntimeSafety(sema: *Sema) !void {
         if (sema.mod.safety.panic_fn_inst == .none) {
             // TODO: Source locations if possible.
