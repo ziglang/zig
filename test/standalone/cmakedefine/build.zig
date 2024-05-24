@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&wrapper_header.step);
 }
 
-fn compare_headers(step: *std.Build.Step, prog_node: *std.Progress.Node) !void {
+fn compare_headers(step: *std.Build.Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const allocator = step.owner.allocator;
     const expected_fmt = "expected_{s}";

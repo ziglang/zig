@@ -2991,8 +2991,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         try mod.deleteDeclExports(decl_index);
     }
 
-    var decl_prog_node = mod.sema_prog_node.start("", 0);
-    decl_prog_node.activate();
+    const decl_prog_node = mod.sema_prog_node.start("", 0);
     defer decl_prog_node.end();
 
     const sema_result: SemaDeclResult = blk: {
@@ -5316,7 +5315,7 @@ fn handleUpdateExports(
 
 pub fn populateTestFunctions(
     mod: *Module,
-    main_progress_node: *std.Progress.Node,
+    main_progress_node: std.Progress.Node,
 ) !void {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
@@ -5333,7 +5332,6 @@ pub fn populateTestFunctions(
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
         // was not referenced by start code.
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        mod.sema_prog_node.activate();
         defer {
             mod.sema_prog_node.end();
             mod.sema_prog_node = undefined;

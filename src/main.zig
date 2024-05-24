@@ -4028,22 +4028,7 @@ fn serve(
 
     var child_pid: ?std.process.Child.Id = null;
 
-    var progress: std.Progress = .{
-        .terminal = null,
-        .root = .{
-            .context = undefined,
-            .parent = null,
-            .name = "",
-            .unprotected_estimated_total_items = 0,
-            .unprotected_completed_items = 0,
-        },
-        .columns_written = 0,
-        .prev_refresh_timestamp = 0,
-        .timer = null,
-        .done = false,
-    };
-    const main_progress_node = &progress.root;
-    main_progress_node.context = &progress;
+    const main_progress_node = std.Progress.start(.{});
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -4051,7 +4036,6 @@ fn serve(
         switch (hdr.tag) {
             .exit => return cleanExit(),
             .update => {
-                assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
 
                 if (arg_mode == .translate_c) {
@@ -4075,21 +4059,7 @@ fn serve(
                     try comp.makeBinFileWritable();
                 }
 
-                if (builtin.single_threaded) {
-                    try comp.update(main_progress_node);
-                } else {
-                    var reset: std.Thread.ResetEvent = .{};
-
-                    var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
-                        &progress, &server, &reset,
-                    });
-                    defer {
-                        reset.set();
-                        progress_thread.join();
-                    }
-
-                    try comp.update(main_progress_node);
-                }
+                try comp.update(main_progress_node);
 
                 try comp.makeBinFileExecutable();
                 try serveUpdateResults(&server, comp);
@@ -4116,7 +4086,6 @@ fn serve(
             },
             .hot_update => {
                 tracy.frameMark();
-                assert(main_progress_node.recently_updated_child == null);
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(&server, comp);
@@ -4143,63 +4112,6 @@ fn serve(
                 fatal("unrecognized message from client: 0x{x}", .{@intFromEnum(hdr.tag)});
             },
         }
-    }
-}
-
-fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Thread.ResetEvent) void {
-    while (true) {
-        if (reset.timedWait(500 * std.time.ns_per_ms)) |_| {
-            // The Compilation update has completed.
-            return;
-        } else |err| switch (err) {
-            error.Timeout => {},
-        }
-
-        var buf: std.BoundedArray(u8, 160) = .{};
-
-        {
-            progress.update_mutex.lock();
-            defer progress.update_mutex.unlock();
-
-            var need_ellipse = false;
-            var maybe_node: ?*std.Progress.Node = &progress.root;
-            while (maybe_node) |node| {
-                if (need_ellipse) {
-                    buf.appendSlice("... ") catch {};
-                }
-                need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
-                const current_item = completed_items + 1;
-                if (node.name.len != 0 or eti > 0) {
-                    if (node.name.len != 0) {
-                        buf.appendSlice(node.name) catch {};
-                        need_ellipse = true;
-                    }
-                    if (eti > 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}/{d}] ", .{ current_item, eti }) catch {};
-                        need_ellipse = false;
-                    } else if (completed_items != 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}] ", .{current_item}) catch {};
-                        need_ellipse = false;
-                    }
-                }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .acquire);
-            }
-        }
-
-        const progress_string = buf.slice();
-
-        server.serveMessage(.{
-            .tag = .progress,
-            .bytes_len = @as(u32, @intCast(progress_string.len)),
-        }, &.{
-            progress_string,
-        }) catch |err| {
-            fatal("unable to write to client: {s}", .{@errorName(err)});
-        };
     }
 }
 
@@ -4472,19 +4384,10 @@ fn runOrTestHotSwap(
 fn updateModule(comp: *Compilation, color: Color) !void {
     {
         // If the terminal is dumb, we dont want to show the user all the output.
-        var progress: std.Progress = .{ .dont_print_on_dumb = true };
-        const main_progress_node = progress.start("", 0);
+        const main_progress_node = std.Progress.start(.{
+            .disable_printing = color == .off,
+        });
         defer main_progress_node.end();
-        switch (color) {
-            .off => {
-                progress.terminal = null;
-            },
-            .on => {
-                progress.terminal = std.io.getStdErr();
-                progress.supports_ansi_escape_codes = true;
-            },
-            .auto => {},
-        }
 
         try comp.update(main_progress_node);
     }
@@ -4736,8 +4639,6 @@ const usage_build =
 ;
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-
     var build_file: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -5051,7 +4952,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     config,
                 );
             } else {
-                const root_prog_node = progress.start("Fetch Packages", 0);
+                const root_prog_node = std.Progress.start(.{
+                    .root_name = "Fetch Packages",
+                });
                 defer root_prog_node.end();
 
                 var job_queue: Package.Fetch.JobQueue = .{
@@ -5473,37 +5376,13 @@ fn jitCmd(
         };
         defer comp.destroy();
 
-        if (options.server and !builtin.single_threaded) {
-            var reset: std.Thread.ResetEvent = .{};
-            var progress: std.Progress = .{
-                .terminal = null,
-                .root = .{
-                    .context = undefined,
-                    .parent = null,
-                    .name = "",
-                    .unprotected_estimated_total_items = 0,
-                    .unprotected_completed_items = 0,
-                },
-                .columns_written = 0,
-                .prev_refresh_timestamp = 0,
-                .timer = null,
-                .done = false,
-            };
-            const main_progress_node = &progress.root;
-            main_progress_node.context = &progress;
+        if (options.server) {
+            const main_progress_node = std.Progress.start(.{});
             var server = std.zig.Server{
                 .out = std.io.getStdOut(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             };
-
-            var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
-                &progress, &server, &reset,
-            });
-            defer {
-                reset.set();
-                progress_thread.join();
-            }
 
             try comp.update(main_progress_node);
 
@@ -6963,8 +6842,9 @@ fn cmdFetch(
 
     try http_client.initDefaultProxies(arena);
 
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const root_prog_node = progress.start("Fetch", 0);
+    var root_prog_node = std.Progress.start(.{
+        .root_name = "Fetch",
+    });
     defer root_prog_node.end();
 
     var global_cache_directory: Compilation.Directory = l: {
@@ -7028,8 +6908,8 @@ fn cmdFetch(
 
     const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
 
-    progress.done = true;
-    progress.refresh();
+    root_prog_node.end();
+    root_prog_node = .{ .index = .none };
 
     const name = switch (save) {
         .no => {

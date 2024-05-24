@@ -77,19 +77,28 @@ const PdbOrDwarf = union(enum) {
     }
 };
 
-var stderr_mutex = std.Thread.Mutex{};
+/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+pub fn lockStdErr() void {
+    std.Progress.lockStdErr();
+}
+
+pub fn unlockStdErr() void {
+    std.Progress.unlockStdErr();
+}
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
 }
 
 pub fn getStderrMutex() *std.Thread.Mutex {
-    return &stderr_mutex;
+    @compileError("deprecated. call std.debug.lockStdErr() and std.debug.unlockStdErr() instead which will integrate properly with std.Progress");
 }
 
 /// TODO multithreaded awareness
@@ -107,8 +116,8 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dump_hex(bytes: []const u8) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     dump_hex_fallible(bytes) catch {};
 }
 

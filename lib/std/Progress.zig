@@ -58,7 +58,7 @@ pub const Options = struct {
     /// cannot fit into this buffer which will look bad but not cause any malfunctions.
     ///
     /// Must be at least 200 bytes.
-    draw_buffer: []u8,
+    draw_buffer: []u8 = &default_draw_buffer,
     /// How many nanoseconds between writing updates to the terminal.
     refresh_rate_ns: u64 = 60 * std.time.ns_per_ms,
     /// How many nanoseconds to keep the output hidden
@@ -67,6 +67,7 @@ pub const Options = struct {
     /// 0 means unknown.
     estimated_total_items: usize = 0,
     root_name: []const u8 = "",
+    disable_printing: bool = false,
 };
 
 /// Represents one unit of progress. Each node can have children nodes, or
@@ -203,6 +204,13 @@ pub const Node = struct {
         @atomicStore(u32, &storage.estimated_total_count, std.math.lossyCast(u32, count), .monotonic);
     }
 
+    /// Thread-safe.
+    pub fn increaseEstimatedTotalItems(n: Node, count: usize) void {
+        const index = n.index.unwrap() orelse return;
+        const storage = storageByIndex(index);
+        _ = @atomicRmw(u32, &storage.estimated_total_count, .Add, std.math.lossyCast(u32, count), .monotonic);
+    }
+
     /// Finish a started `Node`. Thread-safe.
     pub fn end(n: Node) void {
         const index = n.index.unwrap() orelse return;
@@ -290,6 +298,8 @@ var node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefine
 var node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
 var node_freelist_buffer: [default_node_storage_buffer_len]Node.OptionalIndex = undefined;
 
+var default_draw_buffer: [2000]u8 = undefined;
+
 /// Initializes a global Progress instance.
 ///
 /// Asserts there is only one global Progress instance.
@@ -318,6 +328,9 @@ pub fn start(options: Options) Node {
         }
     } else |env_err| switch (env_err) {
         error.EnvironmentVariableNotFound => {
+            if (options.disable_printing) {
+                return .{ .index = .none };
+            }
             const stderr = std.io.getStdErr();
             if (stderr.supportsAnsiEscapeCodes()) {
                 global_progress.terminal = stderr;
@@ -330,7 +343,7 @@ pub fn start(options: Options) Node {
                 global_progress.terminal = stderr;
             }
 
-            if (global_progress.terminal == null) {
+            if (global_progress.terminal == null or !global_progress.supports_ansi_escape_codes) {
                 return .{ .index = .none };
             }
 
@@ -379,7 +392,10 @@ fn updateThreadRun() void {
             return clearTerminal();
 
         const buffer = computeRedraw();
-        write(buffer);
+        if (stderr_mutex.tryLock()) {
+            defer stderr_mutex.unlock();
+            write(buffer);
+        }
     }
 
     while (true) {
@@ -390,8 +406,23 @@ fn updateThreadRun() void {
             return clearTerminal();
 
         const buffer = computeRedraw();
-        write(buffer);
+        if (stderr_mutex.tryLock()) {
+            defer stderr_mutex.unlock();
+            write(buffer);
+        }
     }
+}
+
+/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+pub fn lockStdErr() void {
+    stderr_mutex.lock();
+    clearTerminal();
+}
+
+pub fn unlockStdErr() void {
+    stderr_mutex.unlock();
 }
 
 fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
@@ -432,6 +463,8 @@ const tree_line = "\x1B\x28\x30\x78\x1B\x28\x42  "; // │
 const tree_langle = "\x1B\x28\x30\x6d\x71\x1B\x28\x42 "; // └─
 
 fn clearTerminal() void {
+    if (global_progress.newline_count == 0) return;
+
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
 
@@ -876,3 +909,5 @@ fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) 
     assert(sig == posix.SIG.WINCH);
     global_progress.redraw_event.set();
 }
+
+var stderr_mutex: std.Thread.Mutex = .{};

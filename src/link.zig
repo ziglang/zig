@@ -535,7 +535,7 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     /// `arena` has the lifetime of the call to `Compilation.update`.
-    pub fn flush(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn flush(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @as(*C, @fieldParentPtr("base", base)).flush(arena, prog_node);
@@ -572,7 +572,7 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn flushModule(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
@@ -688,7 +688,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -966,7 +966,7 @@ pub const File = struct {
         base: File,
         arena: Allocator,
         llvm_object: *LlvmObject,
-        prog_node: *std.Progress.Node,
+        prog_node: std.Progress.Node,
     ) !void {
         return base.comp.emitLlvmObject(arena, base.emit, .{
             .directory = null,

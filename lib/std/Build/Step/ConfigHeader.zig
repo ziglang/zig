@@ -164,7 +164,7 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
     }
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const config_header: *ConfigHeader = @fieldParentPtr("step", step);
