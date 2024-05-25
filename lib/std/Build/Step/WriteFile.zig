@@ -283,6 +283,13 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 "o", &digest, file.sub_path,
             });
         }
+
+        for (write_file.directories.items) |dir| {
+            dir.generated_dir.path = try b.cache_root.join(b.allocator, &.{
+                "o", &digest, dir.sub_path,
+            });
+        }
+
         write_file.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
         return;
     }
@@ -404,6 +411,10 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 else => continue,
             }
         }
+
+        dir.generated_dir.path = try b.cache_root.join(b.allocator, &.{
+            cache_path, dir.sub_path,
+        });
     }
 
     try step.writeManifest(&man);
