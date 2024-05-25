@@ -208,6 +208,26 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
 
+            .pseudo_fabs => {
+                const fabs = inst.data.fabs;
+                assert(fabs.rs.class() == .float and fabs.rd.class() == .float);
+
+                const mnem: Encoding.Mnemonic = switch (fabs.bits) {
+                    16 => return lower.fail("TODO: airAbs Float 16", .{}),
+                    32 => .fsgnjxs,
+                    64 => .fsgnjxd,
+                    80 => return lower.fail("TODO: airAbs Float 80", .{}),
+                    128 => return lower.fail("TODO: airAbs Float 128", .{}),
+                    else => unreachable,
+                };
+
+                try lower.emit(mnem, &.{
+                    .{ .reg = fabs.rs },
+                    .{ .reg = fabs.rd },
+                    .{ .reg = fabs.rd },
+                });
+            },
+
             .pseudo_compare => {
                 const compare = inst.data.compare;
                 const op = compare.op;

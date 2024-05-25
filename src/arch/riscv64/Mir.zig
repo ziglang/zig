@@ -76,6 +76,8 @@ pub const Inst = struct {
         fmuls,
         fdivs,
 
+        fabss,
+
         fmins,
         fmaxs,
 
@@ -93,6 +95,8 @@ pub const Inst = struct {
         fsubd,
         fmuld,
         fdivd,
+
+        fabsd,
 
         fmind,
         fmaxd,
@@ -194,6 +198,12 @@ pub const Inst = struct {
             rs: Register,
         },
 
+        fabs: struct {
+            rd: Register,
+            rs: Register,
+            bits: u16,
+        },
+
         compare: struct {
             rd: Register,
             rs1: Register,
@@ -272,6 +282,9 @@ pub const Inst = struct {
 
         /// Jumps. Uses `inst` payload.
         pseudo_j,
+
+        /// Floating point absolute value.
+        pseudo_fabs,
 
         /// Dead inst, ignored by the emitter.
         pseudo_dead,

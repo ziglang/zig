@@ -3377,18 +3377,83 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
         const ty = func.typeOf(ty_op.operand);
         const scalar_ty = ty.scalarType(zcu);
         const operand = try func.resolveInst(ty_op.operand);
-        _ = operand;
 
         switch (scalar_ty.zigTypeTag(zcu)) {
             .Int => if (ty.zigTypeTag(zcu) == .Vector) {
                 return func.fail("TODO implement airAbs for {}", .{ty.fmt(zcu)});
             } else {
-                return func.fail("TODO: implement airAbs for Int", .{});
+                const return_mcv = try func.copyToNewRegister(inst, operand);
+                const operand_reg = return_mcv.register;
+
+                const temp_reg, const temp_lock = try func.allocReg(.int);
+                defer func.register_manager.unlockReg(temp_lock);
+
+                _ = try func.addInst(.{
+                    .tag = .srai,
+                    .ops = .rri,
+                    .data = .{ .i_type = .{
+                        .rd = temp_reg,
+                        .rs1 = operand_reg,
+                        .imm12 = Immediate.s(63),
+                    } },
+                });
+
+                _ = try func.addInst(.{
+                    .tag = .xor,
+                    .ops = .rrr,
+                    .data = .{ .r_type = .{
+                        .rd = operand_reg,
+                        .rs1 = operand_reg,
+                        .rs2 = temp_reg,
+                    } },
+                });
+
+                _ = try func.addInst(.{
+                    .tag = .sub,
+                    .ops = .rrr,
+                    .data = .{ .r_type = .{
+                        .rd = operand_reg,
+                        .rs1 = operand_reg,
+                        .rs2 = temp_reg,
+                    } },
+                });
+
+                break :result return_mcv;
+            },
+            .Float => {
+                const float_bits = scalar_ty.floatBits(zcu.getTarget());
+                switch (float_bits) {
+                    16 => return func.fail("TODO: airAbs 16-bit float", .{}),
+                    32 => {},
+                    64 => {},
+                    80 => return func.fail("TODO: airAbs 80-bit float", .{}),
+                    128 => return func.fail("TODO: airAbs 128-bit float", .{}),
+                    else => unreachable,
+                }
+
+                const return_mcv = try func.copyToNewRegister(inst, operand);
+                const operand_reg = return_mcv.register;
+
+                assert(operand_reg.class() == .float);
+
+                _ = try func.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_fabs,
+                    .data = .{
+                        .fabs = .{
+                            .rd = operand_reg,
+                            .rs = operand_reg,
+                            .bits = float_bits,
+                        },
+                    },
+                });
+
+                break :result return_mcv;
             },
             else => return func.fail("TODO: implement airAbs {}", .{scalar_ty.fmt(zcu)}),
         }
 
-        break :result .{.unreach};
+        break :result .unreach;
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }

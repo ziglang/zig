@@ -130,6 +130,7 @@ pub const Mnemonic = enum {
     fles,
 
     fsgnjns,
+    fsgnjxs,
 
     // D extension (64-bit float)
     faddd,
@@ -150,6 +151,7 @@ pub const Mnemonic = enum {
     fled,
 
     fsgnjnd,
+    fsgnjxd,
 
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
@@ -217,6 +219,9 @@ pub const Mnemonic = enum {
 
             .fsgnjns => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .S, .rm = 0b000 } } },
             .fsgnjnd => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .D, .rm = 0b000 } } },
+
+            .fsgnjxs => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .S, .rm = 0b0010} } },
+            .fsgnjxd => .{ .opcode = .OP_FP, .data = .{ .fmt = .{ .funct5 = 0b00100, .fmt = .D, .rm = 0b0010} } },
 
 
             // LOAD
@@ -392,6 +397,9 @@ pub const InstEnc = enum {
 
             .fsgnjns,
             .fsgnjnd,
+
+            .fsgnjxs,
+            .fsgnjxd,
             => .R,
 
             .ecall,
