@@ -7,7 +7,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
-const testing = std.testing;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
@@ -110,8 +111,8 @@ pub fn log(x_: f64) callconv(.c) f64 {
 
         // subnormal, scale x
         k -= 54;
-        x *= 0x1.0p54;
-        hx = @intCast(@as(u64, @bitCast(ix)) >> 32);
+        x *= 0x1p54;
+        hx = @intCast(@as(u64, @bitCast(x)) >> 32);
     } else if (hx >= 0x7FF00000) {
         return x;
     } else if (hx == 0x3FF00000 and ix << 32 == 0) {
@@ -159,38 +160,72 @@ pub fn logl(x: c_longdouble) callconv(.c) c_longdouble {
     }
 }
 
-test "ln32" {
-    const epsilon = 0.000001;
-
-    try testing.expect(math.approxEqAbs(f32, logf(0.2), -1.609438, epsilon));
-    try testing.expect(math.approxEqAbs(f32, logf(0.8923), -0.113953, epsilon));
-    try testing.expect(math.approxEqAbs(f32, logf(1.5), 0.405465, epsilon));
-    try testing.expect(math.approxEqAbs(f32, logf(37.45), 3.623007, epsilon));
-    try testing.expect(math.approxEqAbs(f32, logf(89.123), 4.490017, epsilon));
-    try testing.expect(math.approxEqAbs(f32, logf(123123.234375), 11.720941, epsilon));
+test "logf() special" {
+    try expectEqual(logf(0.0), -math.inf(f32));
+    try expectEqual(logf(-0.0), -math.inf(f32));
+    try expectEqual(logf(1.0), 0.0);
+    try expectEqual(logf(math.e), 1.0);
+    try expectEqual(logf(math.inf(f32)), math.inf(f32));
+    try expect(math.isNan(logf(-1.0)));
+    try expect(math.isNan(logf(-math.inf(f32))));
+    try expect(math.isNan(logf(math.nan(f32))));
+    try expect(math.isNan(logf(math.snan(f32))));
 }
 
-test "ln64" {
-    const epsilon = 0.000001;
-
-    try testing.expect(math.approxEqAbs(f64, log(0.2), -1.609438, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log(0.8923), -0.113953, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log(1.5), 0.405465, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log(37.45), 3.623007, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log(89.123), 4.490017, epsilon));
-    try testing.expect(math.approxEqAbs(f64, log(123123.234375), 11.720941, epsilon));
+test "logf() sanity" {
+    try expect(math.isNan(logf(-0x1.0223a0p+3)));
+    try expectEqual(logf(0x1.161868p+2), 0x1.7815b0p+0);
+    try expect(math.isNan(logf(-0x1.0c34b4p+3)));
+    try expect(math.isNan(logf(-0x1.a206f0p+2)));
+    try expectEqual(logf(0x1.288bbcp+3), 0x1.1cfcd6p+1);
+    try expectEqual(logf(0x1.52efd0p-1), -0x1.a6694cp-2);
+    try expect(math.isNan(logf(-0x1.a05cc8p-2)));
+    try expectEqual(logf(0x1.1f9efap-1), -0x1.2742bap-1);
+    try expectEqual(logf(0x1.8c5db0p-1), -0x1.062160p-2);
+    try expect(math.isNan(logf(-0x1.5b86eap-1)));
 }
 
-test "ln32.special" {
-    try testing.expect(math.isPositiveInf(logf(math.inf(f32))));
-    try testing.expect(math.isNegativeInf(logf(0.0)));
-    try testing.expect(math.isNan(logf(-1.0)));
-    try testing.expect(math.isNan(logf(math.nan(f32))));
+test "logf() boundary" {
+    try expectEqual(logf(0x1.fffffep+127), 0x1.62e430p+6); // Max input value
+    try expectEqual(logf(0x1p-149), -0x1.9d1da0p+6); // Min positive input value
+    try expect(math.isNan(logf(-0x1p-149))); // Min negative input value
+    try expectEqual(logf(0x1.000002p+0), 0x1.fffffep-24); // Last value before result reaches +0
+    try expectEqual(logf(0x1.fffffep-1), -0x1p-24); // Last value before result reaches -0
+    try expectEqual(logf(0x1p-126), -0x1.5d58a0p+6); // First subnormal
+    try expect(math.isNan(logf(-0x1p-126))); // First negative subnormal
 }
 
-test "ln64.special" {
-    try testing.expect(math.isPositiveInf(log(math.inf(f64))));
-    try testing.expect(math.isNegativeInf(log(0.0)));
-    try testing.expect(math.isNan(log(-1.0)));
-    try testing.expect(math.isNan(log(math.nan(f64))));
+test "log() special" {
+    try expectEqual(log(0.0), -math.inf(f64));
+    try expectEqual(log(-0.0), -math.inf(f64));
+    try expectEqual(log(1.0), 0.0);
+    try expectEqual(log(math.e), 1.0);
+    try expectEqual(log(math.inf(f64)), math.inf(f64));
+    try expect(math.isNan(log(-1.0)));
+    try expect(math.isNan(log(-math.inf(f64))));
+    try expect(math.isNan(log(math.nan(f64))));
+    try expect(math.isNan(log(math.snan(f64))));
+}
+
+test "log() sanity" {
+    try expect(math.isNan(log(-0x1.02239f3c6a8f1p+3)));
+    try expectEqual(log(0x1.161868e18bc67p+2), 0x1.7815b08f99c65p+0);
+    try expect(math.isNan(log(-0x1.0c34b3e01e6e7p+3)));
+    try expect(math.isNan(log(-0x1.a206f0a19dcc4p+2)));
+    try expectEqual(log(0x1.288bbb0d6a1e6p+3), 0x1.1cfcd53d72604p+1);
+    try expectEqual(log(0x1.52efd0cd80497p-1), -0x1.a6694a4a85621p-2);
+    try expect(math.isNan(log(-0x1.a05cc754481d1p-2)));
+    try expectEqual(log(0x1.1f9ef934745cbp-1), -0x1.2742bc03d02ddp-1);
+    try expectEqual(log(0x1.8c5db097f7442p-1), -0x1.06215de4a3f92p-2);
+    try expect(math.isNan(log(-0x1.5b86ea8118a0ep-1)));
+}
+
+test "log() boundary" {
+    try expectEqual(log(0x1.fffffffffffffp+1023), 0x1.62e42fefa39efp+9); // Max input value
+    try expectEqual(log(0x1p-1074), -0x1.74385446d71c3p+9); // Min positive input value
+    try expect(math.isNan(log(-0x1p-1074))); // Min negative input value
+    try expectEqual(log(0x1.0000000000001p+0), 0x1.fffffffffffffp-53); // Last value before result reaches +0
+    try expectEqual(log(0x1.fffffffffffffp-1), -0x1p-53); // Last value before result reaches -0
+    try expectEqual(log(0x1p-1022), -0x1.6232bdd7abcd2p+9); // First subnormal
+    try expect(math.isNan(log(-0x1p-1022))); // First negative subnormal
 }
