@@ -1087,9 +1087,25 @@ const MachODumper = struct {
             try writer.writeAll(symtab_label ++ "\n");
 
             for (ctx.symtab.items) |sym| {
-                if (sym.stab()) continue;
                 const sym_name = ctx.getString(sym.n_strx);
-                if (sym.sect()) {
+                if (sym.stab()) {
+                    const tt = switch (sym.n_type) {
+                        macho.N_SO => "SO",
+                        macho.N_OSO => "OSO",
+                        macho.N_BNSYM => "BNSYM",
+                        macho.N_ENSYM => "ENSYM",
+                        macho.N_FUN => "FUN",
+                        macho.N_GSYM => "GSYM",
+                        macho.N_STSYM => "STSYM",
+                        else => "UNKNOWN STAB",
+                    };
+                    try writer.print("{x}", .{sym.n_value});
+                    if (sym.n_sect > 0) {
+                        const sect = ctx.sections.items[sym.n_sect - 1];
+                        try writer.print(" ({s},{s})", .{ sect.segName(), sect.sectName() });
+                    }
+                    try writer.print(" {s} (stab) {s}\n", .{ tt, sym_name });
+                } else if (sym.sect()) {
                     const sect = ctx.sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
                         sym.n_value,
