@@ -191,7 +191,7 @@ pub fn log10l(x: c_longdouble) callconv(.c) c_longdouble {
 test "log10f() special" {
     try expectEqual(log10f(0.0), -math.inf(f32));
     try expectEqual(log10f(-0.0), -math.inf(f32));
-    try expectEqual(log10f(1.0), 0.0);
+    try expect(math.isPositiveZero(log10f(1.0)));
     try expectEqual(log10f(10.0), 1.0);
     try expectEqual(log10f(0.1), -1.0);
     try expectEqual(log10f(math.inf(f32)), math.inf(f32));
@@ -227,7 +227,7 @@ test "log10f() boundary" {
 test "log10() special" {
     try expectEqual(log10(0.0), -math.inf(f64));
     try expectEqual(log10(-0.0), -math.inf(f64));
-    try expectEqual(log10(1.0), 0.0);
+    try expect(math.isPositiveZero(log10(1.0)));
     try expectEqual(log10(10.0), 1.0);
     try expectEqual(log10(0.1), -1.0);
     try expectEqual(log10(math.inf(f64)), math.inf(f64));

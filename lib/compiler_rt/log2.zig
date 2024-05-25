@@ -183,7 +183,7 @@ pub fn log2l(x: c_longdouble) callconv(.c) c_longdouble {
 test "log2f() special" {
     try expectEqual(log2f(0.0), -math.inf(f32));
     try expectEqual(log2f(-0.0), -math.inf(f32));
-    try expectEqual(log2f(1.0), 0.0);
+    try expect(math.isPositiveZero(log2f(1.0)));
     try expectEqual(log2f(2.0), 1.0);
     try expectEqual(log2f(math.inf(f32)), math.inf(f32));
     try expect(math.isNan(log2f(-1.0)));
@@ -219,7 +219,7 @@ test "log2f() boundary" {
 test "log2() special" {
     try expectEqual(log2(0.0), -math.inf(f64));
     try expectEqual(log2(-0.0), -math.inf(f64));
-    try expectEqual(log2(1.0), 0.0);
+    try expect(math.isPositiveZero(log2(1.0)));
     try expectEqual(log2(2.0), 1.0);
     try expectEqual(log2(math.inf(f64)), math.inf(f64));
     try expect(math.isNan(log2(-1.0)));

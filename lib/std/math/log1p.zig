@@ -184,8 +184,8 @@ fn log1p_64(x: f64) f64 {
 }
 
 test "log1p_32() special" {
-    try expectEqual(log1p_32(0.0), 0.0);
-    try expectEqual(log1p_32(-0.0), 0.0);
+    try expect(math.isPositiveZero(log1p_32(0.0)));
+    try expect(math.isNegativeZero(log1p_32(-0.0)));
     try expectEqual(log1p_32(-1.0), -math.inf(f32));
     try expectEqual(log1p_32(1.0), math.ln2);
     try expectEqual(log1p_32(math.inf(f32)), math.inf(f32));
@@ -219,8 +219,8 @@ test "log1p_32() boundary" {
 }
 
 test "log1p_64() special" {
-    try expectEqual(log1p_64(0.0), 0.0);
-    try expectEqual(log1p_64(-0.0), 0.0);
+    try expect(math.isPositiveZero(log1p_64(0.0)));
+    try expect(math.isNegativeZero(log1p_64(-0.0)));
     try expectEqual(log1p_64(-1.0), -math.inf(f64));
     try expectEqual(log1p_64(1.0), math.ln2);
     try expectEqual(log1p_64(math.inf(f64)), math.inf(f64));

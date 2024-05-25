@@ -218,7 +218,7 @@ test "expf() special" {
     try expectEqual(expf(1.0), math.e);
     try expectEqual(expf(math.ln2), 2.0);
     try expectEqual(expf(math.inf(f32)), math.inf(f32));
-    try expectEqual(expf(-math.inf(f32)), 0.0);
+    try expect(math.isPositiveZero(expf(-math.inf(f32))));
     try expect(math.isNan(expf(math.nan(f32))));
     try expect(math.isNan(expf(math.snan(f32))));
 }
@@ -268,7 +268,7 @@ test "exp() special" {
     // try expectEqual(exp(1.0), math.e);
     try expectEqual(exp(math.ln2), 2.0);
     try expectEqual(exp(math.inf(f64)), math.inf(f64));
-    try expectEqual(exp(-math.inf(f64)), 0.0);
+    try expect(math.isPositiveZero(exp(-math.inf(f64))));
     try expect(math.isNan(exp(math.nan(f64))));
     try expect(math.isNan(exp(math.snan(f64))));
 }

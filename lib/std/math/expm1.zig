@@ -288,8 +288,8 @@ fn expm1_64(x_: f64) f64 {
 }
 
 test "expm1_32() special" {
-    try expectEqual(expm1_32(0.0), 0.0);
-    try expectEqual(expm1_32(-0.0), 0.0);
+    try expect(math.isPositiveZero(expm1_32(0.0)));
+    try expect(math.isNegativeZero(expm1_32(-0.0)));
     try expectEqual(expm1_32(math.ln2), 1.0);
     try expectEqual(expm1_32(math.inf(f32)), math.inf(f32));
     try expectEqual(expm1_32(-math.inf(f32)), -1.0);
@@ -326,8 +326,8 @@ test "expm1_32() boundary" {
 }
 
 test "expm1_64() special" {
-    try expectEqual(expm1_64(0.0), 0.0);
-    try expectEqual(expm1_64(-0.0), 0.0);
+    try expect(math.isPositiveZero(expm1_64(0.0)));
+    try expect(math.isNegativeZero(expm1_64(-0.0)));
     try expectEqual(expm1_64(math.ln2), 1.0);
     try expectEqual(expm1_64(math.inf(f64)), math.inf(f64));
     try expectEqual(expm1_64(-math.inf(f64)), -1.0);
