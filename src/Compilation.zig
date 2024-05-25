@@ -4568,17 +4568,18 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
-        const out_diag_path = if (comp.clang_passthrough_mode)
-            undefined
-        else
-            try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
-        const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+        const out_diag_path = if (comp.clang_passthrough_mode or !ext.clangSupportsDiagnostics())
+            null
+        else
+            try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
+        const out_dep_path = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
             null
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
+
         try comp.addCCArgs(arena, &argv, ext, out_dep_path, c_object.src.owner);
         try argv.appendSlice(c_object.src.extra_flags);
         try argv.appendSlice(c_object.src.cache_exempt_flags);
@@ -4590,7 +4591,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
-        if (comp.clang_passthrough_mode) {
+        if (out_diag_path) |diag_file_path| {
+            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", diag_file_path });
+        } else if (comp.clang_passthrough_mode) {
             if (comp.emit_asm != null) {
                 argv.appendAssumeCapacity("-S");
             } else if (comp.emit_llvm_ir != null) {
@@ -4598,8 +4601,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             } else if (comp.emit_llvm_bc != null) {
                 argv.appendAssumeCapacity("-emit-llvm");
             }
-        } else {
-            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", out_diag_path });
         }
 
         if (comp.verbose_cc) {
@@ -4607,8 +4608,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         }
 
         // Just to save disk space, we delete the files that are never needed again.
-        defer if (!comp.clang_passthrough_mode) zig_cache_tmp_dir.deleteFile(std.fs.path.basename(out_diag_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) });
         };
         defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
             log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
@@ -4647,14 +4648,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 };
 
                 switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            const bundle = CObject.Diag.Bundle.parse(comp.gpa, out_diag_path) catch |err| {
-                                log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
-                                return comp.failCObj(c_object, "clang exited with code {d}", .{code});
-                            };
-                            return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
-                        }
+                    .Exited => |code| if (code != 0) if (out_diag_path) |diag_file_path| {
+                        const bundle = CObject.Diag.Bundle.parse(comp.gpa, diag_file_path) catch |err| {
+                            log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
+                            return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                        };
+                        return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
+                    } else {
+                        log.err("clang failed with stderr: {s}", .{stderr});
+                        return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                     },
                     else => {
                         log.err("clang terminated with stderr: {s}", .{stderr});
@@ -5110,7 +5112,7 @@ pub fn addCCArgs(
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
     // clang will detect stderr as a pipe rather than a terminal.
-    if (!comp.clang_passthrough_mode) {
+    if (!comp.clang_passthrough_mode and ext.clangSupportsDiagnostics()) {
         // Make stderr more easily parseable.
         try argv.append("-fno-caret-diagnostics");
     }
@@ -5544,6 +5546,7 @@ fn failCObjWithOwnedDiagBundle(
     diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
     @setCold(true);
+    assert(diag_bundle.diags.len > 0);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
@@ -5618,6 +5621,25 @@ pub const FileExt = enum {
     res,
     manifest,
     unknown,
+
+    pub fn clangSupportsDiagnostics(ext: FileExt) bool {
+        return switch (ext) {
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu, .ll, .bc => true,
+
+            .assembly,
+            .assembly_with_cpp,
+            .shared_library,
+            .object,
+            .static_library,
+            .zig,
+            .def,
+            .rc,
+            .res,
+            .manifest,
+            .unknown,
+            => false,
+        };
+    }
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
