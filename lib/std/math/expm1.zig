@@ -10,6 +10,7 @@ const std = @import("../std.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 /// Returns e raised to the power of x, minus 1 (e^x - 1). This is more accurate than exp(e, x) - 1
 /// when x is near 0.
@@ -39,9 +40,9 @@ fn expm1_32(x_: f32) f32 {
     const Q2: f32 = 1.5807170421e-3;
 
     var x = x_;
-    const ux = @as(u32, @bitCast(x));
+    const ux: u32 = @bitCast(x);
     const hx = ux & 0x7FFFFFFF;
-    const sign = hx >> 31;
+    const sign = ux >> 31;
 
     // TODO: Shouldn't need this check explicitly.
     if (math.isNegativeInf(x)) {
@@ -147,7 +148,7 @@ fn expm1_32(x_: f32) f32 {
         return y - 1.0;
     }
 
-    const uf = @as(f32, @bitCast(@as(u32, @intCast(0x7F -% k)) << 23));
+    const uf: f32 = @bitCast(@as(u32, @intCast(0x7F -% k)) << 23);
     if (k < 23) {
         return (x - e + (1 - uf)) * twopk;
     } else {
@@ -286,39 +287,77 @@ fn expm1_64(x_: f64) f64 {
     }
 }
 
-test expm1 {
-    try expect(expm1(@as(f32, 0.0)) == expm1_32(0.0));
-    try expect(expm1(@as(f64, 0.0)) == expm1_64(0.0));
-}
-
-test expm1_32 {
-    const epsilon = 0.000001;
-
-    try expect(math.isPositiveZero(expm1_32(0.0)));
-    try expect(math.approxEqAbs(f32, expm1_32(0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f32, expm1_32(0.2), 0.221403, epsilon));
-    try expect(math.approxEqAbs(f32, expm1_32(0.8923), 1.440737, epsilon));
-    try expect(math.approxEqAbs(f32, expm1_32(1.5), 3.481689, epsilon));
-}
-
-test expm1_64 {
-    const epsilon = 0.000001;
-
-    try expect(math.isPositiveZero(expm1_64(0.0)));
-    try expect(math.approxEqAbs(f64, expm1_64(0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f64, expm1_64(0.2), 0.221403, epsilon));
-    try expect(math.approxEqAbs(f64, expm1_64(0.8923), 1.440737, epsilon));
-    try expect(math.approxEqAbs(f64, expm1_64(1.5), 3.481689, epsilon));
-}
-
-test "expm1_32.special" {
-    try expect(math.isPositiveInf(expm1_32(math.inf(f32))));
-    try expect(expm1_32(-math.inf(f32)) == -1.0);
+test "expm1_32() special" {
+    try expectEqual(expm1_32(0.0), 0.0);
+    try expectEqual(expm1_32(-0.0), 0.0);
+    try expectEqual(expm1_32(math.ln2), 1.0);
+    try expectEqual(expm1_32(math.inf(f32)), math.inf(f32));
+    try expectEqual(expm1_32(-math.inf(f32)), -1.0);
     try expect(math.isNan(expm1_32(math.nan(f32))));
+    try expect(math.isNan(expm1_32(math.snan(f32))));
 }
 
-test "expm1_64.special" {
-    try expect(math.isPositiveInf(expm1_64(math.inf(f64))));
-    try expect(expm1_64(-math.inf(f64)) == -1.0);
+test "expm1_32() sanity" {
+    try expectEqual(expm1_32(-0x1.0223a0p+3), -0x1.ffd6e0p-1);
+    try expectEqual(expm1_32(0x1.161868p+2), 0x1.30712ap+6);
+    try expectEqual(expm1_32(-0x1.0c34b4p+3), -0x1.ffe1fap-1);
+    try expectEqual(expm1_32(-0x1.a206f0p+2), -0x1.ff4116p-1);
+    try expectEqual(expm1_32(0x1.288bbcp+3), 0x1.4ab480p+13); // Disagrees with GCC in last bit
+    try expectEqual(expm1_32(0x1.52efd0p-1), 0x1.e09536p-1);
+    try expectEqual(expm1_32(-0x1.a05cc8p-2), -0x1.561c3ep-2);
+    try expectEqual(expm1_32(0x1.1f9efap-1), 0x1.81ec4ep-1);
+    try expectEqual(expm1_32(0x1.8c5db0p-1), 0x1.2b3364p+0);
+    try expectEqual(expm1_32(-0x1.5b86eap-1), -0x1.f8951ap-2);
+}
+
+test "expm1_32() boundary" {
+    // TODO: The last value before inf is actually 0x1.62e300p+6 -> 0x1.ff681ep+127
+    // try expectEqual(expm1_32(0x1.62e42ep+6), 0x1.ffff08p+127); // Last value before result is inf
+    try expectEqual(expm1_32(0x1.62e430p+6), math.inf(f32)); // First value that gives inf
+    try expectEqual(expm1_32(0x1.fffffep+127), math.inf(f32)); // Max input value
+    try expectEqual(expm1_32(0x1p-149), 0x1p-149); // Min positive input value
+    try expectEqual(expm1_32(-0x1p-149), -0x1p-149); // Min negative input value
+    try expectEqual(expm1_32(0x1p-126), 0x1p-126); // First positive subnormal input
+    try expectEqual(expm1_32(-0x1p-126), -0x1p-126); // First negative subnormal input
+    try expectEqual(expm1_32(0x1.fffffep-125), 0x1.fffffep-125); // Last positive value before subnormal
+    try expectEqual(expm1_32(-0x1.fffffep-125), -0x1.fffffep-125); // Last negative value before subnormal
+    try expectEqual(expm1_32(-0x1.154244p+4), -0x1.fffffep-1); // Last value before result is -1
+    try expectEqual(expm1_32(-0x1.154246p+4), -1); // First value where result is -1
+}
+
+test "expm1_64() special" {
+    try expectEqual(expm1_64(0.0), 0.0);
+    try expectEqual(expm1_64(-0.0), 0.0);
+    try expectEqual(expm1_64(math.ln2), 1.0);
+    try expectEqual(expm1_64(math.inf(f64)), math.inf(f64));
+    try expectEqual(expm1_64(-math.inf(f64)), -1.0);
     try expect(math.isNan(expm1_64(math.nan(f64))));
+    try expect(math.isNan(expm1_64(math.snan(f64))));
+}
+
+test "expm1_64() sanity" {
+    try expectEqual(expm1_64(-0x1.02239f3c6a8f1p+3), -0x1.ffd6df9b02b3ep-1);
+    try expectEqual(expm1_64(0x1.161868e18bc67p+2), 0x1.30712ed238c04p+6);
+    try expectEqual(expm1_64(-0x1.0c34b3e01e6e7p+3), -0x1.ffe1f94e493e7p-1);
+    try expectEqual(expm1_64(-0x1.a206f0a19dcc4p+2), -0x1.ff4115c03f78dp-1);
+    try expectEqual(expm1_64(0x1.288bbb0d6a1e6p+3), 0x1.4ab477496e07ep+13);
+    try expectEqual(expm1_64(0x1.52efd0cd80497p-1), 0x1.e095382100a01p-1);
+    try expectEqual(expm1_64(-0x1.a05cc754481d1p-2), -0x1.561c3e0582be6p-2);
+    try expectEqual(expm1_64(0x1.1f9ef934745cbp-1), 0x1.81ec4cd4d4a8fp-1);
+    try expectEqual(expm1_64(0x1.8c5db097f7442p-1), 0x1.2b3363a944bf7p+0);
+    try expectEqual(expm1_64(-0x1.5b86ea8118a0ep-1), -0x1.f8951aebffbafp-2);
+}
+
+test "expm1_64() boundary" {
+    try expectEqual(expm1_64(0x1.62e42fefa39efp+9), 0x1.fffffffffff2ap+1023); // Last value before result is inf
+    try expectEqual(expm1_64(0x1.62e42fefa39f0p+9), math.inf(f64)); // First value that gives inf
+    try expectEqual(expm1_64(0x1.fffffffffffffp+1023), math.inf(f64)); // Max input value
+    try expectEqual(expm1_64(0x1p-1074), 0x1p-1074); // Min positive input value
+    try expectEqual(expm1_64(-0x1p-1074), -0x1p-1074); // Min negative input value
+    try expectEqual(expm1_64(0x1p-1022), 0x1p-1022); // First positive subnormal input
+    try expectEqual(expm1_64(-0x1p-1022), -0x1p-1022); // First negative subnormal input
+    try expectEqual(expm1_64(0x1.fffffffffffffp-1021), 0x1.fffffffffffffp-1021); // Last positive value before subnormal
+    try expectEqual(expm1_64(-0x1.fffffffffffffp-1021), -0x1.fffffffffffffp-1021); // Last negative value before subnormal
+    try expectEqual(expm1_64(-0x1.2b708872320e1p+5), -0x1.fffffffffffffp-1); // Last value before result is -1
+    try expectEqual(expm1_64(-0x1.2b708872320e2p+5), -1); // First value where result is -1
 }
