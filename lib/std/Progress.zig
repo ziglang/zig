@@ -1,7 +1,4 @@
-//! This API is non-allocating, non-fallible, and thread-safe.
-//!
-//! The tradeoff is that users of this API must provide the storage
-//! for each `Progress.Node`.
+//! This API is non-allocating, non-fallible, thread-safe, and lock-free.
 
 const std = @import("std");
 const builtin = @import("builtin");
