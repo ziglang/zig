@@ -36,6 +36,7 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     const upper = @sqrt(floatMax(T) / 2);
     const incre = @sqrt(floatEps(T) / 2);
     const scale = floatEpsAt(T, incre);
+    const hypfn = if (emulateFma(T)) hypotUnfused else hypotFused;
     var major: T = x;
     var minor: T = y;
     if (isInf(major) or isInf(minor)) return inf(T);
@@ -50,13 +51,17 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
         minor = tempo;
     }
     if (major * incre >= minor) return major;
-    if (major > upper) return hypotFused(T, major * scale, minor * scale) / scale;
-    if (minor < lower) return hypotFused(T, major / scale, minor / scale) * scale;
-    return hypotFused(T, major, minor);
+    if (major > upper) return hypfn(T, major * scale, minor * scale) / scale;
+    if (minor < lower) return hypfn(T, major / scale, minor / scale) * scale;
+    return hypfn(T, major, minor);
 }
 
 fn Hypot(comptime T: type) type {
     return if (T == comptime_int) comptime_float else T;
+}
+
+inline fn emulateFma(comptime T: type) bool {
+    return (T == f128 or T == f80); // TODO: proper feature detection at comptime
 }
 
 inline fn hypotFused(comptime F: type, x: F, y: F) F {
