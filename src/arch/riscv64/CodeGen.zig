@@ -5880,10 +5880,25 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayToSlice(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.bin_file.comp.module.?;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airArrayToSlice for {}", .{
-        func.target.cpu.arch,
-    });
+
+    const slice_ty = func.typeOfIndex(inst);
+    const ptr_ty = func.typeOf(ty_op.operand);
+    const ptr = try func.resolveInst(ty_op.operand);
+    const array_ty = ptr_ty.childType(zcu);
+    const array_len = array_ty.arrayLen(zcu);
+
+    const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(slice_ty, zcu));
+    try func.genSetMem(.{ .frame = frame_index }, 0, ptr_ty, ptr);
+    try func.genSetMem(
+        .{ .frame = frame_index },
+        @intCast(ptr_ty.abiSize(zcu)),
+        Type.usize,
+        .{ .immediate = array_len },
+    );
+
+    const result = MCValue{ .load_frame = .{ .index = frame_index } };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
