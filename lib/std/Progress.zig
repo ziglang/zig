@@ -86,12 +86,20 @@ pub const Node = struct {
         name: [max_name_len]u8,
 
         fn getIpcFd(s: Storage) ?posix.fd_t {
-            return if (s.estimated_total_count != std.math.maxInt(u32)) null else @bitCast(s.completed_count);
+            return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(posix.fd_t)) {
+                .Int => @bitCast(s.completed_count),
+                .Pointer => @ptrFromInt(s.completed_count),
+                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+            } else null;
         }
 
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
             s.estimated_total_count = std.math.maxInt(u32);
-            s.completed_count = @bitCast(fd);
+            s.completed_count = switch (@typeInfo(posix.fd_t)) {
+                .Int => @bitCast(fd),
+                .Pointer => @intFromPtr(fd),
+                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+            };
         }
 
         comptime {
@@ -316,12 +324,16 @@ pub fn start(options: Options) Node {
     global_progress.initial_delay_ns = options.initial_delay_ns;
 
     if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
-        if (std.Thread.spawn(.{}, ipcThreadRun, .{ipc_fd})) |thread| {
-            global_progress.update_thread = thread;
-        } else |err| {
+        global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
+            @as(posix.fd_t, switch (@typeInfo(posix.fd_t)) {
+                .Int => ipc_fd,
+                .Pointer => @ptrFromInt(ipc_fd),
+                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+            }),
+        }) catch |err| {
             std.log.warn("failed to spawn IPC thread for communicating progress to parent: {s}", .{@errorName(err)});
             return .{ .index = .none };
-        }
+        };
     } else |env_err| switch (env_err) {
         error.EnvironmentVariableNotFound => {
             if (options.disable_printing) {
@@ -572,6 +584,20 @@ const SavedMetadata = struct {
     main_index: u16,
     start_index: u16,
     nodes_len: u16,
+
+    fn getIpcFd(metadata: SavedMetadata) posix.fd_t {
+        return if (builtin.os.tag == .windows)
+            @ptrFromInt(@as(usize, metadata.ipc_fd) << 2)
+        else
+            metadata.ipc_fd;
+    }
+
+    fn setIpcFd(fd: posix.fd_t) u16 {
+        return @intCast(if (builtin.os.tag == .windows)
+            @shrExact(@intFromPtr(fd), 2)
+        else
+            fd);
+    }
 };
 
 fn serializeIpc(start_serialized_len: usize) usize {
@@ -638,7 +664,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
 
         // Remember in case the pipe is empty on next update.
         ipc_metadata[ipc_metadata_len] = .{
-            .ipc_fd = @intCast(fd),
+            .ipc_fd = SavedMetadata.setIpcFd(fd),
             .start_index = @intCast(serialized_len),
             .nodes_len = @intCast(parents.len),
             .main_index = @intCast(main_index),
@@ -687,7 +713,7 @@ fn copyRoot(dest: *Node.Storage, src: *align(2) Node.Storage) void {
 
 fn findOld(ipc_fd: posix.fd_t, old_metadata: []const SavedMetadata) ?*const SavedMetadata {
     for (old_metadata) |*m| {
-        if (m.ipc_fd == ipc_fd)
+        if (m.getIpcFd() == ipc_fd)
             return m;
     }
     return null;
@@ -711,7 +737,7 @@ fn useSavedIpcData(
     const old_main_index = saved_metadata.main_index;
 
     ipc_metadata[ipc_metadata_len] = .{
-        .ipc_fd = @intCast(ipc_fd),
+        .ipc_fd = SavedMetadata.setIpcFd(ipc_fd),
         .start_index = @intCast(start_serialized_len),
         .nodes_len = nodes_len,
         .main_index = @intCast(main_index),
@@ -911,21 +937,32 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
 fn maybeUpdateSize(resize_flag: bool) void {
     if (!resize_flag) return;
 
-    var winsize: posix.winsize = .{
-        .ws_row = 0,
-        .ws_col = 0,
-        .ws_xpixel = 0,
-        .ws_ypixel = 0,
-    };
-
     const fd = (global_progress.terminal orelse return).handle;
 
-    const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
-    if (posix.errno(err) == .SUCCESS) {
-        global_progress.rows = winsize.ws_row;
-        global_progress.cols = winsize.ws_col;
+    if (builtin.os.tag == .windows) {
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+
+        if (windows.kernel32.GetConsoleScreenBufferInfo(fd, &info) == windows.FALSE) {
+            @panic("TODO: handle this failure");
+        }
+
+        global_progress.rows = @intCast(info.dwSize.Y);
+        global_progress.cols = @intCast(info.dwSize.X);
     } else {
-        @panic("TODO: handle this failure");
+        var winsize: posix.winsize = .{
+            .ws_row = 0,
+            .ws_col = 0,
+            .ws_xpixel = 0,
+            .ws_ypixel = 0,
+        };
+
+        const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
+        if (posix.errno(err) == .SUCCESS) {
+            global_progress.rows = winsize.ws_row;
+            global_progress.cols = winsize.ws_col;
+        } else {
+            @panic("TODO: handle this failure");
+        }
     }
 }
 

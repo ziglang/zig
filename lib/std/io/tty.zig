@@ -24,7 +24,7 @@ pub fn detectConfig(file: File) Config {
 
     if (native_os == .windows and file.isTty()) {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) == windows.FALSE) {
             return if (force_color == true) .escape_codes else .no_color;
         }
         return .{ .windows_api = .{

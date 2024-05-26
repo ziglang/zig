@@ -4504,7 +4504,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
     }
 
-    const decl_prog_node = mod.sema_prog_ndoe.start((try decl.fullyQualifiedName(mod)).toSlice(ip), 0);
+    const decl_prog_node = mod.sema_prog_node.start((try decl.fullyQualifiedName(mod)).toSlice(ip), 0);
     defer decl_prog_node.end();
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
