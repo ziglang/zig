@@ -3267,7 +3267,6 @@ pub fn panicArithOverflow(comptime Operand: type) type {
         const Extrema = std.meta.BestExtrema(Scalar);
         const len = @typeInfo(Operand).Vector.len;
         const simplify = builtin.zig_backend != .stage2_llvm;
-
         fn writeVecIdx(buf: [*]u8, idx: usize) [*]u8 {
             @setRuntimeSafety(false);
             buf[0..2].* = " [".*;
