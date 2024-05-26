@@ -10,11 +10,11 @@ struct Foo {
 // c_frontend=clang
 //
 // pub const struct_Bar_1 = extern struct {
-//     a: c_int = @import("std").mem.zeroes(c_int),
+//     a: c_int,
 // };
 // pub const struct_Foo = extern struct {
-//     a: c_int = @import("std").mem.zeroes(c_int),
-//     b: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
+//     a: c_int,
+//     b: struct_Bar_1,
 // };
 // pub export var a: struct_Foo = struct_Foo{
 //     .a = 0,

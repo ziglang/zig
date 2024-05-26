@@ -13,8 +13,8 @@ void func(struct Foo *a, enum Bar **b);
 // target=x86_64-windows-msvc
 //
 // pub const struct_Foo = extern struct {
-//     x: c_int = @import("std").mem.zeroes(c_int),
-//     y: c_int = @import("std").mem.zeroes(c_int),
+//     x: c_int,
+//     y: c_int,
 // };
 // pub const BarA: c_int = 0;
 // pub const BarB: c_int = 1;
