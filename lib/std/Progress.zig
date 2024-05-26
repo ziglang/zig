@@ -280,7 +280,6 @@ var global_progress: Progress = .{
     .draw_buffer = undefined,
     .done = false,
 
-    // TODO: make these configurable and avoid including the globals in .data if unused
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
     .node_freelist = &node_freelist_buffer,
@@ -288,10 +287,10 @@ var global_progress: Progress = .{
     .node_end_index = 0,
 };
 
-const default_node_storage_buffer_len = 200;
-var node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefined;
-var node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
-var node_freelist_buffer: [default_node_storage_buffer_len]Node.OptionalIndex = undefined;
+const node_storage_buffer_len = 200;
+var node_parents_buffer: [node_storage_buffer_len]Node.Parent = undefined;
+var node_storage_buffer: [node_storage_buffer_len]Node.Storage = undefined;
+var node_freelist_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefined;
 
 var default_draw_buffer: [4096]u8 = undefined;
 
@@ -391,14 +390,21 @@ fn wait(timeout_ns: u64) bool {
 }
 
 fn updateThreadRun() void {
+    // Store this data in the thread so that it does not need to be part of the
+    // linker data of the main executable.
+    var serialized_buffer: Serialized.Buffer = undefined;
+
     {
         const resize_flag = wait(global_progress.initial_delay_ns);
         maybeUpdateSize(resize_flag);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
+            stderr_mutex.lock();
+            defer stderr_mutex.unlock();
             return clearTerminal();
+        }
 
-        const buffer = computeRedraw();
+        const buffer = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             write(buffer);
@@ -409,10 +415,13 @@ fn updateThreadRun() void {
         const resize_flag = wait(global_progress.refresh_rate_ns);
         maybeUpdateSize(resize_flag);
 
-        if (@atomicLoad(bool, &global_progress.done, .seq_cst))
+        if (@atomicLoad(bool, &global_progress.done, .seq_cst)) {
+            stderr_mutex.lock();
+            defer stderr_mutex.unlock();
             return clearTerminal();
+        }
 
-        const buffer = computeRedraw();
+        const buffer = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             write(buffer);
@@ -433,13 +442,17 @@ pub fn unlockStdErr() void {
 }
 
 fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
+    // Store this data in the thread so that it does not need to be part of the
+    // linker data of the main executable.
+    var serialized_buffer: Serialized.Buffer = undefined;
+
     {
         _ = wait(global_progress.initial_delay_ns);
 
         if (@atomicLoad(bool, &global_progress.done, .seq_cst))
             return;
 
-        const serialized = serialize();
+        const serialized = serialize(&serialized_buffer);
         writeIpc(fd, serialized) catch |err| switch (err) {
             error.BrokenPipe => return,
         };
@@ -451,7 +464,7 @@ fn ipcThreadRun(fd: posix.fd_t) anyerror!void {
         if (@atomicLoad(bool, &global_progress.done, .seq_cst))
             return clearTerminal();
 
-        const serialized = serialize();
+        const serialized = serialize(&serialized_buffer);
         writeIpc(fd, serialized) catch |err| switch (err) {
             error.BrokenPipe => return,
         };
@@ -511,17 +524,18 @@ const Children = struct {
     sibling: Node.OptionalIndex,
 };
 
-// TODO make this configurable
-var serialized_node_parents_buffer: [default_node_storage_buffer_len]Node.Parent = undefined;
-var serialized_node_storage_buffer: [default_node_storage_buffer_len]Node.Storage = undefined;
-var serialized_node_map_buffer: [default_node_storage_buffer_len]Node.Index = undefined;
-
 const Serialized = struct {
     parents: []Node.Parent,
     storage: []Node.Storage,
+
+    const Buffer = struct {
+        parents: [node_storage_buffer_len]Node.Parent,
+        storage: [node_storage_buffer_len]Node.Storage,
+        map: [node_storage_buffer_len]Node.Index,
+    };
 };
 
-fn serialize() Serialized {
+fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     var serialized_len: usize = 0;
     var any_ipc = false;
 
@@ -533,15 +547,15 @@ fn serialize() Serialized {
     for (node_parents, node_storage, 0..) |*parent_ptr, *storage_ptr, i| {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
         while (begin_parent != .unused) {
-            const dest_storage = &serialized_node_storage_buffer[serialized_len];
+            const dest_storage = &serialized_buffer.storage[serialized_len];
             @memcpy(&dest_storage.name, &storage_ptr.name);
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .monotonic);
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
             if (begin_parent == end_parent) {
                 any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
-                serialized_node_parents_buffer[serialized_len] = begin_parent;
-                serialized_node_map_buffer[i] = @enumFromInt(serialized_len);
+                serialized_buffer.parents[serialized_len] = begin_parent;
+                serialized_buffer.map[i] = @enumFromInt(serialized_len);
                 serialized_len += 1;
                 break;
             }
@@ -551,29 +565,29 @@ fn serialize() Serialized {
     }
 
     // Remap parents to point inside serialized arrays.
-    for (serialized_node_parents_buffer[0..serialized_len]) |*parent| {
+    for (serialized_buffer.parents[0..serialized_len]) |*parent| {
         parent.* = switch (parent.*) {
             .unused => unreachable,
             .none => .none,
-            _ => |p| serialized_node_map_buffer[@intFromEnum(p)].toParent(),
+            _ => |p| serialized_buffer.map[@intFromEnum(p)].toParent(),
         };
     }
 
     // Find nodes which correspond to child processes.
     if (any_ipc)
-        serialized_len = serializeIpc(serialized_len);
+        serialized_len = serializeIpc(serialized_len, serialized_buffer);
 
     return .{
-        .parents = serialized_node_parents_buffer[0..serialized_len],
-        .storage = serialized_node_storage_buffer[0..serialized_len],
+        .parents = serialized_buffer.parents[0..serialized_len],
+        .storage = serialized_buffer.storage[0..serialized_len],
     };
 }
 
-var parents_copy: [default_node_storage_buffer_len]Node.Parent = undefined;
-var storage_copy: [default_node_storage_buffer_len]Node.Storage = undefined;
-var ipc_metadata_copy: [default_node_storage_buffer_len]SavedMetadata = undefined;
+var parents_copy: [node_storage_buffer_len]Node.Parent = undefined;
+var storage_copy: [node_storage_buffer_len]Node.Storage = undefined;
+var ipc_metadata_copy: [node_storage_buffer_len]SavedMetadata = undefined;
 
-var ipc_metadata: [default_node_storage_buffer_len]SavedMetadata = undefined;
+var ipc_metadata: [node_storage_buffer_len]SavedMetadata = undefined;
 var ipc_metadata_len: u16 = 0;
 
 const SavedMetadata = struct {
@@ -597,7 +611,7 @@ const SavedMetadata = struct {
     }
 };
 
-fn serializeIpc(start_serialized_len: usize) usize {
+fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buffer) usize {
     var serialized_len = start_serialized_len;
     var pipe_buf: [2 * 4096]u8 align(4) = undefined;
 
@@ -605,8 +619,8 @@ fn serializeIpc(start_serialized_len: usize) usize {
     ipc_metadata_len = 0;
 
     main_loop: for (
-        serialized_node_parents_buffer[0..serialized_len],
-        serialized_node_storage_buffer[0..serialized_len],
+        serialized_buffer.parents[0..serialized_len],
+        serialized_buffer.storage[0..serialized_len],
         0..,
     ) |main_parent, *main_storage, main_index| {
         if (main_parent == .unused) continue;
@@ -628,7 +642,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
         // Ignore all but the last message on the pipe.
         var input: []align(2) u8 = pipe_buf[0..bytes_read];
         if (input.len == 0) {
-            serialized_len = useSavedIpcData(serialized_len, main_storage, main_index, old_ipc_metadata);
+            serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
             continue;
         }
 
@@ -636,7 +650,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
             if (input.len < 4) {
                 std.log.warn("short read: {d} out of 4 header bytes", .{input.len});
                 // TODO keep track of the short read to trash odd bytes with the next read
-                serialized_len = useSavedIpcData(serialized_len, main_storage, main_index, old_ipc_metadata);
+                serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
                 continue :main_loop;
             }
             const subtree_len = std.mem.readInt(u32, input[0..4], .little);
@@ -644,7 +658,7 @@ fn serializeIpc(start_serialized_len: usize) usize {
             if (input.len < expected_bytes) {
                 std.log.warn("short read: {d} out of {d} ({d} nodes)", .{ input.len, expected_bytes, subtree_len });
                 // TODO keep track of the short read to trash odd bytes with the next read
-                serialized_len = useSavedIpcData(serialized_len, main_storage, main_index, old_ipc_metadata);
+                serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
                 continue :main_loop;
             }
             if (input.len > expected_bytes) {
@@ -672,12 +686,12 @@ fn serializeIpc(start_serialized_len: usize) usize {
         copyRoot(main_storage, &storage[0]);
 
         // Copy the rest of the tree to the end.
-        @memcpy(serialized_node_storage_buffer[serialized_len..][0 .. storage.len - 1], storage[1..]);
+        @memcpy(serialized_buffer.storage[serialized_len..][0 .. storage.len - 1], storage[1..]);
 
         // Patch up parent pointers taking into account how the subtree is mounted.
-        serialized_node_parents_buffer[serialized_len] = .none;
+        serialized_buffer.parents[serialized_len] = .none;
 
-        for (serialized_node_parents_buffer[serialized_len..][0 .. parents.len - 1], parents[1..]) |*dest, p| {
+        for (serialized_buffer.parents[serialized_len..][0 .. parents.len - 1], parents[1..]) |*dest, p| {
             dest.* = switch (p) {
                 // Fix bad data so the rest of the code does not see `unused`.
                 .none, .unused => .none,
@@ -693,8 +707,8 @@ fn serializeIpc(start_serialized_len: usize) usize {
     }
 
     // Save a copy in case any pipes are empty on the next update.
-    @memcpy(parents_copy[0..serialized_len], serialized_node_parents_buffer[0..serialized_len]);
-    @memcpy(storage_copy[0..serialized_len], serialized_node_storage_buffer[0..serialized_len]);
+    @memcpy(parents_copy[0..serialized_len], serialized_buffer.parents[0..serialized_len]);
+    @memcpy(storage_copy[0..serialized_len], serialized_buffer.storage[0..serialized_len]);
     @memcpy(ipc_metadata_copy[0..ipc_metadata_len], ipc_metadata[0..ipc_metadata_len]);
 
     return serialized_len;
@@ -718,6 +732,7 @@ fn findOld(ipc_fd: posix.fd_t, old_metadata: []const SavedMetadata) ?*const Save
 
 fn useSavedIpcData(
     start_serialized_len: usize,
+    serialized_buffer: *Serialized.Buffer,
     main_storage: *Node.Storage,
     main_index: usize,
     old_metadata: []const SavedMetadata,
@@ -746,9 +761,9 @@ fn useSavedIpcData(
 
     copyRoot(main_storage, &storage_copy[old_main_index]);
 
-    @memcpy(serialized_node_storage_buffer[start_serialized_len..][0..storage.len], storage);
+    @memcpy(serialized_buffer.storage[start_serialized_len..][0..storage.len], storage);
 
-    for (serialized_node_parents_buffer[start_serialized_len..][0..parents.len], parents) |*dest, p| {
+    for (serialized_buffer.parents[start_serialized_len..][0..parents.len], parents) |*dest, p| {
         dest.* = switch (p) {
             .none, .unused => .none,
             _ => |prev| @enumFromInt(if (@intFromEnum(prev) == old_main_index)
@@ -761,14 +776,14 @@ fn useSavedIpcData(
     return start_serialized_len + storage.len;
 }
 
-fn computeRedraw() []u8 {
-    const serialized = serialize();
+fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
+    const serialized = serialize(serialized_buffer);
 
     // Now we can analyze our copy of the graph without atomics, reconstructing
     // children lists which do not exist in the canonical data. These are
     // needed for tree traversal below.
 
-    var children_buffer: [default_node_storage_buffer_len]Children = undefined;
+    var children_buffer: [node_storage_buffer_len]Children = undefined;
     const children = children_buffer[0..serialized.parents.len];
 
     @memset(children, .{ .child = .none, .sibling = .none });
