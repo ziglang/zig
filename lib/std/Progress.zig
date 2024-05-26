@@ -593,9 +593,9 @@ var ipc_metadata_len: u16 = 0;
 
 const SavedMetadata = struct {
     ipc_fd: u16,
-    main_index: u16,
-    start_index: u16,
-    nodes_len: u16,
+    main_index: u8,
+    start_index: u8,
+    nodes_len: u8,
 
     fn getIpcFd(metadata: SavedMetadata) posix.fd_t {
         return if (builtin.os.tag == .windows)
@@ -677,11 +677,13 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
             };
         };
 
+        const nodes_len: u8 = @intCast(@min(parents.len - 1, serialized_buffer.storage.len - serialized_len));
+
         // Remember in case the pipe is empty on next update.
         ipc_metadata[ipc_metadata_len] = .{
             .ipc_fd = SavedMetadata.setIpcFd(fd),
             .start_index = @intCast(serialized_len),
-            .nodes_len = @intCast(parents.len),
+            .nodes_len = nodes_len,
             .main_index = @intCast(main_index),
         };
         ipc_metadata_len += 1;
@@ -690,24 +692,26 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
         copyRoot(main_storage, &storage[0]);
 
         // Copy the rest of the tree to the end.
-        @memcpy(serialized_buffer.storage[serialized_len..][0 .. storage.len - 1], storage[1..]);
+        @memcpy(serialized_buffer.storage[serialized_len..][0..nodes_len], storage[1..][0..nodes_len]);
 
         // Patch up parent pointers taking into account how the subtree is mounted.
-        serialized_buffer.parents[serialized_len] = .none;
-
-        for (serialized_buffer.parents[serialized_len..][0 .. parents.len - 1], parents[1..]) |*dest, p| {
+        for (serialized_buffer.parents[serialized_len..][0..nodes_len], parents[1..][0..nodes_len]) |*dest, p| {
             dest.* = switch (p) {
                 // Fix bad data so the rest of the code does not see `unused`.
                 .none, .unused => .none,
                 // Root node is being mounted here.
                 @as(Node.Parent, @enumFromInt(0)) => @enumFromInt(main_index),
                 // Other nodes mounted at the end.
-                // TODO check for bad data pointing outside the expected range
-                _ => |off| @enumFromInt(serialized_len + @intFromEnum(off) - 1),
+                // Don't trust child data; if the data is outside the expected range, ignore the data.
+                // This also handles the case when data was truncated.
+                _ => |off| if (@intFromEnum(off) > nodes_len)
+                    .none
+                else
+                    @enumFromInt(serialized_len + @intFromEnum(off) - 1),
             };
         }
 
-        serialized_len += storage.len - 1;
+        serialized_len += nodes_len;
     }
 
     // Save a copy in case any pipes are empty on the next update.
@@ -753,7 +757,7 @@ fn useSavedIpcData(
     };
 
     const start_index = saved_metadata.start_index;
-    const nodes_len = saved_metadata.nodes_len;
+    const nodes_len = @min(saved_metadata.nodes_len, serialized_buffer.storage.len - start_serialized_len);
     const old_main_index = saved_metadata.main_index;
 
     ipc_metadata[ipc_metadata_len] = .{
@@ -764,8 +768,8 @@ fn useSavedIpcData(
     };
     ipc_metadata_len += 1;
 
-    const parents = parents_copy[start_index..][0 .. nodes_len - 1];
-    const storage = storage_copy[start_index..][0 .. nodes_len - 1];
+    const parents = parents_copy[start_index..][0..nodes_len];
+    const storage = storage_copy[start_index..][0..nodes_len];
 
     copyRoot(main_storage, &storage_copy[old_main_index]);
 
@@ -774,10 +778,15 @@ fn useSavedIpcData(
     for (serialized_buffer.parents[start_serialized_len..][0..parents.len], parents) |*dest, p| {
         dest.* = switch (p) {
             .none, .unused => .none,
-            _ => |prev| @enumFromInt(if (@intFromEnum(prev) == old_main_index)
-                main_index
-            else
-                @intFromEnum(prev) - start_index + start_serialized_len),
+            _ => |prev| d: {
+                if (@intFromEnum(prev) == old_main_index) {
+                    break :d @enumFromInt(main_index);
+                } else if (@intFromEnum(prev) > nodes_len) {
+                    break :d .none;
+                } else {
+                    break :d @enumFromInt(@intFromEnum(prev) - start_index + start_serialized_len);
+                }
+            },
         };
     }
 
