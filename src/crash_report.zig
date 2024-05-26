@@ -16,7 +16,16 @@ const Decl = Module.Decl;
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
+pub const panic = if (build_options.enable_debug_extensions) compilerPanicOld else std.debug.panicImpl;
 pub const panic2 = if (build_options.enable_debug_extensions) compilerPanicSimple else std.builtin.panic2;
+
+pub fn compilerPanicOld(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+    PanicSwitch.preDispatch();
+    @setCold(true);
+    const ret_addr = maybe_ret_addr orelse @returnAddress();
+    const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
+    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
+}
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
