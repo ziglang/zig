@@ -610,6 +610,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const prog_fileno = 3;
+    comptime assert(@max(posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO) + 1 == prog_fileno);
 
     const envp: [*:null]const ?[*:0]const u8 = m: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
