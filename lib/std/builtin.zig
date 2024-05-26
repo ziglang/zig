@@ -984,11 +984,11 @@ pub fn PanicData(comptime cause: PanicCause) type {
 
 pub const panic2 = if (@hasDecl(root, "panic2")) root.panic2 else panicImplData;
 
-fn panicImpl(id: anytype) noreturn {
+pub fn panicImpl(id: anytype) noreturn {
     std.debug.panicImpl(if (@TypeOf(id) != []const u8) @tagName(id) else id, @errorReturnTrace(), @returnAddress());
 }
 
-fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {
+pub fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
     if (@TypeOf(data) == void) @call(.auto, std.debug.panicImpl, .{
@@ -1075,7 +1075,7 @@ fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {
             std.meta.bestExtrema(num_types.to), data,
             @returnAddress(),
         }),
-        else => @trap(),
+        else => @compileError(@field(std.debug.panic_messages, @tagName(cause))),
     }
 }
 
