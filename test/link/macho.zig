@@ -51,6 +51,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testSymbolStabs(b, .{ .target = default_target }));
     macho_step.dependOn(testStackSize(b, .{ .target = default_target }));
     macho_step.dependOn(testTentative(b, .{ .target = default_target }));
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
@@ -1989,6 +1990,54 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external segment$start$__DATA_1");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testSymbolStabs(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "symbol-stabs", opts);
+
+    const a_o = addObject(b, opts, .{ .name = "a", .c_source_bytes = 
+    \\int foo = 42;
+    \\int getFoo() {
+    \\  return foo;
+    \\}
+    });
+
+    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
+    \\int bar = 24;
+    \\int getBar() {
+    \\  return bar;
+    \\}
+    });
+
+    const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\extern int getFoo();
+    \\extern int getBar();
+    \\int main() {
+    \\  printf("foo=%d,bar=%d", getFoo(), getBar());
+    \\  return 0;
+    \\}
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(a_o);
+    exe.addObject(b_o);
+    exe.addObject(main_o);
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("foo=42,bar=24");
+    test_step.dependOn(&run.step);
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("a.o"); // TODO we really should do a fuzzy search like OSO <ignore>/a.o
+    check.checkInSymtab();
+    check.checkContains("b.o");
+    check.checkInSymtab();
+    check.checkContains("main.o");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
