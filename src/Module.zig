@@ -66,6 +66,7 @@ root_mod: *Package.Module,
 main_mod: *Package.Module,
 std_mod: *Package.Module,
 sema_prog_node: std.Progress.Node = undefined,
+codegen_prog_node: std.Progress.Node = undefined,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Compilation.Directory,
@@ -3009,7 +3010,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             };
         }
 
-        const decl_prog_node = mod.sema_prog_node.start(decl.name.toSlice(ip), 0);
+        const decl_prog_node = mod.sema_prog_node.start((try decl.fullyQualifiedName(mod)).toSlice(ip), 0);
         defer decl_prog_node.end();
 
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
@@ -3214,6 +3215,9 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
             },
         };
     }
+
+    const codegen_prog_node = zcu.codegen_prog_node.start((try decl.fullyQualifiedName(zcu)).toSlice(ip), 0);
+    defer codegen_prog_node.end();
 
     if (comp.bin_file) |lf| {
         lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
@@ -4500,6 +4504,9 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
     }
 
+    const decl_prog_node = mod.sema_prog_ndoe.start((try decl.fullyQualifiedName(mod)).toSlice(ip), 0);
+    defer decl_prog_node.end();
+
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
     var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
@@ -5333,9 +5340,12 @@ pub fn populateTestFunctions(
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
         // was not referenced by start code.
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
         defer {
             mod.sema_prog_node.end();
             mod.sema_prog_node = undefined;
+            mod.codegen_prog_node.end();
+            mod.codegen_prog_node = undefined;
         }
         try mod.ensureDeclAnalyzed(decl_index);
     }
@@ -5445,15 +5455,18 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
     const comp = zcu.comp;
 
+    const decl = zcu.declPtr(decl_index);
+
+    const codegen_prog_node = zcu.codegen_prog_node.start((try decl.fullyQualifiedName(zcu)).toSlice(&zcu.intern_pool), 0);
+    defer codegen_prog_node.end();
+
     if (comp.bin_file) |lf| {
         lf.updateDecl(zcu, decl_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                const decl = zcu.declPtr(decl_index);
                 decl.analysis = .codegen_failure;
             },
             else => {
-                const decl = zcu.declPtr(decl_index);
                 const gpa = zcu.gpa;
                 try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
@@ -5471,7 +5484,6 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
         llvm_object.updateDecl(zcu, decl_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                const decl = zcu.declPtr(decl_index);
                 decl.analysis = .codegen_failure;
             },
         };

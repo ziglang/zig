@@ -3331,10 +3331,13 @@ pub fn performAllTheWork(
         try reportMultiModuleErrors(mod);
         try mod.flushRetryableFailures();
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
     defer if (comp.module) |mod| {
         mod.sema_prog_node.end();
         mod.sema_prog_node = undefined;
+        mod.codegen_prog_node.end();
+        mod.codegen_prog_node = undefined;
     };
 
     while (true) {
