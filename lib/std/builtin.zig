@@ -794,10 +794,11 @@ pub noinline fn returnError(st: *StackTrace) void {
 }
 
 pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-    if (st.index < st.instruction_addresses.len)
+    @setRuntimeSafety(false);
+    if (st.index < st.instruction_addresses.len) {
         st.instruction_addresses[st.index] = addr;
-
-    st.index += 1;
+    }
+    st.index +%= 1;
 }
 
 /// This type is used by the Zig language code generation and
