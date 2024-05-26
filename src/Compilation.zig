@@ -4609,10 +4609,14 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
         // Just to save disk space, we delete the files that are never needed again.
         defer if (!comp.clang_passthrough_mode) zig_cache_tmp_dir.deleteFile(std.fs.path.basename(out_diag_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
+            if (err != error.FileNotFound) {
+                log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
+            }
         };
         defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+            if (err != error.FileNotFound) {
+                log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+            }
         };
         if (std.process.can_spawn) {
             var child = std.ChildProcess.init(argv.items, arena);

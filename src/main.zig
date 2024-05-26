@@ -4609,7 +4609,9 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+                if (err != error.FileNotFound) {
+                    log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+                }
             };
         }
 
