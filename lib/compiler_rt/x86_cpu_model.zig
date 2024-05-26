@@ -211,10 +211,19 @@ fn getAmdTypeAndSubtype(
         21 => {
             t = .amdfam15h;
             switch (model) {
-                0x60...0x7f => s = .amdfam15h_bdver4,
-                0x30...0x3f => s = .amdfam15h_bdver3,
-                0x10...0x1f => s = .amdfam15h_bdver2,
-                0x00...0x0f => s = if (model == 0x02) .amdfam15h_bdver2 else .amdfam15h_bdver1,
+                0x60...0x7f, // 60h-7Fh: Excavator
+                => s = .amdfam15h_bdver4,
+
+                0x30...0x3f, // 30h-3Fh: Steamroller
+                => s = .amdfam15h_bdver3,
+
+                0x10...0x1f, // 10h-1Fh: Piledriver
+                => s = .amdfam15h_bdver2,
+
+                0x00...0x0f => s = if (model == 0x02)
+                    .amdfam15h_bdver2 // 02h: Piledriver
+                else
+                    .amdfam15h_bdver1, // 00h-0Fh: Bulldozer
                 else => {},
             }
         },
@@ -222,16 +231,40 @@ fn getAmdTypeAndSubtype(
         23 => {
             t = .amdfam17h;
             switch (model) {
-                0x30...0x3f, 0x71 => s = .amdfam17h_znver2,
-                0x00...0x0f => s = .amdfam17h_znver1,
+                0x30...0x3f, // Family 17h Models 30h-3Fh (Starship) Zen 2
+                0x47, // Family 17h Models 47h (Cardinal) Zen 2
+                0x60...0x67, // Family 17h Models 60h-67h (Renoir) Zen 2
+                0x68...0x6f, // Family 17h Models 68h-6Fh (Lucienne) Zen 2
+                0x70...0x7f, // Family 17h Models 70h-7Fh (Matisse) Zen 2
+                0x84...0x87, // Family 17h Models 84h-87h (ProjectX) Zen 2
+                0x90...0x97, // Family 17h Models 90h-97h (VanGogh) Zen 2
+                0x98...0x9f, // Family 17h Models 98h-9Fh (Mero) Zen 2
+                0xa0...0xaf, // Family 17h Models A0h-AFh (Mendocino) Zen 2
+                => s = .amdfam17h_znver2,
+
+                0x10...0x1f, // Family 17h Models 10h-1Fh (Raven1) Zen and Family 17h Models 10h-1Fh (Picasso) Zen+
+                0x20...0x2f, // Family 17h Models 20h-2Fh (Raven2 x86) Zen
+                => s = .amdfam17h_znver1,
+
                 else => {},
             }
         },
         25 => {
             t = .amdfam19h;
             switch (model) {
-                0x00...0x0f, 0x20...0x5f => s = .amdfam19h_znver3,
-                0x10...0x1f, 0x60...0x74, 0x78...0x7b, 0xa0...0xaf => s = .amdfam19h_znver4,
+                0x00...0x0f, // Family 19h Models 00h-0Fh (Genesis, Chagall) Zen 3
+                0x20...0x2f, // Family 19h Models 20h-2Fh (Vermeer) Zen 3
+                0x30...0x3f, // Family 19h Models 30h-3Fh (Badami) Zen 3
+                0x40...0x4f, // Family 19h Models 40h-4Fh (Rembrandt) Zen 3+
+                0x50...0x5f, // Family 19h Models 50h-5Fh (Cezanne) Zen 3
+                => s = .amdfam19h_znver3,
+
+                0x10...0x1f, // Family 19h Models 10h-1Fh (Stones; Storm Peak) Zen 4
+                0x60...0x6f, // Family 19h Models 60h-6Fh (Raphael) Zen 4
+                0x70...0x77, // Family 19h Models 70h-77h (Phoenix, Hawkpoint1) Zen 4
+                0x78...0x7f, // Family 19h Models 78h-7Fh (Phoenix 2, Hawkpoint2) Zen 4
+                0xa0...0xaf, // Family 19h Models A0h-AFh (Stones-Dense) Zen 4
+                => s = .amdfam19h_znver4,
                 else => {},
             }
         },
@@ -333,6 +366,7 @@ fn getIntelTypeAndSubtype(
             0x86, 0x8a, 0x96, 0x9c => t = .intel_tremont,
             0xaf => t = .intel_sierraforest,
             0xb6 => t = .intel_grandridge,
+            0xdd => t = .intel_clearwaterforest,
             0x57 => t = .intel_knl,
             0x85 => t = .intel_knm,
             else => {},
