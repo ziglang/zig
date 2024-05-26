@@ -532,6 +532,12 @@ const Serialized = struct {
         parents: [node_storage_buffer_len]Node.Parent,
         storage: [node_storage_buffer_len]Node.Storage,
         map: [node_storage_buffer_len]Node.Index,
+
+        parents_copy: [node_storage_buffer_len]Node.Parent,
+        storage_copy: [node_storage_buffer_len]Node.Storage,
+        ipc_metadata_copy: [node_storage_buffer_len]SavedMetadata,
+
+        ipc_metadata: [node_storage_buffer_len]SavedMetadata,
     };
 };
 
@@ -583,11 +589,6 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     };
 }
 
-var parents_copy: [node_storage_buffer_len]Node.Parent = undefined;
-var storage_copy: [node_storage_buffer_len]Node.Storage = undefined;
-var ipc_metadata_copy: [node_storage_buffer_len]SavedMetadata = undefined;
-
-var ipc_metadata: [node_storage_buffer_len]SavedMetadata = undefined;
 var ipc_metadata_len: u16 = 0;
 
 const SavedMetadata = struct {
@@ -612,6 +613,9 @@ const SavedMetadata = struct {
 };
 
 fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buffer) usize {
+    const ipc_metadata_copy = &serialized_buffer.ipc_metadata_copy;
+    const ipc_metadata = &serialized_buffer.ipc_metadata;
+
     var serialized_len = start_serialized_len;
     var pipe_buf: [2 * 4096]u8 align(4) = undefined;
 
@@ -707,8 +711,8 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
     }
 
     // Save a copy in case any pipes are empty on the next update.
-    @memcpy(parents_copy[0..serialized_len], serialized_buffer.parents[0..serialized_len]);
-    @memcpy(storage_copy[0..serialized_len], serialized_buffer.storage[0..serialized_len]);
+    @memcpy(serialized_buffer.parents_copy[0..serialized_len], serialized_buffer.parents[0..serialized_len]);
+    @memcpy(serialized_buffer.storage_copy[0..serialized_len], serialized_buffer.storage[0..serialized_len]);
     @memcpy(ipc_metadata_copy[0..ipc_metadata_len], ipc_metadata[0..ipc_metadata_len]);
 
     return serialized_len;
@@ -737,6 +741,10 @@ fn useSavedIpcData(
     main_index: usize,
     old_metadata: []const SavedMetadata,
 ) usize {
+    const parents_copy = &serialized_buffer.parents_copy;
+    const storage_copy = &serialized_buffer.storage_copy;
+    const ipc_metadata = &serialized_buffer.ipc_metadata;
+
     const ipc_fd = main_storage.getIpcFd().?;
     const saved_metadata = findOld(ipc_fd, old_metadata) orelse {
         main_storage.completed_count = 0;
