@@ -5968,7 +5968,7 @@ pub fn updateSubCompilation(
         const sub_node = prog_node.start(@tagName(misc_task), 0);
         defer sub_node.end();
 
-        try sub_comp.update(prog_node);
+        try sub_comp.update(sub_node);
     }
 
     // Look for compilation errors in this sub compilation
