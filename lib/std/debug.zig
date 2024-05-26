@@ -1520,10 +1520,10 @@ test printLineFromFileAnyOs {
     const expectError = std.testing.expectError;
     const expectEqualStrings = std.testing.expectEqualStrings;
 
-    var test_dir = std.testing.tmpDir(.{});
-    defer test_dir.cleanup();
+    var test_dir = std.testing.tmpDir(allocator, .{});
+    defer test_dir.cleanup(allocator);
     // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
-    const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
+    const test_dir_path = try join(allocator, &.{ test_dir.parent_path, test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
     // Cases

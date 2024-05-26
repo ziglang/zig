@@ -1065,8 +1065,8 @@ test "cache file and then recall it" {
         return error.SkipZigTest;
     }
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
@@ -1131,8 +1131,8 @@ test "check that changing a file makes cache fail" {
         return error.SkipZigTest;
     }
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const temp_file = "cache_hash_change_file_test.txt";
     const temp_manifest_dir = "cache_hash_change_file_manifest_dir";
@@ -1205,8 +1205,8 @@ test "no file inputs" {
         return error.SkipZigTest;
     }
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
 
@@ -1253,8 +1253,8 @@ test "Manifest with files added after initial hash work" {
         return error.SkipZigTest;
     }
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const temp_file1 = "cache_hash_post_file_test1.txt";
     const temp_file2 = "cache_hash_post_file_test2.txt";

@@ -1395,7 +1395,7 @@ test "packfile indexing and checkout" {
     // 4. `git checkout dd582c0720819ab7130b103635bd7271b9fd4feb`
     const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
 
-    var git_dir = testing.tmpDir(.{});
+    var git_dir = testing.tmpDir(testing.allocator, .{});
     defer git_dir.cleanup();
     var pack_file = try git_dir.dir.createFile("testrepo.pack", .{ .read = true });
     defer pack_file.close();
@@ -1420,7 +1420,7 @@ test "packfile indexing and checkout" {
     var repository = try Repository.init(testing.allocator, pack_file, index_file);
     defer repository.deinit();
 
-    var worktree = testing.tmpDir(.{ .iterate = true });
+    var worktree = testing.tmpDir(testing.allocator, .{ .iterate = true });
     defer worktree.cleanup();
 
     const commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");

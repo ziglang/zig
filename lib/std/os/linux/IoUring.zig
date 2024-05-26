@@ -1793,8 +1793,8 @@ test "writev/fsync/readv" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_writev_fsync_readv";
     const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
@@ -1863,8 +1863,8 @@ test "write/read" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
     const path = "test_io_uring_write_read";
     const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
@@ -1910,7 +1910,9 @@ test "splice/read" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer testing.allocator.free(tmp.parent_path);
+
     const path_src = "test_io_uring_splice_src";
     const file_src = try tmp.dir.createFile(path_src, .{ .read = true, .truncate = true });
     defer file_src.close();
@@ -1981,8 +1983,8 @@ test "write_fixed/read_fixed" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_write_read_fixed";
     const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
@@ -2046,8 +2048,8 @@ test "openat" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_openat";
 
@@ -2100,8 +2102,8 @@ test "close" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_close";
     const file = try tmp.dir.createFile(path, .{});
@@ -2432,8 +2434,8 @@ test "fallocate" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_fallocate";
     const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
@@ -2478,8 +2480,8 @@ test "statx" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
     const path = "test_io_uring_statx";
     const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
@@ -2739,8 +2741,8 @@ test "renameat" {
     const old_path = "test_io_uring_renameat_old";
     const new_path = "test_io_uring_renameat_new";
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     // Write old file with data
 
@@ -2807,8 +2809,8 @@ test "unlinkat" {
 
     const path = "test_io_uring_unlinkat";
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     // Write old file with data
 
@@ -2857,8 +2859,8 @@ test "mkdirat" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_mkdirat";
 
@@ -2901,8 +2903,8 @@ test "symlinkat" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_io_uring_symlinkat";
     const link_path = "test_io_uring_symlinkat_link";
@@ -2949,8 +2951,8 @@ test "linkat" {
     };
     defer ring.deinit();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const first_path = "test_io_uring_linkat_first";
     const second_path = "test_io_uring_linkat_second";
@@ -3810,8 +3812,8 @@ test "openat_direct/close_direct" {
     var registered_fds = [_]posix.fd_t{-1} ** 3;
     try ring.register_files(registered_fds[0..]);
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
     const path = "test_io_uring_close_direct";
     const flags: linux.O = .{ .ACCMODE = .RDWR, .CREAT = true };
     const mode: posix.mode_t = 0o666;

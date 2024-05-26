@@ -901,8 +901,8 @@ test "header parse mode" {
 }
 
 test "create file and symlink" {
-    var root = testing.tmpDir(.{});
-    defer root.cleanup();
+    var root = testing.tmpDir(testing.allocator, .{});
+    defer root.cleanup(testing.allocator);
 
     var file = try createDirAndFile(root.dir, "file1", default_mode);
     file.close();
@@ -1005,8 +1005,8 @@ test pipeToFileSystem {
     var fbs = std.io.fixedBufferStream(data);
     const reader = fbs.reader();
 
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+    defer tmp.cleanup(testing.allocator);
     const dir = tmp.dir;
 
     // Save tar from `reader` to the file system `dir`
@@ -1039,8 +1039,8 @@ test "pipeToFileSystem root_dir" {
 
     // with strip_components = 1
     {
-        var tmp = testing.tmpDir(.{ .no_follow = true });
-        defer tmp.cleanup();
+        var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+        defer tmp.cleanup(testing.allocator);
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
@@ -1061,8 +1061,8 @@ test "pipeToFileSystem root_dir" {
     // with strip_components = 0
     {
         fbs.reset();
-        var tmp = testing.tmpDir(.{ .no_follow = true });
-        defer tmp.cleanup();
+        var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+        defer tmp.cleanup(testing.allocator);
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
         defer diagnostics.deinit();
 
@@ -1086,8 +1086,8 @@ test "findRoot without explicit root dir" {
     var fbs = std.io.fixedBufferStream(data);
     const reader = fbs.reader();
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
     defer diagnostics.deinit();
@@ -1139,7 +1139,8 @@ test "executable bit" {
         var fbs = std.io.fixedBufferStream(data);
         const reader = fbs.reader();
 
-        var tmp = testing.tmpDir(.{ .no_follow = true });
+        var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+        defer testing.allocator.free(tmp.parent_path);
         //defer tmp.cleanup();
 
         pipeToFileSystem(tmp.dir, reader, .{

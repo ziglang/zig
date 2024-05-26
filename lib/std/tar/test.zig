@@ -469,8 +469,8 @@ test "should not overwrite existing file" {
     var fsb = std.io.fixedBufferStream(data);
 
     // Unpack with strip_components = 1 should fail
-    var root = std.testing.tmpDir(.{});
-    defer root.cleanup();
+    var root = std.testing.tmpDir(testing.allocator, .{});
+    defer root.cleanup(testing.allocator);
     try testing.expectError(
         error.PathAlreadyExists,
         tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }),
@@ -478,8 +478,8 @@ test "should not overwrite existing file" {
 
     // Unpack with strip_components = 0 should pass
     fsb.reset();
-    var root2 = std.testing.tmpDir(.{});
-    defer root2.cleanup();
+    var root2 = std.testing.tmpDir(testing.allocator, .{});
+    defer root2.cleanup(testing.allocator);
     try tar.pipeToFileSystem(root2.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 0 });
 }
 
@@ -496,8 +496,8 @@ test "case sensitivity" {
     const data = @embedFile("testdata/18089.tar");
     var fsb = std.io.fixedBufferStream(data);
 
-    var root = std.testing.tmpDir(.{});
-    defer root.cleanup();
+    var root = std.testing.tmpDir(testing.allocator, .{});
+    defer root.cleanup(testing.allocator);
 
     tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
         // on case insensitive fs we fail on overwrite existing file

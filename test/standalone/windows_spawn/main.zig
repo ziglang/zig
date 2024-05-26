@@ -12,8 +12,8 @@ pub fn main() anyerror!void {
     _ = it.next() orelse unreachable; // skip binary name
     const hello_exe_cache_path = it.next() orelse unreachable;
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
 
     const tmp_absolute_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(tmp_absolute_path);

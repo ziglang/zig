@@ -543,30 +543,53 @@ pub fn expect(ok: bool) !void {
 pub const TmpDir = struct {
     dir: std.fs.Dir,
     parent_dir: std.fs.Dir,
+    parent_path: []const u8,
     sub_path: [sub_path_len]u8,
 
     const random_bytes_count = 12;
     const sub_path_len = std.fs.base64_encoder.calcSize(random_bytes_count);
 
-    pub fn cleanup(self: *TmpDir) void {
+    pub fn cleanup(self: *TmpDir, alloc: std.mem.Allocator) void {
         self.dir.close();
         self.parent_dir.deleteTree(&self.sub_path) catch {};
         self.parent_dir.close();
+        alloc.free(self.parent_path);
         self.* = undefined;
     }
 };
 
-pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+///Create a temporary directory in the zig-cache.
+///
+///The allocator is used to determine the location of the zig cache
+///and store the location of the zig-cache/tmp directory
+pub fn tmpDir(alloc: std.mem.Allocator, opts: std.fs.Dir.OpenDirOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
+    const cache_fail_msg = "unable to make tmp dir for testing: cant determine .zig-cache/tmp dir";
+
+    const maybe_cache_path = std.zig.EnvVar.ZIG_LOCAL_CACHE_DIR.get(alloc) catch
+        @panic(cache_fail_msg);
+
+    const parent_path = blk: {
+        if (maybe_cache_path) |cache_path| {
+            const tmp_path = std.fs.path.join(alloc, &[_][]const u8{ cache_path, "tmp" }) catch
+                @panic(cache_fail_msg);
+
+            alloc.free(cache_path);
+
+            break :blk tmp_path;
+        } else {
+            break :blk alloc.dupe(u8, ".zig-cache" ++ .{std.fs.path.sep} ++ "tmp") catch
+                @panic(cache_fail_msg);
+        }
+    };
+
     const cwd = std.fs.cwd();
-    var cache_dir = cwd.makeOpenPath(".zig-cache", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open .zig-cache dir");
-    defer cache_dir.close();
-    const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
+
+    const parent_dir = cwd.makeOpenPath(parent_path, .{}) catch
         @panic("unable to make tmp dir for testing: unable to make and open .zig-cache/tmp dir");
     const dir = parent_dir.makeOpenPath(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
@@ -574,6 +597,7 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
     return .{
         .dir = dir,
         .parent_dir = parent_dir,
+        .parent_path = parent_path,
         .sub_path = sub_path,
     };
 }

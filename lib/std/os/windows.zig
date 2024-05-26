@@ -1216,8 +1216,8 @@ test QueryObjectName {
         return;
 
     //any file will do; canonicalization works on NTFS junctions and symlinks, hardlinks remain separate paths.
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(std.testing.allocator, .{});
+    defer tmp.cleanup(std.testing.allocator);
     const handle = tmp.dir.fd;
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
@@ -1465,8 +1465,8 @@ test GetFinalPathNameByHandle {
         return;
 
     //any file will do
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(std.testing.allocator, .{});
+    defer tmp.cleanup(std.testing.allocator);
     const handle = tmp.dir.fd;
     var buffer: [PATH_MAX_WIDE]u16 = undefined;
 
