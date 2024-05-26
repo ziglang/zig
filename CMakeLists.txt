@@ -193,100 +193,6 @@ set(ZIG_CPP_SOURCES
 # Needed because we use cmake, not the zig build system, to build zig2.o.
 set(ZIG_STAGE2_SOURCES
     "${ZIG_CONFIG_ZIG_OUT}"
-    lib/std/array_hash_map.zig
-    lib/std/array_list.zig
-    lib/std/ascii.zig
-    lib/std/atomic.zig
-    lib/std/base64.zig
-    lib/std/BitStack.zig
-    lib/std/buf_map.zig
-    lib/std/Build.zig
-    lib/std/Build/Cache.zig
-    lib/std/Build/Cache/DepTokenizer.zig
-    lib/std/builtin.zig
-    lib/std/c.zig
-    lib/std/c/linux.zig
-    lib/std/child_process.zig
-    lib/std/coff.zig
-    lib/std/static_string_map.zig
-    lib/std/crypto.zig
-    lib/std/crypto/blake3.zig
-    lib/std/crypto/siphash.zig
-    lib/std/debug.zig
-    lib/std/dwarf.zig
-    lib/std/dwarf/AT.zig
-    lib/std/dwarf/ATE.zig
-    lib/std/dwarf/FORM.zig
-    lib/std/dwarf/LANG.zig
-    lib/std/dwarf/OP.zig
-    lib/std/dwarf/TAG.zig
-    lib/std/elf.zig
-    lib/std/fifo.zig
-    lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
-    lib/std/fmt/parse_float.zig
-    lib/std/fs.zig
-    lib/std/fs/AtomicFile.zig
-    lib/std/fs/Dir.zig
-    lib/std/fs/File.zig
-    lib/std/fs/get_app_data_dir.zig
-    lib/std/fs/path.zig
-    lib/std/hash.zig
-    lib/std/hash/auto_hash.zig
-    lib/std/hash/wyhash.zig
-    lib/std/hash_map.zig
-    lib/std/heap.zig
-    lib/std/heap/arena_allocator.zig
-    lib/std/io.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/Reader.zig
-    lib/std/io/seekable_stream.zig
-    lib/std/io/Writer.zig
-    lib/std/json.zig
-    lib/std/json/stringify.zig
-    lib/std/leb128.zig
-    lib/std/linked_list.zig
-    lib/std/log.zig
-    lib/std/macho.zig
-    lib/std/math.zig
-    lib/std/math/big.zig
-    lib/std/math/big/int.zig
-    lib/std/math/float.zig
-    lib/std/math/frexp.zig
-    lib/std/math/isinf.zig
-    lib/std/math/isnan.zig
-    lib/std/math/log.zig
-    lib/std/math/log10.zig
-    lib/std/math/log2.zig
-    lib/std/math/signbit.zig
-    lib/std/math/sqrt.zig
-    lib/std/mem.zig
-    lib/std/mem/Allocator.zig
-    lib/std/meta.zig
-    lib/std/meta/trailer_flags.zig
-    lib/std/multi_array_list.zig
-    lib/std/os.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/linux.zig
-    lib/std/os/linux/IoUring.zig
-    lib/std/os/linux/io_uring_sqe.zig
-    lib/std/os/linux/x86_64.zig
-    lib/std/os/windows.zig
-    lib/std/os/windows/ntstatus.zig
-    lib/std/os/windows/win32error.zig
-    lib/std/Progress.zig
-    lib/std/pdb.zig
-    lib/std/process.zig
-    lib/std/Random.zig
-    lib/std/sort.zig
     lib/compiler_rt.zig
     lib/compiler_rt/absv.zig
     lib/compiler_rt/absvdi2.zig
@@ -363,7 +269,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/fixxfdi.zig
     lib/compiler_rt/fixxfsi.zig
     lib/compiler_rt/fixxfti.zig
-    lib/compiler_rt/int_from_float.zig
+    lib/compiler_rt/float_from_int.zig
     lib/compiler_rt/floatdidf.zig
     lib/compiler_rt/floatdihf.zig
     lib/compiler_rt/floatdisf.zig
@@ -404,7 +310,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/getf2.zig
     lib/compiler_rt/gexf2.zig
     lib/compiler_rt/int.zig
-    lib/compiler_rt/float_from_int.zig
+    lib/compiler_rt/int_from_float.zig
     lib/compiler_rt/log.zig
     lib/compiler_rt/log10.zig
     lib/compiler_rt/log2.zig
@@ -417,7 +323,11 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/multf3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
+    lib/compiler_rt/negdf2.zig
+    lib/compiler_rt/negsf2.zig
+    lib/compiler_rt/negtf2.zig
     lib/compiler_rt/negv.zig
+    lib/compiler_rt/negxf2.zig
     lib/compiler_rt/os_version_check.zig
     lib/compiler_rt/parity.zig
     lib/compiler_rt/popcount.zig
@@ -430,15 +340,11 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/sincos.zig
     lib/compiler_rt/sqrt.zig
     lib/compiler_rt/stack_probe.zig
+    lib/compiler_rt/subdf3.zig
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
-    lib/compiler_rt/subdf3.zig
     lib/compiler_rt/subtf3.zig
     lib/compiler_rt/subxf3.zig
-    lib/compiler_rt/negsf2.zig
-    lib/compiler_rt/negdf2.zig
-    lib/compiler_rt/negtf2.zig
-    lib/compiler_rt/negxf2.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
     lib/compiler_rt/trunc.zig
@@ -461,8 +367,12 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/unorddf2.zig
     lib/compiler_rt/unordsf2.zig
     lib/compiler_rt/unordtf2.zig
-    lib/std/start.zig
-    lib/std/std.zig
+    lib/std/BitStack.zig
+    lib/std/Build.zig
+    lib/std/Build/Cache.zig
+    lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Progress.zig
+    lib/std/Random.zig
     lib/std/Target.zig
     lib/std/Target/Query.zig
     lib/std/Target/aarch64.zig
@@ -476,8 +386,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target/nvptx.zig
     lib/std/Target/powerpc.zig
     lib/std/Target/riscv.zig
-    lib/std/Target/sparc.zig
     lib/std/Target/s390x.zig
+    lib/std/Target/sparc.zig
     lib/std/Target/wasm.zig
     lib/std/Target/x86.zig
     lib/std/Thread.zig
@@ -486,6 +396,96 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Thread/Pool.zig
     lib/std/Thread/ResetEvent.zig
     lib/std/Thread/WaitGroup.zig
+    lib/std/array_hash_map.zig
+    lib/std/array_list.zig
+    lib/std/ascii.zig
+    lib/std/atomic.zig
+    lib/std/base64.zig
+    lib/std/buf_map.zig
+    lib/std/builtin.zig
+    lib/std/c.zig
+    lib/std/c/linux.zig
+    lib/std/coff.zig
+    lib/std/crypto.zig
+    lib/std/crypto/blake3.zig
+    lib/std/crypto/siphash.zig
+    lib/std/debug.zig
+    lib/std/dwarf.zig
+    lib/std/dwarf/AT.zig
+    lib/std/dwarf/ATE.zig
+    lib/std/dwarf/FORM.zig
+    lib/std/dwarf/LANG.zig
+    lib/std/dwarf/OP.zig
+    lib/std/dwarf/TAG.zig
+    lib/std/elf.zig
+    lib/std/fifo.zig
+    lib/std/fmt.zig
+    lib/std/fmt/format_float.zig
+    lib/std/fmt/parse_float.zig
+    lib/std/fs.zig
+    lib/std/fs/AtomicFile.zig
+    lib/std/fs/Dir.zig
+    lib/std/fs/File.zig
+    lib/std/fs/get_app_data_dir.zig
+    lib/std/fs/path.zig
+    lib/std/hash.zig
+    lib/std/hash/auto_hash.zig
+    lib/std/hash/wyhash.zig
+    lib/std/hash_map.zig
+    lib/std/heap.zig
+    lib/std/heap/arena_allocator.zig
+    lib/std/io.zig
+    lib/std/io/Reader.zig
+    lib/std/io/Writer.zig
+    lib/std/io/buffered_atomic_file.zig
+    lib/std/io/buffered_writer.zig
+    lib/std/io/change_detection_stream.zig
+    lib/std/io/counting_reader.zig
+    lib/std/io/counting_writer.zig
+    lib/std/io/find_byte_writer.zig
+    lib/std/io/fixed_buffer_stream.zig
+    lib/std/io/limited_reader.zig
+    lib/std/io/seekable_stream.zig
+    lib/std/json.zig
+    lib/std/json/stringify.zig
+    lib/std/leb128.zig
+    lib/std/linked_list.zig
+    lib/std/log.zig
+    lib/std/macho.zig
+    lib/std/math.zig
+    lib/std/math/big.zig
+    lib/std/math/big/int.zig
+    lib/std/math/float.zig
+    lib/std/math/frexp.zig
+    lib/std/math/isinf.zig
+    lib/std/math/isnan.zig
+    lib/std/math/log.zig
+    lib/std/math/log10.zig
+    lib/std/math/log2.zig
+    lib/std/math/signbit.zig
+    lib/std/math/sqrt.zig
+    lib/std/mem.zig
+    lib/std/mem/Allocator.zig
+    lib/std/meta.zig
+    lib/std/meta/trailer_flags.zig
+    lib/std/multi_array_list.zig
+    lib/std/os.zig
+    lib/std/os/linux.zig
+    lib/std/os/linux.zig
+    lib/std/os/linux/IoUring.zig
+    lib/std/os/linux/io_uring_sqe.zig
+    lib/std/os/linux/x86_64.zig
+    lib/std/os/linux/x86_64.zig
+    lib/std/os/windows.zig
+    lib/std/os/windows/ntstatus.zig
+    lib/std/os/windows/win32error.zig
+    lib/std/pdb.zig
+    lib/std/process.zig
+    lib/std/process/Child.zig
+    lib/std/sort.zig
+    lib/std/start.zig
+    lib/std/static_string_map.zig
+    lib/std/std.zig
     lib/std/time.zig
     lib/std/treap.zig
     lib/std/unicode.zig

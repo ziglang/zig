@@ -1935,7 +1935,7 @@ pub fn getTarget(self: Compilation) Target {
 pub fn hotCodeSwap(
     comp: *Compilation,
     prog_node: *std.Progress.Node,
-    pid: std.ChildProcess.Id,
+    pid: std.process.Child.Id,
 ) !void {
     const lf = comp.bin_file.?;
     lf.child_pid = pid;
@@ -4615,7 +4615,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
         };
         if (std.process.can_spawn) {
-            var child = std.ChildProcess.init(argv.items, arena);
+            var child = std.process.Child.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;
@@ -4974,7 +4974,7 @@ fn spawnZigRc(
     var node_name: std.ArrayListUnmanaged(u8) = .{};
     defer node_name.deinit(arena);
 
-    var child = std.ChildProcess.init(argv, arena);
+    var child = std.process.Child.init(argv, arena);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
