@@ -587,8 +587,8 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         if (self.progress_node.index == .none) {
             break :p .{ -1, -1 };
         } else {
-            // No CLOEXEC because the child needs access to this file descriptor.
-            break :p try posix.pipe2(.{ .NONBLOCK = true });
+            // We use CLOEXEC for the same reason as in `pipe_flags`.
+            break :p try posix.pipe2(.{ .NONBLOCK = true, .CLOEXEC = true });
         }
     };
     errdefer destroyPipe(prog_pipe);
@@ -654,11 +654,6 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
-
-        if (prog_pipe[1] != -1) {
-            if (prog_pipe[0] != prog_fileno) posix.close(prog_pipe[0]);
-            if (prog_pipe[1] != prog_fileno) posix.close(prog_pipe[1]);
-        }
 
         if (self.cwd_dir) |cwd| {
             posix.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
