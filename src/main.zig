@@ -4822,12 +4822,12 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 } else if (mem.eql(u8, arg, "--cache-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
-                    override_local_cache_dir = args[i];
+                    override_local_cache_dir = try fs.realpathAlloc(arena, args[i]);
                     continue;
                 } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
-                    override_global_cache_dir = args[i];
+                    override_global_cache_dir = try fs.realpathAlloc(arena, args[i]);
                     continue;
                 } else if (mem.eql(u8, arg, "-freference-trace")) {
                     reference_trace = 256;
