@@ -1836,11 +1836,15 @@ pub fn createEnvironFromMap(
         break :a .nothing;
     };
 
-    const envp_count: usize = @intCast(@as(isize, map.count()) + @as(isize, switch (zig_progress_action) {
-        .add => 1,
-        .delete => -1,
-        .nothing, .edit => 0,
-    }));
+    const envp_count: usize = c: {
+        var count: usize = map.count();
+        switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        break :c count;
+    };
 
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     var i: usize = 0;
@@ -1901,11 +1905,15 @@ pub fn createEnvironFromExisting(
         break :a .nothing;
     };
 
-    const envp_count: usize = @intCast(@as(isize, @intCast(existing_count)) + @as(isize, switch (zig_progress_action) {
-        .add => 1,
-        .delete => -1,
-        .nothing, .edit => 0,
-    }));
+    const envp_count: usize = c: {
+        var count: usize = existing_count;
+        switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        break :c count;
+    };
 
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     var i: usize = 0;
