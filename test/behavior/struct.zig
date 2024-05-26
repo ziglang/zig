@@ -1873,8 +1873,6 @@ test "initializer takes a pointer to a variable inside its struct" {
 }
 
 test "circular dependency through pointer field of a struct" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         const StructInner = extern struct {
             outer: StructOuter = std.mem.zeroes(StructOuter),
@@ -2151,7 +2149,6 @@ test "initiate global variable with runtime value" {
 test "struct containing optional pointer to array of @This()" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         x: ?*const [1]@This(),

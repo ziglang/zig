@@ -230,7 +230,7 @@ pub const Register = enum(u8) {
         return @as(u8, reg.id());
     }
 
-    pub fn bitSize(reg: Register, zcu: Module) u32 {
+    pub fn bitSize(reg: Register, zcu: *const Module) u32 {
         const features = zcu.getTarget().cpu.features;
 
         return switch (@intFromEnum(reg)) {

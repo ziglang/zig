@@ -125,6 +125,7 @@ pub fn classifySystem(ty: Type, zcu: *Module) [8]SystemClass {
                 return result;
             }
             result[0] = .integer;
+            if (ty.optionalChild(zcu).abiSize(zcu) == 0) return result;
             result[1] = .integer;
             return result;
         },

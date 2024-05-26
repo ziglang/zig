@@ -2145,7 +2145,6 @@ test "pass register-sized field as non-register-sized union" {
 
 test "circular dependency through pointer field of a union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const UnionInner = extern struct {

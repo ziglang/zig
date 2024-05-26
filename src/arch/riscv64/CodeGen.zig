@@ -1545,6 +1545,58 @@ fn splitType(func: *Func, ty: Type) ![2]Type {
     return func.fail("TODO implement splitType for {}", .{ty.fmt(zcu)});
 }
 
+/// Truncates the value in the register in place.
+/// Clobbers any remaining bits.
+fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
+    const mod = func.bin_file.comp.module.?;
+    const int_info = if (ty.isAbiInt(mod)) ty.intInfo(mod) else std.builtin.Type.Int{
+        .signedness = .unsigned,
+        .bits = @intCast(ty.bitSize(mod)),
+    };
+    const shift = math.cast(u6, 64 - int_info.bits % 64) orelse return;
+    switch (int_info.signedness) {
+        .signed => {
+            _ = try func.addInst(.{
+                .tag = .slli,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .imm12 = Immediate.s(shift),
+                    },
+                },
+            });
+            _ = try func.addInst(.{
+                .tag = .srai,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .imm12 = Immediate.s(shift),
+                    },
+                },
+            });
+        },
+        .unsigned => {
+            const mask = ~@as(u64, 0) >> shift;
+            const tmp_reg = try func.copyToTmpRegister(Type.usize, .{ .immediate = mask });
+            _ = try func.addInst(.{
+                .tag = .@"and",
+                .ops = .rrr,
+                .data = .{
+                    .r_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .rs2 = tmp_reg,
+                    },
+                },
+            });
+        },
+    }
+}
+
 fn symbolIndex(func: *Func) !u32 {
     const zcu = func.bin_file.comp.module.?;
     const decl_index = zcu.funcOwnerDeclIndex(func.func_index);
@@ -2868,8 +2920,25 @@ fn airShr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airOptionalPayload(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.bin_file.comp.module.?;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .optional_payload for {}", .{func.target.cpu.arch});
+    const result: MCValue = result: {
+        const pl_ty = func.typeOfIndex(inst);
+        if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) break :result .none;
+
+        const opt_mcv = try func.resolveInst(ty_op.operand);
+        if (func.reuseOperand(inst, ty_op.operand, 0, opt_mcv)) {
+            switch (opt_mcv) {
+                .register => |pl_reg| try func.truncateRegister(pl_ty, pl_reg),
+                else => {},
+            }
+            break :result opt_mcv;
+        }
+
+        const pl_mcv = try func.allocRegOrMem(inst, true);
+        try func.genCopy(pl_ty, pl_mcv, opt_mcv);
+        break :result pl_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -3022,16 +3091,40 @@ fn airSaveErrReturnTraceIndex(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airWrapOptional(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.bin_file.comp.module.?;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const zcu = func.bin_file.comp.module.?;
-        const optional_ty = func.typeOfIndex(inst);
+    const result: MCValue = result: {
+        const pl_ty = func.typeOf(ty_op.operand);
+        if (!pl_ty.hasRuntimeBits(zcu)) break :result .{ .immediate = 1 };
 
-        // Optional with a zero-bit payload type is just a boolean true
-        if (optional_ty.abiSize(zcu) == 1)
-            break :result MCValue{ .immediate = 1 };
+        const opt_ty = func.typeOfIndex(inst);
+        const pl_mcv = try func.resolveInst(ty_op.operand);
+        const same_repr = opt_ty.optionalReprIsPayload(zcu);
+        if (same_repr and func.reuseOperand(inst, ty_op.operand, 0, pl_mcv)) break :result pl_mcv;
 
-        return func.fail("TODO implement wrap optional for {}", .{func.target.cpu.arch});
+        const pl_lock: ?RegisterLock = switch (pl_mcv) {
+            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (pl_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const opt_mcv = try func.allocRegOrMem(inst, true);
+        try func.genCopy(pl_ty, opt_mcv, pl_mcv);
+
+        if (!same_repr) {
+            const pl_abi_size: i32 = @intCast(pl_ty.abiSize(zcu));
+            switch (opt_mcv) {
+                .load_frame => |frame_addr| try func.genSetMem(
+                    .{ .frame = frame_addr.index },
+                    frame_addr.off + pl_abi_size,
+                    Type.u8,
+                    .{ .immediate = 1 },
+                ),
+                .register => return func.fail("TODO: airWrapOption opt_mcv register", .{}),
+                else => unreachable,
+            }
+        }
+        break :result opt_mcv;
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -4435,72 +4528,141 @@ fn condBr(func: *Func, cond_ty: Type, condition: MCValue) !Mir.Inst.Index {
     });
 }
 
+fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MCValue {
+    const zcu = func.bin_file.comp.module.?;
+    const pl_ty = opt_ty.optionalChild(zcu);
+
+    const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload(zcu))
+        .{ .off = 0, .ty = if (pl_ty.isSlice(zcu)) pl_ty.slicePtrFieldType(zcu) else pl_ty }
+    else
+        .{ .off = @intCast(pl_ty.abiSize(zcu)), .ty = Type.bool };
+
+    const return_mcv = try func.allocRegOrMem(inst, true);
+    assert(return_mcv == .register); // should not be larger 8 bytes
+    const return_reg = return_mcv.register;
+
+    switch (opt_mcv) {
+        .none,
+        .unreach,
+        .dead,
+        .undef,
+        .immediate,
+        .register_pair,
+        .register_offset,
+        .lea_frame,
+        .lea_symbol,
+        .reserved_frame,
+        .air_ref,
+        => return func.fail("TODO: hmm {}", .{opt_mcv}),
+
+        .register => |opt_reg| {
+            if (some_info.off == 0) {
+                _ = try func.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_compare,
+                    .data = .{
+                        .compare = .{
+                            .op = .eq,
+                            .rd = return_reg,
+                            .rs1 = opt_reg,
+                            .rs2 = try func.copyToTmpRegister(
+                                some_info.ty,
+                                .{ .immediate = 0 },
+                            ),
+                            .size = .byte,
+                        },
+                    },
+                });
+                return return_mcv;
+            }
+            assert(some_info.ty.ip_index == .bool_type);
+            const opt_abi_size: u32 = @intCast(opt_ty.abiSize(zcu));
+            _ = opt_abi_size;
+            return func.fail("TODO: isNull some_info.off != 0 register", .{});
+        },
+
+        .load_frame => {
+            const opt_reg = try func.copyToTmpRegister(
+                some_info.ty,
+                opt_mcv.address().offset(some_info.off).deref(),
+            );
+            const opt_reg_lock = func.register_manager.lockRegAssumeUnused(opt_reg);
+            defer func.register_manager.unlockReg(opt_reg_lock);
+
+            _ = try func.addInst(.{
+                .tag = .pseudo,
+                .ops = .pseudo_compare,
+                .data = .{
+                    .compare = .{
+                        .op = .eq,
+                        .rd = return_reg,
+                        .rs1 = opt_reg,
+                        .rs2 = try func.copyToTmpRegister(
+                            some_info.ty,
+                            .{ .immediate = 0 },
+                        ),
+                        .size = .byte,
+                    },
+                },
+            });
+            return return_mcv;
+        },
+
+        else => return func.fail("TODO: isNull {}", .{opt_mcv}),
+    }
+}
+
 fn airIsNull(func: *Func, inst: Air.Inst.Index) !void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const operand = try func.resolveInst(un_op);
-        break :result try func.isNull(operand);
-    };
+    const operand = try func.resolveInst(un_op);
+    const ty = func.typeOf(un_op);
+    const result = try func.isNull(inst, ty, operand);
     return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airIsNullPtr(func: *Func, inst: Air.Inst.Index) !void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const operand_ptr = try func.resolveInst(un_op);
-        const operand: MCValue = blk: {
-            if (func.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try func.allocRegOrMem(inst, true);
-            }
-        };
-        try func.load(operand, operand_ptr, func.typeOf(un_op));
-        break :result try func.isNull(operand);
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
+    const operand = try func.resolveInst(un_op);
+    _ = operand; // autofix
+    const ty = func.typeOf(un_op);
+    _ = ty; // autofix
 
-fn isNull(func: *Func, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNonNull and invert the result.
-    return func.fail("TODO call isNonNull and invert the result", .{});
+    if (true) return func.fail("TODO: airIsNullPtr", .{});
+
+    return func.finishAir(inst, .unreach, .{ un_op, .none, .none });
 }
 
 fn airIsNonNull(func: *Func, inst: Air.Inst.Index) !void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const operand = try func.resolveInst(un_op);
-        break :result try func.isNonNull(operand);
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
+    const operand = try func.resolveInst(un_op);
+    const ty = func.typeOf(un_op);
+    const result = try func.isNull(inst, ty, operand);
+    assert(result == .register);
 
-fn isNonNull(func: *Func, operand: MCValue) !MCValue {
-    _ = operand;
-    // Here you can specialize this instruction if it makes sense to, otherwise the default
-    // will call isNull and invert the result.
-    return func.fail("TODO call isNull and invert the result", .{});
+    _ = try func.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_not,
+        .data = .{
+            .rr = .{
+                .rd = result.register,
+                .rs = result.register,
+            },
+        },
+    });
+
+    return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airIsNonNullPtr(func: *Func, inst: Air.Inst.Index) !void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const operand_ptr = try func.resolveInst(un_op);
-        const operand: MCValue = blk: {
-            if (func.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try func.allocRegOrMem(inst, true);
-            }
-        };
-        try func.load(operand, operand_ptr, func.typeOf(un_op));
-        break :result try func.isNonNull(operand);
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
+    const operand = try func.resolveInst(un_op);
+    _ = operand; // autofix
+    const ty = func.typeOf(un_op);
+    _ = ty; // autofix
+
+    if (true) return func.fail("TODO: airIsNonNullPtr", .{});
+
+    return func.finishAir(inst, .unreach, .{ un_op, .none, .none });
 }
 
 fn airIsErr(func: *Func, inst: Air.Inst.Index) !void {
@@ -5110,7 +5272,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                     dst_mcv,
                     try func.resolveInst(src_ref),
                 ),
-                else => unreachable,
+                else => return func.fail("genCopy register_pair src: {}", .{src_mcv}),
             };
 
             defer if (src_info) |info| {
