@@ -1479,6 +1479,8 @@ const WindowsCommandLineCache = struct {
     }
 };
 
+/// Returns the absolute path of `cmd.exe` within the Windows system directory.
+/// The caller owns the returned slice.
 fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
     var buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 128);
     errdefer buf.deinit(allocator);
@@ -1510,6 +1512,11 @@ const ArgvToCommandLineError = error{ OutOfMemory, InvalidWtf8, InvalidArg0 };
 
 /// Serializes `argv` to a Windows command-line string suitable for passing to a child process and
 /// parsing by the `CommandLineToArgvW` algorithm. The caller owns the returned slice.
+///
+/// To avoid arbitrary command execution, this function should not be used when spawning `.bat`/`.cmd` scripts.
+/// https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
+///
+/// When executing `.bat`/`.cmd` scripts, use `argvToScriptCommandLineWindows` instead.
 fn argvToCommandLineWindows(
     allocator: mem.Allocator,
     argv: []const []const u8,
@@ -1678,6 +1685,14 @@ const ArgvToScriptCommandLineError = error{
 ///
 /// Escapes `argv` using the suggested mitigation against arbitrary command execution from:
 /// https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
+///
+/// The return of this function will look like
+/// `cmd.exe /d /e:ON /v:OFF /c "<escaped command line>"`
+/// and should be used as the `lpCommandLine` of `CreateProcessW`, while the
+/// return of `windowsCmdExePath` should be used as `lpApplicationName`.
+///
+/// Should only be used when spawning `.bat`/`.cmd` scripts, see `argvToCommandLineWindows` otherwise.
+/// The `.bat`/`.cmd` file must be known to both have the `.bat`/`.cmd` extension and exist on the filesystem.
 fn argvToScriptCommandLineWindows(
     allocator: mem.Allocator,
     /// Path to the `.bat`/`.cmd` script. If this path is relative, it is assumed to be relative to the CWD.
