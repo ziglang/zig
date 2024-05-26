@@ -5340,15 +5340,13 @@ pub fn populateTestFunctions(
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
         // was not referenced by start code.
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
         defer {
             mod.sema_prog_node.end();
             mod.sema_prog_node = undefined;
-            mod.codegen_prog_node.end();
-            mod.codegen_prog_node = undefined;
         }
         try mod.ensureDeclAnalyzed(decl_index);
     }
+
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
@@ -5449,7 +5447,15 @@ pub fn populateTestFunctions(
         decl.val = new_val;
         decl.has_tv = true;
     }
-    try mod.linkerUpdateDecl(decl_index);
+    {
+        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
+        defer {
+            mod.codegen_prog_node.end();
+            mod.codegen_prog_node = undefined;
+        }
+
+        try mod.linkerUpdateDecl(decl_index);
+    }
 }
 
 pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
