@@ -983,10 +983,21 @@ pub fn PanicData(comptime cause: PanicCause) type {
     }
 }
 
-pub const panic2 = if (@hasDecl(root, "panic2")) root.panic2 else panicImplData;
+pub const panic2 = if (@hasDecl(root, "panic2")) root.panic2 else if (builtin.mode == .Debug)
+    panicImplData
+else
+    panicImpl;
 
 pub fn panicImpl(id: anytype) noreturn {
-    std.debug.panicImpl(if (@TypeOf(id) != []const u8) @tagName(id) else id, @errorReturnTrace(), @returnAddress());
+    @setCold(true);
+    @setRuntimeSafety(false);
+    if (@TypeOf(id) == PanicId) {
+        std.debug.panicImpl(switch (id) {
+            inline else => |cause| @field(std.debug.panic_messages, @tagName(cause)),
+        }, null, @returnAddress());
+    } else {
+        std.debug.panicImpl(id, null, @returnAddress());
+    }
 }
 
 pub fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {

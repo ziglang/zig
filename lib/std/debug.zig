@@ -3625,6 +3625,7 @@ fn formatIntHex(buf: []u8, value: anytype) [*]u8 {
 }
 
 pub const panic_messages = struct {
+    pub const message = undefined;
     pub const unwrapped_error = "attempt to unwrap error";
     pub const returned_noreturn = "'noreturn' function returned";
     pub const reached_unreachable = "reached unreachable code";
