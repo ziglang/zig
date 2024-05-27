@@ -879,6 +879,11 @@ fn computePrefix(
     var i = start_i;
     const parent_index = serialized.parents[@intFromEnum(node_index)].unwrap() orelse return i;
     if (serialized.parents[@intFromEnum(parent_index)] == .none) return i;
+    if (@intFromEnum(serialized.parents[@intFromEnum(parent_index)]) == 0 and
+        serialized.storage[0].name[0] == 0)
+    {
+        return i;
+    }
     i = computePrefix(buf, i, serialized, children, parent_index);
     if (children[@intFromEnum(parent_index)].sibling == .none) {
         const prefix = "   ";
@@ -917,7 +922,10 @@ fn computeNode(
     const name = if (std.mem.indexOfScalar(u8, &storage.name, 0)) |end| storage.name[0..end] else &storage.name;
     const parent = serialized.parents[@intFromEnum(node_index)];
 
-    if (parent != .none) {
+    if (parent != .none) p: {
+        if (@intFromEnum(parent) == 0 and serialized.storage[0].name[0] == 0) {
+            break :p;
+        }
         if (children[@intFromEnum(node_index)].sibling == .none) {
             buf[i..][0..tree_langle.len].* = tree_langle.*;
             i += tree_langle.len;
