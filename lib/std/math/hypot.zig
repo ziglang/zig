@@ -25,11 +25,11 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     switch (@typeInfo(T)) {
         .Float => {},
         .ComptimeFloat => return @sqrt(x * x + y * y),
-        .ComptimeInt => {
-            const a: comptime_float = @floatFromInt(x);
-            const b: comptime_float = @floatFromInt(y);
-            return @sqrt(a * a + b * b);
-        },
+        // .ComptimeInt => {
+        //     const a: comptime_float = @floatFromInt(x);
+        //     const b: comptime_float = @floatFromInt(y);
+        //     return @sqrt(a * a + b * b);
+        // },
         else => @compileError("hypot not implemented for " ++ @typeName(T)),
     }
     const lower = @sqrt(floatMin(T));
