@@ -993,6 +993,8 @@ fn write(buf: []const u8) anyerror!void {
     global_progress.written_newline_count = global_progress.accumulated_newline_count;
 }
 
+var remaining_write_trash_bytes: usize = 0;
+
 fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     // Byteswap if necessary to ensure little endian over the pipe. This is
     // needed because the parent or child process might be running in qemu.
@@ -1004,18 +1006,35 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     const storage = std.mem.sliceAsBytes(serialized.storage);
     const parents = std.mem.sliceAsBytes(serialized.parents);
 
-    var vecs: [3]std.posix.iovec_const = .{
+    var vecs: [3]posix.iovec_const = .{
         .{ .base = header.ptr, .len = header.len },
         .{ .base = storage.ptr, .len = storage.len },
         .{ .base = parents.ptr, .len = parents.len },
     };
+
+    while (remaining_write_trash_bytes > 0) {
+        // We do this in a separate write call to give a better chance for the
+        // writev below to be in a single packet.
+        const n = @min(parents.len, remaining_write_trash_bytes);
+        if (posix.write(fd, parents[0..n])) |written| {
+            remaining_write_trash_bytes -= written;
+            continue;
+        } else |err| switch (err) {
+            error.WouldBlock => return,
+            error.BrokenPipe => return error.BrokenPipe,
+            else => |e| {
+                std.log.debug("failed to send progress to parent process: {s}", .{@errorName(e)});
+                return error.BrokenPipe;
+            },
+        }
+    }
 
     // If this write would block we do not want to keep trying, but we need to
     // know if a partial message was written.
     if (posix.writev(fd, &vecs)) |written| {
         const total = header.len + storage.len + parents.len;
         if (written < total) {
-            std.log.debug("short write: {d} out of {d}", .{ written, total });
+            remaining_write_trash_bytes = total - written;
         }
     } else |err| switch (err) {
         error.WouldBlock => {},
