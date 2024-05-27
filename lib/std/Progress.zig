@@ -875,14 +875,22 @@ fn computePrefix(
     if (serialized.parents[@intFromEnum(parent_index)] == .none) return i;
     i = computePrefix(buf, i, serialized, children, parent_index);
     if (children[@intFromEnum(parent_index)].sibling == .none) {
-        buf[i..][0..3].* = "   ".*;
-        i += 3;
+        const prefix = "   ";
+        const upper_bound_len = prefix.len + line_upper_bound_len;
+        if (i + upper_bound_len > buf.len) return buf.len;
+        buf[i..][0..prefix.len].* = prefix.*;
+        i += prefix.len;
     } else {
+        const upper_bound_len = tree_line.len + line_upper_bound_len;
+        if (i + upper_bound_len > buf.len) return buf.len;
         buf[i..][0..tree_line.len].* = tree_line.*;
         i += tree_line.len;
     }
     return i;
 }
+
+const line_upper_bound_len = @max(tree_tee.len, tree_langle.len) + "[4294967296/4294967296] ".len +
+    Node.max_name_len + finish_sync.len;
 
 fn computeNode(
     buf: []u8,
@@ -893,6 +901,9 @@ fn computeNode(
 ) usize {
     var i = start_i;
     i = computePrefix(buf, i, serialized, children, node_index);
+
+    if (i + line_upper_bound_len > buf.len)
+        return start_i;
 
     const storage = &serialized.storage[@intFromEnum(node_index)];
     const estimated_total = storage.estimated_total_count;
@@ -910,19 +921,19 @@ fn computeNode(
         }
     }
 
-    if (name.len != 0 or estimated_total > 0) {
-        if (estimated_total > 0) {
-            i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
-        } else if (completed_items != 0) {
-            i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
-        }
-        if (name.len != 0) {
-            i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
-        }
-    }
-
     const is_empty_root = @intFromEnum(node_index) == 0 and serialized.storage[0].name[0] == 0;
     if (!is_empty_root) {
+        if (name.len != 0 or estimated_total > 0) {
+            if (estimated_total > 0) {
+                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+            } else if (completed_items != 0) {
+                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+            }
+            if (name.len != 0) {
+                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+            }
+        }
+
         i = @min(global_progress.cols + start_i, i);
         buf[i] = '\n';
         i += 1;
