@@ -59,9 +59,9 @@ pub const Options = struct {
     /// Must be at least 200 bytes.
     draw_buffer: []u8 = &default_draw_buffer,
     /// How many nanoseconds between writing updates to the terminal.
-    refresh_rate_ns: u64 = 60 * std.time.ns_per_ms,
+    refresh_rate_ns: u64 = 80 * std.time.ns_per_ms,
     /// How many nanoseconds to keep the output hidden
-    initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
+    initial_delay_ns: u64 = 200 * std.time.ns_per_ms,
     /// If provided, causes the progress item to have a denominator.
     /// 0 means unknown.
     estimated_total_items: usize = 0,
