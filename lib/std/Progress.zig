@@ -104,11 +104,11 @@ pub const Node = struct {
         }
     };
 
-    const Parent = enum(u16) {
+    const Parent = enum(u8) {
         /// Unallocated storage.
-        unused = std.math.maxInt(u16) - 1,
+        unused = std.math.maxInt(u8) - 1,
         /// Indicates root node.
-        none = std.math.maxInt(u16),
+        none = std.math.maxInt(u8),
         /// Index into `node_storage`.
         _,
 
@@ -120,8 +120,8 @@ pub const Node = struct {
         }
     };
 
-    const OptionalIndex = enum(u16) {
-        none = std.math.maxInt(u16),
+    const OptionalIndex = enum(u8) {
+        none = std.math.maxInt(u8),
         /// Index into `node_storage`.
         _,
 
@@ -137,7 +137,7 @@ pub const Node = struct {
     };
 
     /// Index into `node_storage`.
-    const Index = enum(u16) {
+    const Index = enum(u8) {
         _,
 
         fn toParent(i: @This()) Parent {
@@ -589,8 +589,6 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     };
 }
 
-var ipc_metadata_len: u16 = 0;
-
 const SavedMetadata = struct {
     ipc_fd: u16,
     main_index: u8,
@@ -611,6 +609,9 @@ const SavedMetadata = struct {
             fd);
     }
 };
+
+var ipc_metadata_len: u8 = 0;
+var remaining_read_trash_bytes: usize = 0;
 
 fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buffer) usize {
     const ipc_metadata_copy = &serialized_buffer.ipc_metadata_copy;
@@ -641,36 +642,43 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                 },
             };
             if (n == 0) break;
+            if (remaining_read_trash_bytes > 0) {
+                assert(bytes_read == 0);
+                if (remaining_read_trash_bytes >= n) {
+                    remaining_read_trash_bytes -= n;
+                    continue;
+                }
+                const src = pipe_buf[remaining_read_trash_bytes..n];
+                std.mem.copyForwards(u8, &pipe_buf, src);
+                remaining_read_trash_bytes = 0;
+                bytes_read = src.len;
+                continue;
+            }
             bytes_read += n;
         }
         // Ignore all but the last message on the pipe.
-        var input: []align(2) u8 = pipe_buf[0..bytes_read];
+        var input: []u8 = pipe_buf[0..bytes_read];
         if (input.len == 0) {
             serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
             continue;
         }
 
         const storage, const parents = while (true) {
-            if (input.len < 4) {
-                std.log.warn("short read: {d} out of 4 header bytes", .{input.len});
-                // TODO keep track of the short read to trash odd bytes with the next read
-                serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
-                continue :main_loop;
-            }
-            const subtree_len = std.mem.readInt(u32, input[0..4], .little);
-            const expected_bytes = 4 + subtree_len * (@sizeOf(Node.Storage) + @sizeOf(Node.Parent));
+            const subtree_len: usize = input[0];
+            const expected_bytes = 1 + subtree_len * (@sizeOf(Node.Storage) + @sizeOf(Node.Parent));
             if (input.len < expected_bytes) {
-                std.log.warn("short read: {d} out of {d} ({d} nodes)", .{ input.len, expected_bytes, subtree_len });
-                // TODO keep track of the short read to trash odd bytes with the next read
+                // Ignore short reads. We'll handle the next full message when it comes instead.
+                assert(remaining_read_trash_bytes == 0);
+                remaining_read_trash_bytes = expected_bytes - input.len;
                 serialized_len = useSavedIpcData(serialized_len, serialized_buffer, main_storage, main_index, old_ipc_metadata);
                 continue :main_loop;
             }
             if (input.len > expected_bytes) {
-                input = @alignCast(input[expected_bytes..]);
+                input = input[expected_bytes..];
                 continue;
             }
-            const storage_bytes = input[4..][0 .. subtree_len * @sizeOf(Node.Storage)];
-            const parents_bytes = input[4 + storage_bytes.len ..][0 .. subtree_len * @sizeOf(Node.Parent)];
+            const storage_bytes = input[1..][0 .. subtree_len * @sizeOf(Node.Storage)];
+            const parents_bytes = input[1 + storage_bytes.len ..][0 .. subtree_len * @sizeOf(Node.Parent)];
             break .{
                 std.mem.bytesAsSlice(Node.Storage, storage_bytes),
                 std.mem.bytesAsSlice(Node.Parent, parents_bytes),
@@ -722,7 +730,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
     return serialized_len;
 }
 
-fn copyRoot(dest: *Node.Storage, src: *align(2) Node.Storage) void {
+fn copyRoot(dest: *Node.Storage, src: *align(1) Node.Storage) void {
     dest.* = .{
         .completed_count = src.completed_count,
         .estimated_total_count = src.estimated_total_count,
@@ -937,7 +945,7 @@ fn write(buf: []const u8) void {
 
 fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     assert(serialized.parents.len == serialized.storage.len);
-    const serialized_len: u32 = @intCast(serialized.parents.len);
+    const serialized_len: u8 = @intCast(serialized.parents.len);
     const header = std.mem.asBytes(&serialized_len);
     const storage = std.mem.sliceAsBytes(serialized.storage);
     const parents = std.mem.sliceAsBytes(serialized.parents);
@@ -977,7 +985,9 @@ fn maybeUpdateSize(resize_flag: bool) void {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
 
         if (windows.kernel32.GetConsoleScreenBufferInfo(fd, &info) == windows.FALSE) {
-            @panic("TODO: handle this failure");
+            std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
+            global_progress.rows = 25;
+            global_progress.cols = 80;
         }
 
         global_progress.rows = @intCast(info.dwSize.Y);
@@ -995,7 +1005,9 @@ fn maybeUpdateSize(resize_flag: bool) void {
             global_progress.rows = winsize.ws_row;
             global_progress.cols = winsize.ws_col;
         } else {
-            @panic("TODO: handle this failure");
+            std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
+            global_progress.rows = 25;
+            global_progress.cols = 80;
         }
     }
 }
