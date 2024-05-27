@@ -155,6 +155,10 @@ pub const Node = struct {
     ///
     /// Passing 0 for `estimated_total_items` means unknown.
     pub fn start(node: Node, name: []const u8, estimated_total_items: usize) Node {
+        if (noop_impl) {
+            assert(node.index == .none);
+            return .{ .index = .none };
+        }
         const node_index = node.index.unwrap() orelse return .{ .index = .none };
         const parent = node_index.toParent();
 
@@ -208,6 +212,10 @@ pub const Node = struct {
 
     /// Finish a started `Node`. Thread-safe.
     pub fn end(n: Node) void {
+        if (noop_impl) {
+            assert(n.index == .none);
+            return;
+        }
         const index = n.index.unwrap() orelse return;
         const parent_ptr = parentByIndex(index);
         if (parent_ptr.unwrap()) |parent_index| {
@@ -296,6 +304,11 @@ var default_draw_buffer: [4096]u8 = undefined;
 
 var debug_start_trace = std.debug.Trace.init;
 
+const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
+    .wasi, .freestanding => true,
+    else => false,
+};
+
 /// Initializes a global Progress instance.
 ///
 /// Asserts there is only one global Progress instance.
@@ -318,6 +331,9 @@ pub fn start(options: Options) Node {
     global_progress.draw_buffer = options.draw_buffer;
     global_progress.refresh_rate_ns = options.refresh_rate_ns;
     global_progress.initial_delay_ns = options.initial_delay_ns;
+
+    if (noop_impl)
+        return .{ .index = .none };
 
     if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
         global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
@@ -507,7 +523,7 @@ fn computeClear(buf: []u8, start_i: usize) usize {
         global_progress.newline_count = 0;
         buf[i] = '\r';
         i += 1;
-        for (1..prev_nl_n) |_| {
+        for (0..prev_nl_n) |_| {
             buf[i..][0..up_one_line.len].* = up_one_line.*;
             i += up_one_line.len;
         }
@@ -841,9 +857,6 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized, children, root_node_index);
 
-    // Truncate trailing newline.
-    if (buf[i - 1] == '\n') i -= 1;
-
     buf[i..][0..finish_sync.len].* = finish_sync.*;
     i += finish_sync.len;
 
@@ -932,8 +945,10 @@ fn computeNode(
 }
 
 fn withinRowLimit(p: *Progress) bool {
-    // The +1 here is so that the PS1 is not scrolled off the top of the terminal.
-    return p.newline_count + 1 < p.rows;
+    // The +2 here is so that the PS1 is not scrolled off the top of the terminal.
+    // one because we keep the cursor on the next line
+    // one more to account for the PS1
+    return p.newline_count + 2 < p.rows;
 }
 
 fn write(buf: []const u8) void {
