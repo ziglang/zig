@@ -7,6 +7,7 @@ const testing = std.testing;
 const assert = std.debug.assert;
 const Progress = @This();
 const posix = std.posix;
+const is_big_endian = builtin.cpu.arch.endian() == .big;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -99,6 +100,11 @@ pub const Node = struct {
                 .Pointer => @intFromPtr(fd),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             };
+        }
+
+        fn byteSwap(s: *Storage) void {
+            s.completed_count = @byteSwap(s.completed_count);
+            s.estimated_total_count = @byteSwap(s.estimated_total_count);
         }
 
         comptime {
@@ -719,9 +725,14 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
 
         // Mount the root here.
         copyRoot(main_storage, &storage[0]);
+        if (is_big_endian) main_storage.byteSwap();
 
         // Copy the rest of the tree to the end.
-        @memcpy(serialized_buffer.storage[serialized_len..][0..nodes_len], storage[1..][0..nodes_len]);
+        const storage_dest = serialized_buffer.storage[serialized_len..][0..nodes_len];
+        @memcpy(storage_dest, storage[1..][0..nodes_len]);
+
+        // Always little-endian over the pipe.
+        if (is_big_endian) for (storage_dest) |*s| s.byteSwap();
 
         // Patch up parent pointers taking into account how the subtree is mounted.
         for (serialized_buffer.parents[serialized_len..][0..nodes_len], parents[1..][0..nodes_len]) |*dest, p| {
@@ -983,6 +994,10 @@ fn write(buf: []const u8) anyerror!void {
 }
 
 fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
+    // Byteswap if necessary to ensure little endian over the pipe. This is
+    // needed because the parent or child process might be running in qemu.
+    if (is_big_endian) for (serialized.storage) |*s| s.byteSwap();
+
     assert(serialized.parents.len == serialized.storage.len);
     const serialized_len: u8 = @intCast(serialized.parents.len);
     const header = std.mem.asBytes(&serialized_len);
@@ -994,9 +1009,6 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
         .{ .base = storage.ptr, .len = storage.len },
         .{ .base = parents.ptr, .len = parents.len },
     };
-
-    // TODO: if big endian, byteswap
-    // this is needed because the parent or child process might be running in qemu
 
     // If this write would block we do not want to keep trying, but we need to
     // know if a partial message was written.
