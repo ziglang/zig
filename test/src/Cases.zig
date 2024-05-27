@@ -684,7 +684,6 @@ pub fn lowerToBuildSteps(
                 case.import_path orelse @panic("import_path not set"),
                 import_rel,
             }) catch @panic("OOM");
-            // XXX: correct path type?
             _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
         }
 

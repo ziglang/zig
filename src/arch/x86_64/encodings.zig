@@ -9,7 +9,6 @@ const modrm_ext = u3;
 
 pub const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, modrm_ext, Mode, Feature };
 
-// XXX: do this?
 // TODO move this into a .zon file when Zig is capable of importing .zon files
 // zig fmt: off
 pub const table = [_]Entry{

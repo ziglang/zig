@@ -2416,7 +2416,6 @@ test "std.zon parse int" {
         defer ast.deinit(gpa);
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(u8, gpa, &ast, &status, .{}));
-        // XXX: why can't infer type?
         try std.testing.expectEqual(status.invalid_number_literal.reason, NumberLiteralError{
             .invalid_digit = .{
                 .i = 2,

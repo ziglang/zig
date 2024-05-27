@@ -434,8 +434,7 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else if (@as(f128, val) == -std.math.inf(f128)) {
                     return self.writer.writeAll("-inf");
                 } else {
-                    // XXX: don't need to cast to f64 anymore!
-                    try std.fmt.format(self.writer, "{d}", .{@as(f64, @floatCast(val))});
+                    try std.fmt.format(self.writer, "{d}", .{val});
                 },
                 else => @compileError(@typeName(@TypeOf(val)) ++ ": expected float"),
             }
@@ -1781,8 +1780,8 @@ test "stringify primitives" {
     try expectStringifyEqual(
         \\.{
         \\    .a = 1.5,
-        \\    .b = 0.3333333333333333,
-        \\    .c = 3.141592653589793,
+        \\    .b = 0.3333333333333333333333333333333333,
+        \\    .c = 3.1415926535897932384626433832795028,
         \\    .d = 0,
         \\    .e = -0,
         \\    .f = inf,
