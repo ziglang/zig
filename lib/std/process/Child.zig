@@ -654,13 +654,16 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
 
         if (self.cwd_dir) |cwd| {
             posix.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
         } else if (self.cwd) |cwd| {
             posix.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
         }
+
+        // Must happen after fchdir above, the cwd file descriptor might be
+        // equal to prog_fileno and be clobbered by this dup2 call.
+        if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
 
         if (self.gid) |gid| {
             posix.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
