@@ -4795,6 +4795,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const color: Color = .auto;
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
+        .root_name = "Compile Build Script",
     });
     defer root_prog_node.end();
 
