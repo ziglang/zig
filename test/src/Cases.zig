@@ -1839,7 +1839,7 @@ fn runOneCase(
                     try comp.makeBinFileExecutable();
 
                     while (true) {
-                        break :x std.ChildProcess.run(.{
+                        break :x std.process.Child.run(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,

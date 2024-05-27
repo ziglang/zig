@@ -4026,7 +4026,7 @@ fn serve(
     });
     defer server.deinit();
 
-    var child_pid: ?std.ChildProcess.Id = null;
+    var child_pid: ?std.process.Child.Id = null;
 
     var progress: std.Progress = .{
         .terminal = null,
@@ -4316,7 +4316,7 @@ fn runOrTest(
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (process.can_spawn) {
-        var child = std.ChildProcess.init(argv.items, gpa);
+        var child = std.process.Child.init(argv.items, gpa);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
@@ -4379,7 +4379,7 @@ fn runOrTestHotSwap(
     arg_mode: ArgMode,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
-) !std.ChildProcess.Id {
+) !std.process.Child.Id {
     const lf = comp.bin_file.?;
 
     const exe_path = switch (builtin.target.os.tag) {
@@ -4456,7 +4456,7 @@ fn runOrTestHotSwap(
             return pid;
         },
         else => {
-            var child = std.ChildProcess.init(argv.items, gpa);
+            var child = std.process.Child.init(argv.items, gpa);
 
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
@@ -5247,7 +5247,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
 
         if (process.can_spawn) {
-            var child = std.ChildProcess.init(child_argv.items, gpa);
+            var child = std.process.Child.init(child_argv.items, gpa);
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
@@ -5551,7 +5551,7 @@ fn jitCmd(
         });
     }
 
-    var child = std.ChildProcess.init(child_argv.items, gpa);
+    var child = std.process.Child.init(child_argv.items, gpa);
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = if (options.capture == null) .Inherit else .Pipe;
     child.stderr_behavior = .Inherit;
