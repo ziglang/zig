@@ -128,12 +128,12 @@ pub const Node = struct {
         }
     };
 
-    const OptionalIndex = enum(u8) {
+    pub const OptionalIndex = enum(u8) {
         none = std.math.maxInt(u8),
         /// Index into `node_storage`.
         _,
 
-        fn unwrap(i: @This()) ?Index {
+        pub fn unwrap(i: @This()) ?Index {
             if (i == .none) return null;
             return @enumFromInt(@intFromEnum(i));
         }
@@ -145,7 +145,7 @@ pub const Node = struct {
     };
 
     /// Index into `node_storage`.
-    const Index = enum(u8) {
+    pub const Index = enum(u8) {
         _,
 
         fn toParent(i: @This()) Parent {
@@ -154,7 +154,7 @@ pub const Node = struct {
             return @enumFromInt(@intFromEnum(i));
         }
 
-        fn toOptional(i: @This()) OptionalIndex {
+        pub fn toOptional(i: @This()) OptionalIndex {
             return @enumFromInt(@intFromEnum(i));
         }
     };

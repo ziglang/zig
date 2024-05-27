@@ -3404,14 +3404,14 @@ fn buildOutputType(
         },
     }
 
-    if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null);
-    }
-
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
     });
     defer root_prog_node.end();
+
+    if (arg_mode == .translate_c) {
+        return cmdTranslateC(comp, arena, null, root_prog_node);
+    }
 
     updateModule(comp, color, root_prog_node) catch |err| switch (err) {
         error.SemanticAnalyzeFail => {
@@ -4048,7 +4048,7 @@ fn serve(
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
                     var output: Compilation.CImportResult = undefined;
-                    try cmdTranslateC(comp, arena, &output);
+                    try cmdTranslateC(comp, arena, &output, main_progress_node);
                     defer output.deinit(gpa);
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
@@ -4398,7 +4398,12 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
+fn cmdTranslateC(
+    comp: *Compilation,
+    arena: Allocator,
+    fancy_output: ?*Compilation.CImportResult,
+    prog_node: std.Progress.Node,
+) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
     const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
@@ -4459,6 +4464,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                     .root_src_path = "aro_translate_c.zig",
                     .depend_on_aro = true,
                     .capture = &stdout,
+                    .progress_node = prog_node,
                 });
                 break :f stdout;
             },
@@ -5236,6 +5242,7 @@ const JitCmdOptions = struct {
     capture: ?*[]u8 = null,
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
+    progress_node: std.Progress.Node = .{ .index = .none },
 };
 
 fn jitCmd(
@@ -5245,9 +5252,12 @@ fn jitCmd(
     options: JitCmdOptions,
 ) !void {
     const color: Color = .auto;
-    const root_prog_node = std.Progress.start(.{
-        .disable_printing = (color == .off),
-    });
+    const root_prog_node = if (options.progress_node.index != .none)
+        options.progress_node
+    else
+        std.Progress.start(.{
+            .disable_printing = (color == .off),
+        });
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
