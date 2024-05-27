@@ -22722,7 +22722,16 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             .storage = .{ .elems = new_elems },
         } }));
     }
+    if (try sema.typeRequiresComptime(ptr_ty)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "pointer to comptime-only type '{}' must be comptime-known, but operand is runtime-known", .{ptr_ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
 
+            const src_decl = mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), ptr_ty);
+            break :msg msg;
+        });
+    }
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (!is_vector) {
         if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag(mod) == .Fn)) {
