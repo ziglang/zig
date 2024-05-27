@@ -23,6 +23,11 @@ cwd: ?Build.LazyPath,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
+/// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
+/// to the child process, which otherwise would be used for the child to send
+/// progress updates to the parent.
+disable_zig_progress: bool,
+
 /// Configures whether the Run step is considered to have side-effects, and also
 /// whether the Run step will inherit stdio streams, forwarding them to the
 /// parent process, in which case will require a global lock to prevent other
@@ -152,6 +157,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .argv = .{},
         .cwd = null,
         .env_map = null,
+        .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
         .extra_file_dependencies = &.{},
@@ -1235,7 +1241,7 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    if (run.stdio != .zig_test) {
+    if (run.stdio != .zig_test and !run.disable_zig_progress) {
         child.progress_node = prog_node;
     }
 
