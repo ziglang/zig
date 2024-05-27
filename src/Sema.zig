@@ -13921,6 +13921,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
         },
         .zon => {
+            // XXX: still needed?
             _ = result.file.getTree(mod.gpa) catch |err| {
                 // TODO: these errors are file system errors; make sure an update() will
                 // retry this and not cache the file system error, which may be transient.

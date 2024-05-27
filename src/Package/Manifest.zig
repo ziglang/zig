@@ -5,7 +5,7 @@ pub const Digest = [Hash.digest_length]u8;
 pub const multihash_len = 1 + 1 + Hash.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
-const AstGen = @import("../AstGen.zig");
+const AstGen = std.zig.AstGen;
 
 pub const Dependency = struct {
     location: Location,

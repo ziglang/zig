@@ -445,7 +445,7 @@ fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, 
         inline for (field_infos, 0..) |field, i| {
             kvs_list[i] = .{ field.name, i };
         }
-        break :b std.ComptimeStringMap(usize, kvs_list);
+        break :b std.StaticStringMap(usize).initComptime(kvs_list);
     };
 
     // Parse the union
@@ -705,7 +705,7 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
         inline for (field_infos, 0..) |field, i| {
             kvs_list[i] = .{ field.name, i };
         }
-        break :b std.ComptimeStringMap(usize, kvs_list);
+        break :b std.StaticStringMap(usize).initComptime(kvs_list);
     };
 
     // Parse the struct
@@ -1827,7 +1827,7 @@ fn parseEnumLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type
             inline for (enum_fields, 0..) |field, i| {
                 kvs_list[i] = .{ field.name, @enumFromInt(field.value) };
             }
-            const enum_tags = std.ComptimeStringMap(T, kvs_list);
+            const enum_tags = std.StaticStringMap(T).initComptime(kvs_list);
 
             // Get the tag if it exists
             const main_tokens = self.ast.nodes.items(.main_token);
@@ -1993,7 +1993,7 @@ fn parseBool(self: @This(), node: NodeIndex) error{Type}!bool {
     switch (tags[node]) {
         .identifier => {
             const bytes = self.ast.tokenSlice(token);
-            const map = std.ComptimeStringMap(bool, .{
+            const map = std.StaticStringMap(bool).initComptime(.{
                 .{ "true", true },
                 .{ "false", false },
             });
@@ -2067,7 +2067,7 @@ fn parseNumber(
                 const token = main_tokens[num_lit_node];
                 const bytes = self.ast.tokenSlice(token);
                 const Ident = enum { inf, nan };
-                const map = std.ComptimeStringMap(Ident, .{
+                const map = std.StaticStringMap(Ident).initComptime(.{
                     .{ "inf", .inf },
                     .{ "nan", .nan },
                 });
@@ -2416,10 +2416,13 @@ test "std.zon parse int" {
         defer ast.deinit(gpa);
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(u8, gpa, &ast, &status, .{}));
-        try std.testing.expectEqual(status.invalid_number_literal.reason, .{ .invalid_digit = .{
-            .i = 2,
-            .base = @enumFromInt(10),
-        } });
+        // XXX: why can't infer type?
+        try std.testing.expectEqual(status.invalid_number_literal.reason, NumberLiteralError{
+            .invalid_digit = .{
+                .i = 2,
+                .base = @as(Base, @enumFromInt(10)),
+            },
+        });
         const node = status.invalid_number_literal.node;
         const main_tokens = ast.nodes.items(.main_token);
         const token = main_tokens[node];

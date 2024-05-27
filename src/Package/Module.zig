@@ -447,6 +447,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             // We might as well use this digest for the File `path digest`, since there's a
             // one-to-one correspondence here between distinct paths and distinct contents.
             .path_digest = bin_digest,
+            .mode = .zig,
         };
         break :b new;
     };

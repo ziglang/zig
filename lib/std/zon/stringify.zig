@@ -115,7 +115,7 @@ const RecursiveTypeBuffer = [32]type;
 
 fn typeIsRecursive(comptime T: type) bool {
     comptime var buf: RecursiveTypeBuffer = undefined;
-    return typeIsRecursiveImpl(T, buf[0..0]);
+    return comptime typeIsRecursiveImpl(T, buf[0..0]);
 }
 
 fn typeIsRecursiveImpl(comptime T: type, comptime visited_arg: []type) bool {
@@ -433,12 +433,12 @@ pub fn Stringifier(comptime Writer: type) type {
                     return self.writer.writeAll("inf");
                 } else if (@as(f128, val) == -std.math.inf(f128)) {
                     return self.writer.writeAll("-inf");
+                } else {
+                    // XXX: don't need to cast to f64 anymore!
+                    try std.fmt.format(self.writer, "{d}", .{@as(f64, @floatCast(val))});
                 },
-                else => {}
+                else => @compileError(@typeName(@TypeOf(val)) ++ ": expected float"),
             }
-
-            // Cast required because of https://github.com/ziglang/zig/issues/1181
-            try std.fmt.formatFloatDecimal(@as(f64, @floatCast(val)), .{}, self.writer);
         }
 
         fn identNeedsEscape(name: []const u8) bool {

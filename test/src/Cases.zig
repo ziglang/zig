@@ -499,6 +499,7 @@ fn addFromDirInner(
                     .link_libc = link_libc,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                     .imports = imports,
+                    .target = b.resolveTargetQuery(target_query),
                 });
                 try cases.append(next);
             }
@@ -683,7 +684,8 @@ pub fn lowerToBuildSteps(
                 case.import_path orelse @panic("import_path not set"),
                 import_rel,
             }) catch @panic("OOM");
-            _ = writefiles.addCopyFile(.{ .path = import_abs }, import_rel);
+            // XXX: correct path type?
+            _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
         }
 
         const root_source_file = writefiles.files.items[0].getPath();
@@ -1012,6 +1014,7 @@ const TestManifest = struct {
         .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
+        .{ "imports", {} },
     });
 
     const Type = enum {
@@ -1112,7 +1115,9 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
-            if (!valid_keys.has(key)) return error.InvalidKey;
+            if (!valid_keys.has(key)) {
+                return error.InvalidKey;
+            }
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 

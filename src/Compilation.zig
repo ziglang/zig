@@ -2110,7 +2110,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
         for (module.import_table.values()) |file| {
             if (file.mod.isBuiltin()) continue;
-            if (value.mode == .zig) {
+            if (file.mode == .zig) {
                 comp.astgen_work_queue.writeItemAssumeCapacity(file);
             }
         }

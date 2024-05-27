@@ -56,14 +56,16 @@ test "struct default fields" {
         y: f32,
         z: f32 = 123.4,
     };
-    try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, @import("zon/vec2.zon"));
+    try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, @as(Vec3, @import("zon/vec2.zon")));
+    const ascribed: Vec3 = @import("zon/vec2.zon");
+    try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, ascribed);
 }
 
 test "struct enum field" {
     const Struct = struct {
         x: enum { x, y, z },
     };
-    try expectEqual(Struct{ .x = .z }, @import("zon/enum_field.zon"));
+    try expectEqual(Struct{ .x = .z }, @as(Struct, @import("zon/enum_field.zon")));
 }
 
 test "tuple" {
