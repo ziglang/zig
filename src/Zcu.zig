@@ -4152,10 +4152,38 @@ const LowerZon = struct {
         return error.AnalysisFail;
     }
 
-    fn ident(self: *LowerZon, token: Ast.TokenIndex) []const u8 {
+    fn ident(self: *LowerZon, token: Ast.TokenIndex) ![]const u8 {
         var bytes = self.file.tree.tokenSlice(token);
-        if (bytes[0] == '@' and bytes[1] == '"')
-            return bytes[2 .. bytes.len - 1];
+
+        if (bytes[0] == '@' and bytes[1] == '"') {
+            const gpa = self.mod.gpa;
+
+            if (std.mem.indexOfScalar(u8, bytes, 0) != null) {                
+                return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
+            }
+
+            // XXX: so mething wrong here, tripping assertion in parseWrite:
+            // assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
+            const raw_string = bytes[1 .. bytes.len - 1];
+            var parsed = std.ArrayListUnmanaged(u8){};
+            defer parsed.deinit(gpa);
+
+            switch (try std.zig.string_literal.parseWrite(parsed.writer(gpa), raw_string)) {
+                .success => return parsed.toOwnedSliceSentinel(gpa, 0),
+                .failure => |err| {
+                    const offset = self.file.tree.tokens.items(.start)[token];
+                    return AstGen.failWithStrLitError(
+                        self,
+                        failWithStrLitError,
+                        err,
+                        token,
+                        raw_string,
+                        offset,
+                    );
+                }
+            }
+        }
+
         return bytes;
     }
 
@@ -4167,7 +4195,7 @@ const LowerZon = struct {
         switch (tags[node]) {
             .identifier => {
                 const token = main_tokens[node];
-                const bytes = self.ident(token);
+                const bytes = try self.ident(token);
 
                 const Ident = enum { true, false, null, nan, inf };
                 const values = std.StaticStringMap(Ident).initComptime(.{
@@ -4198,9 +4226,8 @@ const LowerZon = struct {
             .negation => return self.number(data[node].lhs, node),
             .enum_literal => {
                 const token = main_tokens[node];
-                const bytes = self.ident(token);
+                const bytes = try self.ident(token);
                 return self.mod.intern_pool.get(gpa, .{
-                    // XXX: string literals can't have embedded nulls right?
                     .enum_literal = try self.mod.intern_pool.getOrPutString(gpa, bytes, .no_embedded_nulls),
                 });
             },
@@ -4233,7 +4260,6 @@ const LowerZon = struct {
                 });
                 const val = try self.mod.intern(.{ .aggregate = .{
                     .ty = array_ty.toIntern(),
-                    // XXX: could have embedded nulls right?
                     .storage = .{ .bytes = try self.mod.intern_pool.getOrPutString(gpa, bytes.items, .maybe_embedded_nulls) },
                 } });
                 const ptr_ty = (try self.mod.ptrType(.{
@@ -4270,7 +4296,6 @@ const LowerZon = struct {
                 });
                 const val = try self.mod.intern(.{ .aggregate = .{
                     .ty = array_ty.toIntern(),
-                // XXX: could have embedded nulls right?
                     .storage = .{ .bytes = try self.mod.intern_pool.getOrPutString(gpa, bytes.items, .maybe_embedded_nulls) },
                 } });
                 const ptr_ty = (try self.mod.ptrType(.{
@@ -4315,8 +4340,7 @@ const LowerZon = struct {
                     types[i] = self.mod.intern_pool.typeOf(values[i]);
 
                     const name_token = self.file.tree.firstToken(field) - 2;
-                    // XXX: can't be null right?
-                    const name = try self.mod.intern_pool.getOrPutString(gpa, self.ident(name_token), .no_embedded_nulls);
+                    const name = try self.mod.intern_pool.getOrPutString(gpa, try self.ident(name_token), .no_embedded_nulls);
                     const gop = names.getOrPutAssumeCapacity(name);
                     if (gop.found_existing) {
                         return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
