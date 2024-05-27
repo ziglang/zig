@@ -32,9 +32,11 @@ initial_delay_ns: u64,
 
 rows: u16,
 cols: u16,
-/// Needed because terminal escape codes require one to take scrolling into
-/// account.
-newline_count: u16,
+/// Tracks the number of newlines that have been actually written to the terminal.
+written_newline_count: u16,
+/// Tracks the number of newlines that will be written to the terminal if the
+/// draw buffer is sent.
+accumulated_newline_count: u16,
 
 /// Accessed only by the update thread.
 draw_buffer: []u8,
@@ -284,7 +286,8 @@ var global_progress: Progress = .{
     .initial_delay_ns = undefined,
     .rows = 0,
     .cols = 0,
-    .newline_count = 0,
+    .written_newline_count = 0,
+    .accumulated_newline_count = 0,
     .draw_buffer = undefined,
     .done = false,
 
@@ -423,7 +426,7 @@ fn updateThreadRun() void {
         const buffer = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
-            write(buffer);
+            write(buffer) catch return;
         }
     }
 
@@ -440,7 +443,7 @@ fn updateThreadRun() void {
         const buffer = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
-            write(buffer);
+            write(buffer) catch return;
         }
     }
 }
@@ -499,7 +502,7 @@ const tree_line = "\x1B\x28\x30\x78\x1B\x28\x42  "; // │
 const tree_langle = "\x1B\x28\x30\x6d\x71\x1B\x28\x42 "; // └─
 
 fn clearTerminal() void {
-    if (global_progress.newline_count == 0) return;
+    if (global_progress.written_newline_count == 0) return;
 
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
@@ -512,15 +515,17 @@ fn clearTerminal() void {
     buf[i..][0..finish_sync.len].* = finish_sync.*;
     i += finish_sync.len;
 
-    write(buf[0..i]);
+    global_progress.accumulated_newline_count = 0;
+    write(buf[0..i]) catch {
+        global_progress.terminal = null;
+    };
 }
 
 fn computeClear(buf: []u8, start_i: usize) usize {
     var i = start_i;
 
-    const prev_nl_n = global_progress.newline_count;
+    const prev_nl_n = global_progress.written_newline_count;
     if (prev_nl_n > 0) {
-        global_progress.newline_count = 0;
         buf[i] = '\r';
         i += 1;
         for (0..prev_nl_n) |_| {
@@ -854,6 +859,7 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
 
     i = computeClear(buf, i);
 
+    global_progress.accumulated_newline_count = 0;
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized, children, root_node_index);
 
@@ -937,7 +943,7 @@ fn computeNode(
         i = @min(global_progress.cols + start_i, i);
         buf[i] = '\n';
         i += 1;
-        global_progress.newline_count += 1;
+        global_progress.accumulated_newline_count += 1;
     }
 
     if (global_progress.withinRowLimit()) {
@@ -959,14 +965,13 @@ fn withinRowLimit(p: *Progress) bool {
     // The +2 here is so that the PS1 is not scrolled off the top of the terminal.
     // one because we keep the cursor on the next line
     // one more to account for the PS1
-    return p.newline_count + 2 < p.rows;
+    return p.accumulated_newline_count + 2 < p.rows;
 }
 
-fn write(buf: []const u8) void {
+fn write(buf: []const u8) anyerror!void {
     const tty = global_progress.terminal orelse return;
-    tty.writeAll(buf) catch {
-        global_progress.terminal = null;
-    };
+    try tty.writeAll(buf);
+    global_progress.written_newline_count = global_progress.accumulated_newline_count;
 }
 
 fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
