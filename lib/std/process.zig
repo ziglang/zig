@@ -1760,6 +1760,7 @@ pub fn cleanExit() void {
     if (builtin.mode == .Debug) {
         return;
     } else {
+        std.debug.lockStdErr();
         exit(0);
     }
 }
