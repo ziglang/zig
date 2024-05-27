@@ -3411,6 +3411,7 @@ fn buildOutputType(
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
     });
+    defer root_prog_node.end();
 
     updateModule(comp, color, root_prog_node) catch |err| switch (err) {
         error.SemanticAnalyzeFail => {
