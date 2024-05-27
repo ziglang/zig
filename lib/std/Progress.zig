@@ -635,7 +635,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
             const n = posix.read(fd, pipe_buf[bytes_read..]) catch |err| switch (err) {
                 error.WouldBlock => break,
                 else => |e| {
-                    std.log.warn("failed to read child progress data: {s}", .{@errorName(e)});
+                    std.log.debug("failed to read child progress data: {s}", .{@errorName(e)});
                     main_storage.completed_count = 0;
                     main_storage.estimated_total_count = 0;
                     continue :main_loop;
@@ -964,13 +964,13 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
     if (posix.writev(fd, &vecs)) |written| {
         const total = header.len + storage.len + parents.len;
         if (written < total) {
-            std.log.warn("short write: {d} out of {d}", .{ written, total });
+            std.log.debug("short write: {d} out of {d}", .{ written, total });
         }
     } else |err| switch (err) {
         error.WouldBlock => {},
         error.BrokenPipe => return error.BrokenPipe,
         else => |e| {
-            std.log.warn("failed to send progress to parent process: {s}", .{@errorName(e)});
+            std.log.debug("failed to send progress to parent process: {s}", .{@errorName(e)});
             return error.BrokenPipe;
         },
     }
