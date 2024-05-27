@@ -28779,8 +28779,8 @@ fn elemValArray(
 
     const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
     if (oob_safety and block.wantSafety()) {
-        // Runtime check is only needed if unable to comptime check
-        if (maybe_index_val == null) {
+        // Runtime check is only needed if unable to comptime check.
+        if (maybe_index_val == null and !block.is_comptime) {
             const len_inst = try mod.intRef(Type.usize, array_len);
             const cmp_op: Air.Inst.Tag = if (array_sent != null) .cmp_lte else .cmp_lt;
             try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
