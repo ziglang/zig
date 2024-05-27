@@ -4702,6 +4702,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
+    var color: Color = .auto;
+
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4786,6 +4788,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     verbose_cimport = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                     verbose_llvm_cpu_features = true;
+                } else if (mem.eql(u8, arg, "--color")) {
+                    if (i + 1 >= args.len) fatal("expected [auto|on|off] after {s}", .{arg});
+                    i += 1;
+                    color = std.meta.stringToEnum(Color, args[i]) orelse {
+                        fatal("expected [auto|on|off] after {s}, found '{s}'", .{ arg, args[i] });
+                    };
+                    try child_argv.appendSlice(&.{ arg, args[i] });
+                    continue;
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -4799,7 +4809,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
-    const color: Color = .auto;
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",

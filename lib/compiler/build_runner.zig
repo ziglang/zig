@@ -289,7 +289,9 @@ pub fn main() !void {
         .windows_api => {},
     }
 
-    const main_progress_node = std.Progress.start(.{});
+    const main_progress_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
@@ -1223,7 +1225,7 @@ fn cleanExit() void {
     process.exit(0);
 }
 
-const Color = enum { auto, off, on };
+const Color = std.zig.Color;
 const Summary = enum { all, new, failures, none };
 
 fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
