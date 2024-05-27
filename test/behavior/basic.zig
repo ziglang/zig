@@ -709,7 +709,6 @@ test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const x = maybe(true) catch unreachable;
     try expect(x.? == 42);
@@ -1091,8 +1090,6 @@ test "orelse coercion as function argument" {
 }
 
 test "runtime-known globals initialized with undefined" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         var array: [10]u32 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         var vp: [*]u32 = undefined;

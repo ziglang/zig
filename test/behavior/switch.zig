@@ -118,7 +118,6 @@ fn trueIfBoolFalseOtherwise(comptime T: type) bool {
 
 test "switching on booleans" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testSwitchOnBools();
     try comptime testSwitchOnBools();
@@ -277,7 +276,6 @@ fn testSwitchEnumPtrCapture() !void {
 
 test "switch handles all cases of number" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testSwitchHandleAllCases();
     try comptime testSwitchHandleAllCases();
@@ -647,7 +645,6 @@ test "switch prong pointer capture alignment" {
 test "switch on pointer type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const X = struct {
@@ -912,7 +909,6 @@ test "peer type resolution on switch captures ignores unused payload bits" {
 test "switch prong captures range" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn a(b: []u3, c: u3) void {

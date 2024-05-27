@@ -488,7 +488,6 @@ const NoReturn = struct {
 
 test "optional of noreturn used with if" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     NoReturn.a = 64;
     if (NoReturn.loop()) |_| {
@@ -500,7 +499,6 @@ test "optional of noreturn used with if" {
 
 test "optional of noreturn used with orelse" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     NoReturn.a = 64;
     const val = NoReturn.testOrelse();

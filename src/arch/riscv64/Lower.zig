@@ -44,6 +44,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     insts: []const Instruction,
     relocs: []const Reloc,
 } {
+    const zcu = lower.bin_file.comp.module.?;
+
     lower.result_insts = undefined;
     lower.result_relocs = undefined;
     errdefer lower.result_insts = undefined;
@@ -75,13 +77,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         const dest_reg_class = dest_reg.class();
                         const float = dest_reg_class == .float;
 
-                        const src_size = rm.m.mod.size();
+                        const src_size = rm.m.mod.size;
+                        const unsigned = rm.m.mod.unsigned;
 
                         const tag: Encoding.Mnemonic = if (!float)
                             switch (src_size) {
-                                .byte => .lb,
-                                .hword => .lh,
-                                .word => .lw,
+                                .byte => if (unsigned) .lbu else .lb,
+                                .hword => if (unsigned) .lhu else .lh,
+                                .word => if (unsigned) .lwu else .lw,
                                 .dword => .ld,
                             }
                         else switch (src_size) {
@@ -103,7 +106,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         const float = src_reg_class == .float;
 
                         // TODO: do we actually need this? are all stores not usize?
-                        const dest_size = rm.m.mod.size();
+                        const dest_size = rm.m.mod.size;
 
                         const tag: Encoding.Mnemonic = if (!float)
                             switch (dest_size) {
@@ -181,10 +184,12 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 try lower.emit(.lui, &.{
                     .{ .reg = dst_reg },
-                    .{ .imm = lower.reloc(.{ .load_symbol_reloc = .{
-                        .atom_index = data.atom_index,
-                        .sym_index = data.sym_index,
-                    } }) },
+                    .{ .imm = lower.reloc(.{
+                        .load_symbol_reloc = .{
+                            .atom_index = data.atom_index,
+                            .sym_index = data.sym_index,
+                        },
+                    }) },
                 });
 
                 // the above reloc implies this one
@@ -237,7 +242,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const rs2 = compare.rs2;
 
                 const class = rs1.class();
-                const size = compare.size.bitSize();
+                const ty = compare.ty;
+                const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(zcu)) catch {
+                    return lower.fail("pseudo_compare size {}", .{ty.bitSize(zcu)});
+                };
+
+                const is_unsigned = ty.isUnsignedInt(zcu);
+
+                const less_than: Encoding.Mnemonic = if (is_unsigned) .sltu else .slt;
 
                 switch (class) {
                     .int => switch (op) {
@@ -268,14 +280,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                             });
                         },
                         .gt => {
-                            try lower.emit(.sltu, &.{
+                            try lower.emit(less_than, &.{
                                 .{ .reg = rd },
                                 .{ .reg = rs1 },
                                 .{ .reg = rs2 },
                             });
                         },
                         .gte => {
-                            try lower.emit(.sltu, &.{
+                            try lower.emit(less_than, &.{
                                 .{ .reg = rd },
                                 .{ .reg = rs1 },
                                 .{ .reg = rs2 },
@@ -288,14 +300,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                             });
                         },
                         .lt => {
-                            try lower.emit(.slt, &.{
+                            try lower.emit(less_than, &.{
                                 .{ .reg = rd },
                                 .{ .reg = rs1 },
                                 .{ .reg = rs2 },
                             });
                         },
                         .lte => {
-                            try lower.emit(.slt, &.{
+                            try lower.emit(less_than, &.{
                                 .{ .reg = rd },
                                 .{ .reg = rs2 },
                                 .{ .reg = rs1 },

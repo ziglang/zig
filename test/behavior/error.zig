@@ -856,7 +856,6 @@ test "alignment of wrapping an error union payload" {
 
 test "compare error union and error set" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: anyerror = error.Foo;
     var b: anyerror!u32 = error.Bar;

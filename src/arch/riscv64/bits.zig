@@ -19,19 +19,10 @@ pub const Memory = struct {
         reloc: Symbol,
     };
 
-    pub const Mod = union(enum(u1)) {
-        rm: struct {
-            size: Size,
-            disp: i32 = 0,
-        },
-        off: i32,
-
-        pub fn size(mod: Mod) Size {
-            return switch (mod) {
-                .rm => |rm| rm.size,
-                .off => Size.dword, // assumed to be a register size
-            };
-        }
+    pub const Mod = struct {
+        size: Size,
+        unsigned: bool,
+        disp: i32 = 0,
     };
 
     pub const Size = enum(u4) {
@@ -76,10 +67,7 @@ pub const Memory = struct {
 
     /// Asserts `mem` can be represented as a `FrameLoc`.
     pub fn toFrameLoc(mem: Memory, mir: Mir) Mir.FrameLoc {
-        const offset: i32 = switch (mem.mod) {
-            .off => |off| off,
-            .rm => |rm| rm.disp,
-        };
+        const offset: i32 = mem.mod.disp;
 
         switch (mem.base) {
             .reg => |reg| {
@@ -125,24 +113,6 @@ pub const Immediate = union(enum) {
                 16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
                 32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
                 64 => @bitCast(x),
-                else => unreachable,
-            },
-        };
-    }
-
-    pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
-        return switch (imm) {
-            .signed => |x| switch (bit_size) {
-                1, 8 => @as(u8, @bitCast(@as(i8, @intCast(x)))),
-                16 => @as(u16, @bitCast(@as(i16, @intCast(x)))),
-                32, 64 => @as(u32, @bitCast(x)),
-                else => unreachable,
-            },
-            .unsigned => |x| switch (bit_size) {
-                1, 8 => @as(u8, @intCast(x)),
-                16 => @as(u16, @intCast(x)),
-                32 => @as(u32, @intCast(x)),
-                64 => x,
                 else => unreachable,
             },
         };

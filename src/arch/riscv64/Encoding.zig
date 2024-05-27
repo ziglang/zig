@@ -4,6 +4,7 @@ data: Data,
 const OpCode = enum(u7) {
     OP = 0b0110011,
     OP_IMM = 0b0010011,
+    OP_IMM_32 = 0b0011011,
     OP_32 = 0b0111011,
 
     BRANCH = 0b1100011,
@@ -41,16 +42,21 @@ const Enc = struct {
             funct3: u3,
             funct7: u7,
         },
-        /// funct3 + offset
-        fo: struct {
-            funct3: u3,
-            offset: u12 = 0,
-        },
         /// funct5 + rm + fmt
         fmt: struct {
             funct5: u5,
             rm: u3,
             fmt: Fmt,
+        },
+        /// funct3
+        f: struct {
+            funct3: u3,
+        },
+        /// typ + funct3 + has_5
+        sh: struct {
+            typ: u6,
+            funct3: u3,
+            has_5: bool,
         },
         /// U-type
         none,
@@ -72,10 +78,14 @@ pub const Mnemonic = enum {
     sltiu,
     xori,
     andi,
+
     slli,
     srli,
     srai,
-    sllw,
+
+    slliw,
+    srliw,
+    sraiw,
 
     addi,
     jalr,
@@ -98,18 +108,47 @@ pub const Mnemonic = enum {
 
     // R Type
     add,
+    addw,
+    sub,
+    subw,
     @"and",
     @"or",
-    sub,
     slt,
-    mul,
     sltu,
     xor,
+
+    sll,
+    srl,
+    sra,
+
+    sllw,
+    srlw,
+    sraw,
 
     // System
     ecall,
     ebreak,
     unimp,
+
+    // M extension
+    mul,
+    mulw,
+
+    mulh,
+    mulhu,
+    mulhsu,
+
+    div,
+    divu,
+
+    divw,
+    divuw,
+
+    rem,
+    remu,
+
+    remw,
+    remuw,
 
     // F extension (32-bit float)
     fadds,
@@ -170,19 +209,56 @@ pub const Mnemonic = enum {
             .slt     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b010, .funct7 = 0b0000000 } } },
 
             .mul     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000001 } } },
+            .mulh    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000001 } } },
+            .mulhsu  => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b010, .funct7 = 0b0000001 } } },
+            .mulhu   => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b011, .funct7 = 0b0000001 } } },
+ 
+            .div     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b100, .funct7 = 0b0000001 } } },
+            .divu    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0000001 } } },
+
+            .rem     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b110, .funct7 = 0b0000001 } } },
+            .remu    => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b111, .funct7 = 0b0000001 } } },
+
+            .sll     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000000 } } },
+            .srl     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0000000 } } },
+            .sra     => .{ .opcode = .OP, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0100000 } } },
 
 
             // OP_IMM
 
-            .addi    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .andi    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b111 } } },
-            .xori    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b100 } } },
+            .addi    => .{ .opcode = .OP_IMM, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .andi    => .{ .opcode = .OP_IMM, .data = .{ .f = .{ .funct3 = 0b111 } } },
+            .xori    => .{ .opcode = .OP_IMM, .data = .{ .f = .{ .funct3 = 0b100 } } },
             
-            .sltiu   => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .sltiu   => .{ .opcode = .OP_IMM, .data = .{ .f = .{ .funct3 = 0b011 } } },
 
-            .slli    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .srli    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101 } } },
-            .srai    => .{ .opcode = .OP_IMM, .data = .{ .fo = .{ .funct3 = 0b101, .offset = 1 << 10 } } },
+            .slli    => .{ .opcode = .OP_IMM, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b001, .has_5 = true } } },
+            .srli    => .{ .opcode = .OP_IMM, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b101, .has_5 = true } } },
+            .srai    => .{ .opcode = .OP_IMM, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = true } } },
+
+
+            // OP_IMM_32
+
+            .slliw   => .{ .opcode = .OP_IMM_32, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b001, .has_5 = false } } },
+            .srliw   => .{ .opcode = .OP_IMM_32, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b101, .has_5 = false } } },
+            .sraiw   => .{ .opcode = .OP_IMM_32, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = false } } },
+
+
+            // OP_32
+
+            .addw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000000 } } },
+            .subw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0100000 } } },
+            .mulw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b000, .funct7 = 0b0000001 } } }, 
+
+            .divw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b100, .funct7 = 0b0000001 } } },
+            .divuw   => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0000001 } } },
+
+            .remw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b110, .funct7 = 0b0000001 } } },
+            .remuw   => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b111, .funct7 = 0b0000001 } } },
+
+            .sllw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000000 } } },
+            .srlw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0000000 } } },
+            .sraw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b101, .funct7 = 0b0100000 } } },
 
 
             // OP_FP
@@ -226,43 +302,38 @@ pub const Mnemonic = enum {
 
             // LOAD
 
-            .lb      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .lh      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .lw      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .ld      => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b011 } } },
-            .lbu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b100 } } },
-            .lhu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b101 } } },
-            .lwu     => .{ .opcode = .LOAD, .data = .{ .fo = .{ .funct3 = 0b110 } } },
+            .lb      => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .lh      => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b001 } } },
+            .lw      => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .ld      => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b011 } } },
+            .lbu     => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b100 } } },
+            .lhu     => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b101 } } },
+            .lwu     => .{ .opcode = .LOAD, .data = .{ .f = .{ .funct3 = 0b110 } } },
 
 
             // STORE
             
-            .sb      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .sh      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b001 } } },
-            .sw      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .sd      => .{ .opcode = .STORE, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .sb      => .{ .opcode = .STORE, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .sh      => .{ .opcode = .STORE, .data = .{ .f = .{ .funct3 = 0b001 } } },
+            .sw      => .{ .opcode = .STORE, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .sd      => .{ .opcode = .STORE, .data = .{ .f = .{ .funct3 = 0b011 } } },
 
 
             // LOAD_FP
 
-            .flw     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .flw     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
             
 
             // STORE_FP
 
-            .fsw     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b010 } } },
-            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .fo = .{ .funct3 = 0b011 } } },
+            .fsw     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
 
 
             // JALR
 
-            .jalr    => .{ .opcode = .JALR, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-
-
-            // OP_32
-
-            .sllw    => .{ .opcode = .OP_32, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0000000 } } },
+            .jalr    => .{ .opcode = .JALR, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
 
             // LUI
@@ -282,18 +353,18 @@ pub const Mnemonic = enum {
 
             // BRANCH
 
-            .beq     => .{ .opcode = .BRANCH, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .beq     => .{ .opcode = .BRANCH, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
 
             // SYSTEM
 
-            .ecall   => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
-            .ebreak  => .{ .opcode = .SYSTEM, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .ecall   => .{ .opcode = .SYSTEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .ebreak  => .{ .opcode = .SYSTEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
            
 
             // NONE
             
-            .unimp   => .{ .opcode = .NONE, .data = .{ .fo = .{ .funct3 = 0b000 } } },
+            .unimp   => .{ .opcode = .NONE, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
 
             // zig fmt: on
@@ -320,9 +391,14 @@ pub const InstEnc = enum {
             .sltiu,
             .xori,
             .andi,
+
             .slli,
             .srli,
             .srai,
+
+            .slliw,
+            .srliw,
+            .sraiw,
 
             .ld,
             .lw,
@@ -357,13 +433,40 @@ pub const InstEnc = enum {
 
             .slt,
             .sltu,
+
+            .sll,
+            .srl,
+            .sra,
+
             .sllw,
-            .mul,
+            .srlw,
+            .sraw,
+
+            .div,
+            .divu,
+            .divw,
+            .divuw,
+
+            .rem,
+            .remu,
+            .remw,
+            .remuw,
+
             .xor,
-            .add,
-            .sub,
             .@"and",
             .@"or",
+
+            .add,
+            .addw,
+
+            .sub,
+            .subw,
+
+            .mul,
+            .mulw,
+            .mulh,
+            .mulhu,
+            .mulhsu,
 
             .fadds,
             .faddd,
@@ -516,12 +619,12 @@ pub const Data = union(InstEnc) {
                         .imm0_11 = switch (mnem) {
                             .ecall => 0x000,
                             .ebreak => 0x001,
-                            .unimp => 0,
+                            .unimp => 0x000,
                             else => unreachable,
                         },
 
                         .opcode = @intFromEnum(enc.opcode),
-                        .funct3 = enc.data.fo.funct3,
+                        .funct3 = enc.data.f.funct3,
                     },
                 };
             },
@@ -567,20 +670,32 @@ pub const Data = union(InstEnc) {
                         .imm5_11 = @truncate(umm >> 5),
 
                         .opcode = @intFromEnum(enc.opcode),
-                        .funct3 = enc.data.fo.funct3,
+                        .funct3 = enc.data.f.funct3,
                     },
                 };
             },
             .I => {
                 assert(ops.len == 3);
                 return .{
-                    .I = .{
-                        .rd = ops[0].reg.encodeId(),
-                        .rs1 = ops[1].reg.encodeId(),
-                        .imm0_11 = ops[2].imm.asBits(u12) + enc.data.fo.offset,
+                    .I = switch (enc.data) {
+                        .f => |f| .{
+                            .rd = ops[0].reg.encodeId(),
+                            .rs1 = ops[1].reg.encodeId(),
+                            .imm0_11 = ops[2].imm.asBits(u12),
 
-                        .opcode = @intFromEnum(enc.opcode),
-                        .funct3 = enc.data.fo.funct3,
+                            .opcode = @intFromEnum(enc.opcode),
+                            .funct3 = f.funct3,
+                        },
+                        .sh => |sh| .{
+                            .rd = ops[0].reg.encodeId(),
+                            .rs1 = ops[1].reg.encodeId(),
+                            .imm0_11 = (@as(u12, sh.typ) << 6) |
+                                if (sh.has_5) ops[2].imm.asBits(u6) else (@as(u6, 0) | ops[2].imm.asBits(u5)),
+
+                            .opcode = @intFromEnum(enc.opcode),
+                            .funct3 = sh.funct3,
+                        },
+                        else => unreachable,
                     },
                 };
             },
@@ -629,7 +744,7 @@ pub const Data = union(InstEnc) {
                         .imm12 = @truncate(umm >> 12),
 
                         .opcode = @intFromEnum(enc.opcode),
-                        .funct3 = enc.data.fo.funct3,
+                        .funct3 = enc.data.f.funct3,
                     },
                 };
             },

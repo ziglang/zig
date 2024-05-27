@@ -39,16 +39,28 @@ pub const Inst = struct {
         unimp,
 
         add,
+        addw,
         sub,
+        subw,
 
         sltu,
         slt,
 
-        srli,
         slli,
+        srli,
         srai,
+
+        slliw,
+        srliw,
+        sraiw,
+
+        sll,
+        srl,
+        sra,
+
         sllw,
         srlw,
+        sraw,
 
         jal,
 
@@ -69,6 +81,17 @@ pub const Inst = struct {
 
         // M extension
         mul,
+        mulw,
+
+        div,
+        divu,
+        divw,
+        divuw,
+
+        rem,
+        remu,
+        remw,
+        remuw,
 
         // F extension (32-bit float)
         fadds,
@@ -216,7 +239,7 @@ pub const Inst = struct {
                 lt,
                 lte,
             },
-            size: Memory.Size,
+            ty: Type,
         },
 
         reloc: struct {
@@ -408,6 +431,8 @@ pub const RegisterList = struct {
 const Mir = @This();
 const std = @import("std");
 const builtin = @import("builtin");
+const Type = @import("../../type.zig").Type;
+
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");

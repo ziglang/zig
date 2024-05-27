@@ -379,7 +379,6 @@ test "while loop with comptime true condition needs no else block to return valu
 test "int returned from switch in while" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u32 = 3;
     const val: usize = while (true) switch (x) {

@@ -45,7 +45,6 @@ var global_with_err: anyerror!u32 = error.SomeError;
 
 test "unwrap mutable global var" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (global_with_val) |v| {
         try expect(v == 0);
