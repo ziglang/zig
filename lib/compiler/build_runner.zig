@@ -294,7 +294,7 @@ pub fn main() !void {
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
     {
-        var prog_node = main_progress_node.start("user build.zig logic", 0);
+        var prog_node = main_progress_node.start("Configure", 0);
         defer prog_node.end();
         try builder.runBuild(root);
     }
