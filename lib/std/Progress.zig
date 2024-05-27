@@ -908,19 +908,24 @@ fn computeNode(
         global_progress.newline_count += 1;
     }
 
-    if (global_progress.newline_count < global_progress.rows) {
+    if (global_progress.withinRowLimit()) {
         if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
             i = computeNode(buf, i, serialized, children, child);
         }
     }
 
-    if (global_progress.newline_count < global_progress.rows) {
+    if (global_progress.withinRowLimit()) {
         if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
             i = computeNode(buf, i, serialized, children, sibling);
         }
     }
 
     return i;
+}
+
+fn withinRowLimit(p: *Progress) bool {
+    // The +1 here is so that the PS1 is not scrolled off the top of the terminal.
+    return p.newline_count + 1 < p.rows;
 }
 
 fn write(buf: []const u8) void {
