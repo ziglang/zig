@@ -64,30 +64,26 @@ pub const snan = float.snan;
 ///
 /// The `tolerance` parameter is the absolute tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is a small
-/// multiple of `floatEps(T)`.
+/// multiple of `floatEpsAt(T, mean(x,y))`.
 ///
 /// Note that this function is recommended for comparing small numbers
 /// around zero; using `approxEqRel` is suggested otherwise.
 ///
-/// NaN values are never considered equal to any value.
+/// NaN values are never equal to any value, including themselves.
 pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat => {},
+        else => @compileError("T must be float or comptime float."),
+    }
     assert(tolerance >= 0);
-
-    // Fast path for equal values (and signed zeros and infinites).
-    if (x == y)
-        return true;
-
-    if (isNan(x) or isNan(y))
-        return false;
-
+    if (x == y) return true;
+    if (isNan(x) or isNan(y)) return false;
     return @abs(x - y) <= tolerance;
 }
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
-/// `max(|x|, |y|) * tolerance`, where `tolerance` is a positive number greater
-/// than zero.
+/// `|mean(x, y)| * tolerance`, where `tolerance` is a non-negative number.
 ///
 /// The `tolerance` parameter is the relative tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is usually
@@ -97,80 +93,159 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 /// Note that for comparisons of small numbers around zero this function won't
 /// give meaningful results, use `approxEqAbs` instead.
 ///
-/// NaN values are never considered equal to any value.
+/// NaN values are never equal to any value, including themselves.
 pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
-    assert(@typeInfo(T) == .Float or @typeInfo(T) == .ComptimeFloat);
-    assert(tolerance > 0);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat => {},
+        else => @compileError("T must be float or comptime float."),
+    }
+    assert(tolerance >= 0);
+    if (x == y) return true;
+    if (isNan(x) or isNan(y)) return false;
+    return @abs(x - y) <= tolerance * 0.5 * @abs(x + y);
+}
 
-    // Fast path for equal values (and signed zeros and infinites).
-    if (x == y)
-        return true;
+/// Performs an approximate comparison of two floating point values `x` and `y`.
+/// Returns true if the number of representable intervals (gaps) between them is
+/// less or equal than the specified count.
+///
+/// For example, two numbers with three representable values (points)
+/// between them are four intervals (gaps) apart from each other, i.e.
+///
+/// ... a - * - * - * - b ...
+///     | 1 | 2 | 3 | 4 |
+///
+/// The `ulp` parameter is the maximum permissible number of representable
+/// floating point intervals between the two numbers being compared.
+///
+/// Numbers on opposite sides of zero are compared on a scale with the
+/// denormalized numbers comprising a linear crossover region around zero,
+/// where positive and negative zeros are mapped to the same point and do not
+/// comprise an extraneous interval, i.e.
+///
+/// | -NaN | -inf | -nor | -den | 0 | +den | +nor | +inf | +NaN |
+///
+/// NaN values are never equal to any value, including themselves.
+pub fn approxEqUlp(comptime T: type, x: T, y: T, ulp: comptime_int) bool {
+    if (.Float != @typeInfo(T)) @compileError("T must be float.");
+    if (f80 == T) @compileError("f80 not implemented.");
+    if (ulp < 0) @compileError("ulp must not be negative.");
+    if (ulp == 0) return x == y;
 
-    if (isNan(x) or isNan(y))
-        return false;
+    const U = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const I = @Type(.{ .Int = .{ .signedness = .signed, .bits = @bitSizeOf(T) } });
+    const sign_mask: I = @bitCast(@as(U, 1 << (@bitSizeOf(T) - 1)));
 
-    return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
+    // runtime short-circuit of exact equality or nan
+    if (x == y) return true;
+    if (x != x or y != y) return false;
+
+    // Flip the negative interval so that it's sorted.
+    // Also removes the extra -0.0 stop when comparing across zero.
+    var xi, var yi = [2]I{ @bitCast(x), @bitCast(y) };
+    if (xi < 0) xi = sign_mask - xi;
+    if (yi < 0) yi = sign_mask - yi;
+
+    return @abs(xi - yi) <= ulp;
+}
+
+test approxEqUlp {
+    inline for (.{ f16, f32, f64, f128 }) |T| {
+        const U = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+        const sign_mask: U = 1 << (@bitSizeOf(T) - 1);
+        const pos_small: T = @bitCast(@as(U, 1));
+        const neg_small: T = @bitCast(sign_mask + 1);
+
+        try testing.expect(approxEqUlp(T, 0.0, 0.0, 0));
+        try testing.expect(approxEqUlp(T, 0.0, -0.0, 0));
+        try testing.expect(approxEqUlp(T, -0.0, -0.0, 0));
+
+        try testing.expect(approxEqUlp(T, 1.0, 1.0 + floatEps(T), 1));
+        try testing.expect(approxEqUlp(T, 1.0, 1.0 - floatEps(T), 2));
+
+        try testing.expect(approxEqUlp(T, -1.0, -1.0 - floatEps(T), 1));
+        try testing.expect(approxEqUlp(T, -1.0, -1.0 + floatEps(T), 2));
+
+        try testing.expect(approxEqUlp(T, pos_small, -neg_small, 0));
+        try testing.expect(approxEqUlp(T, -pos_small, neg_small, 0));
+
+        try testing.expect(approxEqUlp(T, pos_small, 0.0, 1));
+        try testing.expect(approxEqUlp(T, pos_small, -0.0, 1));
+        try testing.expect(approxEqUlp(T, -pos_small, 0.0, 1));
+        try testing.expect(approxEqUlp(T, -pos_small, -0.0, 1));
+
+        try testing.expect(approxEqUlp(T, 0.0, neg_small, 1));
+        try testing.expect(approxEqUlp(T, 0.0, -neg_small, 1));
+        try testing.expect(approxEqUlp(T, -0.0, neg_small, 1));
+        try testing.expect(approxEqUlp(T, -0.0, -neg_small, 1));
+
+        try testing.expect(approxEqUlp(T, pos_small, neg_small, 2));
+        try testing.expect(approxEqUlp(T, -pos_small, -neg_small, 2));
+    }
 }
 
 test approxEqAbs {
-    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime floatEps(T);
-        const min_value = comptime floatMin(T);
+    inline for (.{ f16, f32, f64, f128 }) |T| {
+        // test exact equality of zeroes
+        try testing.expect(approxEqAbs(T, 0.0, 0.0, 0));
+        try testing.expect(approxEqAbs(T, -0.0, -0.0, 0));
+        try testing.expect(approxEqAbs(T, 0.0, -0.0, 0));
 
-        try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
-        try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
-        try testing.expect(approxEqAbs(T, 0.0, -0.0, eps_value));
-        try testing.expect(!approxEqAbs(T, 1.0 + 2 * eps_value, 1.0, eps_value));
-        try testing.expect(approxEqAbs(T, 1.0 + 1 * eps_value, 1.0, eps_value));
-        try testing.expect(approxEqAbs(T, min_value, 0.0, eps_value * 2));
-        try testing.expect(approxEqAbs(T, -min_value, 0.0, eps_value * 2));
+        // test behavior near zero
+        const min = floatMin(T);
+        try testing.expect(approxEqAbs(T, 0.0, min, min));
+        try testing.expect(approxEqAbs(T, 0.0, -min, min));
+        try testing.expect(approxEqAbs(T, -0.0, min, min));
+        try testing.expect(approxEqAbs(T, -0.0, -min, min));
+        try testing.expect(approxEqAbs(T, min, -min, 2 * min));
+        try testing.expect(!approxEqAbs(T, min, -min, min));
+
+        // test behavior near one
+        const eps = floatEps(T);
+        try testing.expect(approxEqAbs(T, 1.0, 1.0 + eps, eps));
+        try testing.expect(approxEqAbs(T, 1.0 + eps, 1.0 + 2 * eps, eps));
+        try testing.expect(!approxEqAbs(T, 1.0, 1.0 + eps, 0.5 * eps));
+        try testing.expect(!approxEqAbs(T, 1.0 + eps, 1.0 + 2 * eps, 0.5 * eps));
+
+        // test behavior far from one
+        const inc = floatEpsAt(T, 1e4);
+        try testing.expect(approxEqAbs(T, 1e4, 1e4 + inc, inc));
+        try testing.expect(approxEqAbs(T, 1e4 + inc, 1e4 + 2 * inc, inc));
+        try testing.expect(!approxEqAbs(T, 1e4, 1e4 + inc, 0.5 * inc));
+        try testing.expect(!approxEqAbs(T, 1e4 + inc, 1e4 + 2 * inc, 0.5 * inc));
     }
 
-    comptime {
-        // `comptime_float` is guaranteed to have the same precision and operations of
-        // the largest other floating point type, which is f128 but it doesn't have a
-        // defined layout so we can't rely on `@bitCast` to construct the smallest
-        // possible epsilon value like we do in the tests above. In the same vein, we
-        // also can't represent a max/min, `NaN` or `Inf` values.
-        const eps_value = 1e-4;
-
-        try testing.expect(approxEqAbs(comptime_float, 0.0, 0.0, eps_value));
-        try testing.expect(approxEqAbs(comptime_float, -0.0, -0.0, eps_value));
-        try testing.expect(approxEqAbs(comptime_float, 0.0, -0.0, eps_value));
-        try testing.expect(!approxEqAbs(comptime_float, 1.0 + 2 * eps_value, 1.0, eps_value));
-        try testing.expect(approxEqAbs(comptime_float, 1.0 + 1 * eps_value, 1.0, eps_value));
-    }
+    // `comptime_float` is guaranteed to have the same precision and operations of
+    // the largest other floating point type, which is f128 but it doesn't have a
+    // defined layout so we can't rely on `@bitCast` to construct the smallest
+    // possible epsilon value like we do in the tests above. In the same vein, we
+    // also can't represent a max/min, `NaN` or `Inf` values.
+    try testing.expect(approxEqAbs(comptime_float, 0.0, 0.0, 0));
+    try testing.expect(approxEqAbs(comptime_float, -0.0, -0.0, 0));
+    try testing.expect(approxEqAbs(comptime_float, 0.0, -0.0, 0));
+    try testing.expect(approxEqAbs(comptime_float, 1.0, 1.0 + floatEps(f128), floatEps(f128)));
+    try testing.expect(!approxEqAbs(comptime_float, 1.0, 1.0 + floatEps(f128), 0.5 * floatEps(f128)));
 }
 
 test approxEqRel {
-    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime floatEps(T);
-        const sqrt_eps_value = comptime sqrt(eps_value);
-        const nan_value = comptime nan(T);
-        const inf_value = comptime inf(T);
-        const min_value = comptime floatMin(T);
-
-        try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
-        try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
-        try testing.expect(!approxEqRel(T, 1.0, nan_value, sqrt_eps_value));
-        try testing.expect(!approxEqRel(T, nan_value, nan_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, inf_value, inf_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, min_value, min_value, sqrt_eps_value));
-        try testing.expect(approxEqRel(T, -min_value, -min_value, sqrt_eps_value));
+    inline for (.{ f16, f32, f64, f128 }) |T| {
+        const rtol = @sqrt(floatEps(T));
+        try testing.expect(approxEqRel(T, 1.0, 1.0, rtol));
+        try testing.expect(!approxEqRel(T, 1.0, 0.0, rtol));
+        try testing.expect(!approxEqRel(T, 1.0, nan(T), rtol));
+        try testing.expect(!approxEqRel(T, nan(T), nan(T), rtol));
+        try testing.expect(approxEqRel(T, inf(T), inf(T), rtol));
+        try testing.expect(approxEqRel(T, floatMin(T), floatMin(T), rtol));
+        try testing.expect(approxEqRel(T, -floatMin(T), -floatMin(T), rtol));
     }
 
-    comptime {
-        // `comptime_float` is guaranteed to have the same precision and operations of
-        // the largest other floating point type, which is f128 but it doesn't have a
-        // defined layout so we can't rely on `@bitCast` to construct the smallest
-        // possible epsilon value like we do in the tests above. In the same vein, we
-        // also can't represent a max/min, `NaN` or `Inf` values.
-        const eps_value = 1e-4;
-        const sqrt_eps_value = sqrt(eps_value);
-
-        try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
-        try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
-    }
+    // `comptime_float` is guaranteed to have the same precision and operations of
+    // the largest other floating point type, which is f128 but it doesn't have a
+    // defined layout so we can't rely on `@bitCast` to construct the smallest
+    // possible epsilon value like we do in the tests above. In the same vein, we
+    // also can't represent a max/min, `NaN` or `Inf` values.
+    try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, @sqrt(floatEps(f128))));
+    try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, @sqrt(floatEps(f128))));
 }
 
 pub fn raiseInvalid() void {
