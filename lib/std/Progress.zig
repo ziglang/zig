@@ -104,8 +104,8 @@ pub const Node = struct {
             // `estimated_total_count` max int indicates the special state that
             // causes `completed_count` to be treated as a file descriptor, so
             // the order here matters.
-            @atomicStore(u32, &s.completed_count, integer, .seq_cst);
-            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .seq_cst);
+            @atomicStore(u32, &s.completed_count, integer, .monotonic);
+            @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release);
         }
 
         /// Not thread-safe.
@@ -590,13 +590,13 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     const node_parents = global_progress.node_parents[0..end_index];
     const node_storage = global_progress.node_storage[0..end_index];
     for (node_parents, node_storage, 0..) |*parent_ptr, *storage_ptr, i| {
-        var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
+        var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
             @memcpy(&dest_storage.name, &storage_ptr.name);
-            dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .seq_cst);
-            dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .seq_cst);
-            const end_parent = @atomicLoad(Node.Parent, parent_ptr, .seq_cst);
+            dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
+            dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
+            const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
             if (begin_parent == end_parent) {
                 any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
                 serialized_buffer.parents[serialized_len] = begin_parent;
