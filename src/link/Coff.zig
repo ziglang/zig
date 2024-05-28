@@ -1702,7 +1702,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) {
@@ -1714,7 +1714,7 @@ pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.
     }
 }
 
-pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1726,8 +1726,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         return;
     }
 
-    var sub_prog_node = prog_node.start("COFF Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
     const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;

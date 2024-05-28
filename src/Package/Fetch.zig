@@ -35,7 +35,7 @@ name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
-prog_node: *std.Progress.Node,
+prog_node: std.Progress.Node,
 job_queue: *JobQueue,
 /// If true, don't add an error for a missing hash. This flag is not passed
 /// down to recursive dependencies. It's intended to be used only be the CLI.
@@ -720,8 +720,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
         }
 
-        // job_queue mutex is locked so this is OK.
-        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+        f.prog_node.increaseEstimatedTotalItems(new_fetch_index);
 
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
@@ -751,9 +750,8 @@ pub fn relativePathDigest(
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
-    var prog_node = f.prog_node.start(prog_name, 0);
+    const prog_node = f.prog_node.start(prog_name, 0);
     defer prog_node.end();
-    prog_node.activate();
 
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
@@ -1311,9 +1309,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
         {
-            var index_prog_node = f.prog_node.start("Index pack", 0);
+            const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            index_prog_node.activate();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
             try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
@@ -1321,9 +1318,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         }
 
         {
-            var checkout_prog_node = f.prog_node.start("Checkout", 0);
+            const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };

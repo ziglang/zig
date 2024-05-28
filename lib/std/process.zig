@@ -431,6 +431,26 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
+pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariableNotFound};
+
+/// Parses an environment variable as an integer.
+///
+/// Since the key is comptime-known, no allocation is needed.
+///
+/// On Windows, `key` must be valid UTF-8.
+pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
+    if (native_os == .windows) {
+        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+        return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
+    } else if (native_os == .wasi and !builtin.link_libc) {
+        @compileError("parseEnvVarInt is not supported for WASI without libc");
+    } else {
+        const text = posix.getenv(key) orelse return error.EnvironmentVariableNotFound;
+        return std.fmt.parseInt(I, text, base);
+    }
+}
+
 pub const HasEnvVarError = error{
     OutOfMemory,
 
@@ -1740,6 +1760,7 @@ pub fn cleanExit() void {
     if (builtin.mode == .Debug) {
         return;
     } else {
+        std.debug.lockStdErr();
         exit(0);
     }
 }
@@ -1790,22 +1811,141 @@ test raiseFileDescriptorLimit {
     raiseFileDescriptorLimit();
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
-    const envp_count = env_map.count();
-    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
-    {
-        var it = env_map.iterator();
-        var i: usize = 0;
-        while (it.next()) |pair| : (i += 1) {
-            const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
-            @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
-            env_buf[pair.key_ptr.len] = '=';
-            @memcpy(env_buf[pair.key_ptr.len + 1 ..][0..pair.value_ptr.len], pair.value_ptr.*);
-            envp_buf[i] = env_buf.ptr;
+pub const CreateEnvironOptions = struct {
+    /// `null` means to leave the `ZIG_PROGRESS` environment variable unmodified.
+    /// If non-null, negative means to remove the environment variable, and >= 0
+    /// means to provide it with the given integer.
+    zig_progress_fd: ?i32 = null,
+};
+
+/// Creates a null-deliminated environment variable block in the format
+/// expected by POSIX, from a hash map plus options.
+pub fn createEnvironFromMap(
+    arena: Allocator,
+    map: *const EnvMap,
+    options: CreateEnvironOptions,
+) Allocator.Error![:null]?[*:0]u8 {
+    const ZigProgressAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: ZigProgressAction = a: {
+        const fd = options.zig_progress_fd orelse break :a .nothing;
+        const contains = map.get("ZIG_PROGRESS") != null;
+        if (fd >= 0) {
+            break :a if (contains) .edit else .add;
+        } else {
+            if (contains) break :a .delete;
         }
-        assert(i == envp_count);
+        break :a .nothing;
+    };
+
+    const envp_count: usize = c: {
+        var count: usize = map.count();
+        switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        break :c count;
+    };
+
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
+    var i: usize = 0;
+
+    if (zig_progress_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        i += 1;
     }
+
+    {
+        var it = map.iterator();
+        while (it.next()) |pair| {
+            if (mem.eql(u8, pair.key_ptr.*, "ZIG_PROGRESS")) switch (zig_progress_action) {
+                .add => unreachable,
+                .delete => continue,
+                .edit => {
+                    envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={d}", .{
+                        pair.key_ptr.*, options.zig_progress_fd.?,
+                    });
+                    i += 1;
+                    continue;
+                },
+                .nothing => {},
+            };
+
+            envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{ pair.key_ptr.*, pair.value_ptr.* });
+            i += 1;
+        }
+    }
+
+    assert(i == envp_count);
     return envp_buf;
+}
+
+/// Creates a null-deliminated environment variable block in the format
+/// expected by POSIX, from a hash map plus options.
+pub fn createEnvironFromExisting(
+    arena: Allocator,
+    existing: [*:null]const ?[*:0]const u8,
+    options: CreateEnvironOptions,
+) Allocator.Error![:null]?[*:0]u8 {
+    const existing_count, const contains_zig_progress = c: {
+        var count: usize = 0;
+        var contains = false;
+        while (existing[count]) |line| : (count += 1) {
+            contains = contains or mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS");
+        }
+        break :c .{ count, contains };
+    };
+    const ZigProgressAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: ZigProgressAction = a: {
+        const fd = options.zig_progress_fd orelse break :a .nothing;
+        if (fd >= 0) {
+            break :a if (contains_zig_progress) .edit else .add;
+        } else {
+            if (contains_zig_progress) break :a .delete;
+        }
+        break :a .nothing;
+    };
+
+    const envp_count: usize = c: {
+        var count: usize = existing_count;
+        switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        break :c count;
+    };
+
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
+    var i: usize = 0;
+    var existing_index: usize = 0;
+
+    if (zig_progress_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        i += 1;
+    }
+
+    while (existing[existing_index]) |line| : (existing_index += 1) {
+        if (mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS")) switch (zig_progress_action) {
+            .add => unreachable,
+            .delete => continue,
+            .edit => {
+                envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                i += 1;
+                continue;
+            },
+            .nothing => {},
+        };
+        envp_buf[i] = try arena.dupeZ(u8, mem.span(line));
+        i += 1;
+    }
+
+    assert(i == envp_count);
+    return envp_buf;
+}
+
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) Allocator.Error![:null]?[*:0]u8 {
+    return createEnvironFromMap(arena, env_map, .{});
 }
 
 test createNullDelimitedEnvMap {

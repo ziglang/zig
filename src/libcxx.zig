@@ -113,7 +113,7 @@ pub const BuildError = error{
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
-pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -357,7 +357,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) BuildError
     comp.libcxx_static_lib = try sub_compilation.toCrtFile();
 }
 
-pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }

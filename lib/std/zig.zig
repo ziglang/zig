@@ -718,7 +718,7 @@ pub const LazySrcLoc = union(enum) {
     /// where in semantic analysis the value got set.
     pub const TracedOffset = struct {
         x: i32,
-        trace: std.debug.Trace = .{},
+        trace: std.debug.Trace = std.debug.Trace.init,
 
         const want_tracing = false;
     };

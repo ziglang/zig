@@ -561,7 +561,7 @@ pub fn lowerToTranslateCSteps(
     for (self.translate.items) |case| switch (case.kind) {
         .run => |output| {
             if (translate_c_options.skip_run_translated_c) continue;
-            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
+            const annotated_case_name = b.fmt("run-translated-c {s}", .{case.name});
             for (test_filters) |test_filter| {
                 if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (test_filters.len > 0) continue;

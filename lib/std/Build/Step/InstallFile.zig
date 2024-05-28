@@ -36,7 +36,7 @@ pub fn create(
     return install_file;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const install_file: *InstallFile = @fieldParentPtr("step", step);
