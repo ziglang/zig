@@ -5251,7 +5251,7 @@ const JitCmdOptions = struct {
     capture: ?*[]u8 = null,
     /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
-    progress_node: std.Progress.Node = .{ .index = .none },
+    progress_node: ?std.Progress.Node = null,
 };
 
 fn jitCmd(
@@ -5261,12 +5261,9 @@ fn jitCmd(
     options: JitCmdOptions,
 ) !void {
     const color: Color = .auto;
-    const root_prog_node = if (options.progress_node.index != .none)
-        options.progress_node
-    else
-        std.Progress.start(.{
-            .disable_printing = (color == .off),
-        });
+    const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
