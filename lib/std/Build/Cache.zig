@@ -684,8 +684,12 @@ pub const Manifest = struct {
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
         const pp = ch_file.prefixed_path;
-        const dir = self.cache.prefixes()[pp.prefix].handle;
-        const file = try dir.openFile(pp.sub_path, .{});
+        const directory = self.cache.prefixes()[pp.prefix];
+        const dir = directory.handle;
+        const file = dir.openFile(pp.sub_path, .{}) catch |err| {
+            log.err("Failed to open file for hashing: {s} in directory: {?s}", .{ pp.sub_path, directory.path });
+            return err;
+        };
         defer file.close();
 
         const actual_stat = try file.stat();
@@ -861,13 +865,23 @@ pub const Manifest = struct {
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
         while (true) {
-            switch (it.next() orelse return) {
+            const token = it.next() orelse return;
+            switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
                 .target, .target_must_resolve => {},
                 .prereq => |file_path| if (self.manifest_file == null) {
                     _ = try self.addFile(file_path, null);
                 } else try self.addFilePost(file_path),
+                .prereq_must_resolve => {
+                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
+                    defer resolve_buf.deinit();
+
+                    try token.resolve(resolve_buf.writer());
+                    if (self.manifest_file == null) {
+                        _ = try self.addFile(resolve_buf.items, null);
+                    } else try self.addFilePost(resolve_buf.items);
+                },
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
