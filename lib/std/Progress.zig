@@ -16,6 +16,8 @@ terminal: ?std.fs.File,
 /// Is this a windows API terminal (note: this is not the same as being run on windows
 /// because other terminals exist like MSYS/git-bash)
 is_windows_terminal: bool,
+/// The output code page of the console (only set if the console is a Windows API terminal)
+console_code_page: if (builtin.os.tag == .windows) windows.UINT else void,
 
 /// Whether the terminal supports ANSI escape codes.
 supports_ansi_escape_codes: bool,
@@ -297,6 +299,7 @@ pub const Node = struct {
 var global_progress: Progress = .{
     .terminal = null,
     .is_windows_terminal = false,
+    .console_code_page = if (builtin.os.tag == .windows) undefined else {},
     .supports_ansi_escape_codes = false,
     .update_thread = null,
     .redraw_event = .{},
@@ -378,13 +381,15 @@ pub fn start(options: Options) Node {
                 global_progress.supports_ansi_escape_codes = true;
             } else if (builtin.os.tag == .windows and stderr.isTty()) {
                 global_progress.is_windows_terminal = true;
+                global_progress.console_code_page = windows.kernel32.GetConsoleOutputCP();
                 global_progress.terminal = stderr;
             } else if (builtin.os.tag != .windows) {
                 // we are in a "dumb" terminal like in acme or writing to a file
                 global_progress.terminal = stderr;
             }
 
-            if (global_progress.terminal == null or !global_progress.supports_ansi_escape_codes) {
+            const can_clear_terminal = global_progress.supports_ansi_escape_codes or global_progress.is_windows_terminal;
+            if (global_progress.terminal == null or !can_clear_terminal) {
                 return .{ .index = .none };
             }
 
@@ -515,11 +520,90 @@ const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
 
-const tree_tee = "\x1B\x28\x30\x74\x71\x1B\x28\x42 "; // ├─
-const tree_line = "\x1B\x28\x30\x78\x1B\x28\x42  "; // │
-const tree_langle = "\x1B\x28\x30\x6d\x71\x1B\x28\x42 "; // └─
+const TreeSymbol = enum {
+    /// ├─
+    tee,
+    /// │
+    line,
+    /// └─
+    langle,
+
+    const Encoding = enum {
+        ansi_escapes,
+        code_page_437,
+        utf8,
+        ascii,
+    };
+
+    /// The escape sequence representation as a string literal
+    fn escapeSeq(symbol: TreeSymbol) *const [9:0]u8 {
+        return switch (symbol) {
+            .tee => "\x1B\x28\x30\x74\x71\x1B\x28\x42 ",
+            .line => "\x1B\x28\x30\x78\x1B\x28\x42  ",
+            .langle => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ",
+        };
+    }
+
+    fn bytes(symbol: TreeSymbol, encoding: Encoding) []const u8 {
+        return switch (encoding) {
+            .ansi_escapes => escapeSeq(symbol),
+            .code_page_437 => switch (symbol) {
+                .tee => "\xC3\xC4 ",
+                .line => "\xB3  ",
+                .langle => "\xC0\xC4 ",
+            },
+            .utf8 => switch (symbol) {
+                .tee => "├─ ",
+                .line => "│  ",
+                .langle => "└─ ",
+            },
+            .ascii => switch (symbol) {
+                .tee => "|- ",
+                .line => "|  ",
+                .langle => "+- ",
+            },
+        };
+    }
+
+    fn maxByteLen(symbol: TreeSymbol) usize {
+        var max: usize = 0;
+        inline for (@typeInfo(Encoding).Enum.fields) |field| {
+            const len = symbol.bytes(@field(Encoding, field.name)).len;
+            if (len > max) max = len;
+        }
+        return max;
+    }
+};
+
+fn appendTreeSymbol(comptime symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
+    if (builtin.os.tag == .windows and global_progress.is_windows_terminal) {
+        const bytes = switch (global_progress.console_code_page) {
+            // Code page 437 is the default code page and contains the box drawing symbols
+            437 => symbol.bytes(.code_page_437),
+            // UTF-8
+            65001 => symbol.bytes(.utf8),
+            // Fall back to ASCII approximation
+            else => symbol.bytes(.ascii),
+        };
+        @memcpy(buf[start_i..][0..bytes.len], bytes);
+        return start_i + bytes.len;
+    }
+
+    // Drawing the tree is disabled when ansi escape codes are not supported
+    assert(global_progress.supports_ansi_escape_codes);
+
+    const bytes = symbol.escapeSeq();
+    buf[start_i..][0..bytes.len].* = bytes.*;
+    return start_i + bytes.len;
+}
 
 fn clearTerminal() void {
+    if (builtin.os.tag == .windows and global_progress.is_windows_terminal) {
+        return clearTerminalWindowsApi() catch {
+            global_progress.terminal = null;
+        };
+    }
+
     if (global_progress.written_newline_count == 0) return;
 
     var i: usize = 0;
@@ -556,6 +640,64 @@ fn computeClear(buf: []u8, start_i: usize) usize {
     i += clear.len;
 
     return i;
+}
+
+/// U+25BA or ►
+const windows_api_start_marker = 0x25BA;
+
+fn clearTerminalWindowsApi() error{Unexpected}!void {
+    // This uses a 'marker' strategy. The idea is:
+    // - Always write a marker (in this case U+25BA or ►) at the beginning of the progress
+    // - Get the current cursor position (at the end of the progress)
+    // - Subtract the number of lines written to get the expected start of the progress
+    // - Check to see if the first character at the start of the progress is the marker
+    // - If it's not the marker, keep checking the line before until we find it
+    // - Clear the screen from that position down, and set the cursor position to the start
+    //
+    // This strategy works even if there is line wrapping, and can handle the window
+    // being resized/scrolled arbitrarily.
+    //
+    // Notes:
+    // - Ideally, the marker would be a zero-width character, but the Windows console
+    //   doesn't seem to support rendering zero-width characters (they show up as a space)
+    // - This same marker idea could technically be done with an attribute instead
+    //   (https://learn.microsoft.com/en-us/windows/console/console-screen-buffers#character-attributes)
+    //   but it must be a valid attribute and it actually needs to apply to the first
+    //   character in order to be readable via ReadConsoleOutputAttribute. It doesn't seem
+    //   like any of the available attributes are invisible/benign.
+    const prev_nl_n = global_progress.written_newline_count;
+    if (prev_nl_n > 0) {
+        const handle = (global_progress.terminal orelse return).handle;
+        const screen_area = @as(windows.DWORD, global_progress.cols) * global_progress.rows;
+
+        var console_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(handle, &console_info) == 0) {
+            return error.Unexpected;
+        }
+        const cursor_pos = console_info.dwCursorPosition;
+        const expected_y = cursor_pos.Y - @as(i16, @intCast(prev_nl_n));
+        var start_pos = windows.COORD{ .X = 0, .Y = expected_y };
+        while (start_pos.Y >= 0) {
+            var wchar: [1]u16 = undefined;
+            var num_console_chars_read: windows.DWORD = undefined;
+            if (windows.kernel32.ReadConsoleOutputCharacterW(handle, &wchar, wchar.len, start_pos, &num_console_chars_read) == 0) {
+                return error.Unexpected;
+            }
+
+            if (wchar[0] == windows_api_start_marker) break;
+            start_pos.Y -= 1;
+        } else {
+            // If we couldn't find the marker, then just assume that no lines wrapped
+            start_pos = .{ .X = 0, .Y = expected_y };
+        }
+        var num_chars_written: windows.DWORD = undefined;
+        if (windows.kernel32.FillConsoleOutputCharacterW(handle, ' ', screen_area, start_pos, &num_chars_written) == 0) {
+            return error.Unexpected;
+        }
+        if (windows.kernel32.SetConsoleCursorPosition(handle, start_pos) == 0) {
+            return error.Unexpected;
+        }
+    }
 }
 
 const Children = struct {
@@ -877,17 +1019,35 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
 
-    buf[i..][0..start_sync.len].* = start_sync.*;
-    i += start_sync.len;
+    if (global_progress.supports_ansi_escape_codes) {
+        buf[i..][0..start_sync.len].* = start_sync.*;
+        i += start_sync.len;
 
-    i = computeClear(buf, i);
+        i = computeClear(buf, i);
+    } else if (builtin.os.tag == .windows and global_progress.is_windows_terminal) {
+        clearTerminalWindowsApi() catch {
+            global_progress.terminal = null;
+            return buf[0..0];
+        };
+
+        // Write the marker that we will use to find the beginning of the progress when clearing.
+        // Note: This doesn't have to use WriteConsoleW, but doing so avoids dealing with the code page.
+        var num_chars_written: windows.DWORD = undefined;
+        const handle = (global_progress.terminal orelse return buf[0..0]).handle;
+        if (windows.kernel32.WriteConsoleW(handle, &[_]u16{windows_api_start_marker}, 1, &num_chars_written, null) == 0) {
+            global_progress.terminal = null;
+            return buf[0..0];
+        }
+    }
 
     global_progress.accumulated_newline_count = 0;
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized, children, root_node_index);
 
-    buf[i..][0..finish_sync.len].* = finish_sync.*;
-    i += finish_sync.len;
+    if (global_progress.supports_ansi_escape_codes) {
+        buf[i..][0..finish_sync.len].* = finish_sync.*;
+        i += finish_sync.len;
+    }
 
     return buf[0..i];
 }
@@ -915,15 +1075,14 @@ fn computePrefix(
         buf[i..][0..prefix.len].* = prefix.*;
         i += prefix.len;
     } else {
-        const upper_bound_len = tree_line.len + line_upper_bound_len;
+        const upper_bound_len = TreeSymbol.line.maxByteLen() + line_upper_bound_len;
         if (i + upper_bound_len > buf.len) return buf.len;
-        buf[i..][0..tree_line.len].* = tree_line.*;
-        i += tree_line.len;
+        i = appendTreeSymbol(.line, buf, i);
     }
     return i;
 }
 
-const line_upper_bound_len = @max(tree_tee.len, tree_langle.len) + "[4294967296/4294967296] ".len +
+const line_upper_bound_len = @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) + "[4294967296/4294967296] ".len +
     Node.max_name_len + finish_sync.len;
 
 fn computeNode(
@@ -950,11 +1109,9 @@ fn computeNode(
             break :p;
         }
         if (children[@intFromEnum(node_index)].sibling == .none) {
-            buf[i..][0..tree_langle.len].* = tree_langle.*;
-            i += tree_langle.len;
+            i = appendTreeSymbol(.langle, buf, i);
         } else {
-            buf[i..][0..tree_tee.len].* = tree_tee.*;
-            i += tree_tee.len;
+            i = appendTreeSymbol(.tee, buf, i);
         }
     }
 
@@ -1072,7 +1229,11 @@ fn maybeUpdateSize(resize_flag: bool) void {
             global_progress.cols = 80;
         }
 
-        global_progress.rows = @intCast(info.dwSize.Y);
+        // In the old Windows console, dwSize.Y is the line count of the entire
+        // scrollback buffer, so we use this instead so that we always get the
+        // size of the screen.
+        const screen_height = info.srWindow.Bottom - info.srWindow.Top;
+        global_progress.rows = @intCast(screen_height);
         global_progress.cols = @intCast(info.dwSize.X);
     } else {
         var winsize: posix.winsize = .{
