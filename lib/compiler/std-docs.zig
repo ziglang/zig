@@ -302,7 +302,7 @@ fn buildWasmBinary(
         "--listen=-",
     });
 
-    var child = std.ChildProcess.init(argv.items, gpa);
+    var child = std.process.Child.init(argv.items, gpa);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -437,7 +437,7 @@ fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
         .macos => "open",
         else => "xdg-open",
     };
-    var child = std.ChildProcess.init(&.{ main_exe, url }, gpa);
+    var child = std.process.Child.init(&.{ main_exe, url }, gpa);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;

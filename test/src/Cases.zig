@@ -545,9 +545,6 @@ pub fn lowerToTranslateCSteps(
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
-    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
-        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
-
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
@@ -573,11 +570,6 @@ pub fn lowerToTranslateCSteps(
                 continue; // Pass test.
             }
 
-            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
-                // We wouldn't be able to run the compiled C code.
-                continue; // Pass test.
-            }
-
             const write_src = b.addWriteFiles();
             const file_source = write_src.add("tmp.c", case.input);
 
@@ -596,6 +588,7 @@ pub fn lowerToTranslateCSteps(
             const run = b.addRunArtifact(run_exe);
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
+            run.skip_foreign_checks = true;
 
             test_run_translated_c_step.dependOn(&run.step);
         },
@@ -1839,7 +1832,7 @@ fn runOneCase(
                     try comp.makeBinFileExecutable();
 
                     while (true) {
-                        break :x std.ChildProcess.run(.{
+                        break :x std.process.Child.run(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,

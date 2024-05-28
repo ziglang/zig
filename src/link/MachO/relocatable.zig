@@ -46,6 +46,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
 
     try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
+    try macho_file.parseDebugInfo();
     try macho_file.dedupLiterals();
     markExports(macho_file);
     claimUnresolved(macho_file);

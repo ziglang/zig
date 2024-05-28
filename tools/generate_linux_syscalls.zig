@@ -257,7 +257,7 @@ pub fn main() !void {
             "arch/arm64/include/uapi/asm/unistd.h",
         };
 
-        const child_result = try std.ChildProcess.run(.{
+        const child_result = try std.process.Child.run(.{
             .allocator = allocator,
             .argv = &child_args,
             .cwd = linux_path,
@@ -318,7 +318,7 @@ pub fn main() !void {
             "arch/riscv/include/uapi/asm/unistd.h",
         };
 
-        const child_result = try std.ChildProcess.run(.{
+        const child_result = try std.process.Child.run(.{
             .allocator = allocator,
             .argv = &child_args,
             .cwd = linux_path,

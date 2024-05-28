@@ -803,7 +803,7 @@ pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void 
             return d.fatal("unable to dump linker args: {s}", .{errorDescription(er)});
         };
     }
-    var child = std.ChildProcess.init(argv.items, d.comp.gpa);
+    var child = std.process.Child.init(argv.items, d.comp.gpa);
     // TODO handle better
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = .Inherit;

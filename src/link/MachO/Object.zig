@@ -13,7 +13,7 @@ symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
 platform: ?MachO.Platform = null,
-dwarf_info: ?DwarfInfo = null,
+compile_unit: ?CompileUnit = null,
 stab_files: std.ArrayListUnmanaged(StabFile) = .{},
 
 eh_frame_sect_index: ?u8 = null,
@@ -30,12 +30,6 @@ hidden: bool = false,
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
-
-const InArchive = struct {
-    path: []const u8,
-    offset: u64,
-    size: u32,
-};
 
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -60,7 +54,6 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.fdes.deinit(allocator);
     self.eh_frame_data.deinit(allocator);
     self.unwind_records.deinit(allocator);
-    if (self.dwarf_info) |*dw| dw.deinit(allocator);
     for (self.stab_files.items) |*sf| {
         sf.stabs.deinit(allocator);
     }
@@ -250,8 +243,6 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         //     return error.InvalidTarget;
         // }
     }
-
-    try self.initDwarfInfo(macho_file);
 
     for (self.atoms.items) |atom_index| {
         const atom = macho_file.getAtom(atom_index).?;
@@ -1214,7 +1205,7 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
 /// and record that so that we can emit symbol stabs.
 /// TODO in the future, we want parse debug info and debug line sections so that
 /// we can provide nice error locations to the user.
-fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
+pub fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1240,17 +1231,107 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
     const debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index), macho_file) else &[0]u8{};
     defer gpa.free(debug_str);
 
-    var dwarf_info = DwarfInfo{};
-    errdefer dwarf_info.deinit(gpa);
-    dwarf_info.init(gpa, .{
+    self.compile_unit = self.findCompileUnit(.{
+        .gpa = gpa,
         .debug_info = debug_info,
         .debug_abbrev = debug_abbrev,
         .debug_str = debug_str,
-    }) catch {
-        try macho_file.reportParseError2(self.index, "invalid __DWARF info found", .{});
-        return error.MalformedObject;
+    }) catch null; // TODO figure out what errors are fatal, and when we silently fail
+}
+
+fn findCompileUnit(self: *Object, args: struct {
+    gpa: Allocator,
+    debug_info: []const u8,
+    debug_abbrev: []const u8,
+    debug_str: []const u8,
+}) !CompileUnit {
+    var cu_wip: struct {
+        comp_dir: ?[:0]const u8 = null,
+        tu_name: ?[:0]const u8 = null,
+    } = .{};
+
+    const gpa = args.gpa;
+    var info_reader = dwarf.InfoReader{ .bytes = args.debug_info, .strtab = args.debug_str };
+    var abbrev_reader = dwarf.AbbrevReader{ .bytes = args.debug_abbrev };
+
+    const cuh = try info_reader.readCompileUnitHeader();
+    try abbrev_reader.seekTo(cuh.debug_abbrev_offset);
+
+    const cu_decl = (try abbrev_reader.readDecl()) orelse return error.Eof;
+    if (cu_decl.tag != dwarf.TAG.compile_unit) return error.UnexpectedTag;
+
+    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader);
+
+    while (try abbrev_reader.readAttr()) |attr| switch (attr.at) {
+        dwarf.AT.name => {
+            cu_wip.tu_name = try info_reader.readString(attr.form, cuh);
+        },
+        dwarf.AT.comp_dir => {
+            cu_wip.comp_dir = try info_reader.readString(attr.form, cuh);
+        },
+        else => switch (attr.form) {
+            dwarf.FORM.sec_offset,
+            dwarf.FORM.ref_addr,
+            => {
+                _ = try info_reader.readOffset(cuh.format);
+            },
+
+            dwarf.FORM.addr => {
+                _ = try info_reader.readNBytes(cuh.address_size);
+            },
+
+            dwarf.FORM.block1,
+            dwarf.FORM.block2,
+            dwarf.FORM.block4,
+            dwarf.FORM.block,
+            => {
+                _ = try info_reader.readBlock(attr.form);
+            },
+
+            dwarf.FORM.exprloc => {
+                _ = try info_reader.readExprLoc();
+            },
+
+            dwarf.FORM.flag_present => {},
+
+            dwarf.FORM.data1,
+            dwarf.FORM.ref1,
+            dwarf.FORM.flag,
+            dwarf.FORM.data2,
+            dwarf.FORM.ref2,
+            dwarf.FORM.data4,
+            dwarf.FORM.ref4,
+            dwarf.FORM.data8,
+            dwarf.FORM.ref8,
+            dwarf.FORM.ref_sig8,
+            dwarf.FORM.udata,
+            dwarf.FORM.ref_udata,
+            dwarf.FORM.sdata,
+            => {
+                _ = try info_reader.readConstant(attr.form);
+            },
+
+            dwarf.FORM.strp,
+            dwarf.FORM.string,
+            => {
+                _ = try info_reader.readString(attr.form, cuh);
+            },
+
+            else => {
+                // TODO actual errors?
+                log.err("unhandled DW_FORM_* value with identifier {x}", .{attr.form});
+                return error.UnhandledForm;
+            },
+        },
     };
-    self.dwarf_info = dwarf_info;
+
+    if (cu_wip.comp_dir == null) return error.MissingCompDir;
+    if (cu_wip.tu_name == null) return error.MissingTuName;
+
+    return .{
+        .comp_dir = try self.addString(gpa, cu_wip.comp_dir.?),
+        .tu_name = try self.addString(gpa, cu_wip.tu_name.?),
+    };
 }
 
 pub fn resolveSymbols(self: *Object, macho_file: *MachO) void {
@@ -1591,10 +1672,9 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
-    if (self.dwarf_info) |dw| {
-        const cu = dw.compile_units.items[0];
-        const comp_dir = try cu.getCompileDir(dw) orelse return;
-        const tu_name = try cu.getSourceFile(dw) orelse return;
+    if (self.compile_unit) |cu| {
+        const comp_dir = cu.getCompDir(self);
+        const tu_name = cu.getTuName(self);
 
         self.output_symtab_ctx.nstabs += 4; // N_SO, N_SO, N_OSO, N_SO
         self.output_symtab_ctx.strsize += @as(u32, @intCast(comp_dir.len + 1)); // comp_dir
@@ -1709,10 +1789,9 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
 
     var index = self.output_symtab_ctx.istab;
 
-    if (self.dwarf_info) |dw| {
-        const cu = dw.compile_units.items[0];
-        const comp_dir = try cu.getCompileDir(dw) orelse return;
-        const tu_name = try cu.getSourceFile(dw) orelse return;
+    if (self.compile_unit) |cu| {
+        const comp_dir = cu.getCompDir(self);
+        const tu_name = cu.getTuName(self);
 
         // Open scope
         // N_SO comp_dir
@@ -1958,10 +2037,7 @@ pub fn hasEhFrameRecords(self: Object) bool {
 }
 
 pub fn hasDebugInfo(self: Object) bool {
-    if (self.dwarf_info) |dw| {
-        return dw.compile_units.items.len > 0;
-    }
-    return self.hasSymbolStabs();
+    return self.compile_unit != null or self.hasSymbolStabs();
 }
 
 fn hasSymbolStabs(self: Object) bool {
@@ -2192,6 +2268,25 @@ const StabFile = struct {
             return if (stab.symbol) |s| macho_file.getSymbol(s) else null;
         }
     };
+};
+
+const CompileUnit = struct {
+    comp_dir: u32,
+    tu_name: u32,
+
+    fn getCompDir(cu: CompileUnit, object: *const Object) [:0]const u8 {
+        return object.getString(cu.comp_dir);
+    }
+
+    fn getTuName(cu: CompileUnit, object: *const Object) [:0]const u8 {
+        return object.getString(cu.tu_name);
+    }
+};
+
+const InArchive = struct {
+    path: []const u8,
+    offset: u64,
+    size: u32,
 };
 
 const x86_64 = struct {
@@ -2548,6 +2643,7 @@ const aarch64 = struct {
 };
 
 const assert = std.debug.assert;
+const dwarf = @import("dwarf.zig");
 const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -2560,7 +2656,6 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
-const DwarfInfo = @import("DwarfInfo.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const LoadCommandIterator = macho.LoadCommandIterator;

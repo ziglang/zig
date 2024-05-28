@@ -109,7 +109,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
 
     const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
-    const result = try std.ChildProcess.run(.{
+    const result = try std.process.Child.run(.{
         .allocator = allocator,
         .env_map = env,
         .argv = argv.items,

@@ -471,13 +471,13 @@ pub fn HashMap(
 
         /// Create an iterator over the keys in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             return self.unmanaged.keyIterator();
         }
 
         /// Create an iterator over the values in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             return self.unmanaged.valueIterator();
         }
 
@@ -542,7 +542,7 @@ pub fn HashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) Size {
+        pub fn capacity(self: Self) Size {
             return self.unmanaged.capacity();
         }
 
@@ -977,23 +977,23 @@ pub fn HashMapUnmanaged(
             self.available = 0;
         }
 
-        pub fn count(self: *const Self) Size {
+        pub fn count(self: Self) Size {
             return self.size;
         }
 
-        fn header(self: *const Self) *Header {
+        fn header(self: Self) *Header {
             return @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.metadata.?))) - 1);
         }
 
-        fn keys(self: *const Self) [*]K {
+        fn keys(self: Self) [*]K {
             return self.header().keys;
         }
 
-        fn values(self: *const Self) [*]V {
+        fn values(self: Self) [*]V {
             return self.header().values;
         }
 
-        pub fn capacity(self: *const Self) Size {
+        pub fn capacity(self: Self) Size {
             if (self.metadata == null) return 0;
 
             return self.header().capacity;
@@ -1003,7 +1003,7 @@ pub fn HashMapUnmanaged(
             return .{ .hm = self };
         }
 
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -1019,7 +1019,7 @@ pub fn HashMapUnmanaged(
             }
         }
 
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -1439,15 +1439,15 @@ pub fn HashMapUnmanaged(
         }
 
         /// Return true if there is a value associated with key in the map.
-        pub fn contains(self: *const Self, key: K) bool {
+        pub fn contains(self: Self, key: K) bool {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call containsContext instead.");
             return self.containsContext(key, undefined);
         }
-        pub fn containsContext(self: *const Self, key: K, ctx: Context) bool {
+        pub fn containsContext(self: Self, key: K, ctx: Context) bool {
             return self.containsAdapted(key, ctx);
         }
-        pub fn containsAdapted(self: *const Self, key: anytype, ctx: anytype) bool {
+        pub fn containsAdapted(self: Self, key: anytype, ctx: anytype) bool {
             return self.getIndex(key, ctx) != null;
         }
 
@@ -1501,7 +1501,7 @@ pub fn HashMapUnmanaged(
 
         // This counts the number of occupied slots (not counting tombstones), which is
         // what has to stay under the max_load_percentage of capacity.
-        fn load(self: *const Self) Size {
+        fn load(self: Self) Size {
             const max_load = (self.capacity() * max_load_percentage) / 100;
             assert(max_load >= self.available);
             return @as(Size, @truncate(max_load - self.available));
@@ -1603,19 +1603,19 @@ pub fn HashMapUnmanaged(
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
-            const ptr = @intFromPtr(slice.ptr);
+            const ptr: [*]u8 = @ptrCast(slice.ptr);
 
             const metadata = ptr + @sizeOf(Header);
 
-            const hdr = @as(*Header, @ptrFromInt(ptr));
+            const hdr = @as(*Header, @ptrCast(@alignCast(ptr)));
             if (@sizeOf([*]V) != 0) {
-                hdr.values = @as([*]V, @ptrFromInt(ptr + vals_start));
+                hdr.values = @ptrCast(@alignCast((ptr + vals_start)));
             }
             if (@sizeOf([*]K) != 0) {
-                hdr.keys = @as([*]K, @ptrFromInt(ptr + keys_start));
+                hdr.keys = @ptrCast(@alignCast((ptr + keys_start)));
             }
             hdr.capacity = new_capacity;
-            self.metadata = @as([*]Metadata, @ptrFromInt(metadata));
+            self.metadata = @ptrCast(@alignCast(metadata));
         }
 
         fn deallocate(self: *Self, allocator: Allocator) void {
@@ -1638,7 +1638,7 @@ pub fn HashMapUnmanaged(
 
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @as([*]align(max_align) u8, @ptrFromInt(@intFromPtr(self.header())))[0..total_size];
+            const slice = @as([*]align(max_align) u8, @alignCast(@ptrCast(self.header())))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;

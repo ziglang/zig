@@ -72,7 +72,7 @@ pub const File = struct {
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
-    child_pid: ?std.ChildProcess.Id = null,
+    child_pid: ?std.process.Child.Id = null,
 
     pub const OpenOptions = struct {
         symbol_count_hint: u64 = 32,
@@ -529,7 +529,7 @@ pub const File = struct {
     } ||
         fs.File.WriteFileError ||
         fs.File.OpenError ||
-        std.ChildProcess.SpawnError ||
+        std.process.Child.SpawnError ||
         fs.Dir.CopyFileError;
 
     /// Commit pending changes and write headers. Takes into account final output mode
