@@ -500,13 +500,22 @@ pub fn captureStdOut(run: *Run) std.Build.LazyPath {
 
     if (run.captured_stdout) |output| return .{ .generated = .{ .file = &output.generated_file } };
 
+    const output = run.captureStdOutNamed("stdout");
+    run.captured_stdout = output;
+    return output;
+}
+
+pub fn captureStdOutNamed(run: *Run, name: []const u8) std.Build.LazyPath {
+    assert(run.stdio != .inherit);
+
+    assert(run.captured_stdout == null);
+
     const output = run.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
         .prefix = "",
-        .basename = "stdout",
+        .basename = name,
         .generated_file = .{ .step = &run.step },
     };
-    run.captured_stdout = output;
     return .{ .generated = .{ .file = &output.generated_file } };
 }
 
