@@ -2609,6 +2609,112 @@ test "zig fmt: doc comments before struct field" {
     );
 }
 
+test "zig fmt: add trailing comma in error set with comments" {
+    try testTransform(
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another
+        \\};
+        \\
+        \\const Error = error{
+        \\    // no more memory
+        \\    OutOfMemory,
+        \\
+        \\    // another
+        \\    Another
+        \\};
+        \\
+    ,
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another,
+        \\};
+        \\
+        \\const Error = error{
+        \\    // no more memory
+        \\    OutOfMemory,
+        \\
+        \\    // another
+        \\    Another,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: add trailing comma in function prototype with comments" {
+    try testTransform(
+        \\fn foo(
+        \\    /// void
+        \\    _: void
+        \\) void {}
+        \\
+        \\fn foo(
+        \\    // void
+        \\    _: void
+        \\) void {}
+        \\
+    ,
+        \\fn foo(
+        \\    /// void
+        \\    _: void,
+        \\) void {}
+        \\
+        \\fn foo(
+        \\    // void
+        \\    _: void,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: function prototype with doc comments in struct and trailing comma" {
+    try testTransform(
+        \\fn foo(_: void, struct {
+        \\    /// void
+        \\    _: void,
+        \\    /// void
+        \\    _: void,
+        \\}) !void {}
+        \\
+    ,
+        \\fn foo(_: void, struct {
+        \\    /// void
+        \\    _: void,
+        \\    /// void
+        \\    _: void,
+        \\}) !void {}
+        \\
+    );
+}
+
+test "zig fmt: function prototype with parentheses and then a doc comment" {
+    try testTransform(
+        \\fn foo(
+        \\    bar: (i32),
+        \\    /// The second operand
+        \\    baz: i32
+        \\) i32 {
+        \\    return bar + baz;
+        \\}
+        \\
+    ,
+        \\fn foo(
+        \\    bar: (i32),
+        \\    /// The second operand
+        \\    baz: i32,
+        \\) i32 {
+        \\    return bar + baz;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: error set declaration" {
     try testCanonical(
         \\const E = error{

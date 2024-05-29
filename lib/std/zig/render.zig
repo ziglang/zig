@@ -776,35 +776,53 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, lbrace, .none);
                 try renderIdentifier(r, lbrace + 1, .none, .eagerly_unquote); // identifier
                 return renderToken(r, rbrace, space);
-            } else if (token_tags[rbrace - 1] == .comma) {
-                // There is a trailing comma so render each member on a new line.
-                ais.pushIndentNextLine();
-                try renderToken(r, lbrace, .newline);
-                var i = lbrace + 1;
-                while (i < rbrace) : (i += 1) {
-                    if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
-                    switch (token_tags[i]) {
-                        .doc_comment => try renderToken(r, i, .newline),
-                        .identifier => try renderIdentifier(r, i, .comma, .eagerly_unquote),
-                        .comma => {},
-                        else => unreachable,
-                    }
-                }
-                ais.popIndent();
-                return renderToken(r, rbrace, space);
             } else {
-                // There is no trailing comma so render everything on one line.
-                try renderToken(r, lbrace, .space);
-                var i = lbrace + 1;
-                while (i < rbrace) : (i += 1) {
-                    switch (token_tags[i]) {
-                        .doc_comment => unreachable, // TODO
-                        .identifier => try renderIdentifier(r, i, .comma_space, .eagerly_unquote),
-                        .comma => {},
-                        else => unreachable,
+                const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
+                const one_line = if (src_has_trailing_comma) false else one_line: {
+                    // We print all the members in-line unless one of the following conditions are true:
+
+                    // 1. The set has comments.
+                    if (hasComment(tree, lbrace, rbrace)) {
+                        break :one_line false;
                     }
+
+                    // 2. A member of the set has a doc comment.
+                    for (token_tags[lbrace + 1 .. rbrace - 1]) |tag| {
+                        if (tag == .doc_comment) break :one_line false;
+                    }
+
+                    break :one_line true;
+                };
+
+                if (one_line) {
+                    // Print all the declarations on the same line.
+                    try renderToken(r, lbrace, .space);
+                    var i = lbrace + 1;
+                    while (i < rbrace) : (i += 1) {
+                        switch (token_tags[i]) {
+                            .identifier => try renderIdentifier(r, i, .comma_space, .eagerly_unquote),
+                            .comma => {},
+                            else => unreachable,
+                        }
+                    }
+                    return renderToken(r, rbrace, space);
+                } else {
+                    // One member per line.
+                    ais.pushIndentNextLine();
+                    try renderToken(r, lbrace, .newline);
+                    var i = lbrace + 1;
+                    while (i < rbrace) : (i += 1) {
+                        if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
+                        switch (token_tags[i]) {
+                            .doc_comment => try renderToken(r, i, .newline),
+                            .identifier => try renderIdentifier(r, i, .comma, .eagerly_unquote),
+                            .comma => {},
+                            else => unreachable,
+                        }
+                    }
+                    ais.popIndent();
+                    return renderToken(r, rbrace, space);
                 }
-                return renderToken(r, rbrace, space);
             }
         },
 
@@ -1710,8 +1728,48 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
 
     // The params list is a sparse set that does *not* include anytype or ... parameters.
 
-    const trailing_comma = token_tags[rparen - 1] == .comma;
-    if (!trailing_comma and !hasComment(tree, lparen, rparen)) {
+    const src_has_trailing_comma = token_tags[rparen - 1] == .comma;
+    const one_line = if (src_has_trailing_comma) false else one_line: {
+        // We print all the members in-line unless one of the following conditions are true:
+
+        // 1. The prototype has comments.
+        if (hasComment(tree, lparen, rparen)) {
+            break :one_line false;
+        }
+
+        // 2. A parameter of the prototype has a doc comment.
+        var param_i: usize = 0;
+        var last_param_token = lparen;
+        while (true) {
+            last_param_token += 1;
+            switch (token_tags[last_param_token]) {
+                .doc_comment => break :one_line false,
+                .ellipsis3 => break,
+                .keyword_noalias, .keyword_comptime => last_param_token += 1,
+                .identifier => {},
+                .keyword_anytype => continue,
+                .r_paren => break,
+                .comma => continue,
+                else => {}, // Parameter type without a name.
+            }
+            if (token_tags[last_param_token] == .identifier and
+                token_tags[last_param_token + 1] == .colon)
+            {
+                last_param_token += 1;
+                last_param_token += 1;
+            }
+            if (token_tags[last_param_token] == .keyword_anytype) {
+                continue;
+            }
+            const param = fn_proto.ast.params[param_i];
+            param_i += 1;
+            last_param_token = tree.lastToken(param);
+        }
+
+        break :one_line true;
+    };
+
+    if (one_line) {
         // Render all on one line, no trailing comma.
         try renderToken(r, lparen, .none); // (
 
@@ -1720,10 +1778,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
         while (true) {
             last_param_token += 1;
             switch (token_tags[last_param_token]) {
-                .doc_comment => {
-                    try renderToken(r, last_param_token, .newline);
-                    continue;
-                },
+                .doc_comment => unreachable,
                 .ellipsis3 => {
                     try renderToken(r, last_param_token, .none); // ...
                     break;
@@ -2337,56 +2392,59 @@ fn renderContainerDecl(
     }
 
     const src_has_trailing_comma = token_tags[rbrace - 1] == .comma;
-    if (!src_has_trailing_comma) one_line: {
+    const one_line = if (src_has_trailing_comma) false else one_line: {
         // We print all the members in-line unless one of the following conditions are true:
 
         // 1. The container has comments or multiline strings.
         if (hasComment(tree, lbrace, rbrace) or hasMultilineString(tree, lbrace, rbrace)) {
-            break :one_line;
+            break :one_line false;
         }
 
         // 2. The container has a container comment.
-        if (token_tags[lbrace + 1] == .container_doc_comment) break :one_line;
+        if (token_tags[lbrace + 1] == .container_doc_comment) break :one_line false;
 
         // 3. A member of the container has a doc comment.
         for (token_tags[lbrace + 1 .. rbrace - 1]) |tag| {
-            if (tag == .doc_comment) break :one_line;
+            if (tag == .doc_comment) break :one_line false;
         }
 
         // 4. The container has non-field members.
         for (container_decl.ast.members) |member| {
-            if (tree.fullContainerField(member) == null) break :one_line;
+            if (tree.fullContainerField(member) == null) break :one_line false;
         }
 
+        break :one_line true;
+    };
+
+    if (one_line) {
         // Print all the declarations on the same line.
         try renderToken(r, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
             try renderMember(r, container, member, .space);
         }
         return renderToken(r, rbrace, space); // rbrace
-    }
-
-    // One member per line.
-    ais.pushIndentNextLine();
-    try renderToken(r, lbrace, .newline); // lbrace
-    if (token_tags[lbrace + 1] == .container_doc_comment) {
-        try renderContainerDocComments(r, lbrace + 1);
-    }
-    for (container_decl.ast.members, 0..) |member, i| {
-        if (i != 0) try renderExtraNewline(r, member);
-        switch (tree.nodes.items(.tag)[member]) {
-            // For container fields, ensure a trailing comma is added if necessary.
-            .container_field_init,
-            .container_field_align,
-            .container_field,
-            => try renderMember(r, container, member, .comma),
-
-            else => try renderMember(r, container, member, .newline),
+    } else {
+        // One member per line.
+        ais.pushIndentNextLine();
+        try renderToken(r, lbrace, .newline); // lbrace
+        if (token_tags[lbrace + 1] == .container_doc_comment) {
+            try renderContainerDocComments(r, lbrace + 1);
         }
-    }
-    ais.popIndent();
+        for (container_decl.ast.members, 0..) |member, i| {
+            if (i != 0) try renderExtraNewline(r, member);
+            switch (tree.nodes.items(.tag)[member]) {
+                // For container fields, ensure a trailing comma is added if necessary.
+                .container_field_init,
+                .container_field_align,
+                .container_field,
+                => try renderMember(r, container, member, .comma),
 
-    return renderToken(r, rbrace, space); // rbrace
+                else => try renderMember(r, container, member, .newline),
+            }
+        }
+        ais.popIndent();
+        return renderToken(r, rbrace, space); // rbrace
+    }
 }
 
 fn renderAsm(
