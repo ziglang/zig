@@ -37,6 +37,11 @@ const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
 const LPVOID = windows.LPVOID;
 const LPCVOID = windows.LPCVOID;
 const SECTION_INHERIT = windows.SECTION_INHERIT;
+const RTL_USER_PROCESS_PARAMETERS = windows.RTL_USER_PROCESS_PARAMETERS;
+const PROCESS = windows.PROCESS;
+const THREAD = windows.THREAD;
+const PS = windows.PS;
+const FILE = windows.FILE;
 
 pub extern "ntdll" fn NtQueryInformationProcess(
     ProcessHandle: HANDLE,
@@ -127,7 +132,7 @@ pub extern "ntdll" fn NtCreateFile(
     IoStatusBlock: *IO_STATUS_BLOCK,
     AllocationSize: ?*LARGE_INTEGER,
     FileAttributes: ULONG,
-    ShareAccess: ULONG,
+    ShareAccess: FILE.SHARE,
     CreateDisposition: ULONG,
     CreateOptions: ULONG,
     EaBuffer: ?*anyopaque,
@@ -344,10 +349,10 @@ pub extern "ntdll" fn RtlExitUserProcess(
 
 pub extern "ntdll" fn NtCreateNamedPipeFile(
     FileHandle: *HANDLE,
-    DesiredAccess: ULONG,
+    DesiredAccess: ACCESS_MASK,
     ObjectAttributes: *OBJECT_ATTRIBUTES,
     IoStatusBlock: *IO_STATUS_BLOCK,
-    ShareAccess: ULONG,
+    ShareAccess: FILE.SHARE,
     CreateDisposition: ULONG,
     CreateOptions: ULONG,
     NamedPipeType: ULONG,
@@ -357,4 +362,18 @@ pub extern "ntdll" fn NtCreateNamedPipeFile(
     InboundQuota: ULONG,
     OutboundQuota: ULONG,
     DefaultTimeout: *LARGE_INTEGER,
+) callconv(WINAPI) NTSTATUS;
+
+pub extern "ntdll" fn NtCreateUserProcess(
+    ProcessHandle: *HANDLE,
+    ThreadHandle: *HANDLE,
+    ProcessDesiredAccess: ACCESS_MASK,
+    ThreadDesiredAccess: ACCESS_MASK,
+    ProcessObjectAttributes: ?*const OBJECT_ATTRIBUTES,
+    ThreadObjectAttributes: ?*const OBJECT_ATTRIBUTES,
+    ProcessFlags: PROCESS.CREATE_FLAGS,
+    ThreadFlags: THREAD.CREATE_FLAGS,
+    ProcessParameters: *const RTL_USER_PROCESS_PARAMETERS,
+    CreateInfo: *PS.CREATE_INFO,
+    AttributeList: *const PS.ATTRIBUTE.LIST,
 ) callconv(WINAPI) NTSTATUS;

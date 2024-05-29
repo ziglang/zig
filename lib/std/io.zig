@@ -20,7 +20,8 @@ fn getStdOutHandle() posix.fd_t {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return windows.peb().ProcessParameters.hStdOutput;
+        return windows.peb().ProcessParameters.hStdOutput orelse
+            windows.INVALID_HANDLE_VALUE;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
@@ -40,7 +41,8 @@ fn getStdErrHandle() posix.fd_t {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return windows.peb().ProcessParameters.hStdError;
+        return windows.peb().ProcessParameters.hStdError orelse
+            windows.INVALID_HANDLE_VALUE;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
@@ -60,7 +62,8 @@ fn getStdInHandle() posix.fd_t {
             // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
             return windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
         }
-        return windows.peb().ProcessParameters.hStdInput;
+        return windows.peb().ProcessParameters.hStdInput orelse
+            windows.INVALID_HANDLE_VALUE;
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {

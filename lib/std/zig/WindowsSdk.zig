@@ -249,8 +249,13 @@ const RegistryWtf16Le = struct {
     /// After finishing work, call `closeKey`.
     fn openKey(hkey: windows.HKEY, key_wtf16le: [:0]const u16, options: OpenOptions) error{KeyNotFound}!RegistryWtf16Le {
         var key: windows.HKEY = undefined;
-        var access: windows.REGSAM = windows.KEY_QUERY_VALUE | windows.KEY_ENUMERATE_SUB_KEYS;
-        if (options.wow64_32) access |= windows.KEY_WOW64_32KEY;
+        const access: windows.REGSAM = .{
+            .SPECIFIC = .{ .KEY = .{
+                .QUERY_VALUE = true,
+                .ENUMERATE_SUB_KEYS = true,
+                .WOW64_32KEY = options.wow64_32,
+            } },
+        };
         const return_code_int: windows.HRESULT = windows.advapi32.RegOpenKeyExW(
             hkey,
             key_wtf16le,
@@ -388,7 +393,10 @@ const RegistryWtf16Le = struct {
         const return_code_int: windows.HRESULT = std.os.windows.advapi32.RegLoadAppKeyW(
             absolute_path_as_wtf16le,
             &key,
-            windows.KEY_QUERY_VALUE | windows.KEY_ENUMERATE_SUB_KEYS,
+            .{ .SPECIFIC = .{ .KEY = .{
+                .QUERY_VALUE = true,
+                .ENUMERATE_SUB_KEYS = true,
+            } } },
             0,
             0,
         );

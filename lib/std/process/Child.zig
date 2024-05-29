@@ -13,7 +13,7 @@ const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
-const ChildProcess = @This();
+const Child = @This();
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -169,6 +169,7 @@ pub const SpawnError = error{
     posix.ExecveError ||
     posix.SetIdError ||
     posix.ChangeCurDirError ||
+    windows.GetFinalPathNameByHandleError ||
     windows.CreateProcessError ||
     windows.GetProcessMemoryInfoError ||
     windows.WaitForSingleObjectError;
@@ -201,7 +202,7 @@ pub const StdIo = enum {
 };
 
 /// First argument in argv is the executable.
-pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
+pub fn init(argv: []const []const u8, allocator: mem.Allocator) Child {
     return .{
         .allocator = allocator,
         .argv = argv,
@@ -223,83 +224,83 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
     };
 }
 
-pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
+pub fn setUserName(child: *Child, name: []const u8) !void {
     const user_info = try process.getUserInfo(name);
-    self.uid = user_info.uid;
-    self.gid = user_info.gid;
+    child.uid = user_info.uid;
+    child.gid = user_info.gid;
 }
 
 /// On success must call `kill` or `wait`.
 /// After spawning the `id` is available.
-pub fn spawn(self: *ChildProcess) SpawnError!void {
+pub fn spawn(child: *Child) SpawnError!void {
     if (!process.can_spawn) {
         @compileError("the target operating system cannot spawn processes");
     }
 
     if (native_os == .windows) {
-        return self.spawnWindows();
+        return child.spawnWindows();
     } else {
-        return self.spawnPosix();
+        return child.spawnPosix();
     }
 }
 
-pub fn spawnAndWait(self: *ChildProcess) SpawnError!Term {
-    try self.spawn();
-    return self.wait();
+pub fn spawnAndWait(child: *Child) SpawnError!Term {
+    try child.spawn();
+    return child.wait();
 }
 
 /// Forcibly terminates child process and then cleans up all resources.
-pub fn kill(self: *ChildProcess) !Term {
+pub fn kill(child: *Child) !Term {
     if (native_os == .windows) {
-        return self.killWindows(1);
+        return child.killWindows(1);
     } else {
-        return self.killPosix();
+        return child.killPosix();
     }
 }
 
-pub fn killWindows(self: *ChildProcess, exit_code: windows.UINT) !Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
+pub fn killWindows(child: *Child, exit_code: windows.UINT) !Term {
+    if (child.term) |term| {
+        child.cleanupStreams();
         return term;
     }
 
-    windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
+    windows.TerminateProcess(child.id, exit_code) catch |err| switch (err) {
         error.PermissionDenied => {
             // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
             // indicates that the process has already exited, but there may be
             // some rare edge cases where our process handle no longer has the
             // PROCESS_TERMINATE access right, so let's do another check to make
             // sure the process is really no longer running:
-            windows.WaitForSingleObjectEx(self.id, 0, false) catch return err;
+            windows.WaitForSingleObjectEx(child.id, 0, false) catch return err;
             return error.AlreadyTerminated;
         },
         else => return err,
     };
-    try self.waitUnwrappedWindows();
-    return self.term.?;
+    try child.waitUnwrappedWindows();
+    return child.term.?;
 }
 
-pub fn killPosix(self: *ChildProcess) !Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
+pub fn killPosix(child: *Child) !Term {
+    if (child.term) |term| {
+        child.cleanupStreams();
         return term;
     }
-    posix.kill(self.id, posix.SIG.TERM) catch |err| switch (err) {
+    posix.kill(child.id, posix.SIG.TERM) catch |err| switch (err) {
         error.ProcessNotFound => return error.AlreadyTerminated,
         else => return err,
     };
-    try self.waitUnwrapped();
-    return self.term.?;
+    try child.waitUnwrapped();
+    return child.term.?;
 }
 
 /// Blocks until child process terminates and then cleans up all resources.
-pub fn wait(self: *ChildProcess) !Term {
+pub fn wait(child: *Child) !Term {
     const term = if (native_os == .windows)
-        try self.waitWindows()
+        try child.waitWindows()
     else
-        try self.waitPosix();
+        try child.waitPosix();
 
-    self.id = undefined;
+    child.id = undefined;
 
     return term;
 }
@@ -329,7 +330,7 @@ fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
 ///
 /// The process must be started with stdout_behavior and stderr_behavior == .Pipe
 pub fn collectOutput(
-    child: ChildProcess,
+    child: Child,
     stdout: *std.ArrayList(u8),
     stderr: *std.ArrayList(u8),
     max_output_bytes: usize,
@@ -341,7 +342,7 @@ pub fn collectOutput(
     if (stdout.allocator.ptr != stderr.allocator.ptr or
         stdout.allocator.vtable != stderr.allocator.vtable)
     {
-        unreachable; // ChildProcess.collectOutput only supports 1 allocator
+        unreachable; // Child.collectOutput only supports 1 allocator
     }
 
     var poller = std.io.poll(stdout.allocator, enum { stdout, stderr }, .{
@@ -377,7 +378,7 @@ pub fn run(args: struct {
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
 }) RunError!RunResult {
-    var child = ChildProcess.init(args.argv, args.allocator);
+    var child = Child.init(args.argv, args.allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -403,90 +404,90 @@ pub fn run(args: struct {
     };
 }
 
-fn waitWindows(self: *ChildProcess) !Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
+fn waitWindows(child: *Child) !Term {
+    if (child.term) |term| {
+        child.cleanupStreams();
         return term;
     }
 
-    try self.waitUnwrappedWindows();
-    return self.term.?;
+    try child.waitUnwrappedWindows();
+    return child.term.?;
 }
 
-fn waitPosix(self: *ChildProcess) !Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
+fn waitPosix(child: *Child) !Term {
+    if (child.term) |term| {
+        child.cleanupStreams();
         return term;
     }
 
-    try self.waitUnwrapped();
-    return self.term.?;
+    try child.waitUnwrapped();
+    return child.term.?;
 }
 
-fn waitUnwrappedWindows(self: *ChildProcess) !void {
-    const result = windows.WaitForSingleObjectEx(self.id, windows.INFINITE, false);
+fn waitUnwrappedWindows(child: *Child) !void {
+    const result = windows.WaitForSingleObjectEx(child.id, windows.INFINITE, false);
 
-    self.term = @as(SpawnError!Term, x: {
+    child.term = @as(SpawnError!Term, x: {
         var exit_code: windows.DWORD = undefined;
-        if (windows.kernel32.GetExitCodeProcess(self.id, &exit_code) == 0) {
+        if (windows.kernel32.GetExitCodeProcess(child.id, &exit_code) == 0) {
             break :x Term{ .Unknown = 0 };
         } else {
             break :x Term{ .Exited = @as(u8, @truncate(exit_code)) };
         }
     });
 
-    if (self.request_resource_usage_statistics) {
-        self.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(self.id);
+    if (child.request_resource_usage_statistics) {
+        child.resource_usage_statistics.rusage = try windows.GetProcessMemoryInfo(child.id);
     }
 
-    posix.close(self.id);
-    posix.close(self.thread_handle);
-    self.cleanupStreams();
+    posix.close(child.id);
+    posix.close(child.thread_handle);
+    child.cleanupStreams();
     return result;
 }
 
-fn waitUnwrapped(self: *ChildProcess) !void {
+fn waitUnwrapped(child: *Child) !void {
     const res: posix.WaitPidResult = res: {
-        if (self.request_resource_usage_statistics) {
+        if (child.request_resource_usage_statistics) {
             switch (native_os) {
                 .linux, .macos, .ios => {
                     var ru: posix.rusage = undefined;
-                    const res = posix.wait4(self.id, 0, &ru);
-                    self.resource_usage_statistics.rusage = ru;
+                    const res = posix.wait4(child.id, 0, &ru);
+                    child.resource_usage_statistics.rusage = ru;
                     break :res res;
                 },
                 else => {},
             }
         }
 
-        break :res posix.waitpid(self.id, 0);
+        break :res posix.waitpid(child.id, 0);
     };
     const status = res.status;
-    self.cleanupStreams();
-    self.handleWaitResult(status);
+    child.cleanupStreams();
+    child.handleWaitResult(status);
 }
 
-fn handleWaitResult(self: *ChildProcess, status: u32) void {
-    self.term = self.cleanupAfterWait(status);
+fn handleWaitResult(child: *Child, status: u32) void {
+    child.term = child.cleanupAfterWait(status);
 }
 
-fn cleanupStreams(self: *ChildProcess) void {
-    if (self.stdin) |*stdin| {
+fn cleanupStreams(child: *Child) void {
+    if (child.stdin) |*stdin| {
         stdin.close();
-        self.stdin = null;
+        child.stdin = null;
     }
-    if (self.stdout) |*stdout| {
+    if (child.stdout) |*stdout| {
         stdout.close();
-        self.stdout = null;
+        child.stdout = null;
     }
-    if (self.stderr) |*stderr| {
+    if (child.stderr) |*stderr| {
         stderr.close();
-        self.stderr = null;
+        child.stderr = null;
     }
 }
 
-fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-    if (self.err_pipe) |err_pipe| {
+fn cleanupAfterWait(child: *Child, status: u32) !Term {
+    if (child.err_pipe) |err_pipe| {
         defer destroyPipe(err_pipe);
 
         if (native_os == .linux) {
@@ -536,7 +537,7 @@ fn statusToTerm(status: u32) Term {
         Term{ .Unknown = status };
 }
 
-fn spawnPosix(self: *ChildProcess) SpawnError!void {
+fn spawnPosix(child: *Child) SpawnError!void {
     // The child process does need to access (one end of) these pipes. However,
     // we must initially set CLOEXEC to avoid a race condition. If another thread
     // is racing to spawn a different child process, we don't want it to inherit
@@ -549,22 +550,22 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // turns out, we `dup2` everything anyway, so there's no need!
     const pipe_flags: posix.O = .{ .CLOEXEC = true };
 
-    const stdin_pipe = if (self.stdin_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stdin_behavior == .Pipe) {
+    const stdin_pipe = if (child.stdin_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (child.stdin_behavior == .Pipe) {
         destroyPipe(stdin_pipe);
     };
 
-    const stdout_pipe = if (self.stdout_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stdout_behavior == .Pipe) {
+    const stdout_pipe = if (child.stdout_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (child.stdout_behavior == .Pipe) {
         destroyPipe(stdout_pipe);
     };
 
-    const stderr_pipe = if (self.stderr_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stderr_behavior == .Pipe) {
+    const stderr_pipe = if (child.stderr_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (child.stderr_behavior == .Pipe) {
         destroyPipe(stderr_pipe);
     };
 
-    const any_ignore = (self.stdin_behavior == .Ignore or self.stdout_behavior == .Ignore or self.stderr_behavior == .Ignore);
+    const any_ignore = (child.stdin_behavior == .Ignore or child.stdout_behavior == .Ignore or child.stderr_behavior == .Ignore);
     const dev_null_fd = if (any_ignore)
         posix.openZ("/dev/null", .{ .ACCMODE = .RDWR }, 0) catch |err| switch (err) {
             error.PathAlreadyExists => unreachable,
@@ -583,22 +584,19 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         if (any_ignore) posix.close(dev_null_fd);
     }
 
-    const prog_pipe: [2]posix.fd_t = p: {
-        if (self.progress_node.index == .none) {
-            break :p .{ -1, -1 };
-        } else {
-            // We use CLOEXEC for the same reason as in `pipe_flags`.
-            break :p try posix.pipe2(.{ .NONBLOCK = true, .CLOEXEC = true });
-        }
-    };
+    const prog_pipe: [2]posix.fd_t = if (child.progress_node.index != .none)
+        // We use CLOEXEC for the same reason as in `pipe_flags`.
+        try posix.pipe2(.{ .NONBLOCK = true, .CLOEXEC = true })
+    else
+        .{ -1, -1 };
     errdefer destroyPipe(prog_pipe);
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
+    var arena_allocator = std.heap.ArenaAllocator.init(child.allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
     // The POSIX standard does not allow malloc() between fork() and execve(),
-    // and `self.allocator` may be a libc allocator.
+    // and `child.allocator` may be a libc allocator.
     // I have personally observed the child process deadlocking when it tries
     // to call malloc() due to a heap allocation between fork() and execve(),
     // in musl v1.1.24.
@@ -606,15 +604,15 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // can fail between fork() and execve().
     // Therefore, we do all the allocation for the execve() before the fork().
     // This means we must do the null-termination of argv and env vars here.
-    const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
-    for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, child.argv.len, null);
+    for (child.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const prog_fileno = 3;
     comptime assert(@max(posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO) + 1 == prog_fileno);
 
     const envp: [*:null]const ?[*:0]const u8 = m: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
-        if (self.env_map) |env_map| {
+        if (child.env_map) |env_map| {
             break :m (try process.createEnvironFromMap(arena, env_map, .{
                 .zig_progress_fd = prog_fd,
             })).ptr;
@@ -630,7 +628,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             })).ptr;
         } else {
             // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            @compileError("missing std lib enhancement: std.process.Child implementation has no way to collect the environment variables to forward to the child process");
         }
     };
 
@@ -651,13 +649,13 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // we are the child
-        setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+        setUpChildIo(child.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+        setUpChildIo(child.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+        setUpChildIo(child.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
 
-        if (self.cwd_dir) |cwd| {
+        if (child.cwd_dir) |cwd| {
             posix.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
-        } else if (self.cwd) |cwd| {
+        } else if (child.cwd) |cwd| {
             posix.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
@@ -665,15 +663,15 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         // equal to prog_fileno and be clobbered by this dup2 call.
         if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
 
-        if (self.gid) |gid| {
+        if (child.gid) |gid| {
             posix.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
-        if (self.uid) |uid| {
+        if (child.uid) |uid| {
             posix.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
-        const err = switch (self.expand_arg0) {
+        const err = switch (child.expand_arg0) {
             .expand => posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
             .no_expand => posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
         };
@@ -682,57 +680,50 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
     // we are the parent
     const pid: i32 = @intCast(pid_result);
-    if (self.stdin_behavior == .Pipe) {
-        self.stdin = .{ .handle = stdin_pipe[1] };
-    } else {
-        self.stdin = null;
-    }
-    if (self.stdout_behavior == .Pipe) {
-        self.stdout = .{ .handle = stdout_pipe[0] };
-    } else {
-        self.stdout = null;
-    }
-    if (self.stderr_behavior == .Pipe) {
-        self.stderr = .{ .handle = stderr_pipe[0] };
-    } else {
-        self.stderr = null;
-    }
-
-    self.id = pid;
-    self.err_pipe = err_pipe;
-    self.term = null;
-
-    if (self.stdin_behavior == .Pipe) {
+    child.stdin = if (child.stdin_behavior == .Pipe) stdin: {
         posix.close(stdin_pipe[0]);
-    }
-    if (self.stdout_behavior == .Pipe) {
+        break :stdin .{ .handle = stdin_pipe[1] };
+    } else null;
+    child.stdout = if (child.stdout_behavior == .Pipe) stdout: {
         posix.close(stdout_pipe[1]);
-    }
-    if (self.stderr_behavior == .Pipe) {
+        break :stdout .{ .handle = stdout_pipe[0] };
+    } else null;
+    child.stderr = if (child.stderr_behavior == .Pipe) stderr: {
         posix.close(stderr_pipe[1]);
-    }
+        break :stderr .{ .handle = stderr_pipe[0] };
+    } else null;
+
+    child.id = pid;
+    child.err_pipe = err_pipe;
+    child.term = null;
 
     if (prog_pipe[1] != -1) {
         posix.close(prog_pipe[1]);
     }
-    self.progress_node.setIpcFd(prog_pipe[0]);
+    child.progress_node.setIpcFd(prog_pipe[0]);
 }
 
-fn spawnWindows(self: *ChildProcess) SpawnError!void {
-    var saAttr = windows.SECURITY_ATTRIBUTES{
+fn spawnWindows(child: *Child) SpawnError!void {
+    const inheritable = windows.SECURITY_ATTRIBUTES{
         .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
         .bInheritHandle = windows.TRUE,
         .lpSecurityDescriptor = null,
     };
 
-    const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
+    const any_ignore = (child.stdin_behavior == StdIo.Ignore or child.stdout_behavior == StdIo.Ignore or child.stderr_behavior == StdIo.Ignore);
 
     const nul_handle = if (any_ignore)
         // "\Device\Null" or "\??\NUL"
-        windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
-            .access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE,
-            .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
-            .sa = &saAttr,
+        windows.OpenFile(unicode.utf8ToUtf16LeStringLiteral("\\Device\\Null"), .{
+            .access_mask = .{
+                .GENERIC = .{
+                    .READ = true,
+                    .WRITE = true,
+                },
+                .SYNCHRONIZE = true,
+            },
+            .share_access = .{},
+            .sa = &inheritable,
             .creation = windows.OPEN_EXISTING,
         }) catch |err| switch (err) {
             error.PathAlreadyExists => return error.Unexpected, // not possible for "NUL"
@@ -751,101 +742,71 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         if (any_ignore) posix.close(nul_handle);
     }
 
-    var g_hChildStd_IN_Rd: ?windows.HANDLE = null;
-    var g_hChildStd_IN_Wr: ?windows.HANDLE = null;
-    switch (self.stdin_behavior) {
-        StdIo.Pipe => {
-            try windowsMakePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
-        },
-        StdIo.Ignore => {
-            g_hChildStd_IN_Rd = nul_handle;
-        },
-        StdIo.Inherit => {
-            g_hChildStd_IN_Rd = windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch null;
-        },
-        StdIo.Close => {
-            g_hChildStd_IN_Rd = null;
-        },
-    }
-    errdefer if (self.stdin_behavior == StdIo.Pipe) {
-        windowsDestroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr);
+    const stdin_pipe: Pipe = switch (child.stdin_behavior) {
+        .Pipe => try windowsMakePipeIn(&inheritable),
+        .Ignore => .{ .read = nul_handle, .write = null },
+        .Inherit => .{ .read = std.io.getStdIn().handle, .write = null },
+        .Close => .{ .read = null, .write = null },
+    };
+    errdefer if (child.stdin_behavior == .Pipe) windowsDestroyPipe(stdin_pipe);
+
+    const stdout_pipe: Pipe = switch (child.stdout_behavior) {
+        .Pipe => try windowsMakePipeOut(&inheritable, .@"async"),
+        .Ignore => .{ .read = null, .write = nul_handle },
+        .Inherit => .{ .read = null, .write = std.io.getStdOut().handle },
+        .Close => .{ .read = null, .write = null },
+    };
+    errdefer if (child.stdout_behavior == .Pipe) windowsDestroyPipe(stdout_pipe);
+
+    const stderr_pipe: Pipe = switch (child.stderr_behavior) {
+        .Pipe => try windowsMakePipeOut(&inheritable, .@"async"),
+        .Ignore => .{ .read = null, .write = nul_handle },
+        .Inherit => .{ .read = null, .write = std.io.getStdOut().handle },
+        .Close => .{ .read = null, .write = null },
+    };
+    errdefer if (child.stderr_behavior == .Pipe) windowsDestroyPipe(stderr_pipe);
+
+    const progress_pipe: Pipe = if (child.progress_node.index != .none)
+        try windowsMakePipeOut(&inheritable, .nonblock)
+    else
+        .{ .read = null, .write = null };
+    errdefer if (child.progress_node.index != .none) windowsDestroyPipe(progress_pipe);
+    const progress_fd: ?i32 = if (progress_pipe.write) |fd|
+        @intCast(@as(isize, @bitCast(@intFromPtr(fd))))
+    else
+        -1;
+
+    const handles: StdHandles = .{
+        .stdin = stdin_pipe.read,
+        .stdout = stdout_pipe.write,
+        .stderr = stderr_pipe.write,
+        .progress = progress_pipe.write,
     };
 
-    var g_hChildStd_OUT_Rd: ?windows.HANDLE = null;
-    var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
-    switch (self.stdout_behavior) {
-        StdIo.Pipe => {
-            try windowsMakeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
-        },
-        StdIo.Ignore => {
-            g_hChildStd_OUT_Wr = nul_handle;
-        },
-        StdIo.Inherit => {
-            g_hChildStd_OUT_Wr = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch null;
-        },
-        StdIo.Close => {
-            g_hChildStd_OUT_Wr = null;
-        },
-    }
-    errdefer if (self.stdout_behavior == StdIo.Pipe) {
-        windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr);
-    };
+    var cwd_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
+    const cwd_w = if (child.cwd) |cwd|
+        cwd_buf[0..try unicode.wtf8ToWtf16Le(&cwd_buf, cwd)]
+    else if (child.cwd_dir) |cwd|
+        try windows.GetFinalPathNameByHandle(cwd.fd, .{}, &cwd_buf)
+    else
+        null;
 
-    var g_hChildStd_ERR_Rd: ?windows.HANDLE = null;
-    var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
-    switch (self.stderr_behavior) {
-        StdIo.Pipe => {
-            try windowsMakeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
-        },
-        StdIo.Ignore => {
-            g_hChildStd_ERR_Wr = nul_handle;
-        },
-        StdIo.Inherit => {
-            g_hChildStd_ERR_Wr = windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch null;
-        },
-        StdIo.Close => {
-            g_hChildStd_ERR_Wr = null;
-        },
-    }
-    errdefer if (self.stderr_behavior == StdIo.Pipe) {
-        windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
-    };
+    const envp: []const u16 = if (child.env_map) |env_map|
+        try process.createWindowsEnvBlock(child.allocator, env_map, .{
+            .zig_progress_fd = progress_fd,
+        })
+    else
+        try process.createWindowsEnvBlockFromExisting(
+            child.allocator,
+            windows.peb().ProcessParameters.Environment,
+            .{ .zig_progress_fd = progress_fd },
+        );
+    defer child.allocator.free(envp);
 
-    var siStartInfo = windows.STARTUPINFOW{
-        .cb = @sizeOf(windows.STARTUPINFOW),
-        .hStdError = g_hChildStd_ERR_Wr,
-        .hStdOutput = g_hChildStd_OUT_Wr,
-        .hStdInput = g_hChildStd_IN_Rd,
-        .dwFlags = windows.STARTF_USESTDHANDLES,
-
-        .lpReserved = null,
-        .lpDesktop = null,
-        .lpTitle = null,
-        .dwX = 0,
-        .dwY = 0,
-        .dwXSize = 0,
-        .dwYSize = 0,
-        .dwXCountChars = 0,
-        .dwYCountChars = 0,
-        .dwFillAttribute = 0,
-        .wShowWindow = 0,
-        .cbReserved2 = 0,
-        .lpReserved2 = null,
-    };
-    var piProcInfo: windows.PROCESS_INFORMATION = undefined;
-
-    const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
-    defer if (cwd_w) |cwd| self.allocator.free(cwd);
-    const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
-
-    const maybe_envp_buf = if (self.env_map) |env_map| try process.createWindowsEnvBlock(self.allocator, env_map) else null;
-    defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
-    const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
-
-    const app_name_wtf8 = self.argv[0];
+    const app_name_wtf8 = child.argv[0];
     const app_name_is_absolute = fs.path.isAbsolute(app_name_wtf8);
 
-    // the cwd set in ChildProcess is in effect when choosing the executable path
+    // the cwd set in Child is in effect when choosing the executable path
     // to match posix semantics
     var cwd_path_w_needs_free = false;
     const cwd_path_w = x: {
@@ -853,15 +814,15 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         if (app_name_is_absolute) {
             cwd_path_w_needs_free = true;
             const dir = fs.path.dirname(app_name_wtf8).?;
-            break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, dir);
-        } else if (self.cwd) |cwd| {
+            break :x try unicode.wtf8ToWtf16LeAllocZ(child.allocator, dir);
+        } else if (child.cwd) |cwd| {
             cwd_path_w_needs_free = true;
-            break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd);
+            break :x try unicode.wtf8ToWtf16LeAllocZ(child.allocator, cwd);
         } else {
             break :x &[_:0]u16{}; // empty for cwd
         }
     };
-    defer if (cwd_path_w_needs_free) self.allocator.free(cwd_path_w);
+    defer if (cwd_path_w_needs_free) child.allocator.free(cwd_path_w);
 
     // If the app name has more than just a filename, then we need to separate that
     // into the basename and dirname and use the dirname as an addition to the cwd
@@ -873,14 +834,14 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
     const maybe_app_dirname_wtf8 = if (!app_name_is_absolute) fs.path.dirname(app_name_wtf8) else null;
     const app_dirname_w: ?[:0]u16 = x: {
         if (maybe_app_dirname_wtf8) |app_dirname_wtf8| {
-            break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_dirname_wtf8);
+            break :x try unicode.wtf8ToWtf16LeAllocZ(child.allocator, app_dirname_wtf8);
         }
         break :x null;
     };
-    defer if (app_dirname_w != null) self.allocator.free(app_dirname_w.?);
+    defer if (app_dirname_w != null) child.allocator.free(app_dirname_w.?);
 
-    const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_basename_wtf8);
-    defer self.allocator.free(app_name_w);
+    const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(child.allocator, app_basename_wtf8);
+    defer child.allocator.free(app_name_w);
 
     run: {
         const PATH: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
@@ -893,23 +854,23 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         // We'll need to wait until we're actually trying to run the command to know for sure
         // if the resolved command has the `.bat` or `.cmd` extension, so we defer actually
         // serializing the command line until we determine how it should be serialized.
-        var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
+        var cmd_line_cache = WindowsCommandLineCache.init(child.allocator, child.argv);
         defer cmd_line_cache.deinit();
 
         var app_buf = std.ArrayListUnmanaged(u16){};
-        defer app_buf.deinit(self.allocator);
+        defer app_buf.deinit(child.allocator);
 
-        try app_buf.appendSlice(self.allocator, app_name_w);
+        try app_buf.appendSlice(child.allocator, app_name_w);
 
         var dir_buf = std.ArrayListUnmanaged(u16){};
-        defer dir_buf.deinit(self.allocator);
+        defer dir_buf.deinit(child.allocator);
 
         if (cwd_path_w.len > 0) {
-            try dir_buf.appendSlice(self.allocator, cwd_path_w);
+            try dir_buf.appendSlice(child.allocator, cwd_path_w);
         }
         if (app_dirname_w) |app_dir| {
-            if (dir_buf.items.len > 0) try dir_buf.append(self.allocator, fs.path.sep);
-            try dir_buf.appendSlice(self.allocator, app_dir);
+            if (dir_buf.items.len > 0) try dir_buf.append(child.allocator, fs.path.sep);
+            try dir_buf.appendSlice(child.allocator, app_dir);
         }
         if (dir_buf.items.len > 0) {
             // Need to normalize the path, openDirW can't handle things like double backslashes
@@ -917,7 +878,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             dir_buf.shrinkRetainingCapacity(normalized_len);
         }
 
-        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcessPathExt(child, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp, cwd_w, handles) catch |no_path_err| {
             const original_err = switch (no_path_err) {
                 // argv[0] contains unsupported characters that will never resolve to a valid exe.
                 error.InvalidArg0 => return error.FileNotFound,
@@ -929,7 +890,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             // If the app name had path separators, that disallows PATH searching,
             // and there's no need to search the PATH if the app name is absolute.
             // We still search the path if the cwd is absolute because of the
-            // "cwd set in ChildProcess is in effect when choosing the executable path
+            // "cwd set in Child is in effect when choosing the executable path
             // to match posix semantics" behavior--we don't want to skip searching
             // the PATH just because we were trying to set the cwd of the child process.
             if (app_dirname_w != null or app_name_is_absolute) {
@@ -939,13 +900,13 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             var it = mem.tokenizeScalar(u16, PATH, ';');
             while (it.next()) |search_path| {
                 dir_buf.clearRetainingCapacity();
-                try dir_buf.appendSlice(self.allocator, search_path);
+                try dir_buf.appendSlice(child.allocator, search_path);
                 // Need to normalize the path, some PATH values can contain things like double
                 // backslashes which openDirW can't handle
                 const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                 dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                if (child.windowsCreateProcessPathExt(&dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp, cwd_w, handles)) {
                     break :run;
                 } else |err| switch (err) {
                     // argv[0] contains unsupported characters that will never resolve to a valid exe.
@@ -960,34 +921,22 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         };
     }
 
-    if (g_hChildStd_IN_Wr) |h| {
-        self.stdin = File{ .handle = h };
-    } else {
-        self.stdin = null;
-    }
-    if (g_hChildStd_OUT_Rd) |h| {
-        self.stdout = File{ .handle = h };
-    } else {
-        self.stdout = null;
-    }
-    if (g_hChildStd_ERR_Rd) |h| {
-        self.stderr = File{ .handle = h };
-    } else {
-        self.stderr = null;
-    }
-
-    self.id = piProcInfo.hProcess;
-    self.thread_handle = piProcInfo.hThread;
-    self.term = null;
-
-    if (self.stdin_behavior == StdIo.Pipe) {
-        posix.close(g_hChildStd_IN_Rd.?);
-    }
-    if (self.stderr_behavior == StdIo.Pipe) {
-        posix.close(g_hChildStd_ERR_Wr.?);
-    }
-    if (self.stdout_behavior == StdIo.Pipe) {
-        posix.close(g_hChildStd_OUT_Wr.?);
+    child.stdin = if (child.stdin_behavior == .Pipe) stdin: {
+        posix.close(stdin_pipe.read.?);
+        break :stdin .{ .handle = stdin_pipe.write.? };
+    } else null;
+    child.stdout = if (child.stdout_behavior == .Pipe) stdout: {
+        posix.close(stdout_pipe.write.?);
+        break :stdout .{ .handle = stdout_pipe.read.? };
+    } else null;
+    child.stderr = if (child.stderr_behavior == .Pipe) stderr: {
+        posix.close(stderr_pipe.write.?);
+        break :stderr .{ .handle = stderr_pipe.read.? };
+    } else null;
+    child.term = null;
+    if (child.progress_node.index != .none) {
+        posix.close(progress_pipe.write.?);
+        child.progress_node.setIpcFd(progress_pipe.read.?);
     }
 }
 
@@ -1007,7 +956,7 @@ fn destroyPipe(pipe: [2]posix.fd_t) void {
 
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
-fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
+fn forkChildErrReport(fd: i32, err: Child.SpawnError) noreturn {
     writeIntFd(fd, @as(ErrInt, @intFromError(err))) catch {};
     // If we're linking libc, some naughty applications may have registered atexit handlers
     // which we really do not want to run in the fork child. I caught LLVM doing this and
@@ -1037,16 +986,16 @@ const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
 /// Note: `app_buf` should not contain any leading path separators.
 /// Note: If the dir is the cwd, dir_buf should be empty (len = 0).
 fn windowsCreateProcessPathExt(
-    allocator: mem.Allocator,
+    child: *Child,
     dir_buf: *std.ArrayListUnmanaged(u16),
     app_buf: *std.ArrayListUnmanaged(u16),
-    pathext: [:0]const u16,
+    pathext: []const u16,
     cmd_line_cache: *WindowsCommandLineCache,
-    envp_ptr: ?[*]u16,
-    cwd_ptr: ?[*:0]u16,
-    lpStartupInfo: *windows.STARTUPINFOW,
-    lpProcessInformation: *windows.PROCESS_INFORMATION,
+    envp: ?[]const u16,
+    cwd: ?[]const u16,
+    handles: StdHandles,
 ) !void {
+    const allocator = child.allocator;
     const app_name_len = app_buf.items.len;
     const dir_path_len = dir_buf.items.len;
 
@@ -1081,7 +1030,7 @@ fn windowsCreateProcessPathExt(
         try dir_buf.append(allocator, 0);
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-        const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
+        const prefixed_path = try windows.wToPrefixedFileW(dir_path_z, .{});
         break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
             return error.FileNotFound;
     };
@@ -1194,7 +1143,7 @@ fn windowsCreateProcessPathExt(
             else
                 full_app_name;
 
-            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (child.windowsCreateProcess(app_name_w, cmd_line_w, envp, cwd, handles)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1249,7 +1198,7 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (child.windowsCreateProcess(app_name_w, cmd_line_w, envp, cwd, handles)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1270,61 +1219,148 @@ fn windowsCreateProcessPathExt(
     return unappended_err;
 }
 
+const StdHandles = struct {
+    stdin: ?posix.fd_t,
+    stdout: ?posix.fd_t,
+    stderr: ?posix.fd_t,
+    progress: ?posix.fd_t,
+
+    pub const Field = std.meta.FieldEnum(StdHandles);
+    pub const fields = std.enums.values(Field);
+    pub fn get(handles: StdHandles, comptime field: Field) ?posix.fd_t {
+        return if (@field(handles, @tagName(field))) |fd|
+            if (fd != windows.INVALID_HANDLE_VALUE) fd else null
+        else
+            null;
+    }
+};
 fn windowsCreateProcess(
-    app_name: [*:0]u16,
-    cmd_line: [*:0]u16,
-    envp_ptr: ?[*]u16,
-    cwd_ptr: ?[*:0]u16,
-    lpStartupInfo: *windows.STARTUPINFOW,
-    lpProcessInformation: *windows.PROCESS_INFORMATION,
+    child: *Child,
+    app_name: [:0]const u16,
+    cmd_line: []const u16,
+    envp: ?[]const u16,
+    cwd: ?[]const u16,
+    handles: StdHandles,
 ) !void {
-    // TODO the docs for environment pointer say:
-    // > A pointer to the environment block for the new process. If this parameter
-    // > is NULL, the new process uses the environment of the calling process.
-    // > ...
-    // > An environment block can contain either Unicode or ANSI characters. If
-    // > the environment block pointed to by lpEnvironment contains Unicode
-    // > characters, be sure that dwCreationFlags includes CREATE_UNICODE_ENVIRONMENT.
-    // > If this parameter is NULL and the environment block of the parent process
-    // > contains Unicode characters, you must also ensure that dwCreationFlags
-    // > includes CREATE_UNICODE_ENVIRONMENT.
-    // This seems to imply that we have to somehow know whether our process parent passed
-    // CREATE_UNICODE_ENVIRONMENT if we want to pass NULL for the environment parameter.
-    // Since we do not know this information that would imply that we must not pass NULL
-    // for the parameter.
-    // However this would imply that programs compiled with -DUNICODE could not pass
-    // environment variables to programs that were not, which seems unlikely.
-    // More investigation is needed.
-    return windows.CreateProcessW(
-        app_name,
-        cmd_line,
+    const parent_params = windows.peb().ProcessParameters;
+    const app_name_us = try windows.UNICODE_STRING.init(@constCast(app_name));
+    const image_name = try windows.wToPrefixedFileW(app_name, .{
+        .dir = if (cwd) |path| .{ .wtf16_path = path } else .cwd,
+        .allow_relative = false,
+    });
+    const env = env: {
+        const min_env = [1]u16{0} ** 2;
+        const env = envp orelse parent_params.Environment[0..@divExact(
+            parent_params.EnvironmentSize,
+            @sizeOf(windows.WCHAR),
+        )];
+        break :env if (env.len >= min_env.len) env else &min_env;
+    };
+    var create_info: windows.PS.CREATE_INFO = .{ .Info = .{ .InitialState = .{
+        .InitFlags = .{
+            .WriteOutputOnExit = true,
+            .DetectManifest = true,
+            .ProhibitedImageCharacteristics = 0x2000,
+        },
+        .AdditionalFileAccess = .{ .SPECIFIC = .{ .FILE = .{
+            .READ_DATA = true,
+            .READ_ATTRIBUTES = true,
+        } } },
+    } } };
+    defer create_info.deinit();
+    var handle_list: [StdHandles.fields.len]windows.HANDLE = undefined;
+    var handle_list_len: usize = 0;
+    inline for (StdHandles.fields) |field| {
+        if (handles.get(field)) |handle| {
+            if (mem.indexOfScalar(windows.HANDLE, handle_list[0..handle_list_len], handle) == null) {
+                handle_list[handle_list_len] = handle;
+                handle_list_len += 1;
+            }
+        }
+    }
+    switch (windows.ntdll.NtCreateUserProcess(
+        &child.id,
+        &child.thread_handle,
+        .{ .MAXIMUM_ALLOWED = true },
+        .{ .MAXIMUM_ALLOWED = true },
         null,
         null,
-        windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
-        @as(?*anyopaque, @ptrCast(envp_ptr)),
-        cwd_ptr,
-        lpStartupInfo,
-        lpProcessInformation,
-    );
+        .{ .INHERIT_HANDLES = handle_list_len > 0 },
+        .{},
+        &.{
+            .AllocationSize = undefined,
+            .Size = undefined,
+
+            .hStdInput = handles.get(.stdin),
+            .hStdOutput = handles.get(.stdout),
+            .hStdError = handles.get(.stderr),
+
+            .CurrentDirectory = .{
+                .DosPath = if (cwd) |path|
+                    try windows.UNICODE_STRING.init(@constCast(path))
+                else
+                    parent_params.CurrentDirectory.DosPath,
+                .Handle = null, // has no effect
+            },
+            .ImagePathName = app_name_us,
+            .CommandLine = try windows.UNICODE_STRING.init(@constCast(cmd_line)),
+            .Environment = env.ptr,
+
+            .dwFlags = windows.STARTF_USESTDHANDLES,
+
+            .WindowTitle = app_name_us,
+            .Desktop = parent_params.Desktop,
+
+            .EnvironmentSize = env.len * @sizeOf(u16),
+            .ProcessGroupId = parent_params.ProcessGroupId,
+        },
+        &create_info,
+        &windows.PS.ATTRIBUTE.LIST.init(.{
+            .IMAGE_NAME = mem.sliceAsBytes(image_name.span()),
+            .HANDLE_LIST = mem.sliceAsBytes(handle_list[0..handle_list_len]),
+            .CHPE = @as(u8, 1), // ???
+        }).List,
+    )) {
+        .SUCCESS => {},
+        .ACCESS_VIOLATION => unreachable,
+        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+        .OBJECT_PATH_SYNTAX_BAD => unreachable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_PARAMETER => unreachable,
+        .INVALID_IMAGE_WIN_16,
+        .INVALID_IMAGE_NE_FORMAT,
+        .INVALID_IMAGE_PROTECT,
+        .INVALID_IMAGE_NOT_MZ,
+        => return error.InvalidExe,
+        else => |e| return windows.unexpectedStatus(e),
+    }
 }
 
-fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
-    var rd_h: windows.HANDLE = undefined;
-    var wr_h: windows.HANDLE = undefined;
-    try windows.CreatePipe(&rd_h, &wr_h, sattr);
-    errdefer windowsDestroyPipe(rd_h, wr_h);
-    try windows.SetHandleInformation(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
-    rd.* = rd_h;
-    wr.* = wr_h;
+const Pipe = struct {
+    read: ?posix.fd_t,
+    write: ?posix.fd_t,
+};
+
+fn windowsMakePipeIn(sattr: *const windows.SECURITY_ATTRIBUTES) !Pipe {
+    var read: posix.fd_t = undefined;
+    var write: posix.fd_t = undefined;
+    try windows.CreatePipe(&read, &write, sattr);
+    errdefer windowsDestroyPipe(.{ .read = read, .write = write });
+    try windows.SetHandleInformation(write, windows.HANDLE_FLAG_INHERIT, 0);
+    return .{ .read = read, .write = write };
 }
 
-fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
-    if (rd) |h| posix.close(h);
-    if (wr) |h| posix.close(h);
+fn windowsDestroyPipe(pipe: Pipe) void {
+    if (pipe.read) |h| posix.close(h);
+    if (pipe.write) |h| posix.close(h);
 }
 
-fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+fn windowsMakePipeOut(sattr: *const windows.SECURITY_ATTRIBUTES, mode: enum {
+    /// Create the read handle that can be used with overlapped IO ops.
+    @"async",
+    /// Create non-blocking read and write handles.
+    nonblock,
+}) !Pipe {
     var tmp_bufw: [128]u16 = undefined;
 
     // Anonymous pipes are built upon Named pipes.
@@ -1344,11 +1380,16 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         break :blk tmp_bufw[0..len :0];
     };
 
-    // Create the read handle that can be used with overlapped IO ops.
     const read_handle = windows.kernel32.CreateNamedPipeW(
         pipe_path.ptr,
-        windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
-        windows.PIPE_TYPE_BYTE,
+        .{ .ACCESS = .INBOUND, .OVERLAPPED = switch (mode) {
+            .@"async" => true,
+            .nonblock => false,
+        } },
+        .{ .NOWAIT = switch (mode) {
+            .@"async" => false,
+            .nonblock => true,
+        } },
         1,
         4096,
         4096,
@@ -1365,7 +1406,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
     var sattr_copy = sattr.*;
     const write_handle = windows.kernel32.CreateFileW(
         pipe_path.ptr,
-        windows.GENERIC_WRITE,
+        .{ .GENERIC = .{ .WRITE = true } },
         0,
         &sattr_copy,
         windows.OPEN_EXISTING,
@@ -1381,8 +1422,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
 
     try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
 
-    rd.* = read_handle;
-    wr.* = write_handle;
+    return .{ .read = read_handle, .write = write_handle };
 }
 
 var pipe_name_counter = std.atomic.Value(u32).init(1);
@@ -1481,38 +1521,38 @@ const WindowsCommandLineCache = struct {
         };
     }
 
-    fn deinit(self: *WindowsCommandLineCache) void {
-        if (self.cmd_line) |cmd_line| self.allocator.free(cmd_line);
-        if (self.script_cmd_line) |script_cmd_line| self.allocator.free(script_cmd_line);
-        if (self.cmd_exe_path) |cmd_exe_path| self.allocator.free(cmd_exe_path);
+    fn deinit(cache: *WindowsCommandLineCache) void {
+        if (cache.cmd_line) |cmd_line| cache.allocator.free(cmd_line);
+        if (cache.script_cmd_line) |script_cmd_line| cache.allocator.free(script_cmd_line);
+        if (cache.cmd_exe_path) |cmd_exe_path| cache.allocator.free(cmd_exe_path);
     }
 
-    fn commandLine(self: *WindowsCommandLineCache) ![:0]u16 {
-        if (self.cmd_line == null) {
-            self.cmd_line = try argvToCommandLineWindows(self.allocator, self.argv);
+    fn commandLine(cache: *WindowsCommandLineCache) ![:0]u16 {
+        if (cache.cmd_line == null) {
+            cache.cmd_line = try argvToCommandLineWindows(cache.allocator, cache.argv);
         }
-        return self.cmd_line.?;
+        return cache.cmd_line.?;
     }
 
     /// Not cached, since the path to the batch script will change during PATH searching.
     /// `script_path` should be as qualified as possible, e.g. if the PATH is being searched,
     /// then script_path should include both the search path and the script filename
     /// (this allows avoiding cmd.exe having to search the PATH again).
-    fn scriptCommandLine(self: *WindowsCommandLineCache, script_path: []const u16) ![:0]u16 {
-        if (self.script_cmd_line) |v| self.allocator.free(v);
-        self.script_cmd_line = try argvToScriptCommandLineWindows(
-            self.allocator,
+    fn scriptCommandLine(cache: *WindowsCommandLineCache, script_path: []const u16) ![:0]u16 {
+        if (cache.script_cmd_line) |v| cache.allocator.free(v);
+        cache.script_cmd_line = try argvToScriptCommandLineWindows(
+            cache.allocator,
             script_path,
-            self.argv[1..],
+            cache.argv[1..],
         );
-        return self.script_cmd_line.?;
+        return cache.script_cmd_line.?;
     }
 
-    fn cmdExePath(self: *WindowsCommandLineCache) ![:0]u16 {
-        if (self.cmd_exe_path == null) {
-            self.cmd_exe_path = try windowsCmdExePath(self.allocator);
+    fn cmdExePath(cache: *WindowsCommandLineCache) ![:0]u16 {
+        if (cache.cmd_exe_path == null) {
+            cache.cmd_exe_path = try windowsCmdExePath(cache.allocator);
         }
-        return self.cmd_exe_path.?;
+        return cache.cmd_exe_path.?;
     }
 };
 

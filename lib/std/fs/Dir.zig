@@ -797,7 +797,7 @@ pub fn close(self: *Dir) void {
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
         return self.openFileW(path_w.span(), flags);
     }
     if (native_os == .wasi and !builtin.link_libc) {
@@ -831,7 +831,7 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
 pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
     switch (native_os) {
         .windows => {
-            const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
+            const path_w = try windows.cStrToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
             return self.openFileW(path_w.span(), flags);
         },
         // Use the libc API when libc is linked because it implements things
@@ -922,9 +922,13 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
     const file: File = .{
         .handle = try w.OpenFile(sub_path_w, .{
             .dir = self.fd,
-            .access_mask = w.SYNCHRONIZE |
-                (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
-                (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
+            .access_mask = .{
+                .SYNCHRONIZE = true,
+                .GENERIC = .{
+                    .READ = flags.isRead(),
+                    .WRITE = flags.isWrite(),
+                },
+            },
             .creation = w.FILE_OPEN,
         }),
     };
@@ -960,7 +964,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
     if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
         return self.createFileW(path_w.span(), flags);
     }
     if (native_os == .wasi) {
@@ -993,7 +997,7 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
 pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
     switch (native_os) {
         .windows => {
-            const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+            const path_w = try windows.cStrToPrefixedFileW(sub_path_c, .{ .dir = .{ .handle = self.fd } });
             return self.createFileW(path_w.span(), flags);
         },
         .wasi => {
@@ -1067,11 +1071,16 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
 /// [WTF-16](https://simonsapin.github.io/wtf-8/#potentially-ill-formed-utf-16) encoded.
 pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) File.OpenError!File {
     const w = windows;
-    const read_flag = if (flags.read) @as(u32, w.GENERIC_READ) else 0;
     const file: File = .{
         .handle = try w.OpenFile(sub_path_w, .{
             .dir = self.fd,
-            .access_mask = w.SYNCHRONIZE | w.GENERIC_WRITE | read_flag,
+            .access_mask = .{
+                .SYNCHRONIZE = true,
+                .GENERIC = .{
+                    .READ = flags.read,
+                    .WRITE = true,
+                },
+            },
             .creation = if (flags.exclusive)
                 @as(u32, w.FILE_CREATE)
             else if (flags.truncate)
@@ -1180,7 +1189,7 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
 /// `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
+fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: windows.ACCESS_MASK, no_follow: bool) (MakeError || OpenError || StatFileError)!Dir {
     const w = windows;
     var it = try fs.path.componentIterator(sub_path);
     // If there are no components in the path, then create a dummy component with the full path.
@@ -1190,7 +1199,7 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
     };
 
     while (true) {
-        const sub_path_w = try w.sliceToPrefixedFileW(self.fd, component.path);
+        const sub_path_w = try w.sliceToPrefixedFileW(component.path, .{ .dir = .{ .handle = self.fd } });
         const is_last = it.peekNext() == null;
         var result = self.makeOpenDirAccessMaskW(sub_path_w.span().ptr, access_mask, .{
             .no_follow = no_follow,
@@ -1233,12 +1242,20 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) (MakeError || OpenError || StatFileError)!Dir {
     return switch (native_os) {
         .windows => {
-            const w = windows;
-            const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-                w.SYNCHRONIZE | w.FILE_TRAVERSE |
-                (if (open_dir_options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
-
-            return self.makeOpenPathAccessMaskW(sub_path, base_flags, open_dir_options.no_follow);
+            return self.makeOpenPathAccessMaskW(
+                sub_path,
+                .{
+                    .STANDARD = windows.ACCESS_MASK.STANDARD.READ,
+                    .SPECIFIC = .{ .DIRECTORY = .{
+                        .READ_ATTRIBUTES = true,
+                        .READ_EA = true,
+                        .TRAVERSE = true,
+                        .LIST = open_dir_options.iterate,
+                    } },
+                    .SYNCHRONIZE = true,
+                },
+                open_dir_options.no_follow,
+            );
         },
         else => {
             return self.openDir(sub_path, open_dir_options) catch |err| switch (err) {
@@ -1270,7 +1287,7 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
         @compileError("realpath is not available on WASI");
     }
     if (native_os == .windows) {
-        const pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
+        const pathname_w = try windows.sliceToPrefixedFileW(pathname, .{ .dir = .{ .handle = self.fd } });
         return self.realpathW(pathname_w.span(), out_buffer);
     }
     const pathname_c = try posix.toPosixPath(pathname);
@@ -1281,7 +1298,7 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
 /// See also `Dir.realpath`, `realpathZ`.
 pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (native_os == .windows) {
-        const pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
+        const pathname_w = try windows.cStrToPrefixedFileW(pathname, .{ .dir = .{ .handle = self.fd } });
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
@@ -1324,14 +1341,15 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     const w = windows;
 
-    const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
-    const share_access = w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE;
     const creation = w.FILE_OPEN;
     const h_file = blk: {
         const res = w.OpenFile(pathname, .{
             .dir = self.fd,
-            .access_mask = access_mask,
-            .share_access = share_access,
+            .access_mask = .{
+                .GENERIC = .{ .READ = true },
+                .SYNCHRONIZE = true,
+            },
+            .share_access = .{},
             .creation = creation,
             .filter = .any,
         }) catch |err| switch (err) {
@@ -1415,7 +1433,7 @@ pub const OpenDirOptions = struct {
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
-            const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+            const sub_path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
             return self.openDirW(sub_path_w.span().ptr, args);
         },
         .wasi => if (!builtin.link_libc) {
@@ -1473,7 +1491,7 @@ pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!
 pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
-            const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+            const sub_path_w = try windows.cStrToPrefixedFileW(sub_path_c, .{ .dir = .{ .handle = self.fd } });
             return self.openDirW(sub_path_w.span().ptr, args);
         },
         // Use the libc API when libc is linked because it implements things
@@ -1530,10 +1548,16 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) Open
 pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
     const w = windows;
     // TODO remove some of these flags if args.access_sub_paths is false
-    const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-        w.SYNCHRONIZE | w.FILE_TRAVERSE;
-    const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-    const dir = self.makeOpenDirAccessMaskW(sub_path_w, flags, .{
+    const dir = self.makeOpenDirAccessMaskW(sub_path_w, .{
+        .STANDARD = w.ACCESS_MASK.STANDARD.READ,
+        .SPECIFIC = .{ .DIRECTORY = .{
+            .READ_ATTRIBUTES = true,
+            .READ_EA = true,
+            .TRAVERSE = true,
+            .LIST = args.iterate,
+        } },
+        .SYNCHRONIZE = true,
+    }, .{
         .no_follow = args.no_follow,
         .create_disposition = w.FILE_OPEN,
     }) catch |err| switch (err) {
@@ -1568,7 +1592,7 @@ const MakeOpenDirAccessMaskWOptions = struct {
     create_disposition: u32,
 };
 
-fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: MakeOpenDirAccessMaskWOptions) (MakeError || OpenError)!Dir {
+fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: windows.ACCESS_MASK, flags: MakeOpenDirAccessMaskWOptions) (MakeError || OpenError)!Dir {
     const w = windows;
 
     var result = Dir{
@@ -1598,7 +1622,7 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
         &io,
         null,
         w.FILE_ATTRIBUTE_NORMAL,
-        w.FILE_SHARE_READ | w.FILE_SHARE_WRITE | w.FILE_SHARE_DELETE,
+        .{},
         flags.create_disposition,
         w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
         null,
@@ -1629,7 +1653,7 @@ pub const DeleteFileError = posix.UnlinkError;
 /// Asserts that the path parameter has no null bytes.
 pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
     if (native_os == .windows) {
-        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const sub_path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
         return self.deleteFileW(sub_path_w.span());
     } else if (native_os == .wasi and !builtin.link_libc) {
         posix.unlinkat(self.fd, sub_path, 0) catch |err| switch (err) {
@@ -1699,7 +1723,7 @@ pub const DeleteDirError = error{
 /// Asserts that the path parameter has no null bytes.
 pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
     if (native_os == .windows) {
-        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const sub_path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
         return self.deleteDirW(sub_path_w.span());
     } else if (native_os == .wasi and !builtin.link_libc) {
         posix.unlinkat(self.fd, sub_path, posix.AT.REMOVEDIR) catch |err| switch (err) {
@@ -1794,7 +1818,7 @@ pub fn symLink(
             mem.nativeToLittle(u16, '\\'),
         );
 
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(self.fd, sym_link_path);
+        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path, .{ .dir = .{ .handle = self.fd } });
         return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
     }
     const target_path_c = try posix.toPosixPath(target_path);
@@ -1820,8 +1844,8 @@ pub fn symLinkZ(
     flags: SymLinkFlags,
 ) !void {
     if (native_os == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(self.fd, target_path_c);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(self.fd, sym_link_path_c);
+        const target_path_w = try windows.cStrToPrefixedFileW(target_path_c, .{ .dir = .{ .handle = self.fd } });
+        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path_c, .{ .dir = .{ .handle = self.fd } });
         return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
     }
     return posix.symlinkatZ(target_path_c, self.fd, sym_link_path_c);
@@ -1855,7 +1879,7 @@ pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u
         return self.readLinkWasi(sub_path, buffer);
     }
     if (native_os == .windows) {
-        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const sub_path_w = try windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } });
         return self.readLinkW(sub_path_w.span(), buffer);
     }
     const sub_path_c = try posix.toPosixPath(sub_path);
@@ -1870,7 +1894,7 @@ pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
 /// Same as `readLink`, except the `sub_path_c` parameter is null-terminated.
 pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
     if (native_os == .windows) {
-        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+        const sub_path_w = try windows.cStrToPrefixedFileW(sub_path_c, .{ .dir = .{ .handle = self.fd } });
         return self.readLinkW(sub_path_w.span(), buffer);
     }
     return posix.readlinkatZ(self.fd, sub_path_c, buffer);
@@ -2393,7 +2417,7 @@ pub const AccessError = posix.AccessError;
 /// open it and handle the error for file not found.
 pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
+        const sub_path_w = windows.sliceToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } }) catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
             else => |e| return e,
         };
@@ -2406,7 +2430,7 @@ pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessErro
 /// Same as `access` except the path parameter is null-terminated.
 pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
+        const sub_path_w = windows.cStrToPrefixedFileW(sub_path, .{ .dir = .{ .handle = self.fd } }) catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
             else => |e| return e,
         };

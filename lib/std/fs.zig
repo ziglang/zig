@@ -255,7 +255,7 @@ pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
     if (native_os == .windows) {
-        return .{ .fd = windows.peb().ProcessParameters.CurrentDirectory.Handle };
+        return .{ .fd = windows.peb().ProcessParameters.CurrentDirectory.Handle.? };
     } else if (native_os == .wasi) {
         return .{ .fd = std.options.wasiCwd() };
     } else {
@@ -451,8 +451,8 @@ pub fn symLinkAbsolute(
     assert(path.isAbsolute(target_path));
     assert(path.isAbsolute(sym_link_path));
     if (native_os == .windows) {
-        const target_path_w = try windows.sliceToPrefixedFileW(null, target_path);
-        const sym_link_path_w = try windows.sliceToPrefixedFileW(null, sym_link_path);
+        const target_path_w = try windows.sliceToPrefixedFileW(target_path, .{});
+        const sym_link_path_w = try windows.sliceToPrefixedFileW(sym_link_path, .{});
         return windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return posix.symlink(target_path, sym_link_path);
@@ -482,8 +482,8 @@ pub fn symLinkAbsoluteZ(
     assert(path.isAbsoluteZ(target_path_c));
     assert(path.isAbsoluteZ(sym_link_path_c));
     if (native_os == .windows) {
-        const target_path_w = try windows.cStrToPrefixedFileW(null, target_path_c);
-        const sym_link_path_w = try windows.cStrToPrefixedFileW(null, sym_link_path_c);
+        const target_path_w = try windows.cStrToPrefixedFileW(target_path_c, .{});
+        const sym_link_path_w = try windows.cStrToPrefixedFileW(sym_link_path_c, .{});
         return windows.CreateSymbolicLink(null, sym_link_path_w.span(), target_path_w.span(), flags.is_directory);
     }
     return posix.symlinkZ(target_path_c, sym_link_path_c);
@@ -501,7 +501,7 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         // the file, we can let the openFileW call follow the symlink for us.
         const image_path_unicode_string = &windows.peb().ProcessParameters.ImagePathName;
         const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
-        const prefixed_path_w = try windows.wToPrefixedFileW(null, image_path_name);
+        const prefixed_path_w = try windows.wToPrefixedFileW(image_path_name, .{});
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
     // Use of MAX_PATH_BYTES here is valid as the resulting path is immediately
@@ -676,7 +676,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // If ImagePathName is a symlink, then it will contain the path of the
             // symlink, not the path that the symlink points to. We want the path
             // that the symlink points to, though, so we need to get the realpath.
-            const pathname_w = try windows.wToPrefixedFileW(null, image_path_name);
+            const pathname_w = try windows.wToPrefixedFileW(image_path_name, .{});
             return std.fs.cwd().realpathW(pathname_w.span(), out_buffer) catch |err| switch (err) {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,

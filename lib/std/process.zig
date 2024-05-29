@@ -243,7 +243,7 @@ test EnvMap {
     var it = env.iterator();
     var count: EnvMap.Size = 0;
     while (it.next()) |entry| {
-        const is_an_expected_name = std.mem.eql(u8, "SOMETHING_NEW", entry.key_ptr.*) or std.mem.eql(u8, "SOMETHING_NEW_AND_LONGER", entry.key_ptr.*);
+        const is_an_expected_name = mem.eql(u8, "SOMETHING_NEW", entry.key_ptr.*) or mem.eql(u8, "SOMETHING_NEW_AND_LONGER", entry.key_ptr.*);
         try testing.expect(is_an_expected_name);
         count += 1;
     }
@@ -261,7 +261,7 @@ test EnvMap {
 
         // and WTF-8 that's not valid UTF-8
         const wtf8_with_surrogate_pair = try unicode.wtf16LeToWtf8Alloc(testing.allocator, &[_]u16{
-            std.mem.nativeToLittle(u16, 0xD83D), // unpaired high surrogate
+            mem.nativeToLittle(u16, 0xD83D), // unpaired high surrogate
         });
         defer testing.allocator.free(wtf8_with_surrogate_pair);
 
@@ -440,7 +440,7 @@ pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariab
 /// On Windows, `key` must be valid UTF-8.
 pub fn parseEnvVarInt(comptime key: []const u8, comptime I: type, base: u8) ParseEnvVarIntError!I {
     if (native_os == .windows) {
-        const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
+        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
         const text = getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         return std.fmt.parseIntWithGenericCharacter(I, u16, text, base);
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -751,10 +751,10 @@ pub const ArgIteratorWindows = struct {
                 const view = unicode.Wtf8View.init(window) catch return;
                 var it = view.iterator();
                 var pair: [2]u16 = undefined;
-                pair[0] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!unicode.utf16IsHighSurrogate(std.mem.littleToNative(u16, pair[0]))) return;
-                pair[1] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!unicode.utf16IsLowSurrogate(std.mem.littleToNative(u16, pair[1]))) return;
+                pair[0] = mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
+                if (!unicode.utf16IsHighSurrogate(mem.littleToNative(u16, pair[0]))) return;
+                pair[1] = mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
+                if (!unicode.utf16IsLowSurrogate(mem.littleToNative(u16, pair[1]))) return;
                 // We know we have a valid surrogate pair, so convert
                 // it to UTF-8, overwriting the surrogate pair's bytes
                 // and then chop off the extra bytes.
@@ -1506,7 +1506,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
         ReadGroupId,
     };
 
-    var buf: [std.mem.page_size]u8 = undefined;
+    var buf: [mem.page_size]u8 = undefined;
     var name_index: usize = 0;
     var state = State.Start;
     var uid: posix.uid_t = 0;
@@ -1618,7 +1618,7 @@ pub const can_execv = switch (native_os) {
     else => true,
 };
 
-/// Tells whether spawning child processes is supported (e.g. via ChildProcess)
+/// Tells whether spawning child processes is supported (e.g. via `std.process.Child`)
 pub const can_spawn = switch (native_os) {
     .wasi, .watchos, .tvos, .visionos => false,
     else => true,
@@ -1741,12 +1741,12 @@ fn totalSystemMemoryLinux() !u64 {
     var buf: [50]u8 = undefined;
     const amt = try file.read(&buf);
     if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
+    var it = mem.tokenizeAny(u8, buf[0..amt], " \n");
     const label = it.next().?;
-    if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
+    if (!mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
     const int_text = it.next() orelse return error.Unexpected;
     const units = it.next() orelse return error.Unexpected;
-    if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
+    if (!mem.eql(u8, units, "kB")) return error.Unexpected;
     const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
     return kilobytes * 1024;
 }
@@ -1811,6 +1811,22 @@ test raiseFileDescriptorLimit {
     raiseFileDescriptorLimit();
 }
 
+const ZigProgressAction = union(enum) {
+    nothing,
+    edit: u31,
+    delete,
+    add: u31,
+
+    const key = "ZIG_PROGRESS";
+
+    pub fn init(zig_progress_fd: ?i32, contains: bool) ZigProgressAction {
+        if (math.cast(u31, zig_progress_fd orelse return .nothing)) |fd| {
+            return if (contains) .{ .edit = fd } else .{ .add = fd };
+        }
+        return if (contains) .delete else .nothing;
+    }
+};
+
 pub const CreateEnvironOptions = struct {
     /// `null` means to leave the `ZIG_PROGRESS` environment variable unmodified.
     /// If non-null, negative means to remove the environment variable, and >= 0
@@ -1825,17 +1841,10 @@ pub fn createEnvironFromMap(
     map: *const EnvMap,
     options: CreateEnvironOptions,
 ) Allocator.Error![:null]?[*:0]u8 {
-    const ZigProgressAction = enum { nothing, edit, delete, add };
-    const zig_progress_action: ZigProgressAction = a: {
-        const fd = options.zig_progress_fd orelse break :a .nothing;
-        const contains = map.get("ZIG_PROGRESS") != null;
-        if (fd >= 0) {
-            break :a if (contains) .edit else .add;
-        } else {
-            if (contains) break :a .delete;
-        }
-        break :a .nothing;
-    };
+    const zig_progress_action = ZigProgressAction.init(
+        options.zig_progress_fd,
+        map.get(ZigProgressAction.key) != null,
+    );
 
     const envp_count: usize = c: {
         var count: usize = map.count();
@@ -1851,14 +1860,14 @@ pub fn createEnvironFromMap(
     var i: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, ZigProgressAction.key ++ "={d}", .{options.zig_progress_fd.?});
         i += 1;
     }
 
     {
         var it = map.iterator();
         while (it.next()) |pair| {
-            if (mem.eql(u8, pair.key_ptr.*, "ZIG_PROGRESS")) switch (zig_progress_action) {
+            if (mem.eql(u8, pair.key_ptr.*, ZigProgressAction.key)) switch (zig_progress_action) {
                 .add => unreachable,
                 .delete => continue,
                 .edit => {
@@ -1881,7 +1890,7 @@ pub fn createEnvironFromMap(
 }
 
 /// Creates a null-deliminated environment variable block in the format
-/// expected by POSIX, from a hash map plus options.
+/// expected by POSIX, from another POSIX environment variable block plus options.
 pub fn createEnvironFromExisting(
     arena: Allocator,
     existing: [*:null]const ?[*:0]const u8,
@@ -1891,20 +1900,14 @@ pub fn createEnvironFromExisting(
         var count: usize = 0;
         var contains = false;
         while (existing[count]) |line| : (count += 1) {
-            contains = contains or mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS");
+            contains = contains or mem.eql(u8, mem.sliceTo(line, '='), ZigProgressAction.key);
         }
         break :c .{ count, contains };
     };
-    const ZigProgressAction = enum { nothing, edit, delete, add };
-    const zig_progress_action: ZigProgressAction = a: {
-        const fd = options.zig_progress_fd orelse break :a .nothing;
-        if (fd >= 0) {
-            break :a if (contains_zig_progress) .edit else .add;
-        } else {
-            if (contains_zig_progress) break :a .delete;
-        }
-        break :a .nothing;
-    };
+    const zig_progress_action = ZigProgressAction.init(
+        options.zig_progress_fd,
+        contains_zig_progress,
+    );
 
     const envp_count: usize = c: {
         var count: usize = existing_count;
@@ -1921,16 +1924,16 @@ pub fn createEnvironFromExisting(
     var existing_index: usize = 0;
 
     if (zig_progress_action == .add) {
-        envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, ZigProgressAction.key ++ "={d}", .{options.zig_progress_fd.?});
         i += 1;
     }
 
     while (existing[existing_index]) |line| : (existing_index += 1) {
-        if (mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS")) switch (zig_progress_action) {
+        if (mem.eql(u8, mem.sliceTo(line, '='), ZigProgressAction.key)) switch (zig_progress_action) {
             .add => unreachable,
             .delete => continue,
             .edit => {
-                envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                envp_buf[i] = try std.fmt.allocPrintZ(arena, ZigProgressAction.key ++ "={d}", .{options.zig_progress_fd.?});
                 i += 1;
                 continue;
             },
@@ -1980,39 +1983,155 @@ test createNullDelimitedEnvMap {
     }
 }
 
+const Wtf16LeWriter = struct {
+    buffer: []u16,
+    index: usize = 0,
+
+    pub const Error = error{InvalidWtf8};
+    pub const Writer = std.io.Writer(*Wtf16LeWriter, Error, writeWtf8);
+    pub fn writer(context: *Wtf16LeWriter) Writer {
+        return .{ .context = context };
+    }
+
+    pub fn writeWtf8(context: *Wtf16LeWriter, wtf8: []const u8) Error!usize {
+        context.index += try unicode.wtf8ToWtf16Le(context.buffer[context.index..], wtf8);
+        return wtf8.len;
+    }
+
+    pub fn writeWtf16Le(context: *Wtf16LeWriter, wtf16le: []const u16) void {
+        @memcpy(context.buffer[context.index..][0..wtf16le.len], wtf16le);
+        context.index += wtf16le.len;
+    }
+
+    pub fn writeSurrogate(context: *Wtf16LeWriter, surrogate: u16) void {
+        context.buffer[context.index] = mem.nativeToLittle(u16, surrogate);
+        context.index += 1;
+    }
+};
+
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
+pub fn createWindowsEnvBlock(
+    allocator: mem.Allocator,
+    env_map: *const EnvMap,
+    options: CreateEnvironOptions,
+) ![]u16 {
+    const zig_progress_action = ZigProgressAction.init(
+        options.zig_progress_fd,
+        env_map.get(ZigProgressAction.key) != null,
+    );
+
     // count bytes needed
-    const max_chars_needed = x: {
-        var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
+    const max_chars_needed = scan: {
+        var max_chars_needed: usize = "\x00".len;
         var it = env_map.iterator();
         while (it.next()) |pair| {
-            // +1 for '='
-            // +1 for null byte
-            max_chars_needed += pair.key_ptr.len + pair.value_ptr.len + 2;
+            if (zig_progress_action != .nothing and std.ascii.eqlIgnoreCase(
+                pair.key_ptr.*,
+                ZigProgressAction.key,
+            )) continue;
+            max_chars_needed += std.fmt.count("{s}={s}\x00", .{ pair.key_ptr.*, pair.value_ptr.* });
         }
-        break :x max_chars_needed;
+        switch (zig_progress_action) {
+            .nothing, .delete => {},
+            .edit, .add => |fd| max_chars_needed += std.fmt.count("{s}={d}\x00", .{ ZigProgressAction.key, fd }),
+        }
+        break :scan max_chars_needed;
     };
-    const result = try allocator.alloc(u16, max_chars_needed);
-    errdefer allocator.free(result);
+
+    var writer: Wtf16LeWriter = .{
+        .buffer = try allocator.alloc(u16, max_chars_needed),
+        .index = 0,
+    };
+    errdefer allocator.free(writer.buffer);
 
     var it = env_map.iterator();
-    var i: usize = 0;
     while (it.next()) |pair| {
-        i += try unicode.wtf8ToWtf16Le(result[i..], pair.key_ptr.*);
-        result[i] = '=';
-        i += 1;
-        i += try unicode.wtf8ToWtf16Le(result[i..], pair.value_ptr.*);
-        result[i] = 0;
-        i += 1;
+        switch (zig_progress_action) {
+            .nothing, .add => {},
+            .edit, .delete => if (std.ascii.eqlIgnoreCase(
+                pair.key_ptr.*,
+                ZigProgressAction.key,
+            )) continue,
+        }
+        try writer.writer().print("{s}={s}\x00", .{ pair.key_ptr.*, pair.value_ptr.* });
     }
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    result[i] = 0;
-    i += 1;
-    return try allocator.realloc(result, i);
+    switch (zig_progress_action) {
+        .nothing, .delete => {},
+        .edit, .add => |fd| {
+            writer.writeWtf16Le(unicode.utf8ToUtf16LeStringLiteral(ZigProgressAction.key ++ "="));
+            try writer.writer().print("{d}", .{fd});
+            writer.writeSurrogate(0);
+        },
+    }
+    writer.writeSurrogate(0);
+    return try allocator.realloc(writer.buffer, writer.index);
+}
+
+/// Creates a windows environment variable block,
+/// from another windows environment variable block plus options.
+/// Caller must free result.
+pub fn createWindowsEnvBlockFromExisting(
+    allocator: Allocator,
+    existing: [*]const u16,
+    options: CreateEnvironOptions,
+) ![]u16 {
+    const max_chars_needed, const zig_progress_action = scan: {
+        var max_chars_needed: usize = "\x00".len;
+        var zig_progress_action: ?ZigProgressAction = null;
+        var pos: [*:0]const u16 = @ptrCast(existing);
+        while (true) {
+            const pair = mem.sliceTo(pos, 0);
+            if (pair.len == 0) break;
+            pos += pair.len + "\x00".len;
+            const key = pair[0..mem.indexOfScalarPos(u16, pair, 1, mem.nativeToLittle(u16, '=')).?];
+            if (windows.eqlIgnoreCaseWTF16(
+                key,
+                unicode.utf8ToUtf16LeStringLiteral(ZigProgressAction.key),
+            )) {
+                zig_progress_action = zig_progress_action orelse
+                    ZigProgressAction.init(options.zig_progress_fd, true);
+                if (zig_progress_action.? != .nothing) continue;
+            }
+            max_chars_needed += pair.len + "\x00".len;
+        }
+        zig_progress_action = zig_progress_action orelse
+            ZigProgressAction.init(options.zig_progress_fd, false);
+        switch (zig_progress_action.?) {
+            .nothing, .delete => {},
+            .edit, .add => |fd| max_chars_needed += std.fmt.count("{s}={d}\x00", .{ ZigProgressAction.key, fd }),
+        }
+        break :scan .{ max_chars_needed, zig_progress_action.? };
+    };
+
+    var writer: Wtf16LeWriter = .{
+        .buffer = try allocator.alloc(u16, max_chars_needed),
+        .index = 0,
+    };
+    errdefer allocator.free(writer.buffer);
+
+    var pos: [*:0]const u16 = @ptrCast(existing);
+    while (true) {
+        const pair = mem.sliceTo(pos, 0);
+        if (pair.len == 0) break;
+        pos += pair.len + "\x00".len;
+        const key = pair[0..mem.indexOfScalarPos(u16, pair, 1, mem.nativeToLittle(u16, '=')).?];
+        switch (zig_progress_action) {
+            .nothing, .add => {},
+            .edit, .delete => if (windows.eqlIgnoreCaseWTF16(
+                key,
+                unicode.utf8ToUtf16LeStringLiteral(ZigProgressAction.key),
+            )) continue,
+        }
+        writer.writeWtf16Le(pair[0 .. pair.len + "\x00".len]);
+    }
+    switch (zig_progress_action) {
+        .nothing, .delete => {},
+        .edit, .add => |fd| {
+            writer.writeWtf16Le(unicode.utf8ToUtf16LeStringLiteral(ZigProgressAction.key ++ "="));
+            try writer.writer().print("{d}", .{fd});
+            writer.writeSurrogate(0);
+        },
+    }
+    writer.writeSurrogate(0);
+    return try allocator.realloc(writer.buffer, writer.index);
 }

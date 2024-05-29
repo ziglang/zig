@@ -1935,7 +1935,13 @@ pub const DebugInfo = struct {
                     var section_handle: windows.HANDLE = undefined;
                     const create_section_rc = windows.ntdll.NtCreateSection(
                         &section_handle,
-                        windows.STANDARD_RIGHTS_REQUIRED | windows.SECTION_QUERY | windows.SECTION_MAP_READ,
+                        .{
+                            .STANDARD = windows.ACCESS_MASK.STANDARD.REQUIRED,
+                            .SPECIFIC = .{ .SECTION = .{
+                                .QUERY = true,
+                                .MAP_READ = true,
+                            } },
+                        },
                         null,
                         null,
                         windows.PAGE_READONLY,

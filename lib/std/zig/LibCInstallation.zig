@@ -269,7 +269,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
         // to their own executable, without even bothering to resolve PATH. This results in the message:
         // error: unable to execute command: Executable "" doesn't exist!
-        // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
+        // So we use the expandArg0 variant of Child to give them a helping hand.
         .expand_arg0 = .expand,
     }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -596,7 +596,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
         // Some C compilers, such as Clang, are known to rely on argv[0] to find the path
         // to their own executable, without even bothering to resolve PATH. This results in the message:
         // error: unable to execute command: Executable "" doesn't exist!
-        // So we use the expandArg0 variant of ChildProcess to give them a helping hand.
+        // So we use the expandArg0 variant of Child to give them a helping hand.
         .expand_arg0 = .expand,
     }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
