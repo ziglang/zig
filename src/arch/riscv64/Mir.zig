@@ -31,12 +31,15 @@ pub const Inst = struct {
         @"and",
         andi,
 
+        xori,
         xor,
         @"or",
 
         ebreak,
         ecall,
         unimp,
+
+        fence,
 
         add,
         addw,
@@ -246,6 +249,11 @@ pub const Inst = struct {
             atom_index: u32,
             sym_index: u32,
         },
+
+        fence: struct {
+            pred: Barrier,
+            succ: Barrier,
+        },
     };
 
     pub const Ops = enum {
@@ -326,10 +334,15 @@ pub const Inst = struct {
         pseudo_spill_regs,
 
         pseudo_compare,
+
+        /// NOT operation on booleans. Does an `andi reg, reg, 1` to mask out any other bits from the boolean.
         pseudo_not,
 
         /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
         pseudo_extern_fn_reloc,
+
+        /// IORW, IORW
+        fence,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -363,6 +376,12 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
 pub const FrameLoc = struct {
     base: Register,
     disp: i32,
+};
+
+pub const Barrier = enum(u4) {
+    r = 0b0001,
+    w = 0b0010,
+    rw = 0b0011,
 };
 
 /// Returns the requested data, as well as the new index which is at the start of the

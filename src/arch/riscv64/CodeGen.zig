@@ -2087,19 +2087,17 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
         const operand = try func.resolveInst(ty_op.operand);
         const ty = func.typeOf(ty_op.operand);
 
+        const operand_reg, const operand_lock = try func.promoteReg(ty, operand);
+        defer if (operand_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const dst_reg: Register =
+            if (func.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
+            operand.register
+        else
+            (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
+
         switch (ty.zigTypeTag(zcu)) {
             .Bool => {
-                const operand_reg = blk: {
-                    if (operand == .register) break :blk operand.register;
-                    break :blk try func.copyToTmpRegister(ty, operand);
-                };
-
-                const dst_reg: Register =
-                    if (func.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
-                    operand.register
-                else
-                    (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
-
                 _ = try func.addInst(.{
                     .tag = .pseudo,
                     .ops = .pseudo_not,
@@ -2110,12 +2108,34 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
                         },
                     },
                 });
-
-                break :result .{ .register = dst_reg };
             },
-            .Int => return func.fail("TODO: airNot ints", .{}),
+            .Int => {
+                const size = ty.bitSize(zcu);
+                if (!math.isPowerOfTwo(size))
+                    return func.fail("TODO: airNot non-pow 2 int size", .{});
+
+                switch (size) {
+                    32, 64 => {
+                        _ = try func.addInst(.{
+                            .tag = .xori,
+                            .ops = .rri,
+                            .data = .{
+                                .i_type = .{
+                                    .rd = dst_reg,
+                                    .rs1 = operand_reg,
+                                    .imm12 = Immediate.s(-1),
+                                },
+                            },
+                        });
+                    },
+                    8, 16 => return func.fail("TODO: airNot 8 or 16, {}", .{size}),
+                    else => unreachable,
+                }
+            },
             else => unreachable,
         }
+
+        break :result .{ .register = dst_reg };
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -5600,17 +5620,24 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
     const abi_size: u32 = @intCast(ty.abiSize(pt));
 
     if (abi_size > 8) return std.debug.panic("tried to set reg with size {}", .{abi_size});
-
     const dst_reg_class = reg.class();
 
     switch (src_mcv) {
-        .dead => unreachable,
-        .unreach, .none => return, // Nothing to do.
+        .unreach,
+        .none,
+        .dead,
+        => unreachable,
         .undef => {
             if (!func.wantSafety())
-                return; // The already existing value will do just fine.
-            // Write the debug undefined value.
-            return func.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
+                return;
+
+            switch (abi_size) {
+                1 => return func.genSetReg(ty, reg, .{ .immediate = 0xAA }),
+                2 => return func.genSetReg(ty, reg, .{ .immediate = 0xAAAA }),
+                3...4 => return func.genSetReg(ty, reg, .{ .immediate = 0xAAAAAAAA }),
+                5...8 => return func.genSetReg(ty, reg, .{ .immediate = 0xAAAAAAAAAAAAAAAA }),
+                else => unreachable,
+            }
         },
         .immediate => |unsigned_x| {
             assert(dst_reg_class == .int);
@@ -6047,14 +6074,82 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return func.fail("TODO implement airAtomicLoad for {}", .{func.target.cpu.arch});
+    const zcu = func.bin_file.comp.module.?;
+    const atomic_load = func.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
+    const order: std.builtin.AtomicOrder = atomic_load.order;
+
+    const ptr_ty = func.typeOf(atomic_load.ptr);
+    const elem_ty = ptr_ty.childType(zcu);
+    const ptr_mcv = try func.resolveInst(atomic_load.ptr);
+
+    const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
+
+    if (order == .seq_cst) {
+        _ = try func.addInst(.{
+            .tag = .fence,
+            .ops = .fence,
+            .data = .{
+                .fence = .{
+                    .pred = .rw,
+                    .succ = .rw,
+                },
+            },
+        });
+    }
+
+    try func.load(result_mcv, ptr_mcv, ptr_ty);
+
+    switch (order) {
+        // Don't guarnetee other memory operations to be ordered after the load.
+        .unordered => {},
+        .monotonic => {},
+        // Make sure all previous reads happen before any reading or writing accurs.
+        .seq_cst, .acquire => {
+            _ = try func.addInst(.{
+                .tag = .fence,
+                .ops = .fence,
+                .data = .{
+                    .fence = .{
+                        .pred = .r,
+                        .succ = .rw,
+                    },
+                },
+            });
+        },
+        else => unreachable,
+    }
+
+    return func.finishAir(inst, result_mcv, .{ atomic_load.ptr, .none, .none });
 }
 
 fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOrder) !void {
-    _ = inst;
-    _ = order;
-    return func.fail("TODO implement airAtomicStore for {}", .{func.target.cpu.arch});
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    const ptr_ty = func.typeOf(bin_op.lhs);
+    const ptr_mcv = try func.resolveInst(bin_op.lhs);
+
+    const val_ty = func.typeOf(bin_op.rhs);
+    const val_mcv = try func.resolveInst(bin_op.rhs);
+
+    switch (order) {
+        .unordered, .monotonic => {},
+        .release, .seq_cst => {
+            _ = try func.addInst(.{
+                .tag = .fence,
+                .ops = .fence,
+                .data = .{
+                    .fence = .{
+                        .pred = .rw,
+                        .succ = .w,
+                    },
+                },
+            });
+        },
+        else => unreachable,
+    }
+
+    try func.store(ptr_mcv, val_mcv, ptr_ty, val_ty);
+    return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {

@@ -378,7 +378,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const rr = inst.data.rr;
                 assert(rr.rs.class() == .int and rr.rd.class() == .int);
 
-                try lower.emit(.xori, &.{
+                // mask out any other bits that aren't the boolean
+                try lower.emit(.andi, &.{
+                    .{ .reg = rr.rs },
+                    .{ .reg = rr.rs },
+                    .{ .imm = Immediate.s(1) },
+                });
+
+                try lower.emit(.sltiu, &.{
                     .{ .reg = rr.rd },
                     .{ .reg = rr.rs },
                     .{ .imm = Immediate.s(1) },
@@ -446,6 +453,10 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.r_type.rd },
             .{ .reg = inst.data.r_type.rs1 },
             .{ .reg = inst.data.r_type.rs2 },
+        },
+        .fence => &.{
+            .{ .barrier = inst.data.fence.succ },
+            .{ .barrier = inst.data.fence.pred },
         },
         else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
     });
