@@ -398,8 +398,6 @@ pub const Token = union(enum) {
             },
             else => unreachable,
         }
-
-        
     }
 
     pub fn printError(self: Token, writer: anytype) @TypeOf(writer).Error!void {
