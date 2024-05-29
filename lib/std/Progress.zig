@@ -472,6 +472,14 @@ fn updateThreadRun() void {
     }
 }
 
+fn windowsApiWriteMarker() void {
+    // Write the marker that we will use to find the beginning of the progress when clearing.
+    // Note: This doesn't have to use WriteConsoleW, but doing so avoids dealing with the code page.
+    var num_chars_written: windows.DWORD = undefined;
+    const handle = global_progress.terminal.handle;
+    _ = windows.kernel32.WriteConsoleW(handle, &[_]u16{windows_api_start_marker}, 1, &num_chars_written, null);
+}
+
 fn windowsApiUpdateThreadRun() void {
     var serialized_buffer: Serialized.Buffer = undefined;
 
@@ -483,6 +491,7 @@ fn windowsApiUpdateThreadRun() void {
         const buffer = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
+            windowsApiWriteMarker();
             write(buffer) catch return;
         }
     }
@@ -502,6 +511,7 @@ fn windowsApiUpdateThreadRun() void {
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             clearWrittenWindowsApi() catch return;
+            windowsApiWriteMarker();
             write(buffer) catch return;
         }
     }
@@ -1048,8 +1058,10 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
 
-    buf[i..][0..start_sync.len].* = start_sync.*;
-    i += start_sync.len;
+    if (global_progress.terminal_mode == .ansi_escape_codes) {
+        buf[i..][0..start_sync.len].* = start_sync.*;
+        i += start_sync.len;
+    }
 
     switch (global_progress.terminal_mode) {
         .off => unreachable,
@@ -1061,8 +1073,10 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
     const root_node_index: Node.Index = @enumFromInt(0);
     i = computeNode(buf, i, serialized, children, root_node_index);
 
-    buf[i..][0..finish_sync.len].* = finish_sync.*;
-    i += finish_sync.len;
+    if (global_progress.terminal_mode == .ansi_escape_codes) {
+        buf[i..][0..finish_sync.len].* = finish_sync.*;
+        i += finish_sync.len;
+    }
 
     return buf[0..i];
 }
