@@ -1449,14 +1449,14 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
     var global_tmp = std.testing.tmpDir(.{});
     defer global_tmp.cleanup();
 
-    var cache_dir = try global_tmp.dir.makeOpenPath("zig-cache", .{});
+    var cache_dir = try global_tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
-    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ ".", "zig-cache", "tmp", &global_tmp.sub_path });
+    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ ".", ".zig-cache", "tmp", &global_tmp.sub_path });
     defer self.gpa.free(tmp_dir_path);
 
     const global_cache_directory: Compilation.Directory = .{
         .handle = cache_dir,
-        .path = try std.fs.path.join(self.gpa, &[_][]const u8{ tmp_dir_path, "zig-cache" }),
+        .path = try std.fs.path.join(self.gpa, &[_][]const u8{ tmp_dir_path, ".zig-cache" }),
     };
     defer self.gpa.free(global_cache_directory.path.?);
 
@@ -1529,16 +1529,16 @@ fn runOneCase(
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
+    var cache_dir = try tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
 
     const tmp_dir_path = try std.fs.path.join(
         arena,
-        &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path },
+        &[_][]const u8{ ".", ".zig-cache", "tmp", &tmp.sub_path },
     );
     const local_cache_path = try std.fs.path.join(
         arena,
-        &[_][]const u8{ tmp_dir_path, "zig-cache" },
+        &[_][]const u8{ tmp_dir_path, ".zig-cache" },
     );
 
     const zig_cache_directory: Compilation.Directory = .{

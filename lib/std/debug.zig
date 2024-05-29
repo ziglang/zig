@@ -1526,7 +1526,7 @@ test printLineFromFileAnyOs {
     var test_dir = std.testing.tmpDir(.{});
     defer test_dir.cleanup();
     // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
-    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
     // Cases
