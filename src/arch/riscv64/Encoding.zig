@@ -2,25 +2,30 @@ mnemonic: Mnemonic,
 data: Data,
 
 const OpCode = enum(u7) {
-    OP = 0b0110011,
-    OP_IMM = 0b0010011,
-    OP_IMM_32 = 0b0011011,
-    OP_32 = 0b0111011,
-
-    BRANCH = 0b1100011,
     LOAD = 0b0000011,
-    STORE = 0b0100011,
-    SYSTEM = 0b1110011,
-
-    OP_FP = 0b1010011,
     LOAD_FP = 0b0000111,
-    STORE_FP = 0b0100111,
-
-    JALR = 0b1100111,
+    MISC_MEM = 0b0001111,
+    OP_IMM = 0b0010011,
     AUIPC = 0b0010111,
+    OP_IMM_32 = 0b0011011,
+    STORE = 0b0100011,
+    STORE_FP = 0b0100111,
+    AMO = 0b0101111,
+    OP = 0b0110011,
+    OP_32 = 0b0111011,
     LUI = 0b0110111,
+    MADD = 0b1000011,
+    MSUB = 0b1000111,
+    NMSUB = 0b1001011,
+    NMADD = 0b1001111,
+    OP_FP = 0b1010011,
+    OP_IMM_64 = 0b1011011,
+    BRANCH = 0b1100011,
+    JALR = 0b1100111,
     JAL = 0b1101111,
-    NONE = 0b0000000,
+    SYSTEM = 0b1110011,
+    OP_64 = 0b1111011,
+    NONE = 0b00000000,
 };
 
 const Fmt = enum(u2) {
@@ -28,7 +33,9 @@ const Fmt = enum(u2) {
     S = 0b00,
     /// 64-bit double-precision
     D = 0b01,
-    _reserved = 0b10,
+
+    // H = 0b10, unused in the G extension
+
     /// 128-bit quad-precision
     Q = 0b11,
 };
@@ -191,6 +198,9 @@ pub const Mnemonic = enum {
 
     fsgnjnd,
     fsgnjxd,
+
+    // MISC
+    fence,
 
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
@@ -366,6 +376,10 @@ pub const Mnemonic = enum {
             
             .unimp   => .{ .opcode = .NONE, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
+            // MISC_MEM
+
+            .fence   => .{ .opcode = .MISC_MEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
+        
 
             // zig fmt: on
         };
@@ -380,7 +394,7 @@ pub const InstEnc = enum {
     B,
     U,
     J,
-
+    fence,
     /// extras that have unusual op counts
     system,
 
@@ -509,20 +523,24 @@ pub const InstEnc = enum {
             .ebreak,
             .unimp,
             => .system,
+
+            .fence,
+            => .fence,
         };
     }
 
     pub fn opsList(enc: InstEnc) [4]std.meta.FieldEnum(Operand) {
         return switch (enc) {
             // zig fmt: off
-            .R      => .{ .reg,  .reg,  .reg,  .none },
-            .R4     => .{ .reg,  .reg,  .reg,  .reg  },  
-            .I      => .{ .reg,  .reg,  .imm,  .none },
-            .S      => .{ .reg,  .reg,  .imm,  .none },
-            .B      => .{ .reg,  .reg,  .imm,  .none },
-            .U      => .{ .reg,  .imm,  .none, .none },
-            .J      => .{ .reg,  .imm,  .none, .none },
-            .system => .{ .none, .none, .none, .none },
+            .R      => .{ .reg,     .reg,     .reg,  .none },
+            .R4     => .{ .reg,     .reg,     .reg,  .reg  },  
+            .I      => .{ .reg,     .reg,     .imm,  .none },
+            .S      => .{ .reg,     .reg,     .imm,  .none },
+            .B      => .{ .reg,     .reg,     .imm,  .none },
+            .U      => .{ .reg,     .imm,     .none, .none },
+            .J      => .{ .reg,     .imm,     .none, .none },
+            .system => .{ .none,    .none,    .none, .none },
+            .fence  => .{ .barrier, .barrier, .none, .none },
             // zig fmt: on
         };
     }
@@ -584,6 +602,15 @@ pub const Data = union(InstEnc) {
         imm1_10: u10,
         imm20: u1,
     },
+    fence: packed struct {
+        opcode: u7,
+        rd: u5 = 0,
+        funct3: u3,
+        rs1: u5 = 0,
+        succ: u4,
+        pred: u4,
+        _ignored: u4 = 0,
+    },
     system: void,
 
     pub fn toU32(self: Data) u32 {
@@ -596,6 +623,7 @@ pub const Data = union(InstEnc) {
             .B  => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
             .U  => |v| @bitCast(v),
             .J  => |v| @bitCast(v),
+            .fence => |v| @bitCast(v),
             .system => unreachable,
             // zig fmt: on
         };
@@ -742,6 +770,22 @@ pub const Data = union(InstEnc) {
                         .imm5_10 = @truncate(umm >> 5),
                         .imm11 = @truncate(umm >> 11),
                         .imm12 = @truncate(umm >> 12),
+
+                        .opcode = @intFromEnum(enc.opcode),
+                        .funct3 = enc.data.f.funct3,
+                    },
+                };
+            },
+            .fence => {
+                assert(ops.len == 2);
+
+                const succ = ops[0];
+                const pred = ops[1];
+
+                return .{
+                    .fence = .{
+                        .succ = @intFromEnum(succ.barrier),
+                        .pred = @intFromEnum(pred.barrier),
 
                         .opcode = @intFromEnum(enc.opcode),
                         .funct3 = enc.data.f.funct3,

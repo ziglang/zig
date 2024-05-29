@@ -1,12 +1,13 @@
 pub const Instruction = struct {
     encoding: Encoding,
-    ops: [3]Operand = .{.none} ** 3,
+    ops: [4]Operand = .{.none} ** 4,
 
     pub const Operand = union(enum) {
         none,
         reg: Register,
         mem: Memory,
         imm: Immediate,
+        barrier: Mir.Barrier,
     };
 
     pub fn new(mnemonic: Encoding.Mnemonic, ops: []const Operand) !Instruction {
@@ -20,7 +21,7 @@ pub const Instruction = struct {
             return error.InvalidInstruction;
         };
 
-        var result_ops: [3]Operand = .{.none} ** 3;
+        var result_ops: [4]Operand = .{.none} ** 4;
         @memcpy(result_ops[0..ops.len], ops);
 
         return .{
@@ -54,6 +55,7 @@ pub const Instruction = struct {
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
                 .imm => |imm| try writer.print("{d}", .{imm.asSigned(64)}),
                 .mem => unreachable, // there is no "mem" operand in the actual instructions
+                .barrier => |barrier| try writer.writeAll(@tagName(barrier)),
             }
         }
     }
