@@ -429,13 +429,12 @@ pub fn Iterator(comptime SeekableStream: type) type {
             uncompressed_size: u64,
             file_offset: u64,
 
-            pub fn extract(
+            pub fn read(
                 self: Entry,
                 stream: SeekableStream,
                 options: ExtractOptions,
                 filename_buf: []u8,
-                dest: std.fs.Dir,
-            ) !u32 {
+            ) !u64 {
                 if (filename_buf.len < self.filename_len)
                     return error.ZipInsufficientBuffer;
                 const filename = filename_buf[0..self.filename_len];
@@ -493,7 +492,25 @@ pub fn Iterator(comptime SeekableStream: type) type {
                 if (filename[filename.len - 1] == '/') {
                     if (self.uncompressed_size != 0)
                         return error.ZipBadDirectorySize;
-                    try dest.makePath(filename[0 .. filename.len - 1]);
+                }
+
+                return local_data_header_offset;
+            }
+
+            pub fn extract(
+                self: Entry,
+                stream: SeekableStream,
+                options: ExtractOptions,
+                filename_buf: []u8,
+                dest: std.fs.Dir,
+            ) !u32 {
+                const local_data_header_offset = try self.read(stream, options, filename_buf);
+
+                const filename = filename_buf[0..self.filename_len];
+
+                // All entries that end in '/' are directories
+                if (filename[filename.len - 1] == '/') {
+                    try dest.makeDir(filename_buf[0..self.filename_len]);
                     return std.hash.Crc32.hash(&.{});
                 }
 
