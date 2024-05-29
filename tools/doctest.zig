@@ -22,7 +22,7 @@ const usage =
     \\   -o output              Where to write output HTML docs to
     \\   --zig zig              Path to the zig compiler
     \\   --zig-lib-dir dir      Override the zig compiler library path
-    \\   --cache-root dir       Path to local zig-cache/
+    \\   --cache-root dir       Path to local .zig-cache/
     \\
 ;
 

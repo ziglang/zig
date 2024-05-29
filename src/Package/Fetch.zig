@@ -2000,7 +2000,7 @@ test "zip" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2033,7 +2033,7 @@ test "zip with one root folder" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2069,7 +2069,7 @@ test "tarball with duplicate paths" {
 
     const tarball_name = "duplicate_paths.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, expect to fail
@@ -2101,7 +2101,7 @@ test "tarball with excluded duplicate paths" {
 
     const tarball_name = "duplicate_paths_excluded.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2145,7 +2145,7 @@ test "tarball without root folder" {
 
     const tarball_name = "no_root.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2176,7 +2176,7 @@ test "set executable bit based on file content" {
 
     const tarball_name = "executables.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // $ tar -tvf executables.tar.gz

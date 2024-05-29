@@ -123,6 +123,7 @@ const debug_usage = normal_usage ++
 ;
 
 const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
+const default_local_zig_cache_basename = ".zig-cache";
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
@@ -3107,14 +3108,13 @@ fn buildOutputType(
 
         // search upwards from cwd until we find directory with build.zig
         const cwd_path = try process.getCwdAlloc(arena);
-        const zig_cache = "zig-cache";
         var dirname: []const u8 = cwd_path;
         while (true) {
             const joined_path = try fs.path.join(arena, &.{
                 dirname, Package.build_zig_basename,
             });
             if (fs.cwd().access(joined_path, .{})) |_| {
-                const cache_dir_path = try fs.path.join(arena, &.{ dirname, zig_cache });
+                const cache_dir_path = try fs.path.join(arena, &.{ dirname, default_local_zig_cache_basename });
                 const dir = try fs.cwd().makeOpenPath(cache_dir_path, .{});
                 cleanup_local_cache_dir = dir;
                 break :l .{ .handle = dir, .path = cache_dir_path };
@@ -4869,9 +4869,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .path = local_cache_dir_path,
             };
         }
-        const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
+        const cache_dir_path = try build_root.directory.join(arena, &.{default_local_zig_cache_basename});
         break :l .{
-            .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
+            .handle = try build_root.directory.handle.makeOpenPath(default_local_zig_cache_basename, .{}),
             .path = cache_dir_path,
         };
     };
