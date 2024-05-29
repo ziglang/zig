@@ -3115,6 +3115,7 @@ pub const Object = struct {
 
         try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
+        variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         variable_index.setAlignment(alignment.toLlvm(), &o.builder);
         return variable_index;
