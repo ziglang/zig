@@ -31,7 +31,7 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     const upper = @sqrt(floatMax(T) / 2);
     const incre = @sqrt(floatEps(T) / 2);
     const scale = floatEpsAt(T, incre);
-    const hypfn = hypotFused;
+    const hypfn = if (emulateFma(T)) hypotUnfused else hypotFused;
     var major: T = x;
     var minor: T = y;
     if (isInf(major) or isInf(minor)) return inf(T);
@@ -53,6 +53,15 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
 
 fn Hypot(comptime T: type) type {
     return if (T == comptime_int) comptime_float else T;
+}
+
+inline fn emulateFma(comptime T: type) bool {
+    // If @mulAdd lowers to the software implementation,
+    // hypotUnfused should be used in place of hypotFused.
+    // This takes an educated guess, but ideally we should
+    // properly detect at comptime when that fallback will
+    // occur.
+    return (T == f128 or T == f80);
 }
 
 inline fn hypotFused(comptime F: type, x: F, y: F) F {
