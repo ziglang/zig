@@ -25,18 +25,13 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     switch (@typeInfo(T)) {
         .Float => {},
         .ComptimeFloat => return @sqrt(x * x + y * y),
-        // .ComptimeInt => {
-        //     const a: comptime_float = @floatFromInt(x);
-        //     const b: comptime_float = @floatFromInt(y);
-        //     return @sqrt(a * a + b * b);
-        // },
         else => @compileError("hypot not implemented for " ++ @typeName(T)),
     }
     const lower = @sqrt(floatMin(T));
     const upper = @sqrt(floatMax(T) / 2);
     const incre = @sqrt(floatEps(T) / 2);
     const scale = floatEpsAt(T, incre);
-    const hypfn = if (emulateFma(T)) hypotUnfused else hypotFused;
+    const hypfn = hypotFused;
     var major: T = x;
     var minor: T = y;
     if (isInf(major) or isInf(minor)) return inf(T);
@@ -58,10 +53,6 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
 
 fn Hypot(comptime T: type) type {
     return if (T == comptime_int) comptime_float else T;
-}
-
-inline fn emulateFma(comptime T: type) bool {
-    return (T == f128 or T == f80); // TODO: proper feature detection at comptime
 }
 
 inline fn hypotFused(comptime F: type, x: F, y: F) F {
@@ -96,7 +87,6 @@ const hypot_test_cases = .{
 };
 
 test hypot {
-    // try expect(hypot(3, 4) == 5);
     try expect(hypot(0.3, 0.4) == 0.5);
 }
 
