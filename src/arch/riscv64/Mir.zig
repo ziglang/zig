@@ -39,8 +39,6 @@ pub const Inst = struct {
         ecall,
         unimp,
 
-        fence,
-
         add,
         addw,
         sub,
@@ -81,6 +79,8 @@ pub const Inst = struct {
         sw,
         sh,
         sb,
+
+        fence,
 
         // M extension
         mul,
@@ -135,6 +135,9 @@ pub const Inst = struct {
         feqd,
         fltd,
         fled,
+
+        /// A Extension Instructions
+        amo,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
@@ -254,6 +257,16 @@ pub const Inst = struct {
             pred: Barrier,
             succ: Barrier,
         },
+
+        amo: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
+            aq: Barrier,
+            rl: Barrier,
+            op: AmoOp,
+            ty: Type,
+        },
     };
 
     pub const Ops = enum {
@@ -343,6 +356,9 @@ pub const Inst = struct {
 
         /// IORW, IORW
         fence,
+
+        /// Ordering, Src, Addr, Dest
+        pseudo_amo,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -379,9 +395,25 @@ pub const FrameLoc = struct {
 };
 
 pub const Barrier = enum(u4) {
+    // Fence
     r = 0b0001,
     w = 0b0010,
     rw = 0b0011,
+
+    // Amo
+    none,
+    aq,
+    rl,
+};
+
+pub const AmoOp = enum(u5) {
+    SWAP,
+    ADD,
+    AND,
+    OR,
+    XOR,
+    MAX,
+    MIN,
 };
 
 /// Returns the requested data, as well as the new index which is at the start of the

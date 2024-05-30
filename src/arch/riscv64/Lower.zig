@@ -412,6 +412,32 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
             },
 
+            .pseudo_amo => {
+                const amo = inst.data.amo;
+                const is_d = amo.ty.abiSize(pt) == 8;
+                const is_un = amo.ty.isUnsignedInt(pt.zcu);
+
+                const mnem: Encoding.Mnemonic = switch (amo.op) {
+                    // zig fmt: off
+                    .SWAP => if (is_d) .amoswapd  else .amoswapw,
+                    .ADD  => if (is_d) .amoaddd   else .amoaddw,
+                    .AND  => if (is_d) .amoandd   else .amoandw,
+                    .OR   => if (is_d) .amoord    else .amoorw,
+                    .XOR  => if (is_d) .amoxord   else .amoxorw,
+                    .MAX  => if (is_d) if (is_un) .amomaxud else .amomaxd else if (is_un) .amomaxuw else .amomaxw,
+                    .MIN  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
+                    // zig fmt: on
+                };
+
+                try lower.emit(mnem, &.{
+                    .{ .reg = inst.data.amo.rd },
+                    .{ .reg = inst.data.amo.rs1 },
+                    .{ .reg = inst.data.amo.rs2 },
+                    .{ .barrier = inst.data.amo.rl },
+                    .{ .barrier = inst.data.amo.aq },
+                });
+            },
+
             else => return lower.fail("TODO lower: psuedo {s}", .{@tagName(inst.ops)}),
         },
     }

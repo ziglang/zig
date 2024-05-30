@@ -987,8 +987,9 @@ pub fn genTypedValue(
 
     log.debug("genTypedValue: val = {}", .{val.fmtValue(pt, null)});
 
-    if (val.isUndef(zcu))
+    if (val.isUndef(zcu)) {
         return GenResult.mcv(.undef);
+    }
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);

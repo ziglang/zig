@@ -117,8 +117,9 @@ const MCValue = union(enum) {
     /// No more references to this value remain.
     /// The payload is the value of scope_generation at the point where the death occurred
     dead: u32,
-    /// The value is undefined.
-    undef,
+    /// The value is undefined. Contains a symbol index to an undefined constant. Null means
+    /// set the undefined value via immediate instead of a load.
+    undef: ?u32,
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
@@ -1045,6 +1046,7 @@ pub fn addExtraAssumeCapacity(func: *Func, extra: anytype) u32 {
 const required_features = [_]Target.riscv.Feature{
     .d,
     .m,
+    .a,
 };
 
 fn gen(func: *Func) !void {
@@ -1631,7 +1633,7 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
 
     // The total frame size is calculated by the amount of s registers you need to save * 8, as each
     // register is 8 bytes, the total allocation sizes, and 16 more register for the spilled ra and s0
-    // register. Finally we align the frame size to the align of the base pointer.
+    // register. Finally we align the frame size to the alignment of the base pointer.
     const args_frame_size = frame_size[@intFromEnum(FrameIndex.args_frame)];
     const spill_frame_size = frame_size[@intFromEnum(FrameIndex.spill_frame)];
     const call_frame_size = frame_size[@intFromEnum(FrameIndex.call_frame)];
@@ -2110,7 +2112,7 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
                 });
             },
             .Int => {
-                const size = ty.bitSize(zcu);
+                const size = ty.bitSize(pt);
                 if (!math.isPowerOfTwo(size))
                     return func.fail("TODO: airNot non-pow 2 int size", .{});
 
@@ -3249,7 +3251,7 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
         const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(eu_ty, pt));
         const pl_off: i32 = @intCast(errUnionPayloadOffset(pl_ty, pt));
         const err_off: i32 = @intCast(errUnionErrorOffset(pl_ty, pt));
-        try func.genSetMem(.{ .frame = frame_index }, pl_off, pl_ty, .undef);
+        try func.genSetMem(.{ .frame = frame_index }, pl_off, pl_ty, .{ .undef = null });
         const operand = try func.resolveInst(ty_op.operand);
         try func.genSetMem(.{ .frame = frame_index }, err_off, err_ty, operand);
         break :result .{ .load_frame = .{ .index = frame_index } };
@@ -5627,9 +5629,13 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         .none,
         .dead,
         => unreachable,
-        .undef => {
+        .undef => |sym_index| {
             if (!func.wantSafety())
                 return;
+
+            if (sym_index) |index| {
+                return func.genSetReg(ty, reg, .{ .load_symbol = .{ .sym = index } });
+            }
 
             switch (abi_size) {
                 1 => return func.genSetReg(ty, reg, .{ .immediate = 0xAA }),
@@ -5865,11 +5871,17 @@ fn genSetMem(
         .dead,
         .reserved_frame,
         => unreachable,
-        .undef => try func.genInlineMemset(
-            dst_ptr_mcv,
-            src_mcv,
-            .{ .immediate = abi_size },
-        ),
+        .undef => |sym_index| {
+            if (sym_index) |index| {
+                return func.genSetMem(base, disp, ty, .{ .load_symbol = .{ .sym = index } });
+            }
+
+            try func.genInlineMemset(
+                dst_ptr_mcv,
+                src_mcv,
+                .{ .immediate = abi_size },
+            );
+        },
         .register_offset,
         .memory,
         .indirect,
@@ -6069,12 +6081,82 @@ fn airCmpxchg(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return func.fail("TODO implement airCmpxchg for {}", .{func.target.cpu.arch});
+    const zcu = func.pt.zcu;
+    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+    const extra = func.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+
+    const op = extra.op();
+    const order = extra.ordering();
+
+    const ptr_ty = func.typeOf(pl_op.operand);
+    const ptr_mcv = try func.resolveInst(pl_op.operand);
+
+    const val_ty = func.typeOf(extra.operand);
+    const val_size = val_ty.abiSize(func.pt);
+    const val_mcv = try func.resolveInst(extra.operand);
+
+    if (!math.isPowerOfTwo(val_size))
+        return func.fail("TODO: airAtomicRmw non-pow 2", .{});
+
+    switch (val_ty.zigTypeTag(zcu)) {
+        .Int => {},
+        inline .Bool, .Float, .Enum, .Pointer => |ty| return func.fail("TODO: airAtomicRmw {s}", .{@tagName(ty)}),
+        else => unreachable,
+    }
+
+    switch (val_size) {
+        1, 2 => return func.fail("TODO: airAtomicRmw Int {}", .{val_size}),
+        4, 8 => {},
+        else => unreachable,
+    }
+
+    const ptr_register, const ptr_lock = try func.promoteReg(ptr_ty, ptr_mcv);
+    defer if (ptr_lock) |lock| func.register_manager.unlockReg(lock);
+
+    const val_register, const val_lock = try func.promoteReg(val_ty, val_mcv);
+    defer if (val_lock) |lock| func.register_manager.unlockReg(lock);
+
+    const result_mcv = try func.allocRegOrMem(val_ty, inst, true);
+    assert(result_mcv == .register); // should fit into 8 bytes
+
+    const aq, const rl = switch (order) {
+        .unordered => unreachable,
+        .monotonic => .{ false, false },
+        .acquire => .{ true, false },
+        .release => .{ false, true },
+        .acq_rel => .{ true, true },
+        .seq_cst => .{ true, true },
+    };
+
+    _ = try func.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_amo,
+        .data = .{ .amo = .{
+            .rd = result_mcv.register,
+            .rs1 = ptr_register,
+            .rs2 = val_register,
+            .aq = if (aq) .aq else .none,
+            .rl = if (rl) .rl else .none,
+            .op = switch (op) {
+                .Xchg => .SWAP,
+                .Add => .ADD,
+                .Sub => return func.fail("TODO: airAtomicRmw SUB", .{}),
+                .And => .AND,
+                .Nand => return func.fail("TODO: airAtomicRmw NAND", .{}),
+                .Or => .OR,
+                .Xor => .XOR,
+                .Max => .MAX,
+                .Min => .MIN,
+            },
+            .ty = val_ty,
+        } },
+    });
+
+    return func.finishAir(inst, result_mcv, .{ pl_op.operand, extra.operand, .none });
 }
 
 fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
-    const zcu = func.bin_file.comp.module.?;
+    const zcu = func.pt.zcu;
     const atomic_load = func.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
     const order: std.builtin.AtomicOrder = atomic_load.order;
 
@@ -6083,6 +6165,7 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const ptr_mcv = try func.resolveInst(atomic_load.ptr);
 
     const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
+    assert(result_mcv == .register); // should be less than 8 bytes
 
     if (order == .seq_cst) {
         _ = try func.addInst(.{
@@ -6535,19 +6618,40 @@ fn getResolvedInstValue(func: *Func, inst: Air.Inst.Index) *InstTracking {
 }
 
 fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
-    const pt = func.pt;
-    const zcu = pt.zcu;
+    const zcu = func.pt.zcu;
+    const gpa = func.gpa;
+
+    const owner_decl_index = zcu.funcOwnerDeclIndex(func.func_index);
+    const lf = func.bin_file;
+    const src_loc = func.src_loc;
+
+    if (val.isUndef(zcu)) {
+        const local_sym_index = lf.lowerUnnamedConst(func.pt, val, owner_decl_index) catch |err| {
+            const msg = try ErrorMsg.create(gpa, src_loc, "lowering unnamed undefined constant failed: {s}", .{@errorName(err)});
+            func.err_msg = msg;
+            return error.CodegenFail;
+        };
+        switch (lf.tag) {
+            .elf => {
+                const elf_file = lf.cast(link.File.Elf).?;
+                const local = elf_file.symbol(local_sym_index);
+                return MCValue{ .undef = local.esym_index };
+            },
+            else => unreachable,
+        }
+    }
+
     const result = try codegen.genTypedValue(
-        func.bin_file,
-        pt,
-        func.src_loc,
+        lf,
+        func.pt,
+        src_loc,
         val,
-        zcu.funcOwnerDeclIndex(func.func_index),
+        owner_decl_index,
     );
     const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
-            .undef => .undef,
+            .undef => unreachable,
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },

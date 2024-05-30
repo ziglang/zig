@@ -28,7 +28,7 @@ const OpCode = enum(u7) {
     NONE = 0b00000000,
 };
 
-const Fmt = enum(u2) {
+const FpFmt = enum(u2) {
     /// 32-bit single-precision
     S = 0b00,
     /// 64-bit double-precision
@@ -40,6 +40,11 @@ const Fmt = enum(u2) {
     Q = 0b11,
 };
 
+const AmoWidth = enum(u3) {
+    W = 0b010,
+    D = 0b011,
+};
+
 const Enc = struct {
     opcode: OpCode,
 
@@ -49,11 +54,15 @@ const Enc = struct {
             funct3: u3,
             funct7: u7,
         },
+        amo: struct {
+            funct5: u5,
+            width: AmoWidth,
+        },
         /// funct5 + rm + fmt
         fmt: struct {
             funct5: u5,
             rm: u3,
-            fmt: Fmt,
+            fmt: FpFmt,
         },
         /// funct3
         f: struct {
@@ -201,6 +210,27 @@ pub const Mnemonic = enum {
 
     // MISC
     fence,
+
+    // AMO
+    amoswapw,
+    amoaddw,
+    amoandw,
+    amoorw,
+    amoxorw,
+    amomaxw,
+    amominw,
+    amomaxuw,
+    amominuw,
+
+    amoswapd,
+    amoaddd,
+    amoandd,
+    amoord,
+    amoxord,
+    amomaxd,
+    amomind,
+    amomaxud,
+    amominud,
 
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
@@ -379,7 +409,34 @@ pub const Mnemonic = enum {
             // MISC_MEM
 
             .fence   => .{ .opcode = .MISC_MEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
-        
+
+            // AMO
+
+            .amoaddw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00000 } } },
+            .amoswapw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00001 } } },
+            // LR.W
+            // SC.W
+            .amoxorw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00100 } } },
+            .amoandw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01100 } } },
+            .amoorw    => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01000 } } },
+            .amominw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b10000 } } },
+            .amomaxw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b10100 } } },
+            .amominuw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11000 } } },
+            .amomaxuw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11100 } } },
+
+            .amoaddd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00000 } } },
+            .amoswapd  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00001 } } },
+            // LR.D
+            // SC.D
+            .amoxord   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00100 } } },
+            .amoandd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01100 } } },
+            .amoord    => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01000 } } },
+            .amomind   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b10000 } } },
+            .amomaxd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b10100 } } },
+            .amominud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11000 } } },
+            .amomaxud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11100 } } },
+
+                    
 
             // zig fmt: on
         };
@@ -395,6 +452,7 @@ pub const InstEnc = enum {
     U,
     J,
     fence,
+    amo,
     /// extras that have unusual op counts
     system,
 
@@ -526,21 +584,43 @@ pub const InstEnc = enum {
 
             .fence,
             => .fence,
+
+            .amoswapw,
+            .amoaddw,
+            .amoandw,
+            .amoorw,
+            .amoxorw,
+            .amomaxw,
+            .amominw,
+            .amomaxuw,
+            .amominuw,
+
+            .amoswapd,
+            .amoaddd,
+            .amoandd,
+            .amoord,
+            .amoxord,
+            .amomaxd,
+            .amomind,
+            .amomaxud,
+            .amominud,
+            => .amo,
         };
     }
 
-    pub fn opsList(enc: InstEnc) [4]std.meta.FieldEnum(Operand) {
+    pub fn opsList(enc: InstEnc) [5]std.meta.FieldEnum(Operand) {
         return switch (enc) {
             // zig fmt: off
-            .R      => .{ .reg,     .reg,     .reg,  .none },
-            .R4     => .{ .reg,     .reg,     .reg,  .reg  },  
-            .I      => .{ .reg,     .reg,     .imm,  .none },
-            .S      => .{ .reg,     .reg,     .imm,  .none },
-            .B      => .{ .reg,     .reg,     .imm,  .none },
-            .U      => .{ .reg,     .imm,     .none, .none },
-            .J      => .{ .reg,     .imm,     .none, .none },
-            .system => .{ .none,    .none,    .none, .none },
-            .fence  => .{ .barrier, .barrier, .none, .none },
+            .R      => .{ .reg,     .reg,     .reg,  .none,    .none,   },
+            .R4     => .{ .reg,     .reg,     .reg,  .reg,     .none,   },  
+            .I      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .S      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .B      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .U      => .{ .reg,     .imm,     .none, .none,    .none,   },
+            .J      => .{ .reg,     .imm,     .none, .none,    .none,   },
+            .system => .{ .none,    .none,    .none, .none,    .none,   },
+            .fence  => .{ .barrier, .barrier, .none, .none,    .none,   },
+            .amo    => .{ .reg,     .reg,     .reg,  .barrier, .barrier },
             // zig fmt: on
         };
     }
@@ -611,19 +691,29 @@ pub const Data = union(InstEnc) {
         pred: u4,
         _ignored: u4 = 0,
     },
-    system: void,
+    amo: packed struct {
+        opcode: u7,
+        rd: u5,
+        funct3: u3,
+        rs1: u5,
+        rs2: u5,
+        rl: bool,
+        aq: bool,
+        funct5: u5,
+    },
+    system: u32,
+
+    comptime {
+        for (std.meta.fields(Data)) |field| {
+            assert(@bitSizeOf(field.type) == 32);
+        }
+    }
 
     pub fn toU32(self: Data) u32 {
         return switch (self) {
             // zig fmt: off
-            .R  => |v| @bitCast(v),
-            .R4 => |v| @bitCast(v),
-            .I  => |v| @bitCast(v),
-            .S  => |v| @bitCast(v),
             .B  => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
-            .U  => |v| @bitCast(v),
-            .J  => |v| @bitCast(v),
-            .fence => |v| @bitCast(v),
+            inline else => |v| @bitCast(v),
             .system => unreachable,
             // zig fmt: on
         };
@@ -791,6 +881,34 @@ pub const Data = union(InstEnc) {
                         .funct3 = enc.data.f.funct3,
                     },
                 };
+            },
+            .amo => {
+                assert(ops.len == 5);
+
+                const rd = ops[0];
+                const rs1 = ops[1];
+                const rs2 = ops[2];
+                const rl = ops[3];
+                const aq = ops[4];
+
+                const ret: Data = .{
+                    .amo = .{
+                        .rd = rd.reg.encodeId(),
+                        .rs1 = rs1.reg.encodeId(),
+                        .rs2 = rs2.reg.encodeId(),
+
+                        // TODO: https://github.com/ziglang/zig/issues/20113
+                        .rl = if (rl.barrier == .rl) true else false,
+                        .aq = if (aq.barrier == .aq) true else false,
+
+                        .opcode = @intFromEnum(enc.opcode),
+                        .funct3 = @intFromEnum(enc.data.amo.width),
+                        .funct5 = enc.data.amo.funct5,
+                    },
+                };
+
+                std.debug.print("ret: {}, {}", .{ ret.amo.rl, rl.barrier == .rl });
+                return ret;
             },
 
             else => std.debug.panic("TODO: construct {s}", .{@tagName(inst_enc)}),
