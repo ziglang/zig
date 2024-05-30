@@ -188,7 +188,7 @@ pub fn sync(self: File) SyncError!void {
 }
 
 /// Test whether the file refers to a terminal.
-/// See also `supportsAnsiEscapeCodes`.
+/// See also `getOrEnableAnsiEscapeSupport` and `supportsAnsiEscapeCodes`.
 pub fn isTty(self: File) bool {
     return posix.isatty(self.handle);
 }
@@ -245,8 +245,16 @@ pub fn isCygwinPty(file: File) bool {
         std.mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
-/// Test whether ANSI escape codes will be treated as such.
-pub fn supportsAnsiEscapeCodes(self: File) bool {
+/// Returns whether or not ANSI escape codes will be treated as such,
+/// and attempts to enable support for ANSI escape codes if necessary
+/// (on Windows).
+///
+/// Returns `true` if ANSI escape codes are supported or support was
+/// successfully enabled. Returns false if ANSI escape codes are not
+/// supported or support was unable to be enabled.
+///
+/// See also `supportsAnsiEscapeCodes`.
+pub fn getOrEnableAnsiEscapeSupport(self: File) bool {
     if (builtin.os.tag == .windows) {
         var original_console_mode: windows.DWORD = 0;
 
@@ -262,10 +270,27 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
             var console_mode = original_console_mode | requested_console_modes;
             if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
 
-            // An application receiving ERROR_INVALID_PARAMETER with one of the newer console mode flags in the bit field should gracefully degrade behavior and try again.
+            // An application receiving ERROR_INVALID_PARAMETER with one of the newer console mode
+            // flags in the bit field should gracefully degrade behavior and try again.
             requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
             console_mode = original_console_mode | requested_console_modes;
             if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
+        }
+
+        return self.isCygwinPty();
+    }
+    return self.supportsAnsiEscapeCodes();
+}
+
+/// Test whether ANSI escape codes will be treated as such without
+/// attempting to enable support for ANSI escape codes.
+///
+/// See also `getOrEnableAnsiEscapeSupport`.
+pub fn supportsAnsiEscapeCodes(self: File) bool {
+    if (builtin.os.tag == .windows) {
+        var console_mode: windows.DWORD = 0;
+        if (windows.kernel32.GetConsoleMode(self.handle, &console_mode) != 0) {
+            if (console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
         }
 
         return self.isCygwinPty();

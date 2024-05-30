@@ -377,7 +377,7 @@ pub fn start(options: Options) Node {
             }
             const stderr = std.io.getStdErr();
             global_progress.terminal = stderr;
-            if (stderr.supportsAnsiEscapeCodes()) {
+            if (stderr.getOrEnableAnsiEscapeSupport()) {
                 global_progress.terminal_mode = .ansi_escape_codes;
             } else if (is_windows and stderr.isTty()) {
                 global_progress.terminal_mode = TerminalMode{ .windows_api = .{
