@@ -4855,7 +4855,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
         break :l .{
             .handle = try fs.cwd().makeOpenPath(p, .{}),
-            .path = p,
+            .path = try fs.path.resolve(arena, &.{ cwd_path, p }),
         };
     };
     defer global_cache_directory.handle.close();
