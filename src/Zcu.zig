@@ -4158,18 +4158,17 @@ const LowerZon = struct {
         if (bytes[0] == '@' and bytes[1] == '"') {
             const gpa = self.mod.gpa;
 
-            if (std.mem.indexOfScalar(u8, bytes, 0) != null) {                
-                return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
-            }
-
-            // XXX: so mething wrong here, tripping assertion in parseWrite:
-            // assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
-            const raw_string = bytes[1 .. bytes.len - 1];
+            const raw_string = bytes[1 .. bytes.len];
             var parsed = std.ArrayListUnmanaged(u8){};
             defer parsed.deinit(gpa);
 
             switch (try std.zig.string_literal.parseWrite(parsed.writer(gpa), raw_string)) {
-                .success => return parsed.toOwnedSliceSentinel(gpa, 0),
+                .success => {
+                    if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {                
+                        return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
+                    }
+                    return parsed.toOwnedSliceSentinel(gpa, 0);
+                },
                 .failure => |err| {
                     const offset = self.file.tree.tokens.items(.start)[token];
                     return AstGen.failWithStrLitError(

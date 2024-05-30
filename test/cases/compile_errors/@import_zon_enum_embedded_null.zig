@@ -9,4 +9,4 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/enum_embedded_null.zon
 //
-// foobarbaz
+// enum_embedded_null.zon:2:6: error: identifier cannot contain null bytes
