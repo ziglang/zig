@@ -4,14 +4,19 @@ const build_options = @import("build_options");
 const debug = std.debug;
 const io = std.io;
 const print_zir = @import("print_zir.zig");
+const print_air = @import("print_air.zig");
 const windows = std.os.windows;
 const posix = std.posix;
 const native_os = builtin.os.tag;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const Sema = @import("Sema.zig");
 const Zir = std.zig.Zir;
-const Decl = Module.Decl;
+const Air = @import("Air.zig");
+const Liveness = @import("Liveness.zig");
+const Decl = Zcu.Decl;
+
+const Module = Zcu;
 
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
@@ -122,6 +127,70 @@ fn dumpStatusReport() !void {
     }
 
     try stderr.writeAll("\n");
+}
+
+pub const CodeGenState = if (build_options.enable_debug_extensions) struct {
+    parent: ?*CodeGenState,
+    zcu: *Zcu,
+    air: Air,
+    liveness: Liveness,
+    src_decl: *Decl,
+    body: []const Air.Inst.Index,
+    body_index: usize,
+
+    pub fn push(self: *CodeGenState) void {
+        debug.assert(self.parent == null);
+        self.parent = codegen_state;
+        codegen_state = self;
+    }
+
+    pub fn pop(self: *CodeGenState) void {
+        debug.assert(codegen_state == self);
+        codegen_state = self.parent;
+    }
+
+    pub fn setBodyIndex(self: *CodeGenState, index: usize) void {
+        self.body_index = index;
+    }
+} else struct {
+    pub inline fn push(_: CodeGenState) void {}
+    pub inline fn pop(_: CodeGenState) void {}
+    pub inline fn setBodyIndex(_: CodeGenState, _: usize) void {}
+};
+
+threadlocal var codegen_state: ?*CodeGenState = if (build_options.enable_debug_extensions) null else @compileError("Cannot use codegen_state without debug extensions.");
+
+pub inline fn prepCodeGenState(zcu: *Zcu, body: []const Air.Inst.Index, air: Air, liveness: Liveness, src_decl: *Decl) CodeGenState {
+    return if (build_options.enable_debug_extensions) .{
+        .parent = null,
+        .zcu = zcu,
+        .air = air,
+        .liveness = liveness,
+        .src_decl = src_decl,
+        .body = body,
+        .body_index = 0,
+    } else .{};
+}
+
+fn dumpCodeGenReport() !void {
+    const state = codegen_state orelse return;
+
+    const stderr = io.getStdErr().writer();
+    const zcu = state.zcu;
+
+    try stderr.writeAll("CodeGen ");
+    try writeFullyQualifiedDeclWithFile(zcu, state.src_decl, stderr);
+    try stderr.writeAll("\n");
+
+    try print_air.writeContext(
+        stderr,
+        zcu,
+        state.body,
+        state.body_index,
+        state.air,
+        state.liveness,
+    );
+    try stderr.writeAll("    For full context, use the --verbose-air flag\n\n");
 }
 
 var crash_heap: [16 * 4096]u8 = undefined;
@@ -398,6 +467,10 @@ const PanicSwitch = struct {
 
         dumpStatusReport() catch |err| {
             stderr.print("\nIntercepted error.{} while dumping current state.  Continuing...\n", .{err}) catch {};
+        };
+
+        dumpCodeGenReport() catch |err| {
+            stderr.print("\nIntercepted error.{} while dumping CodeGen state.  Continuing...\n", .{err}) catch {};
         };
 
         goTo(reportStack, .{state});
