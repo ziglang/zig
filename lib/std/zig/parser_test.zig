@@ -2687,15 +2687,7 @@ test "zig fmt: add trailing comma in function prototype with comments" {
 }
 
 test "zig fmt: function prototype with doc comments in struct and trailing comma" {
-    try testTransform(
-        \\fn foo(_: void, struct {
-        \\    /// void
-        \\    _: void,
-        \\    /// void
-        \\    _: void,
-        \\}) !void {}
-        \\
-    ,
+    try testCanonical(
         \\fn foo(_: void, struct {
         \\    /// void
         \\    _: void,
@@ -2706,7 +2698,7 @@ test "zig fmt: function prototype with doc comments in struct and trailing comma
     );
 }
 
-test "zig fmt: function prototype with parentheses and then a doc comment" {
+test "zig fmt: function prototype with parentheses and then a doc comment without trailing comma" {
     try testTransform(
         \\fn foo(
         \\    bar: (i32),
