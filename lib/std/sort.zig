@@ -520,14 +520,14 @@ pub fn lowerBound(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: @TypeOf(key), rhs: T) bool,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) usize {
     var left: usize = 0;
     var right: usize = items.len;
 
     while (left < right) {
         const mid = left + (right - left) / 2;
-        if (lessThan(context, items[mid], key)) {
+        if (compareFn(context, key, items[mid]) == .gt) {
             left = mid + 1;
         } else {
             right = mid;
@@ -539,63 +539,60 @@ pub fn lowerBound(
 
 test lowerBound {
     const S = struct {
-        fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_u32(_: void, lhs: u32, rhs: u32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_i32(context: void, lhs: i32, rhs: i32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_i32(_: void, lhs: i32, rhs: i32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_f32(context: void, lhs: f32, rhs: f32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_f32(_: void, lhs: f32, rhs: f32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
     };
 
     try testing.expectEqual(
         @as(usize, 0),
-        lowerBound(u32, @as(u32, 0), &[_]u32{}, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 0), &[_]u32{}, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 0),
-        lowerBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 0),
-        lowerBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        lowerBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 5),
-        lowerBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        lowerBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        lowerBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        lowerBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32),
+        lowerBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_i32),
     );
     try testing.expectEqual(
         @as(usize, 1),
-        lowerBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.lower_f32),
+        lowerBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.compare_f32),
     );
 }
 
@@ -610,14 +607,14 @@ pub fn upperBound(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: @TypeOf(key), rhs: T) bool,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) usize {
     var left: usize = 0;
     var right: usize = items.len;
 
     while (left < right) {
         const mid = left + (right - left) / 2;
-        if (!lessThan(context, key, items[mid])) {
+        if (compareFn(context, key, items[mid]) != .lt) {
             left = mid + 1;
         } else {
             right = mid;
@@ -629,64 +626,87 @@ pub fn upperBound(
 
 test upperBound {
     const S = struct {
-        fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_u32(_: void, lhs: u32, rhs: u32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_i32(context: void, lhs: i32, rhs: i32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_i32(_: void, lhs: i32, rhs: i32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_f32(context: void, lhs: f32, rhs: f32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn compare_f32(_: void, lhs: f32, rhs: f32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
     };
 
     try testing.expectEqual(
         @as(usize, 0),
-        upperBound(u32, @as(u32, 0), &[_]u32{}, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 0), &[_]u32{}, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 0),
-        upperBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 0), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 1),
-        upperBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 2), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        upperBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 5), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 7, 7, 7, 7, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 8, 8, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 3),
-        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 8), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        upperBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 64), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 6),
-        upperBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_u32),
+        upperBound(u32, @as(u32, 100), &[_]u32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_u32),
     );
     try testing.expectEqual(
         @as(usize, 2),
-        upperBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.lower_i32),
+        upperBound(i32, @as(i32, 5), &[_]i32{ 2, 4, 8, 16, 32, 64 }, {}, S.compare_i32),
     );
     try testing.expectEqual(
         @as(usize, 1),
-        upperBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.lower_f32),
+        upperBound(f32, @as(f32, -33.4), &[_]f32{ -54.2, -26.7, 0.0, 56.55, 100.1, 322.0 }, {}, S.compare_f32),
     );
+}
+
+test "upperBound lowerBound compareFn arg types" {
+    // from https://github.com/ziglang/zig/issues/20110
+    //
+    // previously, this didn't work and errored with
+    //
+    // .../lib/std/sort.zig:530:36: error: expected type 'i32', found 'main.main.R'
+    //     if (lessThan(context, items[mid], key)) {
+    //                           ~~~~~^~~~~
+    const R = struct {
+        b: i32,
+
+        fn r(b: i32) @This() {
+            return @This(){ .b = b };
+        }
+
+        fn compareFn(_: void, key: i32, mid_item: @This()) std.math.Order {
+            return std.math.order(key, mid_item.b);
+        }
+    };
+    const rs = [_]R{ R.r(-100), R.r(-40), R.r(-10), R.r(30) };
+    const u = std.sort.upperBound(R, @as(i32, -20), &rs, {}, R.compareFn);
+    const l = std.sort.lowerBound(R, @as(i32, -20), &rs, {}, R.compareFn);
+    try testing.expectEqual(2, u);
+    try testing.expectEqual(2, l);
 }
 
 /// Returns a tuple of the lower and upper indices in `items` between which all elements are equal to `key`.
@@ -704,27 +724,24 @@ pub fn equalRange(
     key: anytype,
     items: []const T,
     context: anytype,
-    comptime lessThan: fn (context: @TypeOf(context), lhs: @TypeOf(key), rhs: T) bool,
+    comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) struct { usize, usize } {
     return .{
-        lowerBound(T, key, items, context, lessThan),
-        upperBound(T, key, items, context, lessThan),
+        lowerBound(T, key, items, context, compareFn),
+        upperBound(T, key, items, context, compareFn),
     };
 }
 
 test equalRange {
     const S = struct {
-        fn lower_u32(context: void, lhs: u32, rhs: u32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn lower_u32(_: void, lhs: u32, rhs: u32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_i32(context: void, lhs: i32, rhs: i32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn lower_i32(_: void, lhs: i32, rhs: i32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
-        fn lower_f32(context: void, lhs: f32, rhs: f32) bool {
-            _ = context;
-            return lhs < rhs;
+        fn lower_f32(_: void, lhs: f32, rhs: f32) std.math.Order {
+            return std.math.order(lhs, rhs);
         }
     };
 
