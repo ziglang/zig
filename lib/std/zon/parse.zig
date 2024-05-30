@@ -12,6 +12,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 gpa: Allocator,
 ast: *const Ast,
 status: ?*ParseStatus,
+ident_buf: []u8,
 
 /// Configuration for the runtime parser.
 pub const ParseOptions = struct {
@@ -23,6 +24,7 @@ pub const ParseOptions = struct {
     free_on_error: bool = true,
 };
 
+// TODO: print type/field names escaped/with @ if necessary?
 /// Information about the success or failure of a parse.
 pub const ParseStatus = union(enum) {
     /// The parse succeeded.
@@ -37,13 +39,13 @@ pub const ParseStatus = union(enum) {
         type_name: []const u8,
         node: NodeIndex,
     },
-    /// Integer zero literals may not be negative.
+    /// The integer literal at `node` is negative 0.
     negative_integer_zero: struct {
         node: NodeIndex,
     },
     /// The string literal at `node` failed to parse with `reason`.
     invalid_string_literal: struct {
-        node: NodeIndex,
+        token: TokenIndex,
         reason: StringLiteralError,
     },
     /// The number literal at `node` failed to parse with `reason`.
@@ -51,12 +53,11 @@ pub const ParseStatus = union(enum) {
         node: NodeIndex,
         reason: NumberLiteralError,
     },
-    /// The struct or union at `node` has a field `field_name` that does not exist on `type_name`,
-    /// and `ignore_unknpwn_fields` is false.
+    /// The field at `token` does not exist on type `type_name`, and `ignore_unknpwn_fields` is
+    /// false.
     unknown_field: struct {
-        node: NodeIndex,
+        token: TokenIndex,
         type_name: []const u8,
-        field_name: []const u8,
     },
     /// The struct `type_name` at `node` is missing field `field_name`, and it has no default.
     missing_field: struct {
@@ -64,14 +65,17 @@ pub const ParseStatus = union(enum) {
         type_name: []const u8,
         field_name: []const u8,
     },
-    /// The struct `type_name` at `node` has a duplicate field `field_name`.
+    /// The field at `token` is a duplicate.
     duplicate_field: struct {
-        node: NodeIndex,
-        field_name: []const u8,
+        token: TokenIndex,
     },
     /// A type expression was encountered at `node`.
     type_expr: struct {
         node: NodeIndex,
+    },
+    /// An identifier found at `token` contains an embedded null.
+    ident_embedded_null: struct {
+        token: TokenIndex,
     },
 };
 
@@ -146,10 +150,12 @@ test "std.zon parseFromAstNoAlloc" {
 /// Like `parseFromAst`, but the parse starts on `node` instead of on the root of the AST.
 pub fn parseFromAstNode(comptime T: type, gpa: Allocator, ast: *const Ast, node: NodeIndex, status: ?*ParseStatus, comptime options: ParseOptions) error{ OutOfMemory, Type }!T {
     assert(ast.errors.len == 0);
+    var ident_buf: [maxIdentLength(T)]u8 = undefined;
     var parser = @This(){
         .gpa = gpa,
         .ast = ast,
         .status = status,
+        .ident_buf = &ident_buf,
     };
     return parser.parseExpr(T, options, node);
 }
@@ -213,7 +219,6 @@ test "std.zon requiresAllocator" {
     try std.testing.expect(!requiresAllocator(u8));
     try std.testing.expect(!requiresAllocator(f32));
     try std.testing.expect(!requiresAllocator(enum { foo }));
-    try std.testing.expect(!requiresAllocator(@TypeOf(.foo)));
     try std.testing.expect(!requiresAllocator(struct { f32 }));
     try std.testing.expect(!requiresAllocator(struct { x: f32 }));
     try std.testing.expect(!requiresAllocator([2]u8));
@@ -230,6 +235,89 @@ test "std.zon requiresAllocator" {
     try std.testing.expect(requiresAllocator(union { x: i32, y: []u8 }));
     try std.testing.expect(requiresAllocator(union(enum) { x: i32, y: []u8 }));
     try std.testing.expect(requiresAllocator(?[]u8));
+}
+
+fn maxIdentLength(comptime T: type) usize {
+    // Keep in sync with `parseExpr`.
+    comptime var max = 0;
+    switch (@typeInfo(T)) {
+        .Bool, .Int, .Float, .Null, .Void => {},
+        .Pointer => |Pointer| max = comptime maxIdentLength(Pointer.child),
+        .Array => |Array| if (Array.len > 0) {
+            max = comptime maxIdentLength(Array.child);
+        },
+        .Struct => |Struct| inline for (Struct.fields) |field| {
+            if (!Struct.is_tuple) {
+                max = @max(max, field.name.len);
+            }
+            max = @max(max, comptime maxIdentLength(field.type));
+        },
+        .Union => |Union| inline for (Union.fields) |field| {
+            max = @max(max, field.name.len);
+            max = @max(max, comptime maxIdentLength(field.type));
+        },
+        .Enum => |Enum| inline for (Enum.fields) |field| {
+            max = @max(max, field.name.len);
+        },
+        .Optional => |Optional| max = comptime maxIdentLength(Optional.child),
+        else => unreachable,
+    }
+    return max;
+}
+
+test "std.zon maxIdentLength" {
+    // Primitives
+    try std.testing.expectEqual(0, maxIdentLength(bool));
+    try std.testing.expectEqual(0, maxIdentLength(u8));
+    try std.testing.expectEqual(0, maxIdentLength(f32));
+    try std.testing.expectEqual(0, maxIdentLength(@TypeOf(null)));
+    try std.testing.expectEqual(0, maxIdentLength(void));
+
+    // Arrays
+    try std.testing.expectEqual(0, maxIdentLength([0]u8));
+    try std.testing.expectEqual(0, maxIdentLength([5]u8));
+    try std.testing.expectEqual(3, maxIdentLength([5]struct { abc: f32 }));
+    try std.testing.expectEqual(0, maxIdentLength([0]struct { abc: f32 }));
+
+    // Structs
+    try std.testing.expectEqual(0, maxIdentLength(struct {}));
+    try std.testing.expectEqual(1, maxIdentLength(struct { a: f32, b: f32 }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { abc: f32, a: f32 }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { a: f32, abc: f32 }));
+
+    try std.testing.expectEqual(1, maxIdentLength(struct { a: struct { a: f32 }, b: struct { a: f32 } }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { a: struct { abc: f32 }, b: struct { a: f32 } }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { a: struct { a: f32 }, b: struct { abc: f32 } }));
+
+    // Tuples
+    try std.testing.expectEqual(0, maxIdentLength(struct { f32, u32 }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { struct { a: u32 }, struct { abc: u32 } }));
+    try std.testing.expectEqual(3, maxIdentLength(struct { struct { abc: u32 }, struct { a: u32 } }));
+
+    // Unions
+    try std.testing.expectEqual(0, maxIdentLength(union {}));
+
+    try std.testing.expectEqual(1, maxIdentLength(union { a: f32, b: f32 }));
+    try std.testing.expectEqual(3, maxIdentLength(union { abc: f32, a: f32 }));
+    try std.testing.expectEqual(3, maxIdentLength(union { a: f32, abc: f32 }));
+
+    try std.testing.expectEqual(1, maxIdentLength(union { a: union { a: f32 }, b: union { a: f32 } }));
+    try std.testing.expectEqual(3, maxIdentLength(union { a: union { abc: f32 }, b: union { a: f32 } }));
+    try std.testing.expectEqual(3, maxIdentLength(union { a: union { a: f32 }, b: union { abc: f32 } }));
+
+    // Enums
+    try std.testing.expectEqual(0, maxIdentLength(enum {}));
+    try std.testing.expectEqual(3, maxIdentLength(enum { a, abc }));
+    try std.testing.expectEqual(3, maxIdentLength(enum { abc, a }));
+    try std.testing.expectEqual(1, maxIdentLength(enum { a, b }));
+
+    // Optionals
+    try std.testing.expectEqual(0, maxIdentLength(?u32));
+    try std.testing.expectEqual(3, maxIdentLength(?struct { abc: u32 }));
+
+    // Pointers
+    try std.testing.expectEqual(0, maxIdentLength(*u32));
+    try std.testing.expectEqual(3, maxIdentLength(*struct { abc: u32 }));
 }
 
 /// Frees values created by the runtime parser.
@@ -459,9 +547,15 @@ fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, 
 
         // Get the index of the named field. We don't use `parseEnum` here as
         // the order of the enum and the order of the union might not match!
-        const bytes = self.parseIdentifier(main_tokens[node]);
-        const field_index = field_indices.get(bytes) orelse
-            return self.failUnknownField(T, node, bytes);
+        const field_index = b: {
+            const token = main_tokens[node];
+            const bytes = self.parseIdent(token) catch |err| switch (err) {
+                error.IdentTooLong => return self.failUnknownField(T, token),
+                else => |e| return e,
+            };
+            break :b field_indices.get(bytes) orelse
+                return self.failUnknownField(T, token);
+        };
 
         // Initialize the union from the given field.
         switch (field_index) {
@@ -485,9 +579,15 @@ fn parseUnion(self: *@This(), comptime T: type, comptime options: ParseOptions, 
 
         // Fill in the field we found
         const field_node = field_nodes[0];
-        const name = self.parseIdentifier(self.ast.firstToken(field_node) - 2);
-        const field_index = field_indices.get(name) orelse
-            return self.failUnknownField(T, field_node, name);
+        const field_token = self.ast.firstToken(field_node) - 2;
+        const field_index = b: {
+            const name = self.parseIdent(field_token) catch |err| switch (err) {
+                error.IdentTooLong => return self.failUnknownField(T, field_token),
+                else => |e| return e,
+            };
+            break :b field_indices.get(name) orelse
+                return self.failUnknownField(T, field_token);
+        };
 
         switch (field_index) {
             inline 0...field_infos.len - 1 => |i| {
@@ -546,15 +646,33 @@ test "std.zon unions" {
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(Union, gpa, &ast, &status, .{}));
         try std.testing.expectEqualStrings(@typeName(Union), status.unknown_field.type_name);
-        try std.testing.expectEqualStrings("z", status.unknown_field.field_name);
-        const node = status.unknown_field.node;
-        const token = ast.firstToken(node) - 2;
+        try std.testing.expectEqualStrings("z", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
             .column = 3,
             .line_start = 0,
             .line_end = 9,
+        }, location);
+    }
+
+    // Unknown field with name that's too long for parse
+    {
+        const Union = union { x: f32, y: f32 };
+        var ast = try std.zig.Ast.parse(gpa, ".{.@\"abc\"=2.5}", .zon);
+        defer ast.deinit(gpa);
+        var status: ParseStatus = .success;
+        try std.testing.expectError(error.Type, parseFromAst(Union, gpa, &ast, &status, .{}));
+        try std.testing.expectEqualStrings(@typeName(Union), status.unknown_field.type_name);
+        try std.testing.expectEqualStrings("@\"abc\"", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
+        const location = ast.tokenLocation(0, token);
+        try std.testing.expectEqual(Ast.Location{
+            .line = 0,
+            .column = 3,
+            .line_start = 0,
+            .line_end = 14,
         }, location);
     }
 
@@ -629,10 +747,8 @@ test "std.zon unions" {
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(Union, gpa, &ast, &status, .{}));
         try std.testing.expectEqualStrings(@typeName(Union), status.unknown_field.type_name);
-        try std.testing.expectEqualStrings("y", status.unknown_field.field_name);
-        const node = status.unknown_field.node;
-        const main_tokens = ast.nodes.items(.main_token);
-        const token = main_tokens[node];
+        try std.testing.expectEqualStrings("y", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
@@ -640,6 +756,26 @@ test "std.zon unions" {
             .column = 1,
             .line_start = 0,
             .line_end = 2,
+        }, location);
+    }
+
+    // Unknown field for enum literal coercion that's too long for parse
+    {
+        const Union = union(enum) { x: void };
+        var ast = try std.zig.Ast.parse(gpa, ".@\"abc\"", .zon);
+        defer ast.deinit(gpa);
+        var status: ParseStatus = .success;
+        try std.testing.expectError(error.Type, parseFromAst(Union, gpa, &ast, &status, .{}));
+        try std.testing.expectEqualStrings(@typeName(Union), status.unknown_field.type_name);
+        try std.testing.expectEqualStrings("@\"abc\"", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
+        const location = ast.tokenLocation(0, token);
+        try std.testing.expectEqual(Ast.Location{
+            .line = 0,
+            // TODO: why 1?
+            .column = 1,
+            .line_start = 0,
+            .line_end = 7,
         }, location);
     }
 
@@ -721,7 +857,7 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
         errdefer if (options.free_on_error and field_infos.len > 0) {
             for (field_nodes[0..initialized]) |initialized_field_node| {
                 // TODO: is this the correct way to get the field name? (used in a few places)
-                const name_runtime = self.parseIdentifier(self.ast.firstToken(initialized_field_node) - 2);
+                const name_runtime = self.parseIdent(self.ast.firstToken(initialized_field_node) - 2) catch unreachable;
                 switch (field_indices.get(name_runtime) orelse continue) {
                     inline 0...(field_infos.len - 1) => |name_index| {
                         const name = field_infos[name_index].name;
@@ -733,18 +869,24 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
         };
 
         // TODO: is this the correct way to get the field name? (used in a few places)
-        const name = self.parseIdentifier(self.ast.firstToken(field_node) - 2);
-        const i = field_indices.get(name) orelse if (options.ignore_unknown_fields) {
-            continue;
-        } else {
-            return self.failUnknownField(T, field_node, name);
+        const name_token = self.ast.firstToken(field_node) - 2;
+        const i = b: {
+            const name = self.parseIdent(name_token) catch |err| switch (err) {
+                error.IdentTooLong => return self.failUnknownField(T, name_token),
+                else => |e| return e,
+            };
+            break :b field_indices.get(name) orelse if (options.ignore_unknown_fields) {
+                continue;
+            } else {
+                return self.failUnknownField(T, name_token);
+            };
         };
 
         // We now know the array is not zero sized (assert this so the code compiles)
         if (field_found.len == 0) unreachable;
 
         if (field_found[i]) {
-            return self.failDuplicateField(name, field_node);
+            return self.failDuplicateField(name_token);
         }
         field_found[i] = true;
 
@@ -813,15 +955,33 @@ test "std.zon structs" {
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(Vec2, gpa, &ast, &status, .{}));
         try std.testing.expectEqualStrings(@typeName(Vec2), status.unknown_field.type_name);
-        try std.testing.expectEqualStrings("z", status.unknown_field.field_name);
-        const node = status.unknown_field.node;
-        const token = ast.firstToken(node) - 2;
+        try std.testing.expectEqualStrings("z", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
             .column = 11,
             .line_start = 0,
             .line_end = 17,
+        }, location);
+    }
+
+    // Unknown field too long for parse
+    {
+        const Vec2 = struct { x: f32, y: f32 };
+        var ast = try std.zig.Ast.parse(gpa, ".{.x=1.5, .@\"abc\"=2.5}", .zon);
+        defer ast.deinit(gpa);
+        var status: ParseStatus = .success;
+        try std.testing.expectError(error.Type, parseFromAst(Vec2, gpa, &ast, &status, .{}));
+        try std.testing.expectEqualStrings(@typeName(Vec2), status.unknown_field.type_name);
+        try std.testing.expectEqualStrings("@\"abc\"", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
+        const location = ast.tokenLocation(0, token);
+        try std.testing.expectEqual(Ast.Location{
+            .line = 0,
+            .column = 11,
+            .line_start = 0,
+            .line_end = 22,
         }, location);
     }
 
@@ -832,9 +992,8 @@ test "std.zon structs" {
         defer ast.deinit(gpa);
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(Vec2, gpa, &ast, &status, .{}));
-        try std.testing.expectEqualStrings("x", status.duplicate_field.field_name);
-        const node = status.duplicate_field.node;
-        const token = ast.firstToken(node) - 2;
+        const token = status.duplicate_field.token;
+        try std.testing.expectEqualStrings("x", ast.tokenSlice(token));
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
@@ -859,9 +1018,8 @@ test "std.zon structs" {
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst(Vec2, gpa, &ast, &status, .{}));
         try std.testing.expectEqualStrings(@typeName(Vec2), status.unknown_field.type_name);
-        try std.testing.expectEqualStrings("x", status.unknown_field.field_name);
-        const node = status.unknown_field.node;
-        const token = ast.firstToken(node) - 2;
+        try std.testing.expectEqualStrings("x", ast.tokenSlice(status.unknown_field.token));
+        const token = status.unknown_field.token;
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
@@ -1490,7 +1648,7 @@ fn parseStringLiteral(self: *@This(), comptime T: type, node: NodeIndex) !T {
     defer buf.deinit(self.gpa);
     switch (try std.zig.string_literal.parseWrite(buf.writer(self.gpa), raw)) {
         .success => {},
-        .failure => |reason| return self.failInvalidStringLiteral(node, reason),
+        .failure => |reason| return self.failInvalidStringLiteral(token, reason),
     }
 
     if (Pointer.sentinel) |sentinel| {
@@ -1550,6 +1708,13 @@ test "std.zon string literal" {
         const parsed = try parseFromSlice([]const u8, gpa, "\"ab\\nc\"", .{});
         defer parseFree(gpa, parsed);
         try std.testing.expectEqualStrings(@as([]const u8, "ab\nc"), parsed);
+    }
+
+    // String literal with embedded null
+    {
+        const parsed = try parseFromSlice([]const u8, gpa, "\"ab\\x00c\"", .{});
+        defer parseFree(gpa, parsed);
+        try std.testing.expectEqualStrings(@as([]const u8, "ab\x00c"), parsed);
     }
 
     // Passing string literal to a mutable slice
@@ -1692,9 +1857,7 @@ test "std.zon string literal" {
         defer ast.deinit(gpa);
         var status: ParseStatus = .success;
         try std.testing.expectError(error.Type, parseFromAst([]const u8, gpa, &ast, &status, .{}));
-        const node = status.invalid_string_literal.node;
-        const main_tokens = ast.nodes.items(.main_token);
-        const token = main_tokens[node];
+        const token = status.invalid_string_literal.token;
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
@@ -1833,20 +1996,47 @@ fn parseEnumLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type
             const main_tokens = self.ast.nodes.items(.main_token);
             const data = self.ast.nodes.items(.data);
             const token = main_tokens[node];
-            const bytes = self.parseIdentifier(token);
-            const dot_node = data[node].lhs;
-            return enum_tags.get(bytes) orelse
-                self.failCannotRepresent(T, dot_node);
+            {
+                const bytes = self.parseIdent(token) catch |err| switch (err) {
+                    error.IdentTooLong => return self.failCannotRepresent(T, token),
+                    else => |e| return e,
+                };
+                const dot_node = data[node].lhs;
+                return enum_tags.get(bytes) orelse
+                    self.failCannotRepresent(T, dot_node);
+            }
         },
         else => return self.failExpectedType(T, node),
     }
 }
 
-fn parseIdentifier(self: @This(), token: TokenIndex) []const u8 {
-    var bytes = self.ast.tokenSlice(token);
-    if (bytes[0] == '@' and bytes[1] == '"')
-        return bytes[2 .. bytes.len - 1];
-    return bytes;
+// Note that `parseIdent` may reuse the same buffer when called repeatedly, invalidating
+// previous results.
+// The resulting bytes may reference a buffer on `self` that can be reused in future calls to
+// `parseIdent`. They should only be held onto temporarily.
+fn parseIdent(self: @This(), token: TokenIndex) error{ Type, IdentTooLong }![]const u8 {
+    var unparsed = self.ast.tokenSlice(token);
+
+    if (unparsed[0] == '@' and unparsed[1] == '"') {
+        var fba = std.heap.FixedBufferAllocator.init(self.ident_buf);
+        const alloc = fba.allocator();
+        var parsed = std.ArrayListUnmanaged(u8).initCapacity(alloc, self.ident_buf.len) catch unreachable;
+
+        const raw = unparsed[1..unparsed.len];
+        const result = std.zig.string_literal.parseWrite(parsed.writer(alloc), raw) catch |err| switch (err) {
+            error.OutOfMemory => return error.IdentTooLong,
+        };
+        switch (result) {
+            .failure => |reason| return self.failInvalidStringLiteral(token, reason),
+            .success => {},
+        }
+        if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {
+            return self.fail(.{ .ident_embedded_null = .{ .token = token } });
+        }
+        return parsed.items;
+    }
+
+    return unparsed;
 }
 
 test "std.zon enum literals" {
@@ -1856,12 +2046,14 @@ test "std.zon enum literals" {
         foo,
         bar,
         baz,
+        @"ab\nc",
     };
 
     // Tags that exist
     try std.testing.expectEqual(Enum.foo, try parseFromSlice(Enum, gpa, ".foo", .{}));
     try std.testing.expectEqual(Enum.bar, try parseFromSlice(Enum, gpa, ".bar", .{}));
     try std.testing.expectEqual(Enum.baz, try parseFromSlice(Enum, gpa, ".baz", .{}));
+    try std.testing.expectEqual(Enum.@"ab\nc", try parseFromSlice(Enum, gpa, ".@\"ab\\nc\"", .{}));
 
     // Bad tag
     {
@@ -1879,6 +2071,26 @@ test "std.zon enum literals" {
             .column = 0,
             .line_start = 0,
             .line_end = 4,
+        }, location);
+    }
+
+    // Bad tag that's too long for parser
+    {
+        var ast = try std.zig.Ast.parse(gpa, ".@\"foobarbaz\"", .zon);
+        defer ast.deinit(gpa);
+        var status: ParseStatus = .success;
+        try std.testing.expectError(error.Type, parseFromAst(Enum, gpa, &ast, &status, .{}));
+        try std.testing.expectEqualStrings(status.cannot_represent.type_name, @typeName(Enum));
+        const node = status.cannot_represent.node;
+        const main_tokens = ast.nodes.items(.main_token);
+        const token = main_tokens[node];
+        const location = ast.tokenLocation(0, token);
+        try std.testing.expectEqual(Ast.Location{
+            .line = 0,
+            // TODO: 1 but above case is 0?
+            .column = 1,
+            .line_start = 0,
+            .line_end = 13,
         }, location);
     }
 
@@ -1900,6 +2112,22 @@ test "std.zon enum literals" {
             .line_end = 4,
         }, location);
     }
+
+    // Test embedded nulls in an identifier
+    {
+        var ast = try std.zig.Ast.parse(gpa, ".@\"\\x00\"", .zon);
+        defer ast.deinit(gpa);
+        var status: ParseStatus = .success;
+        try std.testing.expectError(error.Type, parseFromAst(enum { a }, gpa, &ast, &status, .{}));
+        const token = status.ident_embedded_null.token;
+        const location = ast.tokenLocation(0, token);
+        try std.testing.expectEqual(Ast.Location{
+            .line = 0,
+            .column = 1,
+            .line_start = 0,
+            .line_end = 8,
+        }, location);
+    }
 }
 
 fn fail(self: @This(), status: ParseStatus) error{Type} {
@@ -1914,10 +2142,10 @@ fn fail(self: @This(), status: ParseStatus) error{Type} {
     return error.Type;
 }
 
-fn failInvalidStringLiteral(self: @This(), node: NodeIndex, reason: StringLiteralError) error{Type} {
+fn failInvalidStringLiteral(self: @This(), token: TokenIndex, reason: StringLiteralError) error{Type} {
     @setCold(true);
     return self.fail(.{ .invalid_string_literal = .{
-        .node = node,
+        .token = token,
         .reason = reason,
     } });
 }
@@ -1953,12 +2181,11 @@ fn failNegativeIntegerZero(self: @This(), node: NodeIndex) error{Type} {
     } });
 }
 
-fn failUnknownField(self: @This(), comptime T: type, node: NodeIndex, name: []const u8) error{Type} {
+fn failUnknownField(self: @This(), comptime T: type, token: TokenIndex) error{Type} {
     @setCold(true);
     return self.fail(.{ .unknown_field = .{
-        .node = node,
+        .token = token,
         .type_name = @typeName(T),
-        .field_name = name,
     } });
 }
 
@@ -1971,11 +2198,10 @@ fn failMissingField(self: @This(), comptime T: type, name: []const u8, node: Nod
     } });
 }
 
-fn failDuplicateField(self: @This(), name: []const u8, node: NodeIndex) error{Type} {
+fn failDuplicateField(self: @This(), token: TokenIndex) error{Type} {
     @setCold(true);
     return self.fail(.{ .duplicate_field = .{
-        .node = node,
-        .field_name = name,
+        .token = token,
     } });
 }
 

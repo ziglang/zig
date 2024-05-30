@@ -99,6 +99,7 @@ test "string literals" {
         \\This is a multiline string!
         \\ There are no escapes, we can, for example, include \n in the string
     , @import("zon/multiline_string.zon"));
+    try expectEqualStrings("a\nb\x00c", @import("zon/string_embedded_null.zon"));
 }
 
 test "enum literals" {
@@ -106,10 +107,10 @@ test "enum literals" {
         foo,
         bar,
         baz,
-        @"0",
+        @"0\na",
     };
     try expectEqual(Enum.foo, @import("zon/foo.zon"));
-    try expectEqual(Enum.@"0", @import("zon/escaped_enum.zon"));
+    try expectEqual(Enum.@"0\na", @import("zon/escaped_enum.zon"));
 }
 
 test "int" {

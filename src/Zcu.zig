@@ -4167,6 +4167,7 @@ const LowerZon = struct {
                     if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {                
                         return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
                     }
+                    // XXX: does caller free?
                     return parsed.toOwnedSliceSentinel(gpa, 0);
                 },
                 .failure => |err| {
@@ -4285,17 +4286,16 @@ const LowerZon = struct {
                     try parser.line(self.file.tree.tokenSlice(tok_i));
                 }
 
-                const len = bytes.items.len;
-                try bytes.append(gpa, 0);
-
                 const array_ty = try self.mod.arrayType(.{
-                    .len = len, // XXX: why len before 0 when we say it's null terminated?
+                    .len = bytes.items.len,
                     .sentinel = .zero_u8,
                     .child = .u8_type
                 });
                 const val = try self.mod.intern(.{ .aggregate = .{
                     .ty = array_ty.toIntern(),
-                    .storage = .{ .bytes = try self.mod.intern_pool.getOrPutString(gpa, bytes.items, .maybe_embedded_nulls) },
+                    .storage = .{
+                        .bytes = (try self.mod.intern_pool.getOrPutString(gpa, bytes.items, .no_embedded_nulls)).toString(),
+                    },
                 } });
                 const ptr_ty = (try self.mod.ptrType(.{
                     .child = array_ty.toIntern(),
