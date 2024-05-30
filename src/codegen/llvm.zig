@@ -28,6 +28,7 @@ const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
 const mips_c_abi = @import("../arch/mips/abi.zig");
 const dev = @import("../dev.zig");
+const crash_report = @import("../crash_report.zig");
 
 const target_util = @import("../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
@@ -5071,8 +5072,14 @@ pub const FuncGen = struct {
                 try fuzz.pcs.append(gpa, pc);
             },
         }
+
+        var crash_info = crash_report.prepCodeGenState(o.pt, body, self.air, self.liveness, self.ng.nav_index);
+        crash_info.push();
+        defer crash_info.pop();
+
         for (body, 0..) |inst, i| {
             if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
+            crash_info.setBodyIndex(i);
 
             const val: Builder.Value = switch (air_tags[@intFromEnum(inst)]) {
                 // zig fmt: off

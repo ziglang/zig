@@ -26,6 +26,7 @@ const abi = @import("abi.zig");
 const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
+const crash_report = @import("../../crash_report.zig");
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
@@ -2079,7 +2080,12 @@ fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    for (body) |inst| {
+    var crash_info = crash_report.prepCodeGenState(pt, body, func.air, func.liveness, func.owner_nav);
+    crash_info.push();
+    defer crash_info.pop();
+
+    for (body, 0..) |inst, i| {
+        crash_info.setBodyIndex(i);
         if (func.liveness.isUnused(inst) and !func.air.mustLower(inst, ip)) {
             continue;
         }
