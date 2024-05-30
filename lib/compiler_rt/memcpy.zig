@@ -43,7 +43,7 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    if (5 <= std.math.log2(2 * size)) {
+    if (comptime 5 <= std.math.log2(2 * size)) {
         inline for (5..std.math.log2(2 * size) + 1) |p| {
             const limit = 1 << p;
             if (len <= limit) {
