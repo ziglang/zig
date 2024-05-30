@@ -154,6 +154,19 @@ test "zig fmt: respect line breaks after var declarations" {
     );
 }
 
+test "zig fmt: respect multiline strings in struct initialization without trailing comma" {
+    try testCanonical(
+        \\var bar = Bar{
+        \\    .a =
+        \\    \\a
+        \\    ,
+        \\    .b =
+        \\    \\b
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: multiline string mixed with comments" {
     try testCanonical(
         \\const s1 =

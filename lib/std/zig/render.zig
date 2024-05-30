@@ -2059,7 +2059,11 @@ fn renderStructInit(
 
     const rbrace = tree.lastToken(struct_node);
     const trailing_comma = token_tags[rbrace - 1] == .comma;
-    if (trailing_comma or hasComment(tree, struct_init.ast.lbrace, rbrace)) {
+
+    const contains_comment = hasComment(tree, struct_init.ast.lbrace, rbrace);
+    const contains_multiline_string = hasMultilineString(tree, struct_init.ast.lbrace, rbrace);
+
+    if (trailing_comma or contains_comment or contains_multiline_string) {
         // Render one field init per line.
         ais.pushIndentNextLine();
         try renderToken(r, struct_init.ast.lbrace, .newline);
