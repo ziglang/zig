@@ -40,7 +40,9 @@ pub const Reloc = struct {
 };
 
 /// The returned slice is overwritten by the next call to lowerMir.
-pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
+pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
+    allow_frame_locs: bool,
+}) Error!struct {
     insts: []const Instruction,
     relocs: []const Reloc,
 } {
@@ -69,7 +71,10 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_load_rm, .pseudo_store_rm => {
                 const rm = inst.data.rm;
 
-                const frame_loc = rm.m.toFrameLoc(lower.mir);
+                const frame_loc: Mir.FrameLoc = if (options.allow_frame_locs)
+                    rm.m.toFrameLoc(lower.mir)
+                else
+                    .{ .base = .s0, .disp = 0 };
 
                 switch (inst.ops) {
                     .pseudo_load_rm => {

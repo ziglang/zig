@@ -785,7 +785,6 @@ test "nested packed struct field access test" {
 test "nested packed struct at non-zero offset" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Pair = packed struct(u24) {
         a: u16 = 0,
