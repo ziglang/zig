@@ -2211,16 +2211,18 @@ pub const LazyPath = union(enum) {
                     }
                 },
             },
-            .dependency => |dep| .{ .dependency = .{
-                .dependency = dep.dependency,
-                .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
-                    dumpBadDirnameHelp(null, null,
-                        \\dirname() attempted to traverse outside the dependency root.
-                        \\
-                    , .{}) catch {};
-                    @panic("misconfigured build script");
+            .dependency => |dep| .{
+                .dependency = .{
+                    .dependency = dep.dependency,
+                    .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
+                        dumpBadDirnameHelp(null, null,
+                            \\dirname() attempted to traverse outside the dependency root.
+                            \\
+                        , .{}) catch {};
+                        @panic("misconfigured build script");
+                    },
                 },
-            } },
+            },
         };
     }
 
