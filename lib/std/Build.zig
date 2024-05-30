@@ -2276,10 +2276,10 @@ pub const LazyPath = union(enum) {
     /// `asking_step` is only used for debugging purposes; it's the step being
     /// run that is asking for the path.
     pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
-        switch (lazy_path) {
-            .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
-            .cwd_relative => |p| return src_builder.pathFromCwd(p),
-            .generated => |gen| {
+        const p = switch (lazy_path) {
+            .src_path => |sp| sp.owner.pathFromRoot(sp.sub_path),
+            .cwd_relative => |p| src_builder.pathFromCwd(p),
+            .generated => |gen| blk: {
                 var file_path: []const u8 = gen.file.step.owner.pathFromRoot(gen.file.path orelse {
                     std.debug.lockStdErr();
                     const stderr = std.io.getStdErr();
@@ -2318,10 +2318,13 @@ pub const LazyPath = union(enum) {
                     }
                 }
 
-                return src_builder.pathResolve(&.{ file_path, gen.sub_path });
+                break :blk src_builder.pathResolve(&.{ file_path, gen.sub_path });
             },
-            .dependency => |dep| return dep.dependency.builder.pathFromRoot(dep.sub_path),
-        }
+            .dependency => |dep| dep.dependency.builder.pathFromRoot(dep.sub_path),
+        };
+        assert(fs.path.isAbsolute(p));
+
+        return p;
     }
 
     /// Copies the internal strings.
