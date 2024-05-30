@@ -1,6 +1,6 @@
 pub const Instruction = struct {
     encoding: Encoding,
-    ops: [4]Operand = .{.none} ** 4,
+    ops: [5]Operand = .{.none} ** 5,
 
     pub const Operand = union(enum) {
         none,
@@ -12,16 +12,18 @@ pub const Instruction = struct {
 
     pub fn new(mnemonic: Encoding.Mnemonic, ops: []const Operand) !Instruction {
         const encoding = (try Encoding.findByMnemonic(mnemonic, ops)) orelse {
-            std.log.err("no encoding found for:  {s} [{s} {s} {s}]", .{
+            std.log.err("no encoding found for:  {s} [{s} {s} {s} {s} {s}]", .{
                 @tagName(mnemonic),
                 @tagName(if (ops.len > 0) ops[0] else .none),
                 @tagName(if (ops.len > 1) ops[1] else .none),
                 @tagName(if (ops.len > 2) ops[2] else .none),
+                @tagName(if (ops.len > 3) ops[3] else .none),
+                @tagName(if (ops.len > 4) ops[4] else .none),
             });
             return error.InvalidInstruction;
         };
 
-        var result_ops: [4]Operand = .{.none} ** 4;
+        var result_ops: [5]Operand = .{.none} ** 5;
         @memcpy(result_ops[0..ops.len], ops);
 
         return .{
