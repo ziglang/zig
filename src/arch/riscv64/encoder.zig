@@ -56,7 +56,7 @@ pub const Instruction = struct {
                 .none => unreachable, // it's sliced out above
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
                 .imm => |imm| try writer.print("{d}", .{imm.asSigned(64)}),
-                .mem => unreachable, // there is no "mem" operand in the actual instructions
+                .mem => try writer.writeAll("mem"),
                 .barrier => |barrier| try writer.writeAll(@tagName(barrier)),
             }
         }

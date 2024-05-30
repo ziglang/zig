@@ -897,7 +897,7 @@ fn formatWipMir(
         .pic = comp.root_mod.pic,
     };
     var first = true;
-    for ((lower.lowerMir(data.inst) catch |err| switch (err) {
+    for ((lower.lowerMir(data.inst, .{ .allow_frame_locs = false }) catch |err| switch (err) {
         error.LowerFail => {
             defer {
                 lower.err_msg.?.deinit(data.func.gpa);
@@ -990,13 +990,10 @@ fn addInst(func: *Func, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
         .pseudo_dbg_prologue_end,
         .pseudo_dbg_line_column,
         .pseudo_dbg_epilogue_begin,
-        .pseudo_store_rm,
-        .pseudo_load_rm,
-        .pseudo_lea_rm,
         .pseudo_mv,
         .pseudo_dead,
         => false,
-    }) wip_mir_log.debug("{}", .{func.fmtWipMir(result_index)}) else wip_mir_log.debug("  | uses-mem", .{});
+    }) wip_mir_log.debug("{}", .{func.fmtWipMir(result_index)});
     return result_index;
 }
 
@@ -3563,9 +3560,51 @@ fn airSetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airGetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.bin_file.comp.module.?;
+    const mod = func.bin_file.comp.module.?;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airGetUnionTag for {}", .{func.target.cpu.arch});
-    return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+
+    const tag_ty = func.typeOfIndex(inst);
+    const union_ty = func.typeOf(ty_op.operand);
+    const layout = union_ty.unionGetLayout(mod);
+
+    if (layout.tag_size == 0) {
+        return func.finishAir(inst, .none, .{ ty_op.operand, .none, .none });
+    }
+
+    const operand = try func.resolveInst(ty_op.operand);
+
+    const frame_mcv = try func.allocRegOrMem(union_ty, null, false);
+    try func.genCopy(union_ty, frame_mcv, operand);
+
+    const tag_abi_size = tag_ty.abiSize(mod);
+    const result_reg, const result_lock = try func.allocReg(.int);
+    defer func.register_manager.unlockReg(result_lock);
+
+    switch (frame_mcv) {
+        .load_frame => |frame_addr| {
+            if (tag_abi_size <= 8) {
+                const off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
+                    @intCast(layout.payload_size)
+                else
+                    0;
+
+                try func.genCopy(
+                    tag_ty,
+                    .{ .register = result_reg },
+                    .{ .load_frame = .{ .index = frame_addr.index, .off = frame_addr.off + off } },
+                );
+            } else {
+                return func.fail(
+                    "TODO implement get_union_tag for ABI larger than 8 bytes and operand {}, tag {}",
+                    .{ frame_mcv, tag_ty.fmt(zcu) },
+                );
+            }
+        },
+        else => return func.fail("TODO: airGetUnionTag {s}", .{@tagName(operand)}),
+    }
+
+    return func.finishAir(inst, .{ .register = result_reg }, .{ ty_op.operand, .none, .none });
 }
 
 fn airClz(func: *Func, inst: Air.Inst.Index) !void {
@@ -4059,6 +4098,10 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
                             .rs1 = dst_reg,
                         } },
                     });
+                }
+
+                if (field_off == 0) {
+                    try func.truncateRegister(field_ty, dst_reg);
                 }
 
                 break :result if (field_off == 0) dst_mcv else try func.copyToNewRegister(inst, dst_mcv);
@@ -5945,7 +5988,7 @@ fn genSetMem(
             0 => {},
             1, 2, 4, 8 => {
                 // no matter what type, it should use an integer register
-                const src_reg = try func.copyToTmpRegister(Type.usize, src_mcv);
+                const src_reg = try func.copyToTmpRegister(ty, src_mcv);
                 const src_lock = func.register_manager.lockRegAssumeUnused(src_reg);
                 defer func.register_manager.unlockReg(src_lock);
 

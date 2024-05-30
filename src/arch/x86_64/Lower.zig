@@ -65,6 +65,8 @@ pub const Reloc = struct {
     };
 };
 
+const Options = struct { allow_frame_locs: bool };
+
 /// The returned slice is overwritten by the next call to lowerMir.
 pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     insts: []const Instruction,

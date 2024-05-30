@@ -26,7 +26,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             mir_index,
             @intCast(emit.code.items.len),
         );
-        const lowered = try emit.lower.lowerMir(mir_index);
+        const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
