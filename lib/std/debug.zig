@@ -237,8 +237,8 @@ pub fn relocateContext(context: *ThreadContext) void {
     };
 }
 
-pub const have_getcontext = @hasDecl(posix.system, "getcontext") and
-    native_os != .openbsd and native_os != .haiku and
+pub const have_getcontext = native_os != .openbsd and native_os != .haiku and
+    !builtin.target.isAndroid() and
     (native_os != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
