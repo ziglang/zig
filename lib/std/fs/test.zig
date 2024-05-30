@@ -234,7 +234,7 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
 
             var symlink = switch (builtin.target.os.tag) {
                 .windows => windows_symlink: {
-                    const sub_path_w = try windows.cStrToPrefixedFileW(ctx.dir.fd, "symlink");
+                    const sub_path_w = try windows.cStrToPrefixedFileW("symlink", .{ .dir = .{ .handle = ctx.dir.fd } });
 
                     var result = Dir{
                         .fd = undefined,
@@ -257,12 +257,20 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                     var io: windows.IO_STATUS_BLOCK = undefined;
                     const rc = windows.ntdll.NtCreateFile(
                         &result.fd,
-                        windows.STANDARD_RIGHTS_READ | windows.FILE_READ_ATTRIBUTES | windows.FILE_READ_EA | windows.SYNCHRONIZE | windows.FILE_TRAVERSE,
+                        .{
+                            .STANDARD = windows.ACCESS_MASK.STANDARD.READ,
+                            .SPECIFIC = .{ .DIRECTORY = .{
+                                .READ_ATTRIBUTES = true,
+                                .READ_EA = true,
+                                .TRAVERSE = true,
+                            } },
+                            .SYNCHRONIZE = true,
+                        },
                         &attr,
                         &io,
                         null,
                         windows.FILE_ATTRIBUTE_NORMAL,
-                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
+                        .{},
                         windows.FILE_OPEN,
                         // FILE_OPEN_REPARSE_POINT is the important thing here
                         windows.FILE_OPEN_REPARSE_POINT | windows.FILE_DIRECTORY_FILE | windows.FILE_SYNCHRONOUS_IO_NONALERT | windows.FILE_OPEN_FOR_BACKUP_INTENT,

@@ -365,7 +365,7 @@ pub const WindowsDynLib = struct {
     /// WindowsDynLib specific
     /// Opens dynamic library with specified library loading flags.
     pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = windows.sliceToPrefixedFileW(null, path) catch return error.InvalidPath;
+        const path_w = windows.sliceToPrefixedFileW(path, .{}) catch return error.InvalidPath;
         return openExW(path_w.span().ptr, flags);
     }
 
@@ -376,7 +376,7 @@ pub const WindowsDynLib = struct {
     /// WindowsDynLib specific
     /// Opens dynamic library with specified library loading flags.
     pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(null, path_c);
+        const path_w = try windows.cStrToPrefixedFileW(path_c, .{});
         return openExW(path_w.span().ptr, flags);
     }
 

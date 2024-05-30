@@ -96,24 +96,24 @@ pub const Node = struct {
 
         /// Not thread-safe.
         fn getIpcFd(s: Storage) ?posix.fd_t {
-            return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(s.completed_count),
-                .Pointer => @ptrFromInt(s.completed_count),
-                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
-            } else null;
+            if (s.estimated_total_count != std.math.maxInt(u32)) return null;
+            const integer: i32 = @bitCast(s.completed_count);
+            return if (is_windows)
+                @ptrFromInt(@as(usize, @bitCast(@as(isize, integer))))
+            else
+                integer;
         }
 
         /// Thread-safe.
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
-            const integer: u32 = switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(fd),
-                .Pointer => @intFromPtr(fd),
-                else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
-            };
+            const integer: i32 = if (is_windows)
+                @intCast(@as(isize, @bitCast(@intFromPtr(fd))))
+            else
+                fd;
             // `estimated_total_count` max int indicates the special state that
             // causes `completed_count` to be treated as a file descriptor, so
             // the order here matters.
-            @atomicStore(u32, &s.completed_count, integer, .monotonic);
+            @atomicStore(u32, &s.completed_count, @bitCast(integer), .monotonic);
             @atomicStore(u32, &s.estimated_total_count, std.math.maxInt(u32), .release);
         }
 
@@ -261,13 +261,17 @@ pub const Node = struct {
         }
     }
 
-    /// Posix-only. Used by `std.process.Child`. Thread-safe.
+    /// Used by `std.process.Child`. Thread-safe.
     pub fn setIpcFd(node: Node, fd: posix.fd_t) void {
         const index = node.index.unwrap() orelse return;
-        assert(fd >= 0);
-        assert(fd != posix.STDOUT_FILENO);
-        assert(fd != posix.STDIN_FILENO);
-        assert(fd != posix.STDERR_FILENO);
+        if (is_windows) {
+            assert(fd != windows.INVALID_HANDLE_VALUE);
+        } else {
+            assert(fd >= 0);
+            assert(fd != posix.STDOUT_FILENO);
+            assert(fd != posix.STDIN_FILENO);
+            assert(fd != posix.STDERR_FILENO);
+        }
         storageByIndex(index).setIpcFd(fd);
     }
 
@@ -810,23 +814,20 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
 }
 
 const SavedMetadata = struct {
-    ipc_fd: u16,
+    ipc_fd: i32,
     main_index: u8,
     start_index: u8,
     nodes_len: u8,
 
     fn getIpcFd(metadata: SavedMetadata) posix.fd_t {
         return if (is_windows)
-            @ptrFromInt(@as(usize, metadata.ipc_fd) << 2)
+            @ptrFromInt(@as(usize, @bitCast(@as(isize, metadata.ipc_fd))))
         else
             metadata.ipc_fd;
     }
 
-    fn setIpcFd(fd: posix.fd_t) u16 {
-        return @intCast(if (is_windows)
-            @shrExact(@intFromPtr(fd), 2)
-        else
-            fd);
+    fn setIpcFd(fd: posix.fd_t) i32 {
+        return if (is_windows) @intCast(@as(isize, @bitCast(@intFromPtr(fd)))) else fd;
     }
 };
 
@@ -1228,7 +1229,7 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
 
     // If this write would block we do not want to keep trying, but we need to
     // know if a partial message was written.
-    if (posix.writev(fd, &vecs)) |written| {
+    if (writevNonblock(fd, &vecs)) |written| {
         const total = header.len + storage.len + parents.len;
         if (written < total) {
             remaining_write_trash_bytes = total - written;
@@ -1240,6 +1241,23 @@ fn writeIpc(fd: posix.fd_t, serialized: Serialized) error{BrokenPipe}!void {
             std.log.debug("failed to send progress to parent process: {s}", .{@errorName(e)});
             return error.BrokenPipe;
         },
+    }
+}
+
+fn writevNonblock(fd: posix.fd_t, iov: []posix.iovec_const) posix.WriteError!usize {
+    var iov_index: usize = 0;
+    var written: usize = 0;
+    var total_written: usize = 0;
+    while (true) {
+        while (if (iov_index < iov.len)
+            written >= iov[iov_index].len
+        else
+            return total_written) : (iov_index += 1) written -= iov[iov_index].len;
+        iov[iov_index].base += written;
+        iov[iov_index].len -= written;
+        written = try posix.writev(fd, iov[iov_index..]);
+        if (written == 0) return total_written;
+        total_written += written;
     }
 }
 

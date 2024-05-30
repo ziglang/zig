@@ -68,6 +68,8 @@ const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
 const MODULEENTRY32 = windows.MODULEENTRY32;
 const ULONGLONG = windows.ULONGLONG;
+const ACCESS_MASK = windows.ACCESS_MASK;
+const PIPE = windows.PIPE;
 
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
@@ -84,14 +86,14 @@ pub extern "kernel32" fn CreateEventExW(
     lpEventAttributes: ?*SECURITY_ATTRIBUTES,
     lpName: ?LPCWSTR,
     dwFlags: DWORD,
-    dwDesiredAccess: DWORD,
+    dwDesiredAccess: ACCESS_MASK,
 ) callconv(WINAPI) ?HANDLE;
 
 pub extern "kernel32" fn CreateFileW(
     lpFileName: [*:0]const u16,
-    dwDesiredAccess: DWORD,
+    dwDesiredAccess: ACCESS_MASK,
     dwShareMode: DWORD,
-    lpSecurityAttributes: ?*SECURITY_ATTRIBUTES,
+    lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
     dwCreationDisposition: DWORD,
     dwFlagsAndAttributes: DWORD,
     hTemplateFile: ?HANDLE,
@@ -106,8 +108,8 @@ pub extern "kernel32" fn CreatePipe(
 
 pub extern "kernel32" fn CreateNamedPipeW(
     lpName: LPCWSTR,
-    dwOpenMode: DWORD,
-    dwPipeMode: DWORD,
+    dwOpenMode: PIPE.OPEN_MODE,
+    dwPipeMode: PIPE.MODE,
     nMaxInstances: DWORD,
     nOutBufferSize: DWORD,
     nInBufferSize: DWORD,
@@ -117,14 +119,14 @@ pub extern "kernel32" fn CreateNamedPipeW(
 
 pub extern "kernel32" fn CreateProcessW(
     lpApplicationName: ?LPCWSTR,
-    lpCommandLine: ?LPWSTR,
-    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
-    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
+    lpCommandLine: ?LPCWSTR,
+    lpProcessAttributes: ?*const SECURITY_ATTRIBUTES,
+    lpThreadAttributes: ?*const SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
     dwCreationFlags: DWORD,
-    lpEnvironment: ?*anyopaque,
+    lpEnvironment: ?*const anyopaque,
     lpCurrentDirectory: ?LPCWSTR,
-    lpStartupInfo: *STARTUPINFOW,
+    lpStartupInfo: *const STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
 ) callconv(WINAPI) BOOL;
 
@@ -149,7 +151,7 @@ pub extern "kernel32" fn DeviceIoControl(
 
 pub extern "kernel32" fn DeleteFileW(lpFileName: [*:0]const u16) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn DuplicateHandle(hSourceProcessHandle: HANDLE, hSourceHandle: HANDLE, hTargetProcessHandle: HANDLE, lpTargetHandle: *HANDLE, dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwOptions: DWORD) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn DuplicateHandle(hSourceProcessHandle: HANDLE, hSourceHandle: HANDLE, hTargetProcessHandle: HANDLE, lpTargetHandle: *HANDLE, dwDesiredAccess: ACCESS_MASK, bInheritHandle: BOOL, dwOptions: DWORD) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn ExitProcess(exit_code: UINT) callconv(WINAPI) noreturn;
 
@@ -464,3 +466,7 @@ pub extern "kernel32" fn RegOpenKeyExW(
 ) callconv(WINAPI) LSTATUS;
 
 pub extern "kernel32" fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *ULONGLONG) BOOL;
+
+pub extern "kernel32" fn IsDebuggerPresent() BOOL;
+
+pub extern "kernel32" fn GetHandleInformation(hObject: HANDLE, lpdwFlags: *DWORD) BOOL;
