@@ -20,7 +20,7 @@ const floatMax = math.floatMax;
 /// |  any  | +-inf | +inf  |
 /// |  nan  |  fin  |  nan  |
 /// |  fin  |  nan  |  nan  |
-pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
+pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
     const T = @TypeOf(x, y);
     switch (@typeInfo(T)) {
         .Float => {},
@@ -49,10 +49,6 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     if (major > upper) return hypfn(T, major * scale, minor * scale) / scale;
     if (minor < lower) return hypfn(T, major / scale, minor / scale) * scale;
     return hypfn(T, major, minor);
-}
-
-fn Hypot(comptime T: type) type {
-    return if (T == comptime_int) comptime_float else T;
 }
 
 inline fn emulateFma(comptime T: type) bool {
