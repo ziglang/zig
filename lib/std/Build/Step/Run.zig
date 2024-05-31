@@ -1241,20 +1241,26 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    if (run.stdio != .zig_test and !run.disable_zig_progress) {
+    const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
+
+    if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
         child.progress_node = prog_node;
     }
 
-    try child.spawn();
-    var timer = try std.time.Timer.start();
+    const term, const result, const elapsed_ns = t: {
+        if (inherit) std.debug.lockStdErr();
+        defer if (inherit) std.debug.unlockStdErr();
 
-    const result = if (run.stdio == .zig_test)
-        evalZigTest(run, &child, prog_node)
-    else
-        evalGeneric(run, &child);
+        try child.spawn();
+        var timer = try std.time.Timer.start();
 
-    const term = try child.wait();
-    const elapsed_ns = timer.read();
+        const result = if (run.stdio == .zig_test)
+            evalZigTest(run, &child, prog_node)
+        else
+            evalGeneric(run, &child);
+
+        break :t .{ try child.wait(), result, timer.read() };
+    };
 
     return .{
         .stdio = try result,
