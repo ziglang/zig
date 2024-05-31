@@ -413,6 +413,7 @@ test {
     _ = gamma;
     _ = lgamma;
 
+    _ = complex;
     _ = Complex;
 
     _ = big;
