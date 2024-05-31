@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
+const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
@@ -43,18 +44,19 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
-pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
-pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
-pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
-pub const floatExponentMin = @import("math/float.zig").floatExponentMin;
-pub const floatExponentMax = @import("math/float.zig").floatExponentMax;
-pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
-pub const floatMin = @import("math/float.zig").floatMin;
-pub const floatMax = @import("math/float.zig").floatMax;
-pub const floatEps = @import("math/float.zig").floatEps;
-pub const inf = @import("math/float.zig").inf;
-pub const nan = @import("math/float.zig").nan;
-pub const snan = @import("math/float.zig").snan;
+pub const floatExponentBits = float.floatExponentBits;
+pub const floatMantissaBits = float.floatMantissaBits;
+pub const floatFractionalBits = float.floatFractionalBits;
+pub const floatExponentMin = float.floatExponentMin;
+pub const floatExponentMax = float.floatExponentMax;
+pub const floatTrueMin = float.floatTrueMin;
+pub const floatMin = float.floatMin;
+pub const floatMax = float.floatMax;
+pub const floatEps = float.floatEps;
+pub const floatEpsAt = float.floatEpsAt;
+pub const inf = float.inf;
+pub const nan = float.nan;
+pub const snan = float.snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than

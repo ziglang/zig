@@ -893,7 +893,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     }
 }
 
-fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
@@ -901,7 +901,7 @@ fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.wi
     log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
 }
 
-fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const old_prot = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY);
     try writeMem(handle, pvaddr, code);
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
@@ -909,7 +909,7 @@ fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID,
     _ = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, old_prot);
 }
 
-fn writeMem(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn writeMem(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const amt = try std.os.windows.WriteProcessMemory(handle, pvaddr, code);
     if (amt != code.len) return error.InputOutput;
 }
@@ -1031,7 +1031,7 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, relocs: []*const Relocatio
     }
 }
 
-pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
+pub fn ptraceAttach(self: *Coff, handle: std.process.Child.Id) !void {
     if (!is_hot_update_compatible) return;
 
     log.debug("attaching to process with handle {*}", .{handle});
@@ -1041,7 +1041,7 @@ pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
     };
 }
 
-pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
+pub fn ptraceDetach(self: *Coff, handle: std.process.Child.Id) void {
     if (!is_hot_update_compatible) return;
 
     log.debug("detaching from process with handle {*}", .{handle});
@@ -1702,7 +1702,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) {
@@ -1714,7 +1714,7 @@ pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.
     }
 }
 
-pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1726,8 +1726,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         return;
     }
 
-    var sub_prog_node = prog_node.start("COFF Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
     const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;

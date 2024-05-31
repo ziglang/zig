@@ -90,7 +90,7 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
     return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
 

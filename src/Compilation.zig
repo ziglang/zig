@@ -1273,8 +1273,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
                 const target = options.root_mod.resolved_target.result;
-                std.debug.getStderrMutex().lock();
-                defer std.debug.getStderrMutex().unlock();
+                std.debug.lockStdErr();
+                defer std.debug.unlockStdErr();
                 const stderr = std.io.getStdErr().writer();
                 nosuspend {
                     stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
@@ -1934,8 +1934,8 @@ pub fn getTarget(self: Compilation) Target {
 /// Only legal to call when cache mode is incremental and a link file is present.
 pub fn hotCodeSwap(
     comp: *Compilation,
-    prog_node: *std.Progress.Node,
-    pid: std.ChildProcess.Id,
+    prog_node: std.Progress.Node,
+    pid: std.process.Child.Id,
 ) !void {
     const lf = comp.bin_file.?;
     lf.child_pid = pid;
@@ -1966,7 +1966,7 @@ fn cleanupAfterUpdate(comp: *Compilation) void {
 }
 
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void {
+pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -2256,7 +2256,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     }
 }
 
-fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !void {
+fn flush(comp: *Compilation, arena: Allocator, prog_node: std.Progress.Node) !void {
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, prog_node) catch |err| switch (err) {
@@ -2566,13 +2566,11 @@ pub fn emitLlvmObject(
     default_emit: Emit,
     bin_emit_loc: ?EmitLoc,
     llvm_object: *LlvmObject,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     if (build_options.only_c) @compileError("unreachable");
 
-    var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
     defer sub_prog_node.end();
 
     try llvm_object.emit(.{
@@ -3249,24 +3247,12 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
 
 pub fn performAllTheWork(
     comp: *Compilation,
-    main_progress_node: *std.Progress.Node,
+    main_progress_node: std.Progress.Node,
 ) error{ TimerUnsupported, OutOfMemory }!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
-
-    var zir_prog_node = main_progress_node.start("AST Lowering", 0);
-    defer zir_prog_node.end();
-
-    var wasm_prog_node = main_progress_node.start("Compile Autodocs", 0);
-    defer wasm_prog_node.end();
-
-    var c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
-    defer c_obj_prog_node.end();
-
-    var win32_resource_prog_node = main_progress_node.start("Compile Win32 Resources", comp.rc_source_files.len);
-    defer win32_resource_prog_node.end();
 
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
@@ -3274,13 +3260,16 @@ pub fn performAllTheWork(
     if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.docs_emit != null) {
             comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerDocsCopy, .{comp});
-            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, &wasm_prog_node });
+            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
         }
     }
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
+
+        const zir_prog_node = main_progress_node.start("AST Lowering", 0);
+        defer zir_prog_node.end();
 
         comp.astgen_wait_group.reset();
         defer comp.astgen_wait_group.wait();
@@ -3313,7 +3302,7 @@ pub fn performAllTheWork(
 
         while (comp.astgen_work_queue.readItem()) |file| {
             comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerAstGenFile, .{
-                comp, file, &zir_prog_node, &comp.astgen_wait_group, .root,
+                comp, file, zir_prog_node, &comp.astgen_wait_group, .root,
             });
         }
 
@@ -3325,14 +3314,14 @@ pub fn performAllTheWork(
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
             comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateCObject, .{
-                comp, c_object, &c_obj_prog_node,
+                comp, c_object, main_progress_node,
             });
         }
 
         if (!build_options.only_core_functionality) {
             while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
                 comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateWin32Resource, .{
-                    comp, win32_resource, &win32_resource_prog_node,
+                    comp, win32_resource, main_progress_node,
                 });
             }
         }
@@ -3342,11 +3331,13 @@ pub fn performAllTheWork(
         try reportMultiModuleErrors(mod);
         try mod.flushRetryableFailures();
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        mod.sema_prog_node.activate();
+        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
     defer if (comp.module) |mod| {
         mod.sema_prog_node.end();
         mod.sema_prog_node = undefined;
+        mod.codegen_prog_node.end();
+        mod.codegen_prog_node = undefined;
     };
 
     while (true) {
@@ -3379,7 +3370,7 @@ pub fn performAllTheWork(
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !void {
+fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
             const module = comp.module.?;
@@ -3803,7 +3794,10 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     }
 }
 
-fn workerDocsWasm(comp: *Compilation, prog_node: *std.Progress.Node) void {
+fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void {
+    const prog_node = parent_prog_node.start("Compile Autodocs", 0);
+    defer prog_node.end();
+
     workerDocsWasmFallible(comp, prog_node) catch |err| {
         comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
             @errorName(err),
@@ -3811,7 +3805,7 @@ fn workerDocsWasm(comp: *Compilation, prog_node: *std.Progress.Node) void {
     };
 }
 
-fn workerDocsWasmFallible(comp: *Compilation, prog_node: *std.Progress.Node) anyerror!void {
+fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     const gpa = comp.gpa;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -3952,12 +3946,11 @@ const AstGenSrc = union(enum) {
 fn workerAstGenFile(
     comp: *Compilation,
     file: *Module.File,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
     wg: *WaitGroup,
     src: AstGenSrc,
 ) void {
-    var child_prog_node = prog_node.start(file.sub_file_path, 0);
-    child_prog_node.activate();
+    const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
     const mod = comp.module.?;
@@ -4265,7 +4258,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 fn workerUpdateCObject(
     comp: *Compilation,
     c_object: *CObject,
-    progress_node: *std.Progress.Node,
+    progress_node: std.Progress.Node,
 ) void {
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
@@ -4282,7 +4275,7 @@ fn workerUpdateCObject(
 fn workerUpdateWin32Resource(
     comp: *Compilation,
     win32_resource: *Win32Resource,
-    progress_node: *std.Progress.Node,
+    progress_node: std.Progress.Node,
 ) void {
     comp.updateWin32Resource(win32_resource, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
@@ -4300,7 +4293,7 @@ fn buildCompilerRtOneShot(
     comp: *Compilation,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) void {
     comp.buildOutputFromZig(
         "compiler_rt.zig",
@@ -4427,7 +4420,7 @@ fn reportRetryableEmbedFileError(
     }
 }
 
-fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.Progress.Node) !void {
+fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Progress.Node) !void {
     if (comp.config.c_frontend == .aro) {
         return comp.failCObj(c_object, "aro does not support compiling C objects yet", .{});
     }
@@ -4467,9 +4460,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
     const c_source_basename = std.fs.path.basename(c_object.src.src_path);
 
-    c_obj_prog_node.activate();
-    var child_progress_node = c_obj_prog_node.start(c_source_basename, 0);
-    child_progress_node.activate();
+    const child_progress_node = c_obj_prog_node.start(c_source_basename, 0);
     defer child_progress_node.end();
 
     // Special case when doing build-obj for just one C file. When there are more than one object
@@ -4568,14 +4559,18 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
-        const out_diag_path = try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
-        const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+        const out_diag_path = if (comp.clang_passthrough_mode or !ext.clangSupportsDiagnostics())
+            null
+        else
+            try std.fmt.allocPrint(arena, "{s}.diag", .{out_obj_path});
+        const out_dep_path = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
             null
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
+
         try comp.addCCArgs(arena, &argv, ext, out_dep_path, c_object.src.owner);
         try argv.appendSlice(c_object.src.extra_flags);
         try argv.appendSlice(c_object.src.cache_exempt_flags);
@@ -4587,7 +4582,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             .pch => argv.appendSliceAssumeCapacity(&.{ "-Xclang", "-emit-pch", "-o", out_obj_path }),
             .stdout => argv.appendAssumeCapacity("-E"),
         }
-        if (comp.clang_passthrough_mode) {
+        if (out_diag_path) |diag_file_path| {
+            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", diag_file_path });
+        } else if (comp.clang_passthrough_mode) {
             if (comp.emit_asm != null) {
                 argv.appendAssumeCapacity("-S");
             } else if (comp.emit_llvm_ir != null) {
@@ -4595,16 +4592,21 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             } else if (comp.emit_llvm_bc != null) {
                 argv.appendAssumeCapacity("-emit-llvm");
             }
-        } else {
-            argv.appendSliceAssumeCapacity(&.{ "--serialize-diagnostics", out_diag_path });
         }
 
         if (comp.verbose_cc) {
             dump_argv(argv.items);
         }
 
+        // Just to save disk space, we delete the files that are never needed again.
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) });
+        };
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| {
+            log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
+        };
         if (std.process.can_spawn) {
-            var child = std.ChildProcess.init(argv.items, arena);
+            var child = std.process.Child.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;
@@ -4637,17 +4639,15 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 };
 
                 switch (term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            const bundle = CObject.Diag.Bundle.parse(comp.gpa, out_diag_path) catch |err| {
-                                log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
-                                return comp.failCObj(c_object, "clang exited with code {d}", .{code});
-                            };
-                            zig_cache_tmp_dir.deleteFile(out_diag_path) catch |err| {
-                                log.warn("failed to delete '{s}': {s}", .{ out_diag_path, @errorName(err) });
-                            };
-                            return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
-                        }
+                    .Exited => |code| if (code != 0) if (out_diag_path) |diag_file_path| {
+                        const bundle = CObject.Diag.Bundle.parse(comp.gpa, diag_file_path) catch |err| {
+                            log.err("{}: failed to parse clang diagnostics: {s}", .{ err, stderr });
+                            return comp.failCObj(c_object, "clang exited with code {d}", .{code});
+                        };
+                        return comp.failCObjWithOwnedDiagBundle(c_object, bundle);
+                    } else {
+                        log.err("clang failed with stderr: {s}", .{stderr});
+                        return comp.failCObj(c_object, "clang exited with code {d}", .{code});
                     },
                     else => {
                         log.err("clang terminated with stderr: {s}", .{stderr});
@@ -4685,10 +4685,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 },
                 .incremental => {},
             }
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
-            };
         }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -4726,7 +4722,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     };
 }
 
-fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: *std.Progress.Node) !void {
+fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
     if (!std.process.can_spawn) {
         return comp.failWin32Resource(win32_resource, "{s} does not support spawning a child process", .{@tagName(builtin.os.tag)});
     }
@@ -4758,9 +4754,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         _ = comp.failed_win32_resources.swapRemove(win32_resource);
     }
 
-    win32_resource_prog_node.activate();
-    var child_progress_node = win32_resource_prog_node.start(src_basename, 0);
-    child_progress_node.activate();
+    const child_progress_node = win32_resource_prog_node.start(src_basename, 0);
     defer child_progress_node.end();
 
     var man = comp.obtainWin32ResourceCacheManifest();
@@ -4828,7 +4822,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             });
             try argv.appendSlice(&.{ "--", in_rc_path, out_res_path });
 
-            try spawnZigRc(comp, win32_resource, src_basename, arena, argv.items, &child_progress_node);
+            try spawnZigRc(comp, win32_resource, arena, argv.items, child_progress_node);
 
             break :blk digest;
         };
@@ -4896,7 +4890,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         try argv.appendSlice(rc_src.extra_flags);
         try argv.appendSlice(&.{ "--", rc_src.src_path, out_res_path });
 
-        try spawnZigRc(comp, win32_resource, src_basename, arena, argv.items, &child_progress_node);
+        try spawnZigRc(comp, win32_resource, arena, argv.items, child_progress_node);
 
         // Read depfile and update cache manifest
         {
@@ -4924,10 +4918,6 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                     .incremental => {},
                 }
             }
-            // Just to save disk space, we delete the file because it is never needed again.
-            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-                log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
-            };
         }
 
         // Rename into place.
@@ -4965,18 +4955,18 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 fn spawnZigRc(
     comp: *Compilation,
     win32_resource: *Win32Resource,
-    src_basename: []const u8,
     arena: Allocator,
     argv: []const []const u8,
-    child_progress_node: *std.Progress.Node,
+    child_progress_node: std.Progress.Node,
 ) !void {
     var node_name: std.ArrayListUnmanaged(u8) = .{};
     defer node_name.deinit(arena);
 
-    var child = std.ChildProcess.init(argv, arena);
+    var child = std.process.Child.init(argv, arena);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
+    child.progress_node = child_progress_node;
 
     child.spawn() catch |err| {
         return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv[0], @errorName(err) });
@@ -5017,22 +5007,6 @@ fn spawnZigRc(
                     .extra = extra_array,
                 };
                 return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
-            },
-            .progress => {
-                node_name.clearRetainingCapacity();
-                // <resinator> is a special string that indicates that the child
-                // process has reached resinator's main function
-                if (std.mem.eql(u8, body, "<resinator>")) {
-                    child_progress_node.setName(src_basename);
-                }
-                // Ignore 0-length strings since if multiple zig rc commands
-                // are executed at the same time, only one will send progress strings
-                // while the other(s) will send empty strings.
-                else if (body.len > 0) {
-                    try node_name.appendSlice(arena, "build 'zig rc'... ");
-                    try node_name.appendSlice(arena, body);
-                    child_progress_node.setName(node_name.items);
-                }
             },
             else => {}, // ignore other messages
         }
@@ -5111,7 +5085,7 @@ pub fn addCCArgs(
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
     // clang will detect stderr as a pipe rather than a terminal.
-    if (!comp.clang_passthrough_mode) {
+    if (!comp.clang_passthrough_mode and ext.clangSupportsDiagnostics()) {
         // Make stderr more easily parseable.
         try argv.append("-fno-caret-diagnostics");
     }
@@ -5545,6 +5519,7 @@ fn failCObjWithOwnedDiagBundle(
     diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
     @setCold(true);
+    assert(diag_bundle.diags.len > 0);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
@@ -5619,6 +5594,25 @@ pub const FileExt = enum {
     res,
     manifest,
     unknown,
+
+    pub fn clangSupportsDiagnostics(ext: FileExt) bool {
+        return switch (ext) {
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu, .ll, .bc => true,
+
+            .assembly,
+            .assembly_with_cpp,
+            .shared_library,
+            .object,
+            .static_library,
+            .zig,
+            .def,
+            .rc,
+            .res,
+            .manifest,
+            .unknown,
+            => false,
+        };
+    }
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
@@ -5916,8 +5910,8 @@ pub fn lockAndParseLldStderr(comp: *Compilation, prefix: []const u8, stderr: []c
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     const stderr = std.io.getStdErr().writer();
     for (argv[0 .. argv.len - 1]) |arg| {
         nosuspend stderr.print("{s} ", .{arg}) catch return;
@@ -5968,14 +5962,13 @@ pub fn updateSubCompilation(
     parent_comp: *Compilation,
     sub_comp: *Compilation,
     misc_task: MiscTask,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     {
-        var sub_node = prog_node.start(@tagName(misc_task), 0);
-        sub_node.activate();
+        const sub_node = prog_node.start(@tagName(misc_task), 0);
         defer sub_node.end();
 
-        try sub_comp.update(prog_node);
+        try sub_comp.update(sub_node);
     }
 
     // Look for compilation errors in this sub compilation
@@ -6003,7 +5996,7 @@ fn buildOutputFromZig(
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     misc_task_tag: MiscTask,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -6110,7 +6103,7 @@ pub fn build_crt_file(
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
     misc_task_tag: MiscTask,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
     /// These elements have to get mutated to add the owner module after it is
     /// created within this function.
     c_source_files: []CSourceFile,

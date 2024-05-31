@@ -22,7 +22,7 @@ pub fn create(owner: *std.Build, dir_path: []const u8) *RemoveDir {
     return remove_dir;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     // TODO update progress node while walking file system.
     // Should the standard library support this use case??
     _ = prog_node;

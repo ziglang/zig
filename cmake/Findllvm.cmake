@@ -12,6 +12,9 @@
 if(ZIG_USE_LLVM_CONFIG)
   set(LLVM_CONFIG_ERROR_MESSAGES "")
   while(1)
+    # If this variable is not unset, the same result is returned even though
+    # the ignore list has changed, causing the configure process to not
+    # terminate when the right LLVM version is not found.
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
         NAMES llvm-config-18 llvm-config-18.0 llvm-config180 llvm-config18 llvm-config NAMES_PER_DIR
