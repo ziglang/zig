@@ -6497,6 +6497,128 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
     return null;
 }
 
+fn macroDependsOnRuntimeValue(c: *Context, ref: ast.Node) ?ast.Node {
+    const init = if (ref.castTag(.var_decl)) |v|
+        v.data.init orelse return null
+    else if (ref.castTag(.var_simple) orelse ref.castTag(.pub_var_simple)) |v|
+        v.data.init
+    else
+        return null;
+
+    if (analyzeNodeForRuntime(c, init)) {
+        return init;
+    } else {
+        return null;
+    }
+}
+
+fn analyzeNodeForRuntime(c: *Context, ref: ast.Node) bool {
+    switch (ref.tag()) {
+        .add,
+        .add_assign,
+        .add_wrap,
+        .add_wrap_assign,
+        .sub,
+        .sub_assign,
+        .sub_wrap,
+        .sub_wrap_assign,
+        .mul,
+        .mul_assign,
+        .mul_wrap,
+        .mul_wrap_assign,
+        .div,
+        .div_assign,
+        .shl,
+        .shl_assign,
+        .shr,
+        .shr_assign,
+        .mod,
+        .mod_assign,
+        .@"and",
+        .@"or",
+        .less_than,
+        .less_than_equal,
+        .greater_than,
+        .greater_than_equal,
+        .equal,
+        .not_equal,
+        .bit_and,
+        .bit_and_assign,
+        .bit_or,
+        .bit_or_assign,
+        .bit_xor,
+        .bit_xor_assign,
+        .div_trunc,
+        .signed_remainder,
+        .as,
+        .array_cat,
+        .ellipsis3,
+        .assign,
+        .array_access,
+        .std_mem_zeroinit,
+        .helpers_flexible_array_type,
+        .helpers_shuffle_vector_index,
+        .vector,
+        .div_exact,
+        .offset_of,
+        .helpers_cast,
+        => {
+            const bin_op: *ast.Payload.BinOp = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
+            return analyzeNodeForRuntime(c, bin_op.data.lhs) or analyzeNodeForRuntime(c, bin_op.data.rhs);
+        },
+        .std_mem_zeroes,
+        .@"return",
+        .@"comptime",
+        .@"defer",
+        .asm_simple,
+        .negate,
+        .negate_wrap,
+        .bit_not,
+        .not,
+        .optional_type,
+        .address_of,
+        .unwrap,
+        .deref,
+        .int_from_ptr,
+        .empty_array,
+        .while_true,
+        .if_not_break,
+        .switch_else,
+        .block_single,
+        .helpers_sizeof,
+        .int_from_bool,
+        .sizeof,
+        .alignof,
+        .typeof,
+        .typeinfo,
+        .align_cast,
+        .truncate,
+        .bit_cast,
+        .float_cast,
+        .int_from_float,
+        .float_from_int,
+        .ptr_from_int,
+        .ptr_cast,
+        .int_cast,
+        .const_cast,
+        .volatile_cast,
+        .vector_zero_init,
+        => {
+            const un_op: *ast.Payload.UnOp = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
+            return analyzeNodeForRuntime(c, un_op.data);
+        },
+        .identifier => {
+            const ident = ref.castTag(.identifier).?;
+            const ident_node = c.global_scope.sym_table.get(ident.data) orelse return false;
+            if (ident_node.castTag(.var_decl)) |var_decl_node| {
+                return !var_decl_node.data.is_const;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
 fn addMacros(c: *Context) !void {
     var it = c.global_scope.macro_table.iterator();
     while (it.next()) |entry| {
@@ -6505,6 +6627,18 @@ fn addMacros(c: *Context) !void {
             // the macro is intended to represent a function that assumes the function pointer
             // variable is non-null and calls it.
             try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
+        } else if (macroDependsOnRuntimeValue(c, entry.value_ptr.*)) |ret_value| {
+            // The macro references a var decl, promote it to an inline function
+            const return_type = try Tag.typeof.create(c.arena, ret_value);
+            const return_expr = try Tag.@"return".create(c.arena, ret_value);
+            const block = try Tag.block_single.create(c.arena, return_expr);
+
+            try addTopLevelDecl(c, entry.key_ptr.*, try Tag.pub_inline_fn.create(c.arena, .{
+                .name = entry.key_ptr.*,
+                .params = &.{},
+                .return_type = return_type,
+                .body = block,
+            }));
         } else {
             try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
         }
