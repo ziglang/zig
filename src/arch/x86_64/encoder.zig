@@ -1864,6 +1864,9 @@ test "lower NP encoding" {
     try enc.encode(.sysret, &.{});
     try expectEqualHexStrings("\x0f\x07", enc.code(), "sysret");
 
+    try enc.encode(.hlt, &.{});
+    try expectEqualHexStrings("\xf4", enc.code(), "hlt");
+
     try enc.encode(.cmc, &.{});
     try expectEqualHexStrings("\xf5", enc.code(), "cmc");
 

@@ -342,6 +342,8 @@ pub const Inst = struct {
         int,
         /// Interrupt return
         iret,
+        /// Halt
+        hlt,
         /// Complement carry flag
         cmc,
         /// Clear carry flag
