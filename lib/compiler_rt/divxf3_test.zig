@@ -21,7 +21,7 @@ fn expect__divxf3_result(a: f80, b: f80, expected: u80) !void {
 }
 
 fn test__divxf3(a: f80, b: f80) !void {
-    const integerBit = 1 << math.floatFractionalBits(f80);
+    const integerBit = 1 << math.float.fractionalBits(f80);
     const x = __divxf3(a, b);
 
     // Next float (assuming normal, non-zero result)

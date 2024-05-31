@@ -72,7 +72,7 @@ pub fn fma(x: f64, y: f64, z: f64) callconv(.C) f64 {
     if (spread <= 53 * 2) {
         zs = math.scalbn(zs, -spread);
     } else {
-        zs = math.copysign(math.floatMin(f64), zs);
+        zs = math.copysign(math.float.min(f64), zs);
     }
 
     const xy = dd_mul(xs, ys);
@@ -131,7 +131,7 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
     if (spread <= 113 * 2) {
         zs = math.scalbn(zs, -spread);
     } else {
-        zs = math.copysign(math.floatMin(f128), zs);
+        zs = math.copysign(math.float.min(f128), zs);
     }
 
     const xy = dd_mul128(xs, ys);

@@ -30,8 +30,8 @@ fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
 inline fn div(a: f32, b: f32) f32 {
     const Z = std.meta.Int(.unsigned, 32);
 
-    const significandBits = std.math.floatMantissaBits(f32);
-    const exponentBits = std.math.floatExponentBits(f32);
+    const significandBits = std.math.float.mantissaBits(f32);
+    const exponentBits = std.math.float.exponentBits(f32);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);

@@ -7,7 +7,7 @@ const std = @import("std");
 const rem_pio2_large = @import("rem_pio2_large.zig").rem_pio2_large;
 const math = std.math;
 
-const toint = 1.5 / math.floatEps(f64);
+const toint = 1.5 / math.float.eps(f64);
 // pi/4
 const pio4 = 0x1.921fb54442d18p-1;
 // invpio2:  53 bits of 2/pi

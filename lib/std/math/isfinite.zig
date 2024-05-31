@@ -19,11 +19,11 @@ test isFinite {
         // zero & subnormals
         try expect(isFinite(@as(T, 0.0)));
         try expect(isFinite(@as(T, -0.0)));
-        try expect(isFinite(math.floatTrueMin(T)));
+        try expect(isFinite(math.float.trueMin(T)));
 
         // other float limits
-        try expect(isFinite(math.floatMin(T)));
-        try expect(isFinite(math.floatMax(T)));
+        try expect(isFinite(math.float.min(T)));
+        try expect(isFinite(math.float.max(T)));
 
         // inf & nan
         try expect(!isFinite(math.inf(T)));

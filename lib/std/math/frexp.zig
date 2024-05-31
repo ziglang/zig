@@ -24,10 +24,10 @@ pub fn frexp(x: anytype) Frexp(@TypeOf(x)) {
     const bits: comptime_int = @typeInfo(T).Float.bits;
     const Int: type = std.meta.Int(.unsigned, bits);
 
-    const exp_bits: comptime_int = math.floatExponentBits(T);
-    const mant_bits: comptime_int = math.floatMantissaBits(T);
-    const frac_bits: comptime_int = math.floatFractionalBits(T);
-    const exp_min: comptime_int = math.floatExponentMin(T);
+    const exp_bits: comptime_int = math.float.exponentBits(T);
+    const mant_bits: comptime_int = math.float.mantissaBits(T);
+    const frac_bits: comptime_int = math.float.fractionalBits(T);
+    const exp_min: comptime_int = math.float.exponentMin(T);
 
     const ExpInt: type = std.meta.Int(.unsigned, exp_bits);
     const MantInt: type = std.meta.Int(.unsigned, mant_bits);
@@ -106,22 +106,22 @@ fn FrexpTests(comptime Float: type) type {
             try expectApproxEqAbs(-0.602816, r.significand, epsilon);
         }
         test "max" {
-            const exponent = math.floatExponentMax(T) + 1;
-            const significand = 1.0 - math.floatEps(T) / 2;
-            const r: Frexp(T) = frexp(math.floatMax(T));
+            const exponent = math.float.exponentMax(T) + 1;
+            const significand = 1.0 - math.float.eps(T) / 2;
+            const r: Frexp(T) = frexp(math.float.max(T));
             try expectEqual(exponent, r.exponent);
             try expectEqual(significand, r.significand);
         }
         test "min" {
-            const exponent = math.floatExponentMin(T) + 1;
-            const r: Frexp(T) = frexp(math.floatMin(T));
+            const exponent = math.float.exponentMin(T) + 1;
+            const r: Frexp(T) = frexp(math.float.min(T));
             try expectEqual(exponent, r.exponent);
             try expectEqual(0.5, r.significand);
         }
         test "subnormal" {
-            const normal_min_exponent = math.floatExponentMin(T) + 1;
-            const exponent = normal_min_exponent - math.floatFractionalBits(T);
-            const r: Frexp(T) = frexp(math.floatTrueMin(T));
+            const normal_min_exponent = math.float.exponentMin(T) + 1;
+            const exponent = normal_min_exponent - math.float.fractionalBits(T);
+            const r: Frexp(T) = frexp(math.float.trueMin(T));
             try expectEqual(exponent, r.exponent);
             try expectEqual(0.5, r.significand);
         }
@@ -163,9 +163,9 @@ comptime {
 
 test frexp {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const max_exponent = math.floatExponentMax(T) + 1;
-        const min_exponent = math.floatExponentMin(T) + 1;
-        const truemin_exponent = min_exponent - math.floatFractionalBits(T);
+        const max_exponent = math.float.exponentMax(T) + 1;
+        const min_exponent = math.float.exponentMin(T) + 1;
+        const truemin_exponent = min_exponent - math.float.fractionalBits(T);
 
         var result: Frexp(T) = undefined;
         comptime var x: T = undefined;
@@ -180,14 +180,14 @@ test frexp {
         try expectEqual(x, math.ldexp(result.significand, result.exponent));
 
         // float maximum
-        x = math.floatMax(T);
+        x = math.float.max(T);
         result = frexp(x);
         try expectEqual(max_exponent, result.exponent);
-        try expectEqual(1.0 - math.floatEps(T) / 2, result.significand);
+        try expectEqual(1.0 - math.float.eps(T) / 2, result.significand);
         try expectEqual(x, math.ldexp(result.significand, result.exponent));
 
         // float minimum
-        x = math.floatMin(T);
+        x = math.float.min(T);
         result = frexp(x);
         try expectEqual(min_exponent, result.exponent);
         try expectEqual(0.5, result.significand);
@@ -195,7 +195,7 @@ test frexp {
 
         // float true minimum
         // subnormal -> {normal, exponent}
-        x = math.floatTrueMin(T);
+        x = math.float.trueMin(T);
         result = frexp(x);
         try expectEqual(truemin_exponent, result.exponent);
         try expectEqual(0.5, result.significand);

@@ -22,8 +22,8 @@ test isPositiveZero {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(isPositiveZero(@as(T, 0.0)));
         try expect(!isPositiveZero(@as(T, -0.0)));
-        try expect(!isPositiveZero(math.floatMin(T)));
-        try expect(!isPositiveZero(math.floatMax(T)));
+        try expect(!isPositiveZero(math.float.min(T)));
+        try expect(!isPositiveZero(math.float.max(T)));
         try expect(!isPositiveZero(math.inf(T)));
         try expect(!isPositiveZero(-math.inf(T)));
     }
@@ -33,8 +33,8 @@ test isNegativeZero {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(isNegativeZero(@as(T, -0.0)));
         try expect(!isNegativeZero(@as(T, 0.0)));
-        try expect(!isNegativeZero(math.floatMin(T)));
-        try expect(!isNegativeZero(math.floatMax(T)));
+        try expect(!isNegativeZero(math.float.min(T)));
+        try expect(!isNegativeZero(math.float.max(T)));
         try expect(!isNegativeZero(math.inf(T)));
         try expect(!isNegativeZero(-math.inf(T)));
     }

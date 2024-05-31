@@ -39,9 +39,9 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 
-    const significandBits = math.floatMantissaBits(T);
-    const fractionalBits = math.floatFractionalBits(T);
-    const exponentBits = math.floatExponentBits(T);
+    const significandBits = math.float.mantissaBits(T);
+    const fractionalBits = math.float.fractionalBits(T);
+    const exponentBits = math.float.exponentBits(T);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);

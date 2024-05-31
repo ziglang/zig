@@ -27,7 +27,7 @@ pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
             } else {
                 // Generate a value in the range [1, 2) and scale into (0, 1)
                 const repr = (0x3ff << 52) | (bits >> 12);
-                break :blk @as(f64, @bitCast(repr)) - (1.0 - math.floatEps(f64) / 2.0);
+                break :blk @as(f64, @bitCast(repr)) - (1.0 - math.float.eps(f64) / 2.0);
             }
         };
 

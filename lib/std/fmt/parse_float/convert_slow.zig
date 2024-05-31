@@ -39,9 +39,9 @@ pub fn convertSlow(comptime T: type, s: []const u8) BiasedFp(T) {
     @setCold(true);
 
     const MantissaT = mantissaType(T);
-    const min_exponent = -(1 << (math.floatExponentBits(T) - 1)) + 1;
-    const infinite_power = (1 << math.floatExponentBits(T)) - 1;
-    const mantissa_explicit_bits = math.floatMantissaBits(T);
+    const min_exponent = -(1 << (math.float.exponentBits(T) - 1)) + 1;
+    const infinite_power = (1 << math.float.exponentBits(T)) - 1;
+    const mantissa_explicit_bits = math.float.mantissaBits(T);
 
     var d = Decimal(T).parse(s); // no need to recheck underscores
     if (d.num_digits == 0 or d.decimal_point < Decimal(T).min_exponent) {

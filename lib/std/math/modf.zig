@@ -28,7 +28,7 @@ pub fn modf(x: anytype) Modf(@TypeOf(x)) {
 
 test modf {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const epsilon: comptime_float = @max(1e-6, math.floatEps(T));
+        const epsilon: comptime_float = @max(1e-6, math.float.eps(T));
 
         var r: Modf(T) = undefined;
 
@@ -54,7 +54,7 @@ test modf {
 fn ModfTests(comptime T: type) type {
     return struct {
         test "normal" {
-            const epsilon: comptime_float = @max(1e-6, math.floatEps(T));
+            const epsilon: comptime_float = @max(1e-6, math.float.eps(T));
             var r: Modf(T) = undefined;
 
             r = modf(@as(T, 1.0));

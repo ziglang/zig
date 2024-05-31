@@ -140,9 +140,9 @@ pub const Rational = struct {
         const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
         const f_bits = @as(UnsignedInt, @bitCast(f));
 
-        const exponent_bits = math.floatExponentBits(T);
+        const exponent_bits = math.float.exponentBits(T);
         const exponent_bias = (1 << (exponent_bits - 1)) - 1;
-        const mantissa_bits = math.floatMantissaBits(T);
+        const mantissa_bits = math.float.mantissaBits(T);
 
         const exponent_mask = (1 << exponent_bits) - 1;
         const mantissa_mask = (1 << mantissa_bits) - 1;
@@ -198,11 +198,11 @@ pub const Rational = struct {
         const fsize = @typeInfo(T).Float.bits;
         const BitReprType = std.meta.Int(.unsigned, fsize);
 
-        const msize = math.floatMantissaBits(T);
+        const msize = math.float.mantissaBits(T);
         const msize1 = msize + 1;
         const msize2 = msize1 + 1;
 
-        const esize = math.floatExponentBits(T);
+        const esize = math.float.exponentBits(T);
         const ebias = (1 << (esize - 1)) - 1;
         const emin = 1 - ebias;
 

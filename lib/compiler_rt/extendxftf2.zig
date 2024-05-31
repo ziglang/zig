@@ -10,8 +10,8 @@ comptime {
 fn __extendxftf2(a: f80) callconv(.C) f128 {
     const src_int_bit: u64 = 0x8000000000000000;
     const src_sig_mask = ~src_int_bit;
-    const src_sig_bits = std.math.floatMantissaBits(f80) - 1; // -1 for the integer bit
-    const dst_sig_bits = std.math.floatMantissaBits(f128);
+    const src_sig_bits = std.math.float.mantissaBits(f80) - 1; // -1 for the integer bit
+    const dst_sig_bits = std.math.float.mantissaBits(f128);
 
     const dst_bits = @bitSizeOf(f128);
 

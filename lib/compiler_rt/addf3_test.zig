@@ -88,7 +88,7 @@ test "subtf3" {
     try test__subtf3(0x1.ee9d7c52354a6936ab8d7654321fp-1, 0x1.234567829a3bcdef5678ade36734p+5, 0xc0041b8af1915166, 0xa44a7bca780a166c);
 }
 
-const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1)));
+const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.float.fractionalBits(f80) - 1)));
 
 fn test__addxf3(a: f80, b: f80, expected: u80) !void {
     const x = __addxf3(a, b);

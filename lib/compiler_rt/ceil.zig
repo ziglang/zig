@@ -65,7 +65,7 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
 }
 
 pub fn ceil(x: f64) callconv(.C) f64 {
-    const f64_toint = 1.0 / math.floatEps(f64);
+    const f64_toint = 1.0 / math.float.eps(f64);
 
     const u: u64 = @bitCast(x);
     const e = (u >> 52) & 0x7FF;
@@ -101,7 +101,7 @@ pub fn __ceilx(x: f80) callconv(.C) f80 {
 }
 
 pub fn ceilq(x: f128) callconv(.C) f128 {
-    const f128_toint = 1.0 / math.floatEps(f128);
+    const f128_toint = 1.0 / math.float.eps(f128);
 
     const u: u128 = @bitCast(x);
     const e = (u >> 112) & 0x7FFF;

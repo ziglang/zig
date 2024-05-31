@@ -11,9 +11,9 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const Z = std.meta.Int(.unsigned, bits);
 
     const typeWidth = bits;
-    const significandBits = math.floatMantissaBits(T);
-    const fractionalBits = math.floatFractionalBits(T);
-    const exponentBits = math.floatExponentBits(T);
+    const significandBits = math.float.mantissaBits(T);
+    const fractionalBits = math.float.fractionalBits(T);
+    const exponentBits = math.float.exponentBits(T);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);

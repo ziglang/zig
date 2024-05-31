@@ -9,11 +9,11 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
-    const exponent_bits = math.floatExponentBits(T);
-    const mantissa_bits = math.floatMantissaBits(T);
-    const fractional_bits = math.floatFractionalBits(T);
+    const exponent_bits = math.float.exponentBits(T);
+    const mantissa_bits = math.float.mantissaBits(T);
+    const fractional_bits = math.float.fractionalBits(T);
 
-    const max_biased_exponent = 2 * math.floatExponentMax(T);
+    const max_biased_exponent = 2 * math.float.exponentMax(T);
     const mantissa_mask = @as(TBits, (1 << mantissa_bits) - 1);
 
     const repr = @as(TBits, @bitCast(x));
@@ -68,22 +68,22 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 
 test ldexp {
     // subnormals
-    try expect(ldexp(@as(f16, 0x1.1FFp14), -14 - 9 - 15) == math.floatTrueMin(f16));
-    try expect(ldexp(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.floatTrueMin(f32));
-    try expect(ldexp(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.floatTrueMin(f64));
-    try expect(ldexp(@as(f80, 0x1.7FFFFFFFFFFFFFFEp-1), -16382 - 62) == math.floatTrueMin(f80));
-    try expect(ldexp(@as(f128, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.floatTrueMin(f128));
+    try expect(ldexp(@as(f16, 0x1.1FFp14), -14 - 9 - 15) == math.float.trueMin(f16));
+    try expect(ldexp(@as(f32, 0x1.3FFFFFp-1), -126 - 22) == math.float.trueMin(f32));
+    try expect(ldexp(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.float.trueMin(f64));
+    try expect(ldexp(@as(f80, 0x1.7FFFFFFFFFFFFFFEp-1), -16382 - 62) == math.float.trueMin(f80));
+    try expect(ldexp(@as(f128, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.float.trueMin(f128));
 
-    try expect(ldexp(math.floatMax(f32), -128 - 149) > 0.0);
-    try expect(ldexp(math.floatMax(f32), -128 - 149 - 1) == 0.0);
+    try expect(ldexp(math.float.max(f32), -128 - 149) > 0.0);
+    try expect(ldexp(math.float.max(f32), -128 - 149 - 1) == 0.0);
 
     @setEvalBranchQuota(10_000);
 
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const fractional_bits = math.floatFractionalBits(T);
+        const fractional_bits = math.float.fractionalBits(T);
 
-        const min_exponent = math.floatExponentMin(T);
-        const max_exponent = math.floatExponentMax(T);
+        const min_exponent = math.float.exponentMin(T);
+        const max_exponent = math.float.exponentMax(T);
         const exponent_bias = max_exponent;
 
         // basic usage
@@ -98,8 +98,8 @@ test ldexp {
         try expect(ldexp(@as(T, 1.0), min_exponent - fractional_bits - 1) == 0.0);
 
         // subnormals -> zero
-        try expect(ldexp(math.floatTrueMin(T), 0) > 0.0);
-        try expect(ldexp(math.floatTrueMin(T), -1) == 0.0);
+        try expect(ldexp(math.float.trueMin(T), 0) > 0.0);
+        try expect(ldexp(math.float.trueMin(T), -1) == 0.0);
 
         // Multiplications might flush the denormals to zero, esp. at
         // runtime, so we manually construct the constants here instead.
@@ -108,25 +108,25 @@ test ldexp {
         const TwoTimesTrueMin = @as(T, @bitCast(@as(Z, 2)));
 
         // subnormals -> subnormals
-        try expect(ldexp(math.floatTrueMin(T), 3) == EightTimesTrueMin);
+        try expect(ldexp(math.float.trueMin(T), 3) == EightTimesTrueMin);
         try expect(ldexp(EightTimesTrueMin, -2) == TwoTimesTrueMin);
-        try expect(ldexp(EightTimesTrueMin, -3) == math.floatTrueMin(T));
+        try expect(ldexp(EightTimesTrueMin, -3) == math.float.trueMin(T));
 
         // subnormals -> normals (+)
-        try expect(ldexp(math.floatTrueMin(T), fractional_bits) == math.floatMin(T));
-        try expect(ldexp(math.floatTrueMin(T), fractional_bits - 1) == math.floatMin(T) * 0.5);
+        try expect(ldexp(math.float.trueMin(T), fractional_bits) == math.float.min(T));
+        try expect(ldexp(math.float.trueMin(T), fractional_bits - 1) == math.float.min(T) * 0.5);
 
         // subnormals -> normals (-)
-        try expect(ldexp(-math.floatTrueMin(T), fractional_bits) == -math.floatMin(T));
-        try expect(ldexp(-math.floatTrueMin(T), fractional_bits - 1) == -math.floatMin(T) * 0.5);
+        try expect(ldexp(-math.float.trueMin(T), fractional_bits) == -math.float.min(T));
+        try expect(ldexp(-math.float.trueMin(T), fractional_bits - 1) == -math.float.min(T) * 0.5);
 
         // subnormals -> float limits (+inf)
-        try expect(math.isFinite(ldexp(math.floatTrueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
-        try expect(ldexp(math.floatTrueMin(T), max_exponent + exponent_bias + fractional_bits) == math.inf(T));
+        try expect(math.isFinite(ldexp(math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
+        try expect(ldexp(math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == math.inf(T));
 
         // subnormals -> float limits (-inf)
-        try expect(math.isFinite(ldexp(-math.floatTrueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
-        try expect(ldexp(-math.floatTrueMin(T), max_exponent + exponent_bias + fractional_bits) == -math.inf(T));
+        try expect(math.isFinite(ldexp(-math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
+        try expect(ldexp(-math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == -math.inf(T));
 
         // infinity -> infinity
         try expect(ldexp(math.inf(T), math.maxInt(i32)) == math.inf(T));
@@ -137,11 +137,11 @@ test ldexp {
         try expect(ldexp(-math.inf(T), math.minInt(i32)) == -math.inf(T));
 
         // extremely large n
-        try expect(ldexp(math.floatMax(T), math.maxInt(i32)) == math.inf(T));
-        try expect(ldexp(math.floatMax(T), -math.maxInt(i32)) == 0.0);
-        try expect(ldexp(math.floatMax(T), math.minInt(i32)) == 0.0);
-        try expect(ldexp(math.floatTrueMin(T), math.maxInt(i32)) == math.inf(T));
-        try expect(ldexp(math.floatTrueMin(T), -math.maxInt(i32)) == 0.0);
-        try expect(ldexp(math.floatTrueMin(T), math.minInt(i32)) == 0.0);
+        try expect(ldexp(math.float.max(T), math.maxInt(i32)) == math.inf(T));
+        try expect(ldexp(math.float.max(T), -math.maxInt(i32)) == 0.0);
+        try expect(ldexp(math.float.max(T), math.minInt(i32)) == 0.0);
+        try expect(ldexp(math.float.trueMin(T), math.maxInt(i32)) == math.inf(T));
+        try expect(ldexp(math.float.trueMin(T), -math.maxInt(i32)) == 0.0);
+        try expect(ldexp(math.float.trueMin(T), math.minInt(i32)) == 0.0);
     }
 }

@@ -27,8 +27,8 @@ pub const fp_ilogb0 = minInt(i32);
 
 fn ilogbX(comptime T: type, x: T) i32 {
     const typeWidth = @typeInfo(T).Float.bits;
-    const significandBits = math.floatMantissaBits(T);
-    const exponentBits = math.floatExponentBits(T);
+    const significandBits = math.float.mantissaBits(T);
+    const exponentBits = math.float.exponentBits(T);
 
     const Z = std.meta.Int(.unsigned, typeWidth);
 

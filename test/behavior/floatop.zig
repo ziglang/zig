@@ -196,15 +196,15 @@ fn testCmp(comptime T: type) !void {
     @setEvalBranchQuota(2_000);
     var edges = [_]T{
         -math.inf(T),
-        -math.floatMax(T),
-        -math.floatMin(T),
-        -math.floatTrueMin(T),
+        -math.float.max(T),
+        -math.float.min(T),
+        -math.float.trueMin(T),
         -0.0,
         math.nan(T),
         0.0,
-        math.floatTrueMin(T),
-        math.floatMin(T),
-        math.floatMax(T),
+        math.float.trueMin(T),
+        math.float.min(T),
+        math.float.max(T),
         math.inf(T),
     };
     _ = &edges;
@@ -1072,24 +1072,24 @@ fn testFabs(comptime T: type) !void {
     try expect(@abs(one) == 1.0);
     var neg_one: T = -1.0;
     try expect(@abs(neg_one) == 1.0);
-    var min: T = math.floatMin(T);
-    try expect(@abs(min) == math.floatMin(T));
-    var neg_min: T = -math.floatMin(T);
-    try expect(@abs(neg_min) == math.floatMin(T));
-    var max: T = math.floatMax(T);
-    try expect(@abs(max) == math.floatMax(T));
-    var neg_max: T = -math.floatMax(T);
-    try expect(@abs(neg_max) == math.floatMax(T));
+    var min: T = math.float.min(T);
+    try expect(@abs(min) == math.float.min(T));
+    var neg_min: T = -math.float.min(T);
+    try expect(@abs(neg_min) == math.float.min(T));
+    var max: T = math.float.max(T);
+    try expect(@abs(max) == math.float.max(T));
+    var neg_max: T = -math.float.max(T);
+    try expect(@abs(neg_max) == math.float.max(T));
 
     // subnormals
     var zero: T = 0.0;
     try expect(@abs(zero) == 0.0);
     var neg_zero: T = -0.0;
     try expect(@abs(neg_zero) == 0.0);
-    var true_min: T = math.floatTrueMin(T);
-    try expect(@abs(true_min) == math.floatTrueMin(T));
-    var neg_true_min: T = -math.floatTrueMin(T);
-    try expect(@abs(neg_true_min) == math.floatTrueMin(T));
+    var true_min: T = math.float.trueMin(T);
+    try expect(@abs(true_min) == math.float.trueMin(T));
+    var neg_true_min: T = -math.float.trueMin(T);
+    try expect(@abs(neg_true_min) == math.float.trueMin(T));
 
     // non-finite numbers
     var inf: T = math.inf(T);
@@ -1515,24 +1515,24 @@ fn testNeg(comptime T: type) !void {
     try expect(-one == -1.0);
     var neg_one: T = -1.0;
     try expect(-neg_one == 1.0);
-    var min: T = math.floatMin(T);
-    try expect(-min == -math.floatMin(T));
-    var neg_min: T = -math.floatMin(T);
-    try expect(-neg_min == math.floatMin(T));
-    var max: T = math.floatMax(T);
-    try expect(-max == -math.floatMax(T));
-    var neg_max: T = -math.floatMax(T);
-    try expect(-neg_max == math.floatMax(T));
+    var min: T = math.float.min(T);
+    try expect(-min == -math.float.min(T));
+    var neg_min: T = -math.float.min(T);
+    try expect(-neg_min == math.float.min(T));
+    var max: T = math.float.max(T);
+    try expect(-max == -math.float.max(T));
+    var neg_max: T = -math.float.max(T);
+    try expect(-neg_max == math.float.max(T));
 
     // subnormals
     var zero: T = 0.0;
     try expect(-zero == -0.0);
     var neg_zero: T = -0.0;
     try expect(-neg_zero == 0.0);
-    var true_min: T = math.floatTrueMin(T);
-    try expect(-true_min == -math.floatTrueMin(T));
-    var neg_true_min: T = -math.floatTrueMin(T);
-    try expect(-neg_true_min == math.floatTrueMin(T));
+    var true_min: T = math.float.trueMin(T);
+    try expect(-true_min == -math.float.trueMin(T));
+    var neg_true_min: T = -math.float.trueMin(T);
+    try expect(-neg_true_min == math.float.trueMin(T));
 
     // non-finite numbers
     var inf: T = math.inf(T);

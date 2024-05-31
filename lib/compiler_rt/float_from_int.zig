@@ -11,8 +11,8 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     const inf = math.inf(T);
     const float_bits = @bitSizeOf(T);
     const int_bits = @bitSizeOf(@TypeOf(x));
-    const exp_bits = math.floatExponentBits(T);
-    const fractional_bits = math.floatFractionalBits(T);
+    const exp_bits = math.float.exponentBits(T);
+    const fractional_bits = math.float.fractionalBits(T);
     const exp_bias = math.maxInt(Int(.unsigned, exp_bits - 1));
     const implicit_bit = if (T != f80) @as(uT, 1) << fractional_bits else 0;
     const max_exp = exp_bias;
@@ -45,7 +45,7 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     if ((int_bits > max_exp) and (exp > max_exp)) // If exponent too large, overflow to infinity
         return @bitCast(sign_bit | @as(uT, @bitCast(inf)));
 
-    result += (@as(uT, exp) + exp_bias) << math.floatMantissaBits(T);
+    result += (@as(uT, exp) + exp_bias) << math.float.mantissaBits(T);
 
     // If the result included a carry, we need to restore the explicit integer bit
     if (T == f80) result |= 1 << fractional_bits;

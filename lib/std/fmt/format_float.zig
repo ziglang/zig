@@ -70,8 +70,8 @@ pub fn formatFloat(buf: []u8, v_: anytype, options: FormatOptions) FormatError![
         else => unreachable,
     };
 
-    const has_explicit_leading_bit = std.math.floatMantissaBits(T) - std.math.floatFractionalBits(T) != 0;
-    const d = binaryToDecimal(DT, @as(I, @bitCast(v)), std.math.floatMantissaBits(T), std.math.floatExponentBits(T), has_explicit_leading_bit, tables);
+    const has_explicit_leading_bit = std.math.float.mantissaBits(T) - std.math.float.fractionalBits(T) != 0;
+    const d = binaryToDecimal(DT, @as(I, @bitCast(v)), std.math.float.mantissaBits(T), std.math.float.exponentBits(T), has_explicit_leading_bit, tables);
 
     return switch (options.mode) {
         .scientific => formatScientific(DT, buf, d, options.precision),

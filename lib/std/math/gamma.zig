@@ -242,7 +242,7 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 
 test gamma {
     inline for (&.{ f32, f64 }) |T| {
-        const eps = @sqrt(std.math.floatEps(T));
+        const eps = @sqrt(std.math.float.eps(T));
         try expectApproxEqRel(@as(T, 120), gamma(T, 6), eps);
         try expectApproxEqRel(@as(T, 362880), gamma(T, 10), eps);
         try expectApproxEqRel(@as(T, 6402373705728000), gamma(T, 19), eps);
@@ -288,7 +288,7 @@ test "gamma.special" {
 
 test lgamma {
     inline for (&.{ f32, f64 }) |T| {
-        const eps = @sqrt(std.math.floatEps(T));
+        const eps = @sqrt(std.math.float.eps(T));
         try expectApproxEqRel(@as(T, @log(24.0)), lgamma(T, 5), eps);
         try expectApproxEqRel(@as(T, @log(20922789888000.0)), lgamma(T, 17), eps);
         try expectApproxEqRel(@as(T, @log(2432902008176640000.0)), lgamma(T, 21), eps);

@@ -16,9 +16,9 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 
-    const significandBits = std.math.floatMantissaBits(T);
-    const fractionalBits = std.math.floatFractionalBits(T);
-    const exponentBits = std.math.floatExponentBits(T);
+    const significandBits = std.math.float.mantissaBits(T);
+    const fractionalBits = std.math.float.fractionalBits(T);
+    const exponentBits = std.math.float.exponentBits(T);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);
@@ -188,7 +188,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
             // Check whether the rounded result is normal.
             if (residual > (bSignificand >> 1)) { // round
                 if (quotient == (integerBit - 1)) // If the rounded result is normal, return it
-                    return @bitCast(@as(Z, @bitCast(std.math.floatMin(T))) | quotientSign);
+                    return @bitCast(@as(Z, @bitCast(std.math.float.min(T))) | quotientSign);
             }
         }
         // Flush denormals to zero.  In the future, it would be nice to add

@@ -48,18 +48,18 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
     }
     if (x == 0.0) {
         return if (y > 0.0)
-            math.floatTrueMin(T)
+            math.float.trueMin(T)
         else
-            -math.floatTrueMin(T);
+            -math.float.trueMin(T);
     }
     if (@bitSizeOf(T) == 80) {
         // Unlike other floats, `f80` has an explicitly stored integer bit between the fractional
         // part and the exponent and thus requires special handling. This integer bit *must* be set
         // when the value is normal, an infinity or a NaN and *should* be cleared otherwise.
 
-        const fractional_bits_mask = (1 << math.floatFractionalBits(f80)) - 1;
-        const integer_bit_mask = 1 << math.floatFractionalBits(f80);
-        const exponent_bits_mask = (1 << math.floatExponentBits(f80)) - 1;
+        const fractional_bits_mask = (1 << math.float.fractionalBits(f80)) - 1;
+        const integer_bit_mask = 1 << math.float.fractionalBits(f80);
+        const exponent_bits_mask = (1 << math.float.exponentBits(f80)) - 1;
 
         var x_parts = math.break_f80(x);
 
@@ -292,22 +292,22 @@ test "float" {
         try expect(bitwiseEqual(T, nextAfter(T, 0.0, -0.0), -0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -0.0, -0.0), -0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -0.0, 0.0), 0.0));
-        try expect(nextAfter(T, 0.0, math.inf(T)) == math.floatTrueMin(T));
-        try expect(nextAfter(T, 0.0, -math.inf(T)) == -math.floatTrueMin(T));
-        try expect(nextAfter(T, -0.0, -math.inf(T)) == -math.floatTrueMin(T));
-        try expect(nextAfter(T, -0.0, math.inf(T)) == math.floatTrueMin(T));
-        try expect(bitwiseEqual(T, nextAfter(T, math.floatTrueMin(T), 0.0), 0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, math.floatTrueMin(T), -0.0), 0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, math.floatTrueMin(T), -math.inf(T)), 0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, -math.floatTrueMin(T), -0.0), -0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, -math.floatTrueMin(T), 0.0), -0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, -math.floatTrueMin(T), math.inf(T)), -0.0));
+        try expect(nextAfter(T, 0.0, math.inf(T)) == math.float.trueMin(T));
+        try expect(nextAfter(T, 0.0, -math.inf(T)) == -math.float.trueMin(T));
+        try expect(nextAfter(T, -0.0, -math.inf(T)) == -math.float.trueMin(T));
+        try expect(nextAfter(T, -0.0, math.inf(T)) == math.float.trueMin(T));
+        try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), 0.0), 0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), -0.0), 0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), -math.inf(T)), 0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), -0.0), -0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), 0.0), -0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), math.inf(T)), -0.0));
         try expect(nextAfter(T, math.inf(T), math.inf(T)) == math.inf(T));
-        try expect(nextAfter(T, math.inf(T), -math.inf(T)) == math.floatMax(T));
-        try expect(nextAfter(T, math.floatMax(T), math.inf(T)) == math.inf(T));
+        try expect(nextAfter(T, math.inf(T), -math.inf(T)) == math.float.max(T));
+        try expect(nextAfter(T, math.float.max(T), math.inf(T)) == math.inf(T));
         try expect(nextAfter(T, -math.inf(T), -math.inf(T)) == -math.inf(T));
-        try expect(nextAfter(T, -math.inf(T), math.inf(T)) == -math.floatMax(T));
-        try expect(nextAfter(T, -math.floatMax(T), -math.inf(T)) == -math.inf(T));
+        try expect(nextAfter(T, -math.inf(T), math.inf(T)) == -math.float.max(T));
+        try expect(nextAfter(T, -math.float.max(T), -math.inf(T)) == -math.inf(T));
         try expect(math.isNan(nextAfter(T, 1.0, math.nan(T))));
         try expect(math.isNan(nextAfter(T, math.nan(T), 1.0)));
         try expect(math.isNan(nextAfter(T, math.nan(T), math.nan(T))));

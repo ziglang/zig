@@ -229,7 +229,7 @@ inline fn sincos_generic(comptime F: type, x: F, r_sin: *F, r_cos: *F) void {
     }
 
     if (@as(F, @bitCast(ix)) < sc1pio4) {
-        if (se < 0x3fff - math.floatFractionalBits(F) - 1) {
+        if (se < 0x3fff - math.float.fractionalBits(F) - 1) {
             // raise underflow if subnormal
             if (se == 0) {
                 mem.doNotOptimizeAway(x * 0x1p-120);

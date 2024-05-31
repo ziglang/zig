@@ -24,7 +24,7 @@ template<> struct TypeTraits<UINT32> {
     typedef D2D1_RECT_U    Rect;
 };
 
-static inline FLOAT FloatMax() {
+static inline FLOAT float.max() {
     return 3.402823466e+38f;
 }
 
@@ -68,7 +68,7 @@ D2D1FORCEINLINE D2D1_RECT_U RectU(UINT32 left = 0, UINT32 top = 0, UINT32 right 
 }
 
 D2D1FORCEINLINE D2D1_RECT_F InfiniteRect() {
-    D2D1_RECT_F r = {-FloatMax(), -FloatMax(), FloatMax(),  FloatMax()};
+    D2D1_RECT_F r = {-float.max(), -float.max(), float.max(),  float.max()};
     return r;
 }
 

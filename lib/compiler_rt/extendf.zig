@@ -7,8 +7,8 @@ pub inline fn extendf(
 ) dst_t {
     const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
     const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
-    const srcSigBits = std.math.floatMantissaBits(src_t);
-    const dstSigBits = std.math.floatMantissaBits(dst_t);
+    const srcSigBits = std.math.float.mantissaBits(src_t);
+    const dstSigBits = std.math.float.mantissaBits(dst_t);
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
@@ -72,9 +72,9 @@ pub inline fn extendf(
 
 pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits)) f80 {
     const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
-    const src_sig_bits = std.math.floatMantissaBits(src_t);
+    const src_sig_bits = std.math.float.mantissaBits(src_t);
     const dst_int_bit = 0x8000000000000000;
-    const dst_sig_bits = std.math.floatMantissaBits(f80) - 1; // -1 for the integer bit
+    const dst_sig_bits = std.math.float.mantissaBits(f80) - 1; // -1 for the integer bit
 
     const dst_exp_bias = 16383;
 

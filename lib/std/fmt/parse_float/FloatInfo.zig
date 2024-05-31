@@ -58,9 +58,9 @@ pub fn from(comptime T: type) Self {
             .min_exponent_fast_path = -4,
             .max_exponent_fast_path = 4,
             .max_exponent_fast_path_disguised = 7,
-            .max_mantissa_fast_path = 2 << std.math.floatMantissaBits(T),
+            .max_mantissa_fast_path = 2 << std.math.float.mantissaBits(T),
             // Slow + Eisel-Lemire
-            .mantissa_explicit_bits = std.math.floatMantissaBits(T),
+            .mantissa_explicit_bits = std.math.float.mantissaBits(T),
             .infinite_power = 0x1f,
             // Eisel-Lemire
             .smallest_power_of_ten = -26, // TODO: refine, fails one test
@@ -79,9 +79,9 @@ pub fn from(comptime T: type) Self {
             .min_exponent_fast_path = -10,
             .max_exponent_fast_path = 10,
             .max_exponent_fast_path_disguised = 17,
-            .max_mantissa_fast_path = 2 << std.math.floatMantissaBits(T),
+            .max_mantissa_fast_path = 2 << std.math.float.mantissaBits(T),
             // Slow + Eisel-Lemire
-            .mantissa_explicit_bits = std.math.floatMantissaBits(T),
+            .mantissa_explicit_bits = std.math.float.mantissaBits(T),
             .infinite_power = 0xff,
             // Eisel-Lemire
             .smallest_power_of_ten = -65,
@@ -95,9 +95,9 @@ pub fn from(comptime T: type) Self {
             .min_exponent_fast_path = -22,
             .max_exponent_fast_path = 22,
             .max_exponent_fast_path_disguised = 37,
-            .max_mantissa_fast_path = 2 << std.math.floatMantissaBits(T),
+            .max_mantissa_fast_path = 2 << std.math.float.mantissaBits(T),
             // Slow + Eisel-Lemire
-            .mantissa_explicit_bits = std.math.floatMantissaBits(T),
+            .mantissa_explicit_bits = std.math.float.mantissaBits(T),
             .infinite_power = 0x7ff,
             // Eisel-Lemire
             .smallest_power_of_ten = -342,
@@ -111,9 +111,9 @@ pub fn from(comptime T: type) Self {
             .min_exponent_fast_path = -48,
             .max_exponent_fast_path = 48,
             .max_exponent_fast_path_disguised = 82,
-            .max_mantissa_fast_path = 2 << std.math.floatMantissaBits(T),
+            .max_mantissa_fast_path = 2 << std.math.float.mantissaBits(T),
             // Slow + Eisel-Lemire
-            .mantissa_explicit_bits = std.math.floatMantissaBits(T),
+            .mantissa_explicit_bits = std.math.float.mantissaBits(T),
             .infinite_power = 0x7fff,
             // Eisel-Lemire.
             // NOTE: Not yet tested (no f128 eisel-lemire implementation)

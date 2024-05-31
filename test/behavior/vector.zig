@@ -781,7 +781,7 @@ test "vector reduce operation" {
                         // equal.
                     } else {
                         const F = @TypeOf(expected);
-                        const tolerance = @sqrt(math.floatEps(TX));
+                        const tolerance = @sqrt(math.float.eps(TX));
                         try expect(std.math.approxEqRel(F, expected, r, tolerance));
                     }
                 },

@@ -22,10 +22,10 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
         return if (n.negative) -0.0 else 0.0;
     }
 
-    const max_exp = math.floatExponentMax(T);
-    const min_exp = math.floatExponentMin(T);
-    const mantissa_bits = math.floatMantissaBits(T);
-    const exp_bits = math.floatExponentBits(T);
+    const max_exp = math.float.exponentMax(T);
+    const min_exp = math.float.exponentMin(T);
+    const mantissa_bits = math.float.mantissaBits(T);
+    const exp_bits = math.float.exponentBits(T);
     const exp_bias = min_exp - 1;
 
     // mantissa now implicitly divided by 2^mantissa_bits

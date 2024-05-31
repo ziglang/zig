@@ -9,8 +9,8 @@ comptime {
 }
 
 pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
-    const src_sig_bits = math.floatMantissaBits(f128);
-    const dst_sig_bits = math.floatMantissaBits(f80) - 1; // -1 for the integer bit
+    const src_sig_bits = math.float.mantissaBits(f128);
+    const dst_sig_bits = math.float.mantissaBits(f80) - 1; // -1 for the integer bit
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.

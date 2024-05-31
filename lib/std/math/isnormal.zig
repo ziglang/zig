@@ -7,7 +7,7 @@ pub fn isNormal(x: anytype) bool {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
-    const increment_exp = 1 << math.floatMantissaBits(T);
+    const increment_exp = 1 << math.float.mantissaBits(T);
     const remove_sign = ~@as(TBits, 0) >> 1;
 
     // We add 1 to the exponent, and if it overflows to 0 or becomes 1,
@@ -26,16 +26,16 @@ test isNormal {
 
         // normals
         try expect(isNormal(@as(T, 1.0)));
-        try expect(isNormal(math.floatMin(T)));
-        try expect(isNormal(math.floatMax(T)));
+        try expect(isNormal(math.float.min(T)));
+        try expect(isNormal(math.float.max(T)));
 
         // subnormals
         try expect(!isNormal(@as(T, -0.0)));
         try expect(!isNormal(@as(T, 0.0)));
-        try expect(!isNormal(@as(T, math.floatTrueMin(T))));
+        try expect(!isNormal(@as(T, math.float.trueMin(T))));
 
         // largest subnormal
-        try expect(!isNormal(@as(T, @bitCast(~(~@as(TBits, 0) << math.floatFractionalBits(T))))));
+        try expect(!isNormal(@as(T, @bitCast(~(~@as(TBits, 0) << math.float.fractionalBits(T))))));
 
         // non-finite numbers
         try expect(!isNormal(-math.inf(T)));

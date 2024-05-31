@@ -33,8 +33,8 @@ inline fn div(a: f64, b: f64) f64 {
     const Z = std.meta.Int(.unsigned, 64);
     const SignedZ = std.meta.Int(.signed, 64);
 
-    const significandBits = std.math.floatMantissaBits(f64);
-    const exponentBits = std.math.floatExponentBits(f64);
+    const significandBits = std.math.float.mantissaBits(f64);
+    const exponentBits = std.math.float.exponentBits(f64);
 
     const signBit = (@as(Z, 1) << (significandBits + exponentBits));
     const maxExponent = ((1 << exponentBits) - 1);

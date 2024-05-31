@@ -104,10 +104,10 @@ test "multf3" {
 
     try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0001p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0002);
     try test__multf3(0x1.0000_0000_0000_0000_0000_0000_0002p+0, 0x1.8p+5, 0x4004_8000_0000_0000, 0x0000_0000_0000_0003);
-    try test__multf3(2.0, math.floatTrueMin(f128), 0x0000_0000_0000_0000, 0x0000_0000_0000_0002);
+    try test__multf3(2.0, math.float.trueMin(f128), 0x0000_0000_0000_0000, 0x0000_0000_0000_0002);
 }
 
-const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.floatFractionalBits(f80) - 1)));
+const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.float.fractionalBits(f80) - 1)));
 
 fn test__mulxf3(a: f80, b: f80, expected: u80) !void {
     const x = __mulxf3(a, b);

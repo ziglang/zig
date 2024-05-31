@@ -3,12 +3,12 @@ const math = std.math;
 const expect = std.testing.expect;
 const isNan = math.isNan;
 const isInf = math.isInf;
-const inf = math.inf;
-const nan = math.nan;
-const floatEpsAt = math.floatEpsAt;
-const floatEps = math.floatEps;
-const floatMin = math.floatMin;
-const floatMax = math.floatMax;
+const inf = math.float.inf;
+const nan = math.float.nan;
+const epsAt = math.float.epsAt;
+const eps = math.float.eps;
+const min = math.float.min;
+const max = math.float.max;
 
 /// Returns sqrt(x * x + y * y), avoiding unnecessary overflow and underflow.
 ///
@@ -27,10 +27,10 @@ pub fn hypot(x: anytype, y: anytype) @TypeOf(x, y) {
         .ComptimeFloat => return @sqrt(x * x + y * y),
         else => @compileError("hypot not implemented for " ++ @typeName(T)),
     }
-    const lower = @sqrt(floatMin(T));
-    const upper = @sqrt(floatMax(T) / 2);
-    const incre = @sqrt(floatEps(T) / 2);
-    const scale = floatEpsAt(T, incre);
+    const lower = @sqrt(min(T));
+    const upper = @sqrt(max(T) / 2);
+    const incre = @sqrt(eps(T) / 2);
+    const scale = epsAt(T, incre);
     const hypfn = if (emulateFma(T)) hypotUnfused else hypotFused;
     var major: T = x;
     var minor: T = y;
@@ -99,7 +99,7 @@ test "hypot.correct" {
     inline for (.{ f16, f32, f64, f128 }) |T| {
         inline for (hypot_test_cases) |v| {
             const a: T, const b: T, const c: T = v;
-            try expect(math.approxEqRel(T, hypot(a, b), c, @sqrt(floatEps(T))));
+            try expect(math.approxEqRel(T, hypot(a, b), c, @sqrt(eps(T))));
         }
     }
 }
@@ -108,7 +108,7 @@ test "hypot.precise" {
     inline for (.{ f16, f32, f64 }) |T| { // f128 seems to be 5 ulp
         inline for (hypot_test_cases) |v| {
             const a: T, const b: T, const c: T = v;
-            try expect(math.approxEqRel(T, hypot(a, b), c, floatEps(T)));
+            try expect(math.approxEqRel(T, hypot(a, b), c, eps(T)));
         }
     }
 }

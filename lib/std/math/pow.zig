@@ -146,7 +146,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
     var i = @as(std.meta.Int(.signed, @typeInfo(T).Float.bits), @intFromFloat(yi));
     while (i != 0) : (i >>= 1) {
-        const overflow_shift = math.floatExponentBits(T) + 1;
+        const overflow_shift = math.float.exponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
             // catch xe before it overflows the left shift below
             // Since i != 0 it has at least one bit still set, so ae will accumulate xe

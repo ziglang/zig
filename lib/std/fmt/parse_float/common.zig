@@ -23,7 +23,7 @@ pub fn BiasedFp(comptime T: type) type {
         }
 
         pub fn inf(comptime FloatT: type) Self {
-            return .{ .f = 0, .e = (1 << std.math.floatExponentBits(FloatT)) - 1 };
+            return .{ .f = 0, .e = (1 << std.math.float.exponentBits(FloatT)) - 1 };
         }
 
         pub fn eql(self: Self, other: Self) bool {
@@ -32,7 +32,7 @@ pub fn BiasedFp(comptime T: type) type {
 
         pub fn toFloat(self: Self, comptime FloatT: type, negative: bool) FloatT {
             var word = self.f;
-            word |= @as(MantissaT, @intCast(self.e)) << std.math.floatMantissaBits(FloatT);
+            word |= @as(MantissaT, @intCast(self.e)) << std.math.float.mantissaBits(FloatT);
             var f = floatFromUnsigned(FloatT, MantissaT, word);
             if (negative) f = -f;
             return f;

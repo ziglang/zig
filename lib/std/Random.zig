@@ -397,7 +397,7 @@ pub fn weightedIndex(r: Random, comptime T: type, proportions: []const T) usize 
             .unsigned => r.uintLessThan(T, sum),
         },
         // take care that imprecision doesn't lead to a value slightly greater than sum
-        .Float => @min(r.float(T) * sum, sum - std.math.floatEps(T)),
+        .Float => @min(r.float(T) * sum, sum - std.math.float.eps(T)),
         else => @compileError("weightedIndex does not support proportions of type " ++
             @typeName(T)),
     };

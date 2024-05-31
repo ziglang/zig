@@ -7298,8 +7298,8 @@ pub const Constant = enum(u32) {
                         const Float = struct {
                             fn Repr(comptime T: type) type {
                                 return packed struct(std.meta.Int(.unsigned, @bitSizeOf(T))) {
-                                    mantissa: std.meta.Int(.unsigned, std.math.floatMantissaBits(T)),
-                                    exponent: std.meta.Int(.unsigned, std.math.floatExponentBits(T)),
+                                    mantissa: std.meta.Int(.unsigned, std.math.float.mantissaBits(T)),
+                                    exponent: std.meta.Int(.unsigned, std.math.float.exponentBits(T)),
                                     sign: u1,
                                 };
                             }
@@ -7320,17 +7320,17 @@ pub const Constant = enum(u32) {
                             .mantissa = std.math.shl(
                                 Mantissa64,
                                 repr.mantissa,
-                                std.math.floatMantissaBits(f64) - std.math.floatMantissaBits(f32) +
+                                std.math.float.mantissaBits(f64) - std.math.float.mantissaBits(f32) +
                                     denormal_shift,
                             ),
                             .exponent = switch (repr.exponent) {
                                 std.math.minInt(Exponent32) => if (repr.mantissa > 0)
-                                    @as(Exponent64, std.math.floatExponentMin(f32) +
-                                        std.math.floatExponentMax(f64)) - denormal_shift
+                                    @as(Exponent64, std.math.float.exponentMin(f32) +
+                                        std.math.float.exponentMax(f64)) - denormal_shift
                                 else
                                     std.math.minInt(Exponent64),
                                 else => @as(Exponent64, repr.exponent) +
-                                    (std.math.floatExponentMax(f64) - std.math.floatExponentMax(f32)),
+                                    (std.math.float.exponentMax(f64) - std.math.float.exponentMax(f32)),
                                 std.math.maxInt(Exponent32) => std.math.maxInt(Exponent64),
                             },
                             .sign = repr.sign,

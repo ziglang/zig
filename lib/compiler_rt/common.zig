@@ -219,7 +219,7 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
 
 pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
     const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
+    const integerBit = @as(Z, 1) << std.math.float.fractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
     significand.* <<= @as(std.math.Log2Int(Z), @intCast(shift));

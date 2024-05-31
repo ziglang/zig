@@ -7,9 +7,9 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     const float_bits = @typeInfo(F).Float.bits;
     const int_bits = @typeInfo(I).Int.bits;
     const rep_t = Int(.unsigned, float_bits);
-    const sig_bits = math.floatMantissaBits(F);
-    const exp_bits = math.floatExponentBits(F);
-    const fractional_bits = math.floatFractionalBits(F);
+    const sig_bits = math.float.mantissaBits(F);
+    const exp_bits = math.float.exponentBits(F);
+    const fractional_bits = math.float.fractionalBits(F);
 
     const implicit_bit = if (F != f80) (@as(rep_t, 1) << sig_bits) else 0;
     const max_exp = (1 << (exp_bits - 1));

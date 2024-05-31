@@ -8,9 +8,9 @@ const common = @import("./common.zig");
 pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     @setRuntimeSafety(builtin.is_test);
     const typeWidth = @typeInfo(T).Float.bits;
-    const significandBits = math.floatMantissaBits(T);
-    const fractionalBits = math.floatFractionalBits(T);
-    const exponentBits = math.floatExponentBits(T);
+    const significandBits = math.float.mantissaBits(T);
+    const fractionalBits = math.float.fractionalBits(T);
+    const exponentBits = math.float.exponentBits(T);
 
     const Z = std.meta.Int(.unsigned, typeWidth);
 
@@ -30,7 +30,7 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const absMask = signBit - 1;
     const qnanRep = @as(Z, @bitCast(math.nan(T))) | quietBit;
     const infRep: Z = @bitCast(math.inf(T));
-    const minNormalRep: Z = @bitCast(math.floatMin(T));
+    const minNormalRep: Z = @bitCast(math.float.min(T));
 
     const ZExp = if (typeWidth >= 32) u32 else Z;
     const aExponent: ZExp = @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent);
@@ -184,7 +184,7 @@ fn wideShrWithTruncation(comptime Z: type, hi: *Z, lo: *Z, count: u32) bool {
 
 fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
     const Z = PowerOfTwoSignificandZ(T);
-    const integerBit = @as(Z, 1) << math.floatFractionalBits(T);
+    const integerBit = @as(Z, 1) << math.float.fractionalBits(T);
 
     const shift = @clz(significand.*) - @clz(integerBit);
     significand.* <<= @intCast(shift);
@@ -194,7 +194,7 @@ fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
 /// Returns a power-of-two integer type that is large enough to contain
 /// the significand of T, including an explicit integer bit
 fn PowerOfTwoSignificandZ(comptime T: type) type {
-    const bits = math.ceilPowerOfTwoAssert(u16, math.floatFractionalBits(T) + 1);
+    const bits = math.ceilPowerOfTwoAssert(u16, math.float.fractionalBits(T) + 1);
     return std.meta.Int(.unsigned, bits);
 }
 

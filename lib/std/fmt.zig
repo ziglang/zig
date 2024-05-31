@@ -1062,9 +1062,9 @@ pub fn formatFloatHexadecimal(
     const T = @TypeOf(value);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
-    const mantissa_bits = math.floatMantissaBits(T);
-    const fractional_bits = math.floatFractionalBits(T);
-    const exponent_bits = math.floatExponentBits(T);
+    const mantissa_bits = math.float.mantissaBits(T);
+    const fractional_bits = math.float.fractionalBits(T);
+    const exponent_bits = math.float.exponentBits(T);
     const mantissa_mask = (1 << mantissa_bits) - 1;
     const exponent_mask = (1 << exponent_bits) - 1;
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
@@ -2249,23 +2249,23 @@ test "float.hexadecimal" {
     try expectFmt("f80: 0x1.5555555555555556p-2", "f80: {x}", .{@as(f80, 1.0 / 3.0)});
     try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
 
-    try expectFmt("f16: 0x1p-14", "f16: {x}", .{math.floatMin(f16)});
-    try expectFmt("f32: 0x1p-126", "f32: {x}", .{math.floatMin(f32)});
-    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{math.floatMin(f64)});
-    try expectFmt("f80: 0x1p-16382", "f80: {x}", .{math.floatMin(f80)});
-    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{math.floatMin(f128)});
+    try expectFmt("f16: 0x1p-14", "f16: {x}", .{math.float.min(f16)});
+    try expectFmt("f32: 0x1p-126", "f32: {x}", .{math.float.min(f32)});
+    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{math.float.min(f64)});
+    try expectFmt("f80: 0x1p-16382", "f80: {x}", .{math.float.min(f80)});
+    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{math.float.min(f128)});
 
-    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{math.floatTrueMin(f16)});
-    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{math.floatTrueMin(f32)});
-    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{math.floatTrueMin(f64)});
-    try expectFmt("f80: 0x0.0000000000000002p-16382", "f80: {x}", .{math.floatTrueMin(f80)});
-    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{math.floatTrueMin(f128)});
+    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{math.float.trueMin(f16)});
+    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{math.float.trueMin(f32)});
+    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{math.float.trueMin(f64)});
+    try expectFmt("f80: 0x0.0000000000000002p-16382", "f80: {x}", .{math.float.trueMin(f80)});
+    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{math.float.trueMin(f128)});
 
-    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{math.floatMax(f16)});
-    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{math.floatMax(f32)});
-    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{math.floatMax(f64)});
-    try expectFmt("f80: 0x1.fffffffffffffffep16383", "f80: {x}", .{math.floatMax(f80)});
-    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{math.floatMax(f128)});
+    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{math.float.max(f16)});
+    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{math.float.max(f32)});
+    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{math.float.max(f64)});
+    try expectFmt("f80: 0x1.fffffffffffffffep16383", "f80: {x}", .{math.float.max(f80)});
+    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{math.float.max(f128)});
 }
 
 test "float.hexadecimal.precision" {
