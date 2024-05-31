@@ -6607,6 +6607,20 @@ fn analyzeNodeForRuntime(c: *Context, ref: ast.Node) bool {
             const un_op: *ast.Payload.UnOp = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
             return analyzeNodeForRuntime(c, un_op.data);
         },
+        .field_access => {
+            const fcs: *ast.Payload.FieldAccess = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
+            return analyzeNodeForRuntime(c, fcs.data.lhs);
+        },
+        .shuffle => {
+            const shuff: *ast.Payload.Shuffle = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
+            return analyzeNodeForRuntime(c, shuff.data.a) or
+                analyzeNodeForRuntime(c, shuff.data.b) or
+                analyzeNodeForRuntime(c, shuff.data.mask_vector);
+        },
+        .macro_arithmetic => {
+            const mac_arith: *ast.Payload.MacroArithmetic = @alignCast(@fieldParentPtr("base", ref.ptr_otherwise));
+            return analyzeNodeForRuntime(c, mac_arith.data.lhs) or analyzeNodeForRuntime(c, mac_arith.data.rhs);
+        },
         .identifier => {
             const ident = ref.castTag(.identifier).?;
             const ident_node = c.global_scope.sym_table.get(ident.data) orelse return false;
