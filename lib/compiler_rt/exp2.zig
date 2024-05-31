@@ -102,7 +102,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
 
     // TODO: This should be handled beneath.
     if (math.isNan(x)) {
-        return math.nan(f64);
+        return math.float.nan(f64);
     }
 
     // |x| >= 1022 or nan
@@ -110,7 +110,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
         // x >= 1024 or nan
         if (ix >= 0x40900000 and ux >> 63 == 0) {
             math.raiseOverflow();
-            return math.inf(f64);
+            return math.float.inf(f64);
         }
         // -inf or -nan
         if (ix >= 0x7FF00000) {
@@ -480,11 +480,11 @@ test "exp2_64" {
 }
 
 test "exp2_32.special" {
-    try expect(math.isPositiveInf(exp2f(math.inf(f32))));
-    try expect(math.isNan(exp2f(math.nan(f32))));
+    try expect(math.isPositiveInf(exp2f(math.float.inf(f32))));
+    try expect(math.isNan(exp2f(math.float.nan(f32))));
 }
 
 test "exp2_64.special" {
-    try expect(math.isPositiveInf(exp2(math.inf(f64))));
-    try expect(math.isNan(exp2(math.nan(f64))));
+    try expect(math.isPositiveInf(exp2(math.float.inf(f64))));
+    try expect(math.isNan(exp2(math.float.nan(f64))));
 }

@@ -452,41 +452,41 @@ test "bitcast nan float does not modify signaling bit" {
     const snan_u128: u128 = 0x7FFF4000000000000000000000000000;
 
     // 16 bit
-    const snan_f16_const = math.snan(f16);
+    const snan_f16_const = math.float.snan(f16);
     try expectEqual(snan_u16, @as(u16, @bitCast(snan_f16_const)));
     try expectEqual(snan_u16, bitCastWrapper16(snan_f16_const));
 
-    var snan_f16_var = math.snan(f16);
+    var snan_f16_var = math.float.snan(f16);
     _ = &snan_f16_var;
     try expectEqual(snan_u16, @as(u16, @bitCast(snan_f16_var)));
     try expectEqual(snan_u16, bitCastWrapper16(snan_f16_var));
 
     // 32 bit
-    const snan_f32_const = math.snan(f32);
+    const snan_f32_const = math.float.snan(f32);
     try expectEqual(snan_u32, @as(u32, @bitCast(snan_f32_const)));
     try expectEqual(snan_u32, bitCastWrapper32(snan_f32_const));
 
-    var snan_f32_var = math.snan(f32);
+    var snan_f32_var = math.float.snan(f32);
     _ = &snan_f32_var;
     try expectEqual(snan_u32, @as(u32, @bitCast(snan_f32_var)));
     try expectEqual(snan_u32, bitCastWrapper32(snan_f32_var));
 
     // 64 bit
-    const snan_f64_const = math.snan(f64);
+    const snan_f64_const = math.float.snan(f64);
     try expectEqual(snan_u64, @as(u64, @bitCast(snan_f64_const)));
     try expectEqual(snan_u64, bitCastWrapper64(snan_f64_const));
 
-    var snan_f64_var = math.snan(f64);
+    var snan_f64_var = math.float.snan(f64);
     _ = &snan_f64_var;
     try expectEqual(snan_u64, @as(u64, @bitCast(snan_f64_var)));
     try expectEqual(snan_u64, bitCastWrapper64(snan_f64_var));
 
     // 128 bit
-    const snan_f128_const = math.snan(f128);
+    const snan_f128_const = math.float.snan(f128);
     try expectEqual(snan_u128, @as(u128, @bitCast(snan_f128_const)));
     try expectEqual(snan_u128, bitCastWrapper128(snan_f128_const));
 
-    var snan_f128_var = math.snan(f128);
+    var snan_f128_var = math.float.snan(f128);
     _ = &snan_f128_var;
     try expectEqual(snan_u128, @as(u128, @bitCast(snan_f128_var)));
     try expectEqual(snan_u128, bitCastWrapper128(snan_f128_var));

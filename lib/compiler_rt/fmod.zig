@@ -346,8 +346,8 @@ inline fn generic_fmod(comptime T: type, x: T, y: T) T {
 }
 
 test "fmodf" {
-    const nan_val = math.nan(f32);
-    const inf_val = math.inf(f32);
+    const nan_val = math.float.nan(f32);
+    const inf_val = math.float.inf(f32);
 
     try std.testing.expect(math.isNan(fmodf(nan_val, 1.0)));
     try std.testing.expect(math.isNan(fmodf(1.0, nan_val)));
@@ -365,8 +365,8 @@ test "fmodf" {
 }
 
 test "fmod" {
-    const nan_val = math.nan(f64);
-    const inf_val = math.inf(f64);
+    const nan_val = math.float.nan(f64);
+    const inf_val = math.float.inf(f64);
 
     try std.testing.expect(math.isNan(fmod(nan_val, 1.0)));
     try std.testing.expect(math.isNan(fmod(1.0, nan_val)));

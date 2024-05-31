@@ -9953,7 +9953,7 @@ pub const FuncGen = struct {
         const init_val = switch (llvm_scalar_ty) {
             .i16 => try o.builder.intValue(.i16, @as(i16, @bitCast(
                 @as(f16, switch (reduce.operation) {
-                    .Min, .Max => std.math.nan(f16),
+                    .Min, .Max => std.math.float.nan(f16),
                     .Add => -0.0,
                     .Mul => 1.0,
                     else => unreachable,
@@ -9961,7 +9961,7 @@ pub const FuncGen = struct {
             ))),
             .i80 => try o.builder.intValue(.i80, @as(i80, @bitCast(
                 @as(f80, switch (reduce.operation) {
-                    .Min, .Max => std.math.nan(f80),
+                    .Min, .Max => std.math.float.nan(f80),
                     .Add => -0.0,
                     .Mul => 1.0,
                     else => unreachable,
@@ -9969,7 +9969,7 @@ pub const FuncGen = struct {
             ))),
             .i128 => try o.builder.intValue(.i128, @as(i128, @bitCast(
                 @as(f128, switch (reduce.operation) {
-                    .Min, .Max => std.math.nan(f128),
+                    .Min, .Max => std.math.float.nan(f128),
                     .Add => -0.0,
                     .Mul => 1.0,
                     else => unreachable,

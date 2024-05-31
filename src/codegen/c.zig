@@ -1032,7 +1032,7 @@ pub const DeclGen = struct {
                         // MSVC doesn't have a way to define a custom or signaling NaN value in a constant expression
 
                         // TODO: Re-enable this check, otherwise we're writing qnan bit patterns on msvc incorrectly
-                        // if (std.math.isNan(f128_val) and f128_val != std.math.nan(f128))
+                        // if (std.math.isNan(f128_val) and f128_val != std.math.float.nan(f128))
                         //     return dg.fail("Only quiet nans are supported in global variable initializers", .{});
                     }
 
@@ -7080,13 +7080,13 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
             .Bool => Value.true,
             .Int => try scalar_ty.maxIntScalar(zcu, scalar_ty),
-            .Float => try zcu.floatValue(scalar_ty, std.math.nan(f128)),
+            .Float => try zcu.floatValue(scalar_ty, std.math.float.nan(f128)),
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
             .Bool => Value.false,
             .Int => try scalar_ty.minIntScalar(zcu, scalar_ty),
-            .Float => try zcu.floatValue(scalar_ty, std.math.nan(f128)),
+            .Float => try zcu.floatValue(scalar_ty, std.math.float.nan(f128)),
             else => unreachable,
         },
     }, .Initializer);

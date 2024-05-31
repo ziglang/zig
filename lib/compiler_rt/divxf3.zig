@@ -29,8 +29,8 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
     const significandMask = (@as(Z, 1) << significandBits) - 1;
 
     const absMask = signBit - 1;
-    const qnanRep = @as(Z, @bitCast(std.math.nan(T))) | quietBit;
-    const infRep: Z = @bitCast(std.math.inf(T));
+    const qnanRep = @as(Z, @bitCast(std.math.float.nan(T))) | quietBit;
+    const infRep: Z = @bitCast(std.math.float.inf(T));
 
     const aExponent: u32 = @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent);
     const bExponent: u32 = @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent);

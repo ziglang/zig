@@ -45,7 +45,7 @@ fn asin32(x: f32) f32 {
         if (ix == 0x3F800000) {
             return x * pio2 + 0x1.0p-120; // asin(+-1) = +-pi/2 with inexact
         } else {
-            return math.nan(f32); // asin(|x| > 1) is nan
+            return math.float.nan(f32); // asin(|x| > 1) is nan
         }
     }
 
@@ -104,7 +104,7 @@ fn asin64(x: f64) f64 {
         if ((ix - 0x3FF00000) | lx == 0) {
             return x * pio2_hi + 0x1.0p-120;
         } else {
-            return math.nan(f64);
+            return math.float.nan(f64);
         }
     }
 

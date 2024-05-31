@@ -38,7 +38,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
             return x; // sqrt (+-0) = +-0
         }
         if (ix < 0) {
-            return math.nan(f32);
+            return math.float.nan(f32);
         }
     }
 
@@ -121,7 +121,7 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
     }
     // sqrt(-ve) = nan
     if (ix0 & sign != 0) {
-        return math.nan(f64);
+        return math.float.nan(f64);
     }
 
     // normalize x
@@ -275,11 +275,11 @@ test "sqrtf" {
 }
 
 test "sqrtf special" {
-    try std.testing.expect(math.isPositiveInf(sqrtf(math.inf(f32))));
+    try std.testing.expect(math.isPositiveInf(sqrtf(math.float.inf(f32))));
     try std.testing.expect(sqrtf(0.0) == 0.0);
     try std.testing.expect(sqrtf(-0.0) == -0.0);
     try std.testing.expect(math.isNan(sqrtf(-1.0)));
-    try std.testing.expect(math.isNan(sqrtf(math.nan(f32))));
+    try std.testing.expect(math.isNan(sqrtf(math.float.nan(f32))));
 }
 
 test "sqrt" {
@@ -304,9 +304,9 @@ test "sqrt" {
 }
 
 test "sqrt special" {
-    try std.testing.expect(math.isPositiveInf(sqrt(math.inf(f64))));
+    try std.testing.expect(math.isPositiveInf(sqrt(math.float.inf(f64))));
     try std.testing.expect(sqrt(0.0) == 0.0);
     try std.testing.expect(sqrt(-0.0) == -0.0);
     try std.testing.expect(math.isNan(sqrt(-1.0)));
-    try std.testing.expect(math.isNan(sqrt(math.nan(f64))));
+    try std.testing.expect(math.isNan(sqrt(math.float.nan(f64))));
 }

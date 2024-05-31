@@ -46,11 +46,11 @@ fn log1p_32(x: f32) f32 {
         if (ix >= 0xBF800000) {
             // log1p(-1) = -inf
             if (x == -1.0) {
-                return -math.inf(f32);
+                return -math.float.inf(f32);
             }
             // log1p(x < -1) = nan
             else {
-                return math.nan(f32);
+                return math.float.nan(f32);
             }
         }
         // |x| < 2^(-24)
@@ -125,11 +125,11 @@ fn log1p_64(x: f64) f64 {
         if (hx >= 0xBFF00000) {
             // log1p(-1) = -inf
             if (x == -1.0) {
-                return -math.inf(f64);
+                return -math.float.inf(f64);
             }
             // log1p(x < -1) = nan
             else {
-                return math.nan(f64);
+                return math.float.nan(f64);
             }
         }
         // |x| < 2^(-53)
@@ -212,19 +212,19 @@ test log1p_64 {
 }
 
 test "log1p_32.special" {
-    try expect(math.isPositiveInf(log1p_32(math.inf(f32))));
+    try expect(math.isPositiveInf(log1p_32(math.float.inf(f32))));
     try expect(math.isPositiveZero(log1p_32(0.0)));
     try expect(math.isNegativeZero(log1p_32(-0.0)));
     try expect(math.isNegativeInf(log1p_32(-1.0)));
     try expect(math.isNan(log1p_32(-2.0)));
-    try expect(math.isNan(log1p_32(math.nan(f32))));
+    try expect(math.isNan(log1p_32(math.float.nan(f32))));
 }
 
 test "log1p_64.special" {
-    try expect(math.isPositiveInf(log1p_64(math.inf(f64))));
+    try expect(math.isPositiveInf(log1p_64(math.float.inf(f64))));
     try expect(math.isPositiveZero(log1p_64(0.0)));
     try expect(math.isNegativeZero(log1p_64(-0.0)));
     try expect(math.isNegativeInf(log1p_64(-1.0)));
     try expect(math.isNan(log1p_64(-2.0)));
-    try expect(math.isNan(log1p_64(math.nan(f64))));
+    try expect(math.isNan(log1p_64(math.float.nan(f64))));
 }

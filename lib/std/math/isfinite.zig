@@ -7,7 +7,7 @@ pub fn isFinite(x: anytype) bool {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
     const remove_sign = ~@as(TBits, 0) >> 1;
-    return @as(TBits, @bitCast(x)) & remove_sign < @as(TBits, @bitCast(math.inf(T)));
+    return @as(TBits, @bitCast(x)) & remove_sign < @as(TBits, @bitCast(math.float.inf(T)));
 }
 
 test isFinite {
@@ -26,9 +26,9 @@ test isFinite {
         try expect(isFinite(math.float.max(T)));
 
         // inf & nan
-        try expect(!isFinite(math.inf(T)));
-        try expect(!isFinite(-math.inf(T)));
-        try expect(!isFinite(math.nan(T)));
-        try expect(!isFinite(-math.nan(T)));
+        try expect(!isFinite(math.float.inf(T)));
+        try expect(!isFinite(-math.float.inf(T)));
+        try expect(!isFinite(math.float.nan(T)));
+        try expect(!isFinite(-math.float.nan(T)));
     }
 }

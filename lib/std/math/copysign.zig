@@ -19,7 +19,7 @@ test copysign {
         try expect(copysign(@as(T, -3.0), @as(T, 3.0)) == 3.0);
         try expect(copysign(@as(T, -4.0), @as(T, -4.0)) == -4.0);
         try expect(copysign(@as(T, 5.0), @as(T, -500.0)) == -5.0);
-        try expect(copysign(math.inf(T), @as(T, -0.0)) == -math.inf(T));
-        try expect(copysign(@as(T, 6.0), -math.nan(T)) == -6.0);
+        try expect(copysign(math.float.inf(T), @as(T, -0.0)) == -math.float.inf(T));
+        try expect(copysign(@as(T, 6.0), -math.float.nan(T)) == -6.0);
     }
 }

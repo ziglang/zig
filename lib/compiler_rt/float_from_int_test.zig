@@ -228,7 +228,7 @@ test "floatuntisf" {
     try test__floatuntisf(make_uti(0x0000000000001FED, 0xCBE0000000000000), 0x1.FEDCBEp+76);
 
     // Test overflow to infinity
-    try test__floatuntisf(math.maxInt(u128), @bitCast(math.inf(f32)));
+    try test__floatuntisf(math.maxInt(u128), @bitCast(math.float.inf(f32)));
 }
 
 fn test_one_floatsidf(a: i32, expected: u64) !void {
@@ -794,7 +794,7 @@ test "conversion to f16" {
     try testing.expect(__floatunsihf(@as(u32, 0)) == 0.0);
     try testing.expect(__floatunsihf(@as(u32, 1)) == 1.0);
     try testing.expect(__floatunsihf(@as(u32, 65504)) == 65504);
-    try testing.expect(__floatunsihf(@as(u32, 65504 + (1 << 4))) == math.inf(f16));
+    try testing.expect(__floatunsihf(@as(u32, 65504 + (1 << 4))) == math.float.inf(f16));
 }
 
 test "conversion to f32" {

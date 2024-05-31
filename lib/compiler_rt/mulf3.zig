@@ -28,8 +28,8 @@ pub inline fn mulf3(comptime T: type, a: T, b: T) T {
     const significandMask = (@as(Z, 1) << significandBits) - 1;
 
     const absMask = signBit - 1;
-    const qnanRep = @as(Z, @bitCast(math.nan(T))) | quietBit;
-    const infRep: Z = @bitCast(math.inf(T));
+    const qnanRep = @as(Z, @bitCast(math.float.nan(T))) | quietBit;
+    const infRep: Z = @bitCast(math.float.inf(T));
     const minNormalRep: Z = @bitCast(math.float.min(T));
 
     const ZExp = if (typeWidth >= 32) u32 else Z;

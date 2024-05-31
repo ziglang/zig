@@ -250,8 +250,8 @@ test atan2_64 {
 test "atan2_32.special" {
     const epsilon = 0.000001;
 
-    try expect(math.isNan(atan2_32(1.0, math.nan(f32))));
-    try expect(math.isNan(atan2_32(math.nan(f32), 1.0)));
+    try expect(math.isNan(atan2_32(1.0, math.float.nan(f32))));
+    try expect(math.isNan(atan2_32(math.float.nan(f32), 1.0)));
     try expect(atan2_32(0.0, 5.0) == 0.0);
     try expect(atan2_32(-0.0, 5.0) == -0.0);
     try expect(math.approxEqAbs(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
@@ -260,22 +260,22 @@ test "atan2_32.special" {
     try expect(math.approxEqAbs(f32, atan2_32(1.0, -0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan2_32(-1.0, 0.0), -math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan2_32(-1.0, -0.0), -math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi / 4.0, epsilon));
-    try expect(atan2_32(1.0, math.inf(f32)) == 0.0);
-    try expect(math.approxEqAbs(f32, atan2_32(1.0, -math.inf(f32)), math.pi, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(-1.0, -math.inf(f32)), -math.pi, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(math.inf(f32), 1.0), math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan2_32(-math.inf(f32), 1.0), -math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(math.float.inf(f32), math.float.inf(f32)), math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(-math.float.inf(f32), math.float.inf(f32)), -math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(math.float.inf(f32), -math.float.inf(f32)), 3.0 * math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(-math.float.inf(f32), -math.float.inf(f32)), -3.0 * math.pi / 4.0, epsilon));
+    try expect(atan2_32(1.0, math.float.inf(f32)) == 0.0);
+    try expect(math.approxEqAbs(f32, atan2_32(1.0, -math.float.inf(f32)), math.pi, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(-1.0, -math.float.inf(f32)), -math.pi, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(math.float.inf(f32), 1.0), math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan2_32(-math.float.inf(f32), 1.0), -math.pi / 2.0, epsilon));
 }
 
 test "atan2_64.special" {
     const epsilon = 0.000001;
 
-    try expect(math.isNan(atan2_64(1.0, math.nan(f64))));
-    try expect(math.isNan(atan2_64(math.nan(f64), 1.0)));
+    try expect(math.isNan(atan2_64(1.0, math.float.nan(f64))));
+    try expect(math.isNan(atan2_64(math.float.nan(f64), 1.0)));
     try expect(atan2_64(0.0, 5.0) == 0.0);
     try expect(atan2_64(-0.0, 5.0) == -0.0);
     try expect(math.approxEqAbs(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
@@ -284,13 +284,13 @@ test "atan2_64.special" {
     try expect(math.approxEqAbs(f64, atan2_64(1.0, -0.0), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan2_64(-1.0, 0.0), -math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan2_64(-1.0, -0.0), -math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi / 4.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi / 4.0, epsilon));
-    try expect(atan2_64(1.0, math.inf(f64)) == 0.0);
-    try expect(math.approxEqAbs(f64, atan2_64(1.0, -math.inf(f64)), math.pi, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(-1.0, -math.inf(f64)), -math.pi, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(math.inf(f64), 1.0), math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan2_64(-math.inf(f64), 1.0), -math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(math.float.inf(f64), math.float.inf(f64)), math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(-math.float.inf(f64), math.float.inf(f64)), -math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(math.float.inf(f64), -math.float.inf(f64)), 3.0 * math.pi / 4.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(-math.float.inf(f64), -math.float.inf(f64)), -3.0 * math.pi / 4.0, epsilon));
+    try expect(atan2_64(1.0, math.float.inf(f64)) == 0.0);
+    try expect(math.approxEqAbs(f64, atan2_64(1.0, -math.float.inf(f64)), math.pi, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(-1.0, -math.float.inf(f64)), -math.pi, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(math.float.inf(f64), 1.0), math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan2_64(-math.float.inf(f64), 1.0), -math.pi / 2.0, epsilon));
 }

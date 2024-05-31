@@ -19,11 +19,11 @@ pub fn isSignalNan(x: anytype) bool {
 
 test isNan {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
-        try expect(isNan(math.nan(T)));
-        try expect(isNan(-math.nan(T)));
-        try expect(isNan(math.snan(T)));
+        try expect(isNan(math.float.nan(T)));
+        try expect(isNan(-math.float.nan(T)));
+        try expect(isNan(math.float.snan(T)));
         try expect(!isNan(@as(T, 1.0)));
-        try expect(!isNan(@as(T, math.inf(T))));
+        try expect(!isNan(@as(T, math.float.inf(T))));
     }
 }
 
@@ -32,9 +32,9 @@ test isSignalNan {
         // TODO: Signalling NaN values get converted to quiet NaN values in
         //       some cases where they shouldn't such that this can fail.
         //       See https://github.com/ziglang/zig/issues/14366
-        // try expect(isSignalNan(math.snan(T)));
-        try expect(!isSignalNan(math.nan(T)));
+        // try expect(isSignalNan(math.float.snan(T)));
+        try expect(!isSignalNan(math.float.nan(T)));
         try expect(!isSignalNan(@as(T, 1.0)));
-        try expect(!isSignalNan(math.inf(T)));
+        try expect(!isSignalNan(math.float.inf(T)));
     }
 }

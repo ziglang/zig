@@ -24,7 +24,7 @@ pub fn gamma(comptime T: type, x: T) T {
         // gamma(-inf) = nan
         // gamma(n)    = nan for negative integers
         if (x < 0) {
-            return std.math.nan(T);
+            return std.math.float.nan(T);
         }
         // gamma(-0.0) = -inf
         // gamma(+0.0) = +inf
@@ -49,7 +49,7 @@ pub fn gamma(comptime T: type, x: T) T {
     // gamma(+inf) = +inf
     const upper_bound = if (T == f64) 172 else 36;
     if (x > upper_bound) {
-        return std.math.inf(T);
+        return std.math.float.inf(T);
     }
 
     const abs = @abs(x);
@@ -101,7 +101,7 @@ pub fn lgamma(comptime T: type, x: T) T {
         // lgamma(n)     = +inf for negative integers
         // lgamma(+-0.0) = +inf
         if (x <= 0) {
-            return std.math.inf(T);
+            return std.math.float.inf(T);
         }
         // lgamma(1) = +0.0
         // lgamma(2) = +0.0
@@ -142,7 +142,7 @@ pub fn lgamma(comptime T: type, x: T) T {
 // table of factorials for integer early return
 // stops at 22 because 23 isn't representable with full precision on f64
 const integer_result_table = [_]f64{
-    std.math.inf(f64), // gamma(+0.0)
+    std.math.float.inf(f64), // gamma(+0.0)
     1, // gamma(1)
     1, // ...
     2,
@@ -263,26 +263,26 @@ test gamma {
 
 test "gamma.special" {
     inline for (&.{ f32, f64 }) |T| {
-        try expect(std.math.isNan(gamma(T, -std.math.nan(T))));
-        try expect(std.math.isNan(gamma(T, std.math.nan(T))));
-        try expect(std.math.isNan(gamma(T, -std.math.inf(T))));
+        try expect(std.math.isNan(gamma(T, -std.math.float.nan(T))));
+        try expect(std.math.isNan(gamma(T, std.math.float.nan(T))));
+        try expect(std.math.isNan(gamma(T, -std.math.float.inf(T))));
 
         try expect(std.math.isNan(gamma(T, -4)));
         try expect(std.math.isNan(gamma(T, -11)));
         try expect(std.math.isNan(gamma(T, -78)));
 
-        try expectEqual(-std.math.inf(T), gamma(T, -0.0));
-        try expectEqual(std.math.inf(T), gamma(T, 0.0));
+        try expectEqual(-std.math.float.inf(T), gamma(T, -0.0));
+        try expectEqual(std.math.float.inf(T), gamma(T, 0.0));
 
         try expect(std.math.isNegativeZero(gamma(T, -200.5)));
         try expect(std.math.isPositiveZero(gamma(T, -201.5)));
         try expect(std.math.isNegativeZero(gamma(T, -202.5)));
 
-        try expectEqual(std.math.inf(T), gamma(T, 200));
-        try expectEqual(std.math.inf(T), gamma(T, 201));
-        try expectEqual(std.math.inf(T), gamma(T, 202));
+        try expectEqual(std.math.float.inf(T), gamma(T, 200));
+        try expectEqual(std.math.float.inf(T), gamma(T, 201));
+        try expectEqual(std.math.float.inf(T), gamma(T, 202));
 
-        try expectEqual(std.math.inf(T), gamma(T, std.math.inf(T)));
+        try expectEqual(std.math.float.inf(T), gamma(T, std.math.float.inf(T)));
     }
 }
 
@@ -309,18 +309,18 @@ test lgamma {
 
 test "lgamma.special" {
     inline for (&.{ f32, f64 }) |T| {
-        try expect(std.math.isNan(lgamma(T, -std.math.nan(T))));
-        try expect(std.math.isNan(lgamma(T, std.math.nan(T))));
+        try expect(std.math.isNan(lgamma(T, -std.math.float.nan(T))));
+        try expect(std.math.isNan(lgamma(T, std.math.float.nan(T))));
 
-        try expectEqual(std.math.inf(T), lgamma(T, -std.math.inf(T)));
-        try expectEqual(std.math.inf(T), lgamma(T, std.math.inf(T)));
+        try expectEqual(std.math.float.inf(T), lgamma(T, -std.math.float.inf(T)));
+        try expectEqual(std.math.float.inf(T), lgamma(T, std.math.float.inf(T)));
 
-        try expectEqual(std.math.inf(T), lgamma(T, -5));
-        try expectEqual(std.math.inf(T), lgamma(T, -8));
-        try expectEqual(std.math.inf(T), lgamma(T, -15));
+        try expectEqual(std.math.float.inf(T), lgamma(T, -5));
+        try expectEqual(std.math.float.inf(T), lgamma(T, -8));
+        try expectEqual(std.math.float.inf(T), lgamma(T, -15));
 
-        try expectEqual(std.math.inf(T), lgamma(T, -0.0));
-        try expectEqual(std.math.inf(T), lgamma(T, 0.0));
+        try expectEqual(std.math.float.inf(T), lgamma(T, -0.0));
+        try expectEqual(std.math.float.inf(T), lgamma(T, 0.0));
 
         try expect(std.math.isPositiveZero(lgamma(T, 1)));
         try expect(std.math.isPositiveZero(lgamma(T, 2)));

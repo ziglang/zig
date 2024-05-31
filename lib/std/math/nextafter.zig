@@ -44,7 +44,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
         return y;
     }
     if (math.isNan(x) or math.isNan(y)) {
-        return math.nan(T);
+        return math.float.nan(T);
     }
     if (x == 0.0) {
         return if (y > 0.0)
@@ -223,67 +223,67 @@ test "float" {
     }
 
     // normal -> normal (change in exponent)
-    try expect(nextAfter(f16, 0x1.FFCp3, math.inf(f16)) == 0x1p4);
-    try expect(nextAfter(f16, 0x1p4, -math.inf(f16)) == 0x1.FFCp3);
-    try expect(nextAfter(f16, -0x1.FFCp3, -math.inf(f16)) == -0x1p4);
-    try expect(nextAfter(f16, -0x1p4, math.inf(f16)) == -0x1.FFCp3);
-    try expect(nextAfter(f32, 0x1.FFFFFEp3, math.inf(f32)) == 0x1p4);
-    try expect(nextAfter(f32, 0x1p4, -math.inf(f32)) == 0x1.FFFFFEp3);
-    try expect(nextAfter(f32, -0x1.FFFFFEp3, -math.inf(f32)) == -0x1p4);
-    try expect(nextAfter(f32, -0x1p4, math.inf(f32)) == -0x1.FFFFFEp3);
+    try expect(nextAfter(f16, 0x1.FFCp3, math.float.inf(f16)) == 0x1p4);
+    try expect(nextAfter(f16, 0x1p4, -math.float.inf(f16)) == 0x1.FFCp3);
+    try expect(nextAfter(f16, -0x1.FFCp3, -math.float.inf(f16)) == -0x1p4);
+    try expect(nextAfter(f16, -0x1p4, math.float.inf(f16)) == -0x1.FFCp3);
+    try expect(nextAfter(f32, 0x1.FFFFFEp3, math.float.inf(f32)) == 0x1p4);
+    try expect(nextAfter(f32, 0x1p4, -math.float.inf(f32)) == 0x1.FFFFFEp3);
+    try expect(nextAfter(f32, -0x1.FFFFFEp3, -math.float.inf(f32)) == -0x1p4);
+    try expect(nextAfter(f32, -0x1p4, math.float.inf(f32)) == -0x1.FFFFFEp3);
     inline for (.{f64} ++ if (@bitSizeOf(c_longdouble) == 64) .{c_longdouble} else .{}) |T64| {
-        try expect(nextAfter(T64, 0x1.FFFFFFFFFFFFFp3, math.inf(T64)) == 0x1p4);
-        try expect(nextAfter(T64, 0x1p4, -math.inf(T64)) == 0x1.FFFFFFFFFFFFFp3);
-        try expect(nextAfter(T64, -0x1.FFFFFFFFFFFFFp3, -math.inf(T64)) == -0x1p4);
-        try expect(nextAfter(T64, -0x1p4, math.inf(T64)) == -0x1.FFFFFFFFFFFFFp3);
+        try expect(nextAfter(T64, 0x1.FFFFFFFFFFFFFp3, math.float.inf(T64)) == 0x1p4);
+        try expect(nextAfter(T64, 0x1p4, -math.float.inf(T64)) == 0x1.FFFFFFFFFFFFFp3);
+        try expect(nextAfter(T64, -0x1.FFFFFFFFFFFFFp3, -math.float.inf(T64)) == -0x1p4);
+        try expect(nextAfter(T64, -0x1p4, math.float.inf(T64)) == -0x1.FFFFFFFFFFFFFp3);
     }
     inline for (.{f80} ++ if (@bitSizeOf(c_longdouble) == 80) .{c_longdouble} else .{}) |T80| {
-        try expect(nextAfter(T80, 0x1.FFFFFFFFFFFFFFFEp3, math.inf(T80)) == 0x1p4);
-        try expect(nextAfter(T80, 0x1p4, -math.inf(T80)) == 0x1.FFFFFFFFFFFFFFFEp3);
-        try expect(nextAfter(T80, -0x1.FFFFFFFFFFFFFFFEp3, -math.inf(T80)) == -0x1p4);
-        try expect(nextAfter(T80, -0x1p4, math.inf(T80)) == -0x1.FFFFFFFFFFFFFFFEp3);
+        try expect(nextAfter(T80, 0x1.FFFFFFFFFFFFFFFEp3, math.float.inf(T80)) == 0x1p4);
+        try expect(nextAfter(T80, 0x1p4, -math.float.inf(T80)) == 0x1.FFFFFFFFFFFFFFFEp3);
+        try expect(nextAfter(T80, -0x1.FFFFFFFFFFFFFFFEp3, -math.float.inf(T80)) == -0x1p4);
+        try expect(nextAfter(T80, -0x1p4, math.float.inf(T80)) == -0x1.FFFFFFFFFFFFFFFEp3);
     }
     inline for (.{f128} ++ if (@bitSizeOf(c_longdouble) == 128) .{c_longdouble} else .{}) |T128| {
-        try expect(nextAfter(T128, 0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3, math.inf(T128)) == 0x1p4);
-        try expect(nextAfter(T128, 0x1p4, -math.inf(T128)) == 0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3);
-        try expect(nextAfter(T128, -0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3, -math.inf(T128)) == -0x1p4);
-        try expect(nextAfter(T128, -0x1p4, math.inf(T128)) == -0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3);
+        try expect(nextAfter(T128, 0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3, math.float.inf(T128)) == 0x1p4);
+        try expect(nextAfter(T128, 0x1p4, -math.float.inf(T128)) == 0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3);
+        try expect(nextAfter(T128, -0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3, -math.float.inf(T128)) == -0x1p4);
+        try expect(nextAfter(T128, -0x1p4, math.float.inf(T128)) == -0x1.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp3);
     }
 
     // normal -> subnormal
-    try expect(nextAfter(f16, 0x1p-14, -math.inf(f16)) == 0x0.FFCp-14);
-    try expect(nextAfter(f16, -0x1p-14, math.inf(f16)) == -0x0.FFCp-14);
-    try expect(nextAfter(f32, 0x1p-126, -math.inf(f32)) == 0x0.FFFFFEp-126);
-    try expect(nextAfter(f32, -0x1p-126, math.inf(f32)) == -0x0.FFFFFEp-126);
+    try expect(nextAfter(f16, 0x1p-14, -math.float.inf(f16)) == 0x0.FFCp-14);
+    try expect(nextAfter(f16, -0x1p-14, math.float.inf(f16)) == -0x0.FFCp-14);
+    try expect(nextAfter(f32, 0x1p-126, -math.float.inf(f32)) == 0x0.FFFFFEp-126);
+    try expect(nextAfter(f32, -0x1p-126, math.float.inf(f32)) == -0x0.FFFFFEp-126);
     inline for (.{f64} ++ if (@bitSizeOf(c_longdouble) == 64) .{c_longdouble} else .{}) |T64| {
-        try expect(nextAfter(T64, 0x1p-1022, -math.inf(T64)) == 0x0.FFFFFFFFFFFFFp-1022);
-        try expect(nextAfter(T64, -0x1p-1022, math.inf(T64)) == -0x0.FFFFFFFFFFFFFp-1022);
+        try expect(nextAfter(T64, 0x1p-1022, -math.float.inf(T64)) == 0x0.FFFFFFFFFFFFFp-1022);
+        try expect(nextAfter(T64, -0x1p-1022, math.float.inf(T64)) == -0x0.FFFFFFFFFFFFFp-1022);
     }
     inline for (.{f80} ++ if (@bitSizeOf(c_longdouble) == 80) .{c_longdouble} else .{}) |T80| {
-        try expect(nextAfter(T80, 0x1p-16382, -math.inf(T80)) == 0x0.FFFFFFFFFFFFFFFEp-16382);
-        try expect(nextAfter(T80, -0x1p-16382, math.inf(T80)) == -0x0.FFFFFFFFFFFFFFFEp-16382);
+        try expect(nextAfter(T80, 0x1p-16382, -math.float.inf(T80)) == 0x0.FFFFFFFFFFFFFFFEp-16382);
+        try expect(nextAfter(T80, -0x1p-16382, math.float.inf(T80)) == -0x0.FFFFFFFFFFFFFFFEp-16382);
     }
     inline for (.{f128} ++ if (@bitSizeOf(c_longdouble) == 128) .{c_longdouble} else .{}) |T128| {
-        try expect(nextAfter(T128, 0x1p-16382, -math.inf(T128)) == 0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382);
-        try expect(nextAfter(T128, -0x1p-16382, math.inf(T128)) == -0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382);
+        try expect(nextAfter(T128, 0x1p-16382, -math.float.inf(T128)) == 0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382);
+        try expect(nextAfter(T128, -0x1p-16382, math.float.inf(T128)) == -0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382);
     }
 
     // subnormal -> normal
-    try expect(nextAfter(f16, 0x0.FFCp-14, math.inf(f16)) == 0x1p-14);
-    try expect(nextAfter(f16, -0x0.FFCp-14, -math.inf(f16)) == -0x1p-14);
-    try expect(nextAfter(f32, 0x0.FFFFFEp-126, math.inf(f32)) == 0x1p-126);
-    try expect(nextAfter(f32, -0x0.FFFFFEp-126, -math.inf(f32)) == -0x1p-126);
+    try expect(nextAfter(f16, 0x0.FFCp-14, math.float.inf(f16)) == 0x1p-14);
+    try expect(nextAfter(f16, -0x0.FFCp-14, -math.float.inf(f16)) == -0x1p-14);
+    try expect(nextAfter(f32, 0x0.FFFFFEp-126, math.float.inf(f32)) == 0x1p-126);
+    try expect(nextAfter(f32, -0x0.FFFFFEp-126, -math.float.inf(f32)) == -0x1p-126);
     inline for (.{f64} ++ if (@bitSizeOf(c_longdouble) == 64) .{c_longdouble} else .{}) |T64| {
-        try expect(nextAfter(T64, 0x0.FFFFFFFFFFFFFp-1022, math.inf(T64)) == 0x1p-1022);
-        try expect(nextAfter(T64, -0x0.FFFFFFFFFFFFFp-1022, -math.inf(T64)) == -0x1p-1022);
+        try expect(nextAfter(T64, 0x0.FFFFFFFFFFFFFp-1022, math.float.inf(T64)) == 0x1p-1022);
+        try expect(nextAfter(T64, -0x0.FFFFFFFFFFFFFp-1022, -math.float.inf(T64)) == -0x1p-1022);
     }
     inline for (.{f80} ++ if (@bitSizeOf(c_longdouble) == 80) .{c_longdouble} else .{}) |T80| {
-        try expect(nextAfter(T80, 0x0.FFFFFFFFFFFFFFFEp-16382, math.inf(T80)) == 0x1p-16382);
-        try expect(nextAfter(T80, -0x0.FFFFFFFFFFFFFFFEp-16382, -math.inf(T80)) == -0x1p-16382);
+        try expect(nextAfter(T80, 0x0.FFFFFFFFFFFFFFFEp-16382, math.float.inf(T80)) == 0x1p-16382);
+        try expect(nextAfter(T80, -0x0.FFFFFFFFFFFFFFFEp-16382, -math.float.inf(T80)) == -0x1p-16382);
     }
     inline for (.{f128} ++ if (@bitSizeOf(c_longdouble) == 128) .{c_longdouble} else .{}) |T128| {
-        try expect(nextAfter(T128, 0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382, math.inf(T128)) == 0x1p-16382);
-        try expect(nextAfter(T128, -0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382, -math.inf(T128)) == -0x1p-16382);
+        try expect(nextAfter(T128, 0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382, math.float.inf(T128)) == 0x1p-16382);
+        try expect(nextAfter(T128, -0x0.FFFFFFFFFFFFFFFFFFFFFFFFFFFFp-16382, -math.float.inf(T128)) == -0x1p-16382);
     }
 
     // special values
@@ -292,29 +292,29 @@ test "float" {
         try expect(bitwiseEqual(T, nextAfter(T, 0.0, -0.0), -0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -0.0, -0.0), -0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -0.0, 0.0), 0.0));
-        try expect(nextAfter(T, 0.0, math.inf(T)) == math.float.trueMin(T));
-        try expect(nextAfter(T, 0.0, -math.inf(T)) == -math.float.trueMin(T));
-        try expect(nextAfter(T, -0.0, -math.inf(T)) == -math.float.trueMin(T));
-        try expect(nextAfter(T, -0.0, math.inf(T)) == math.float.trueMin(T));
+        try expect(nextAfter(T, 0.0, math.float.inf(T)) == math.float.trueMin(T));
+        try expect(nextAfter(T, 0.0, -math.float.inf(T)) == -math.float.trueMin(T));
+        try expect(nextAfter(T, -0.0, -math.float.inf(T)) == -math.float.trueMin(T));
+        try expect(nextAfter(T, -0.0, math.float.inf(T)) == math.float.trueMin(T));
         try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), 0.0), 0.0));
         try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), -0.0), 0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), -math.inf(T)), 0.0));
+        try expect(bitwiseEqual(T, nextAfter(T, math.float.trueMin(T), -math.float.inf(T)), 0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), -0.0), -0.0));
         try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), 0.0), -0.0));
-        try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), math.inf(T)), -0.0));
-        try expect(nextAfter(T, math.inf(T), math.inf(T)) == math.inf(T));
-        try expect(nextAfter(T, math.inf(T), -math.inf(T)) == math.float.max(T));
-        try expect(nextAfter(T, math.float.max(T), math.inf(T)) == math.inf(T));
-        try expect(nextAfter(T, -math.inf(T), -math.inf(T)) == -math.inf(T));
-        try expect(nextAfter(T, -math.inf(T), math.inf(T)) == -math.float.max(T));
-        try expect(nextAfter(T, -math.float.max(T), -math.inf(T)) == -math.inf(T));
-        try expect(math.isNan(nextAfter(T, 1.0, math.nan(T))));
-        try expect(math.isNan(nextAfter(T, math.nan(T), 1.0)));
-        try expect(math.isNan(nextAfter(T, math.nan(T), math.nan(T))));
-        try expect(math.isNan(nextAfter(T, math.inf(T), math.nan(T))));
-        try expect(math.isNan(nextAfter(T, -math.inf(T), math.nan(T))));
-        try expect(math.isNan(nextAfter(T, math.nan(T), math.inf(T))));
-        try expect(math.isNan(nextAfter(T, math.nan(T), -math.inf(T))));
+        try expect(bitwiseEqual(T, nextAfter(T, -math.float.trueMin(T), math.float.inf(T)), -0.0));
+        try expect(nextAfter(T, math.float.inf(T), math.float.inf(T)) == math.float.inf(T));
+        try expect(nextAfter(T, math.float.inf(T), -math.float.inf(T)) == math.float.max(T));
+        try expect(nextAfter(T, math.float.max(T), math.float.inf(T)) == math.float.inf(T));
+        try expect(nextAfter(T, -math.float.inf(T), -math.float.inf(T)) == -math.float.inf(T));
+        try expect(nextAfter(T, -math.float.inf(T), math.float.inf(T)) == -math.float.max(T));
+        try expect(nextAfter(T, -math.float.max(T), -math.float.inf(T)) == -math.float.inf(T));
+        try expect(math.isNan(nextAfter(T, 1.0, math.float.nan(T))));
+        try expect(math.isNan(nextAfter(T, math.float.nan(T), 1.0)));
+        try expect(math.isNan(nextAfter(T, math.float.nan(T), math.float.nan(T))));
+        try expect(math.isNan(nextAfter(T, math.float.inf(T), math.float.nan(T))));
+        try expect(math.isNan(nextAfter(T, -math.float.inf(T), math.float.nan(T))));
+        try expect(math.isNan(nextAfter(T, math.float.nan(T), math.float.inf(T))));
+        try expect(math.isNan(nextAfter(T, math.float.nan(T), -math.float.inf(T))));
     }
 }
 

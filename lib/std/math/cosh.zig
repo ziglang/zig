@@ -120,15 +120,15 @@ test cosh64 {
 test "cosh32.special" {
     try expect(cosh32(0.0) == 1.0);
     try expect(cosh32(-0.0) == 1.0);
-    try expect(math.isPositiveInf(cosh32(math.inf(f32))));
-    try expect(math.isPositiveInf(cosh32(-math.inf(f32))));
-    try expect(math.isNan(cosh32(math.nan(f32))));
+    try expect(math.isPositiveInf(cosh32(math.float.inf(f32))));
+    try expect(math.isPositiveInf(cosh32(-math.float.inf(f32))));
+    try expect(math.isNan(cosh32(math.float.nan(f32))));
 }
 
 test "cosh64.special" {
     try expect(cosh64(0.0) == 1.0);
     try expect(cosh64(-0.0) == 1.0);
-    try expect(math.isPositiveInf(cosh64(math.inf(f64))));
-    try expect(math.isPositiveInf(cosh64(-math.inf(f64))));
-    try expect(math.isNan(cosh64(math.nan(f64))));
+    try expect(math.isPositiveInf(cosh64(math.float.inf(f64))));
+    try expect(math.isPositiveInf(cosh64(-math.float.inf(f64))));
+    try expect(math.isNan(cosh64(math.float.nan(f64))));
 }

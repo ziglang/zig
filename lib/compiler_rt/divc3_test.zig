@@ -41,21 +41,21 @@ fn testDiv(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)
     {
         // if the first operand is an infinity and the second operand is a finite number, then the
         // result of the / operator is an infinity;
-        const a: T = -math.inf(T);
+        const a: T = -math.float.inf(T);
         const b: T = 0.0;
         const c: T = -4.0;
         const d: T = 1.0;
 
         const result = f(a, b, c, d);
-        try expect(result.real == math.inf(T));
-        try expect(result.imag == math.inf(T));
+        try expect(result.real == math.float.inf(T));
+        try expect(result.imag == math.float.inf(T));
     }
     {
         // if the first operand is a finite number and the second operand is an infinity, then the
         // result of the / operator is a zero;
         const a: T = 17.2;
         const b: T = 0.0;
-        const c: T = -math.inf(T);
+        const c: T = -math.float.inf(T);
         const d: T = 0.0;
 
         const result = f(a, b, c, d);
@@ -71,7 +71,7 @@ fn testDiv(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)
         const d: T = 0.0;
 
         const result = f(a, b, c, d);
-        try expect(result.real == math.inf(T));
-        try expect(result.imag == math.inf(T));
+        try expect(result.real == math.float.inf(T));
+        try expect(result.imag == math.float.inf(T));
     }
 }

@@ -29,7 +29,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     if (n >= 0) {
         if (n > max_biased_exponent - exponent) {
             // Overflow. Return +/- inf
-            return @as(T, @bitCast(@as(TBits, @bitCast(math.inf(T))) | sign_bit));
+            return @as(T, @bitCast(@as(TBits, @bitCast(math.float.inf(T))) | sign_bit));
         } else if (exponent + n <= 0) {
             // Result is subnormal
             return @as(T, @bitCast((repr << @as(Log2Int(TBits), @intCast(n))) | sign_bit));
@@ -122,25 +122,25 @@ test ldexp {
 
         // subnormals -> float limits (+inf)
         try expect(math.isFinite(ldexp(math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
-        try expect(ldexp(math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == math.inf(T));
+        try expect(ldexp(math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == math.float.inf(T));
 
         // subnormals -> float limits (-inf)
         try expect(math.isFinite(ldexp(-math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits - 1)));
-        try expect(ldexp(-math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == -math.inf(T));
+        try expect(ldexp(-math.float.trueMin(T), max_exponent + exponent_bias + fractional_bits) == -math.float.inf(T));
 
         // infinity -> infinity
-        try expect(ldexp(math.inf(T), math.maxInt(i32)) == math.inf(T));
-        try expect(ldexp(math.inf(T), math.minInt(i32)) == math.inf(T));
-        try expect(ldexp(math.inf(T), max_exponent) == math.inf(T));
-        try expect(ldexp(math.inf(T), min_exponent) == math.inf(T));
-        try expect(ldexp(-math.inf(T), math.maxInt(i32)) == -math.inf(T));
-        try expect(ldexp(-math.inf(T), math.minInt(i32)) == -math.inf(T));
+        try expect(ldexp(math.float.inf(T), math.maxInt(i32)) == math.float.inf(T));
+        try expect(ldexp(math.float.inf(T), math.minInt(i32)) == math.float.inf(T));
+        try expect(ldexp(math.float.inf(T), max_exponent) == math.float.inf(T));
+        try expect(ldexp(math.float.inf(T), min_exponent) == math.float.inf(T));
+        try expect(ldexp(-math.float.inf(T), math.maxInt(i32)) == -math.float.inf(T));
+        try expect(ldexp(-math.float.inf(T), math.minInt(i32)) == -math.float.inf(T));
 
         // extremely large n
-        try expect(ldexp(math.float.max(T), math.maxInt(i32)) == math.inf(T));
+        try expect(ldexp(math.float.max(T), math.maxInt(i32)) == math.float.inf(T));
         try expect(ldexp(math.float.max(T), -math.maxInt(i32)) == 0.0);
         try expect(ldexp(math.float.max(T), math.minInt(i32)) == 0.0);
-        try expect(ldexp(math.float.trueMin(T), math.maxInt(i32)) == math.inf(T));
+        try expect(ldexp(math.float.trueMin(T), math.maxInt(i32)) == math.float.inf(T));
         try expect(ldexp(math.float.trueMin(T), -math.maxInt(i32)) == 0.0);
         try expect(ldexp(math.float.trueMin(T), math.minInt(i32)) == 0.0);
     }

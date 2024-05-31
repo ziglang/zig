@@ -54,8 +54,8 @@ fn test__cmpdf2(vector: TestVector) bool {
 }
 
 const arguments = [_]f64{
-    std.math.nan(f64),
-    -std.math.inf(f64),
+    std.math.float.nan(f64),
+    -std.math.float.inf(f64),
     -0x1.fffffffffffffp1023,
     -0x1.0000000000001p0 - 0x1.0000000000000p0,
     -0x1.fffffffffffffp-1,
@@ -71,7 +71,7 @@ const arguments = [_]f64{
     0x1.0000000000000p0,
     0x1.0000000000001p0,
     0x1.fffffffffffffp1023,
-    std.math.inf(f64),
+    std.math.float.inf(f64),
 };
 
 fn generateVector(comptime a: f64, comptime b: f64) TestVector {

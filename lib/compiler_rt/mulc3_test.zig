@@ -41,25 +41,25 @@ fn testMul(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)
     {
         // if one operand is an infinity and the other operand is a nonzero finite number or an infinity,
         // then the result of the * operator is an infinity;
-        const a: T = math.inf(T);
-        const b: T = -math.inf(T);
+        const a: T = math.float.inf(T);
+        const b: T = -math.float.inf(T);
         const c: T = 1.0;
         const d: T = 0.0;
 
         const result = f(a, b, c, d);
-        try expect(result.real == math.inf(T));
-        try expect(result.imag == -math.inf(T));
+        try expect(result.real == math.float.inf(T));
+        try expect(result.imag == -math.float.inf(T));
     }
     {
         // if one operand is an infinity and the other operand is a nonzero finite number or an infinity,
         // then the result of the * operator is an infinity;
-        const a: T = math.inf(T);
+        const a: T = math.float.inf(T);
         const b: T = -1.0;
         const c: T = 1.0;
-        const d: T = math.inf(T);
+        const d: T = math.float.inf(T);
 
         const result = f(a, b, c, d);
-        try expect(result.real == math.inf(T));
-        try expect(result.imag == math.inf(T));
+        try expect(result.real == math.float.inf(T));
+        try expect(result.imag == math.float.inf(T));
     }
 }

@@ -24,8 +24,8 @@ test isPositiveZero {
         try expect(!isPositiveZero(@as(T, -0.0)));
         try expect(!isPositiveZero(math.float.min(T)));
         try expect(!isPositiveZero(math.float.max(T)));
-        try expect(!isPositiveZero(math.inf(T)));
-        try expect(!isPositiveZero(-math.inf(T)));
+        try expect(!isPositiveZero(math.float.inf(T)));
+        try expect(!isPositiveZero(-math.float.inf(T)));
     }
 }
 
@@ -35,7 +35,7 @@ test isNegativeZero {
         try expect(!isNegativeZero(@as(T, 0.0)));
         try expect(!isNegativeZero(math.float.min(T)));
         try expect(!isNegativeZero(math.float.max(T)));
-        try expect(!isNegativeZero(math.inf(T)));
-        try expect(!isNegativeZero(-math.inf(T)));
+        try expect(!isNegativeZero(math.float.inf(T)));
+        try expect(!isNegativeZero(-math.float.inf(T)));
     }
 }

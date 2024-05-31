@@ -70,8 +70,8 @@ pub inline fn mulc3(comptime T: type, a_in: T, b_in: T, c_in: T, d_in: T) Comple
         }
         if (recalc) {
             return .{
-                .real = std.math.inf(T) * (a * c - b * d),
-                .imag = std.math.inf(T) * (a * d + b * c),
+                .real = std.math.float.inf(T) * (a * c - b * d),
+                .imag = std.math.float.inf(T) * (a * d + b * c),
             };
         }
     }

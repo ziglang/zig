@@ -59,7 +59,7 @@ inline fn generic_fmin(comptime T: type, x: T, y: T) T {
 
 test "generic_fmin" {
     inline for ([_]type{ f32, f64, c_longdouble, f80, f128 }) |T| {
-        const nan_val = math.nan(T);
+        const nan_val = math.float.nan(T);
 
         try std.testing.expect(math.isNan(generic_fmin(T, nan_val, nan_val)));
         try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));

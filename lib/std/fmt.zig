@@ -2218,25 +2218,25 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
-    try expectFmt("f64: nan", "f64: {}", .{math.nan(f64)});
+    try expectFmt("f64: nan", "f64: {}", .{math.float.nan(f64)});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.target.cpu.arch != .arm) {
-        try expectFmt("f64: -nan", "f64: {}", .{-math.nan(f64)});
+        try expectFmt("f64: -nan", "f64: {}", .{-math.float.nan(f64)});
     }
-    try expectFmt("f64: inf", "f64: {}", .{math.inf(f64)});
-    try expectFmt("f64: -inf", "f64: {}", .{-math.inf(f64)});
+    try expectFmt("f64: inf", "f64: {}", .{math.float.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {}", .{-math.float.inf(f64)});
 }
 
 test "float.hexadecimal.special" {
-    try expectFmt("f64: nan", "f64: {x}", .{math.nan(f64)});
+    try expectFmt("f64: nan", "f64: {x}", .{math.float.nan(f64)});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
     if (builtin.target.cpu.arch != .arm) {
-        try expectFmt("f64: -nan", "f64: {x}", .{-math.nan(f64)});
+        try expectFmt("f64: -nan", "f64: {x}", .{-math.float.nan(f64)});
     }
-    try expectFmt("f64: inf", "f64: {x}", .{math.inf(f64)});
-    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf(f64)});
+    try expectFmt("f64: inf", "f64: {x}", .{math.float.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {x}", .{-math.float.inf(f64)});
 
     try expectFmt("f64: 0x0.0p0", "f64: {x}", .{@as(f64, 0)});
     try expectFmt("f64: -0x0.0p0", "f64: {x}", .{-@as(f64, 0)});

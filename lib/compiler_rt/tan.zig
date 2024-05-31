@@ -156,15 +156,15 @@ test "tan64" {
 test "tan32.special" {
     try expect(tanf(0.0) == 0.0);
     try expect(tanf(-0.0) == -0.0);
-    try expect(math.isNan(tanf(math.inf(f32))));
-    try expect(math.isNan(tanf(-math.inf(f32))));
-    try expect(math.isNan(tanf(math.nan(f32))));
+    try expect(math.isNan(tanf(math.float.inf(f32))));
+    try expect(math.isNan(tanf(-math.float.inf(f32))));
+    try expect(math.isNan(tanf(math.float.nan(f32))));
 }
 
 test "tan64.special" {
     try expect(tan(0.0) == 0.0);
     try expect(tan(-0.0) == -0.0);
-    try expect(math.isNan(tan(math.inf(f64))));
-    try expect(math.isNan(tan(-math.inf(f64))));
-    try expect(math.isNan(tan(math.nan(f64))));
+    try expect(math.isNan(tan(math.float.inf(f64))));
+    try expect(math.isNan(tan(-math.float.inf(f64))));
+    try expect(math.isNan(tan(math.float.nan(f64))));
 }

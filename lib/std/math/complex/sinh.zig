@@ -79,7 +79,7 @@ fn sinh32(z: Complex(f32)) Complex(f32) {
         if (iy >= 0x7f800000) {
             return Complex(f32).init(x * x, x * (y - y));
         }
-        return Complex(f32).init(x * @cos(y), math.inf(f32) * @sin(y));
+        return Complex(f32).init(x * @cos(y), math.float.inf(f32) * @sin(y));
     }
 
     return Complex(f32).init((x * x) * (y - y), (x + x) * (y - y));
@@ -146,7 +146,7 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
         if (iy >= 0x7ff00000) {
             return Complex(f64).init(x * x, x * (y - y));
         }
-        return Complex(f64).init(x * @cos(y), math.inf(f64) * @sin(y));
+        return Complex(f64).init(x * @cos(y), math.float.inf(f64) * @sin(y));
     }
 
     return Complex(f64).init((x * x) * (y - y), (x + x) * (y - y));

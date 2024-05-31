@@ -12,14 +12,14 @@ const qnan_u64: u64 = 0x7FF8000000000000;
 const snan_u64: u64 = 0x7FF4000000000000;
 const qnan_u128: u128 = 0x7FFF8000000000000000000000000000;
 const snan_u128: u128 = 0x7FFF4000000000000000000000000000;
-const qnan_f16: f16 = math.nan(f16);
-const snan_f16: f16 = math.snan(f16);
-const qnan_f32: f32 = math.nan(f32);
-const snan_f32: f32 = math.snan(f32);
-const qnan_f64: f64 = math.nan(f64);
-const snan_f64: f64 = math.snan(f64);
-const qnan_f128: f128 = math.nan(f128);
-const snan_f128: f128 = math.snan(f128);
+const qnan_f16: f16 = math.float.nan(f16);
+const snan_f16: f16 = math.float.snan(f16);
+const qnan_f32: f32 = math.float.nan(f32);
+const snan_f32: f32 = math.float.snan(f32);
+const qnan_f64: f64 = math.float.nan(f64);
+const snan_f64: f64 = math.float.snan(f64);
+const qnan_f128: f128 = math.float.nan(f128);
+const snan_f128: f128 = math.float.snan(f128);
 
 test "nan memory equality" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;

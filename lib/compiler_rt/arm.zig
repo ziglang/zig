@@ -206,7 +206,7 @@ fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
 
 test "__aeabi_frsub" {
     if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
-    const inf32 = std.math.inf(f32);
+    const inf32 = std.math.float.inf(f32);
     const maxf32 = std.math.float.max(f32);
     const frsub_data = [_][3]f32{
         [_]f32{ 0.0, 0.0, -0.0 },
@@ -233,7 +233,7 @@ test "__aeabi_frsub" {
 
 test "__aeabi_drsub" {
     if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
-    const inf64 = std.math.inf(f64);
+    const inf64 = std.math.float.inf(f64);
     const maxf64 = std.math.float.max(f64);
     const frsub_data = [_][3]f64{
         [_]f64{ 0.0, 0.0, -0.0 },

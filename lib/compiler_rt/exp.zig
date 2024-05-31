@@ -138,7 +138,7 @@ pub fn exp(x_: f64) callconv(.C) f64 {
             if (!math.isInf(x)) {
                 math.raiseOverflow();
             }
-            return math.inf(f64);
+            return math.float.inf(f64);
         }
         if (x < -708.39641853226410622) {
             // underflow if x != -inf
@@ -232,11 +232,11 @@ test "exp64" {
 }
 
 test "exp32.special" {
-    try expect(math.isPositiveInf(expf(math.inf(f32))));
-    try expect(math.isNan(expf(math.nan(f32))));
+    try expect(math.isPositiveInf(expf(math.float.inf(f32))));
+    try expect(math.isNan(expf(math.float.nan(f32))));
 }
 
 test "exp64.special" {
-    try expect(math.isPositiveInf(exp(math.inf(f64))));
-    try expect(math.isNan(exp(math.nan(f64))));
+    try expect(math.isPositiveInf(exp(math.float.inf(f64))));
+    try expect(math.isNan(exp(math.float.nan(f64))));
 }

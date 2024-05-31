@@ -29,7 +29,7 @@ pub fn expm1(x: anytype) @TypeOf(x) {
 
 fn expm1_32(x_: f32) f32 {
     if (math.isNan(x_))
-        return math.nan(f32);
+        return math.float.nan(f32);
 
     const o_threshold: f32 = 8.8721679688e+01;
     const ln2_hi: f32 = 6.9313812256e-01;
@@ -157,7 +157,7 @@ fn expm1_32(x_: f32) f32 {
 
 fn expm1_64(x_: f64) f64 {
     if (math.isNan(x_))
-        return math.nan(f64);
+        return math.float.nan(f64);
 
     const o_threshold: f64 = 7.09782712893383973096e+02;
     const ln2_hi: f64 = 6.93147180369123816490e-01;
@@ -190,7 +190,7 @@ fn expm1_64(x_: f64) f64 {
         }
         if (x > o_threshold) {
             math.raiseOverflow();
-            return math.inf(f64);
+            return math.float.inf(f64);
         }
     }
 
@@ -312,13 +312,13 @@ test expm1_64 {
 }
 
 test "expm1_32.special" {
-    try expect(math.isPositiveInf(expm1_32(math.inf(f32))));
-    try expect(expm1_32(-math.inf(f32)) == -1.0);
-    try expect(math.isNan(expm1_32(math.nan(f32))));
+    try expect(math.isPositiveInf(expm1_32(math.float.inf(f32))));
+    try expect(expm1_32(-math.float.inf(f32)) == -1.0);
+    try expect(math.isNan(expm1_32(math.float.nan(f32))));
 }
 
 test "expm1_64.special" {
-    try expect(math.isPositiveInf(expm1_64(math.inf(f64))));
-    try expect(expm1_64(-math.inf(f64)) == -1.0);
-    try expect(math.isNan(expm1_64(math.nan(f64))));
+    try expect(math.isPositiveInf(expm1_64(math.float.inf(f64))));
+    try expect(expm1_64(-math.float.inf(f64)) == -1.0);
+    try expect(math.isNan(expm1_64(math.float.nan(f64))));
 }

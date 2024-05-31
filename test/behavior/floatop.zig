@@ -195,17 +195,17 @@ fn testCmp(comptime T: type) !void {
 
     @setEvalBranchQuota(2_000);
     var edges = [_]T{
-        -math.inf(T),
+        -math.float.inf(T),
         -math.float.max(T),
         -math.float.min(T),
         -math.float.trueMin(T),
         -0.0,
-        math.nan(T),
+        math.float.nan(T),
         0.0,
         math.float.trueMin(T),
         math.float.min(T),
         math.float.max(T),
-        math.inf(T),
+        math.float.inf(T),
     };
     _ = &edges;
     for (edges, 0..) |rhs, rhs_i| {
@@ -351,7 +351,7 @@ fn testSqrt(comptime T: type) !void {
     try expect(math.approxEqAbs(T, @sqrt(c), 94.5633674791671111, eps));
 
     // special cases
-    var inf: T = math.inf(T);
+    var inf: T = math.float.inf(T);
     try expect(math.isPositiveInf(@sqrt(inf)));
     var zero: T = 0.0;
     try expect(@sqrt(zero) == 0.0);
@@ -359,7 +359,7 @@ fn testSqrt(comptime T: type) !void {
     try expect(@sqrt(neg_zero) == 0.0);
     var neg_one: T = -1.0;
     try expect(math.isNan(@sqrt(neg_one)));
-    var nan: T = math.nan(T);
+    var nan: T = math.float.nan(T);
     try expect(math.isNan(@sqrt(nan)));
 
     _ = .{
@@ -1092,11 +1092,11 @@ fn testFabs(comptime T: type) !void {
     try expect(@abs(neg_true_min) == math.float.trueMin(T));
 
     // non-finite numbers
-    var inf: T = math.inf(T);
+    var inf: T = math.float.inf(T);
     try expect(math.isPositiveInf(@abs(inf)));
-    var neg_inf: T = -math.inf(T);
+    var neg_inf: T = -math.float.inf(T);
     try expect(math.isPositiveInf(@abs(neg_inf)));
-    var nan: T = math.nan(T);
+    var nan: T = math.float.nan(T);
     try expect(math.isNan(@abs(nan)));
 
     _ = .{
@@ -1535,14 +1535,14 @@ fn testNeg(comptime T: type) !void {
     try expect(-neg_true_min == math.float.trueMin(T));
 
     // non-finite numbers
-    var inf: T = math.inf(T);
+    var inf: T = math.float.inf(T);
     try expect(math.isNegativeInf(-inf));
-    var neg_inf: T = -math.inf(T);
+    var neg_inf: T = -math.float.inf(T);
     try expect(math.isPositiveInf(-neg_inf));
-    var nan: T = math.nan(T);
+    var nan: T = math.float.nan(T);
     try expect(math.isNan(-nan));
     try expect(math.signbit(-nan));
-    var neg_nan: T = -math.nan(T);
+    var neg_nan: T = -math.float.nan(T);
     try expect(math.isNan(-neg_nan));
     try expect(!math.signbit(-neg_nan));
 
@@ -1630,25 +1630,25 @@ test "comptime float compared with runtime int" {
     try std.testing.expect(i < f);
 }
 test "comptime nan < runtime 0" {
-    const f = comptime std.math.nan(f64);
+    const f = comptime std.math.float.nan(f64);
     var i: usize = 0;
     _ = &i;
     try std.testing.expect(!(f < i));
 }
 test "comptime inf > runtime 0" {
-    const f = comptime std.math.inf(f64);
+    const f = comptime std.math.float.inf(f64);
     var i: usize = 0;
     _ = &i;
     try std.testing.expect(f > i);
 }
 test "comptime -inf < runtime 0" {
-    const f = comptime -std.math.inf(f64);
+    const f = comptime -std.math.float.inf(f64);
     var i: usize = 0;
     _ = &i;
     try std.testing.expect(f < i);
 }
 test "comptime inf >= runtime 1" {
-    const f = comptime std.math.inf(f64);
+    const f = comptime std.math.float.inf(f64);
     var i: usize = 1;
     _ = &i;
     try std.testing.expect(f >= i);
@@ -1658,7 +1658,7 @@ test "comptime isNan(nan * 1)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const nan_times_one = comptime std.math.nan(f64) * 1;
+    const nan_times_one = comptime std.math.float.nan(f64) * 1;
     try std.testing.expect(std.math.isNan(nan_times_one));
 }
 test "runtime isNan(nan * 1)" {
@@ -1666,7 +1666,7 @@ test "runtime isNan(nan * 1)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const nan_times_one = std.math.nan(f64) * 1;
+    const nan_times_one = std.math.float.nan(f64) * 1;
     try std.testing.expect(std.math.isNan(nan_times_one));
 }
 test "comptime isNan(nan * 0)" {
@@ -1674,9 +1674,9 @@ test "comptime isNan(nan * 0)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const nan_times_zero = comptime std.math.nan(f64) * 0;
+    const nan_times_zero = comptime std.math.float.nan(f64) * 0;
     try std.testing.expect(std.math.isNan(nan_times_zero));
-    const zero_times_nan = 0 * comptime std.math.nan(f64);
+    const zero_times_nan = 0 * comptime std.math.float.nan(f64);
     try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "runtime isNan(nan * 0)" {
@@ -1684,9 +1684,9 @@ test "runtime isNan(nan * 0)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const nan_times_zero = std.math.nan(f64) * 0;
+    const nan_times_zero = std.math.float.nan(f64) * 0;
     try std.testing.expect(std.math.isNan(nan_times_zero));
-    const zero_times_nan = 0 * std.math.nan(f64);
+    const zero_times_nan = 0 * std.math.float.nan(f64);
     try std.testing.expect(std.math.isNan(zero_times_nan));
 }
 test "comptime isNan(inf * 0)" {
@@ -1694,9 +1694,9 @@ test "comptime isNan(inf * 0)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const inf_times_zero = comptime std.math.inf(f64) * 0;
+    const inf_times_zero = comptime std.math.float.inf(f64) * 0;
     try std.testing.expect(std.math.isNan(inf_times_zero));
-    const zero_times_inf = 0 * comptime std.math.inf(f64);
+    const zero_times_inf = 0 * comptime std.math.float.inf(f64);
     try std.testing.expect(std.math.isNan(zero_times_inf));
 }
 test "runtime isNan(inf * 0)" {
@@ -1704,9 +1704,9 @@ test "runtime isNan(inf * 0)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const inf_times_zero = std.math.inf(f64) * 0;
+    const inf_times_zero = std.math.float.inf(f64) * 0;
     try std.testing.expect(std.math.isNan(inf_times_zero));
-    const zero_times_inf = 0 * std.math.inf(f64);
+    const zero_times_inf = 0 * std.math.float.inf(f64);
     try std.testing.expect(std.math.isNan(zero_times_inf));
 }
 

@@ -47,7 +47,7 @@ inline fn div(a: f64, b: f64) f64 {
     const absMask = signBit - 1;
     const exponentMask = absMask ^ significandMask;
     const qnanRep = exponentMask | quietBit;
-    const infRep = @as(Z, @bitCast(std.math.inf(f64)));
+    const infRep = @as(Z, @bitCast(std.math.float.inf(f64)));
 
     const aExponent: u32 = @truncate((@as(Z, @bitCast(a)) >> significandBits) & maxExponent);
     const bExponent: u32 = @truncate((@as(Z, @bitCast(b)) >> significandBits) & maxExponent);

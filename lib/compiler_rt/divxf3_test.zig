@@ -40,13 +40,13 @@ fn test__divxf3(a: f80, b: f80) !void {
 
 test "divxf3" {
     // NaN / any = NaN
-    try expect__divxf3_result(math.nan(f80), 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
+    try expect__divxf3_result(math.float.nan(f80), 0x1.23456789abcdefp+5, 0x7fffC000000000000000);
     // inf / any(except inf and nan) = inf
-    try expect__divxf3_result(math.inf(f80), 0x1.23456789abcdefp+5, 0x7fff8000000000000000);
+    try expect__divxf3_result(math.float.inf(f80), 0x1.23456789abcdefp+5, 0x7fff8000000000000000);
     // inf / inf = nan
-    try expect__divxf3_result(math.inf(f80), math.inf(f80), 0x7fffC000000000000000);
+    try expect__divxf3_result(math.float.inf(f80), math.float.inf(f80), 0x7fffC000000000000000);
     // inf / nan = nan
-    try expect__divxf3_result(math.inf(f80), math.nan(f80), 0x7fffC000000000000000);
+    try expect__divxf3_result(math.float.inf(f80), math.float.nan(f80), 0x7fffC000000000000000);
 
     try test__divxf3(0x1.a23b45362464523375893ab4cdefp+5, 0x1.eedcbaba3a94546558237654321fp-1);
     try test__divxf3(0x1.a2b34c56d745382f9abf2c3dfeffp-50, 0x1.ed2c3ba15935332532287654321fp-9);

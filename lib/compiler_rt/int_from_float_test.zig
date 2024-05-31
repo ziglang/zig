@@ -340,7 +340,7 @@ test "fixunssfti" {
     try test__fixunssfti(-0x1.FFFFFEp+126, 0x0000000000000000);
     try test__fixunssfti(-0x1.FFFFFCp+126, 0x0000000000000000);
     try test__fixunssfti(math.float.max(f32), 0xffffff00000000000000000000000000);
-    try test__fixunssfti(math.inf(f32), math.maxInt(u128));
+    try test__fixunssfti(math.float.inf(f32), math.maxInt(u128));
 }
 
 fn test__fixdfsi(a: f64, expected: i32) !void {
@@ -717,7 +717,7 @@ test "fixtfsi" {
 }
 
 test "fixunstfsi" {
-    try test__fixunstfsi(math.inf(f128), 0xffffffff);
+    try test__fixunstfsi(math.float.inf(f128), 0xffffffff);
     try test__fixunstfsi(0, 0x0);
     try test__fixunstfsi(0x1.23456789abcdefp+5, 0x24);
     try test__fixunstfsi(0x1.23456789abcdefp-3, 0x0);
@@ -908,7 +908,7 @@ test "fixtfti" {
 }
 
 test "fixunstfti" {
-    try test__fixunstfti(math.inf(f128), 0xffffffffffffffffffffffffffffffff);
+    try test__fixunstfti(math.float.inf(f128), 0xffffffffffffffffffffffffffffffff);
 
     try test__fixunstfti(0.0, 0);
 
@@ -936,7 +936,7 @@ fn test__fixunshfti(a: f16, expected: u128) !void {
 }
 
 test "fixunshfti for f16" {
-    try test__fixunshfti(math.inf(f16), math.maxInt(u128));
+    try test__fixunshfti(math.float.inf(f16), math.maxInt(u128));
     try test__fixunshfti(math.float.max(f16), 65504);
 }
 
@@ -946,7 +946,7 @@ fn test__fixunsxfti(a: f80, expected: u128) !void {
 }
 
 test "fixunsxfti for f80" {
-    try test__fixunsxfti(math.inf(f80), math.maxInt(u128));
+    try test__fixunsxfti(math.float.inf(f80), math.maxInt(u128));
     try test__fixunsxfti(math.float.max(f80), math.maxInt(u128));
     try test__fixunsxfti(math.maxInt(u64), math.maxInt(u64));
 }

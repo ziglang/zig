@@ -54,7 +54,7 @@ fn ilogbX(comptime T: type, x: T) i32 {
 
     if (e == maxExponent) {
         math.raiseInvalid();
-        if (u > @as(Z, @bitCast(math.inf(T)))) {
+        if (u > @as(Z, @bitCast(math.float.inf(T)))) {
             return fp_ilogbnan; // u is a NaN
         } else return maxInt(i32);
     }
@@ -136,36 +136,36 @@ test "128" {
 }
 
 test "16 special" {
-    try expect(ilogbX(f16, math.inf(f16)) == maxInt(i32));
-    try expect(ilogbX(f16, -math.inf(f16)) == maxInt(i32));
+    try expect(ilogbX(f16, math.float.inf(f16)) == maxInt(i32));
+    try expect(ilogbX(f16, -math.float.inf(f16)) == maxInt(i32));
     try expect(ilogbX(f16, 0.0) == minInt(i32));
-    try expect(ilogbX(f16, math.nan(f16)) == fp_ilogbnan);
+    try expect(ilogbX(f16, math.float.nan(f16)) == fp_ilogbnan);
 }
 
 test "32 special" {
-    try expect(ilogbX(f32, math.inf(f32)) == maxInt(i32));
-    try expect(ilogbX(f32, -math.inf(f32)) == maxInt(i32));
+    try expect(ilogbX(f32, math.float.inf(f32)) == maxInt(i32));
+    try expect(ilogbX(f32, -math.float.inf(f32)) == maxInt(i32));
     try expect(ilogbX(f32, 0.0) == minInt(i32));
-    try expect(ilogbX(f32, math.nan(f32)) == fp_ilogbnan);
+    try expect(ilogbX(f32, math.float.nan(f32)) == fp_ilogbnan);
 }
 
 test "64 special" {
-    try expect(ilogbX(f64, math.inf(f64)) == maxInt(i32));
-    try expect(ilogbX(f64, -math.inf(f64)) == maxInt(i32));
+    try expect(ilogbX(f64, math.float.inf(f64)) == maxInt(i32));
+    try expect(ilogbX(f64, -math.float.inf(f64)) == maxInt(i32));
     try expect(ilogbX(f64, 0.0) == minInt(i32));
-    try expect(ilogbX(f64, math.nan(f64)) == fp_ilogbnan);
+    try expect(ilogbX(f64, math.float.nan(f64)) == fp_ilogbnan);
 }
 
 test "80 special" {
-    try expect(ilogbX(f80, math.inf(f80)) == maxInt(i32));
-    try expect(ilogbX(f80, -math.inf(f80)) == maxInt(i32));
+    try expect(ilogbX(f80, math.float.inf(f80)) == maxInt(i32));
+    try expect(ilogbX(f80, -math.float.inf(f80)) == maxInt(i32));
     try expect(ilogbX(f80, 0.0) == minInt(i32));
-    try expect(ilogbX(f80, math.nan(f80)) == fp_ilogbnan);
+    try expect(ilogbX(f80, math.float.nan(f80)) == fp_ilogbnan);
 }
 
 test "128 special" {
-    try expect(ilogbX(f128, math.inf(f128)) == maxInt(i32));
-    try expect(ilogbX(f128, -math.inf(f128)) == maxInt(i32));
+    try expect(ilogbX(f128, math.float.inf(f128)) == maxInt(i32));
+    try expect(ilogbX(f128, -math.float.inf(f128)) == maxInt(i32));
     try expect(ilogbX(f128, 0.0) == minInt(i32));
-    try expect(ilogbX(f128, math.nan(f128)) == fp_ilogbnan);
+    try expect(ilogbX(f128, math.float.nan(f128)) == fp_ilogbnan);
 }

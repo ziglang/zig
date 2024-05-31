@@ -134,7 +134,7 @@ test exp32 {
         const a = Complex(f32).init(88.8, 0x1p-149);
         const c = exp(a);
 
-        try testing.expectApproxEqAbs(math.inf(f32), c.re, tolerance_f32);
+        try testing.expectApproxEqAbs(math.float.inf(f32), c.re, tolerance_f32);
         try testing.expectApproxEqAbs(@as(f32, 5.15088629e-07), c.im, tolerance_f32);
     }
 }
@@ -154,7 +154,7 @@ test exp64 {
         const a = Complex(f64).init(709.8, 0x1p-1074);
         const c = exp(a);
 
-        try testing.expectApproxEqAbs(math.inf(f64), c.re, tolerance_f64);
+        try testing.expectApproxEqAbs(math.float.inf(f64), c.re, tolerance_f64);
         try testing.expectApproxEqAbs(@as(f64, 9.036659362159884e-16), c.im, tolerance_f64);
     }
 }

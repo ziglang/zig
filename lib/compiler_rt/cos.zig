@@ -159,13 +159,13 @@ test "cos64" {
 }
 
 test "cos32.special" {
-    try expect(math.isNan(cosf(math.inf(f32))));
-    try expect(math.isNan(cosf(-math.inf(f32))));
-    try expect(math.isNan(cosf(math.nan(f32))));
+    try expect(math.isNan(cosf(math.float.inf(f32))));
+    try expect(math.isNan(cosf(-math.float.inf(f32))));
+    try expect(math.isNan(cosf(math.float.nan(f32))));
 }
 
 test "cos64.special" {
-    try expect(math.isNan(cos(math.inf(f64))));
-    try expect(math.isNan(cos(-math.inf(f64))));
-    try expect(math.isNan(cos(math.nan(f64))));
+    try expect(math.isNan(cos(math.float.inf(f64))));
+    try expect(math.isNan(cos(-math.float.inf(f64))));
+    try expect(math.isNan(cos(math.float.nan(f64))));
 }

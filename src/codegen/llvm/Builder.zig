@@ -8923,13 +8923,13 @@ pub fn fpValue(self: *Builder, ty: Type, comptime value: comptime_float) Allocat
 
 pub fn nanConst(self: *Builder, ty: Type) Allocator.Error!Constant {
     return switch (ty) {
-        .half => try self.halfConst(std.math.nan(f16)),
-        .bfloat => try self.bfloatConst(std.math.nan(f32)),
-        .float => try self.floatConst(std.math.nan(f32)),
-        .double => try self.doubleConst(std.math.nan(f64)),
-        .fp128 => try self.fp128Const(std.math.nan(f128)),
-        .x86_fp80 => try self.x86_fp80Const(std.math.nan(f80)),
-        .ppc_fp128 => try self.ppc_fp128Const(.{std.math.nan(f64)} ** 2),
+        .half => try self.halfConst(std.math.float.nan(f16)),
+        .bfloat => try self.bfloatConst(std.math.float.nan(f32)),
+        .float => try self.floatConst(std.math.float.nan(f32)),
+        .double => try self.doubleConst(std.math.float.nan(f64)),
+        .fp128 => try self.fp128Const(std.math.float.nan(f128)),
+        .x86_fp80 => try self.x86_fp80Const(std.math.float.nan(f80)),
+        .ppc_fp128 => try self.ppc_fp128Const(.{std.math.float.nan(f64)} ** 2),
         else => unreachable,
     };
 }

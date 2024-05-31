@@ -54,8 +54,8 @@ fn test__cmpsf2(vector: TestVector) bool {
 }
 
 const arguments = [_]f32{
-    std.math.nan(f32),
-    -std.math.inf(f32),
+    std.math.float.nan(f32),
+    -std.math.float.inf(f32),
     -0x1.fffffep127,
     -0x1.000002p0 - 0x1.000000p0,
     -0x1.fffffep-1,
@@ -71,7 +71,7 @@ const arguments = [_]f32{
     0x1.000000p0,
     0x1.000002p0,
     0x1.fffffep127,
-    std.math.inf(f32),
+    std.math.float.inf(f32),
 };
 
 fn generateVector(comptime a: f32, comptime b: f32) TestVector {

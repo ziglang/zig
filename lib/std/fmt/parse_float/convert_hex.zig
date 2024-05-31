@@ -77,7 +77,7 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
 
     // Infinity and range error
     if (n.exponent > max_exp) {
-        return math.inf(T);
+        return math.float.inf(T);
     }
 
     var bits = n.mantissa & ((1 << mantissa_bits) - 1);

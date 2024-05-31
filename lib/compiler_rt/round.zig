@@ -176,23 +176,23 @@ test "round128" {
 test "round32.special" {
     try expect(roundf(0.0) == 0.0);
     try expect(roundf(-0.0) == -0.0);
-    try expect(math.isPositiveInf(roundf(math.inf(f32))));
-    try expect(math.isNegativeInf(roundf(-math.inf(f32))));
-    try expect(math.isNan(roundf(math.nan(f32))));
+    try expect(math.isPositiveInf(roundf(math.float.inf(f32))));
+    try expect(math.isNegativeInf(roundf(-math.float.inf(f32))));
+    try expect(math.isNan(roundf(math.float.nan(f32))));
 }
 
 test "round64.special" {
     try expect(round(0.0) == 0.0);
     try expect(round(-0.0) == -0.0);
-    try expect(math.isPositiveInf(round(math.inf(f64))));
-    try expect(math.isNegativeInf(round(-math.inf(f64))));
-    try expect(math.isNan(round(math.nan(f64))));
+    try expect(math.isPositiveInf(round(math.float.inf(f64))));
+    try expect(math.isNegativeInf(round(-math.float.inf(f64))));
+    try expect(math.isNan(round(math.float.nan(f64))));
 }
 
 test "round128.special" {
     try expect(roundq(0.0) == 0.0);
     try expect(roundq(-0.0) == -0.0);
-    try expect(math.isPositiveInf(roundq(math.inf(f128))));
-    try expect(math.isNegativeInf(roundq(-math.inf(f128))));
-    try expect(math.isNan(roundq(math.nan(f128))));
+    try expect(math.isPositiveInf(roundq(math.float.inf(f128))));
+    try expect(math.isNegativeInf(roundq(-math.float.inf(f128))));
+    try expect(math.isNan(roundq(math.float.nan(f128))));
 }

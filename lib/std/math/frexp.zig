@@ -139,16 +139,16 @@ fn FrexpTests(comptime Float: type) type {
         test "inf" {
             var r: Frexp(T) = undefined;
 
-            r = frexp(math.inf(T));
+            r = frexp(math.float.inf(T));
             try expectEqual(0, r.exponent);
             try expect(math.isPositiveInf(r.significand));
 
-            r = frexp(-math.inf(T));
+            r = frexp(-math.float.inf(T));
             try expectEqual(0, r.exponent);
             try expect(math.isNegativeInf(r.significand));
         }
         test "nan" {
-            const r: Frexp(T) = frexp(math.nan(T));
+            const r: Frexp(T) = frexp(math.float.nan(T));
             try expect(math.isNan(r.significand));
         }
     };
@@ -202,12 +202,12 @@ test frexp {
         try expectEqual(x, math.ldexp(result.significand, result.exponent));
 
         // infinity -> {infinity, zero} (+)
-        result = frexp(math.inf(T));
+        result = frexp(math.float.inf(T));
         try expectEqual(0, result.exponent);
         try expect(math.isPositiveInf(result.significand));
 
         // infinity -> {infinity, zero} (-)
-        result = frexp(-math.inf(T));
+        result = frexp(-math.float.inf(T));
         try expectEqual(0, result.exponent);
         try expect(math.isNegativeInf(result.significand));
 
@@ -222,7 +222,7 @@ test frexp {
         try expect(math.isNegativeZero(result.significand));
 
         // nan -> {nan, undefined}
-        result = frexp(math.nan(T));
+        result = frexp(math.float.nan(T));
         try expect(math.isNan(result.significand));
     }
 }

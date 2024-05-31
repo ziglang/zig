@@ -15,9 +15,9 @@ test signbit {
         try expect(!signbit(@as(T, 1.0)));
         try expect(signbit(@as(T, -2.0)));
         try expect(signbit(@as(T, -0.0)));
-        try expect(!signbit(math.inf(T)));
-        try expect(signbit(-math.inf(T)));
-        try expect(!signbit(math.nan(T)));
-        try expect(signbit(-math.nan(T)));
+        try expect(!signbit(math.float.inf(T)));
+        try expect(signbit(-math.float.inf(T)));
+        try expect(!signbit(math.float.nan(T)));
+        try expect(signbit(-math.float.nan(T)));
     }
 }

@@ -870,9 +870,9 @@ test "vector reduce operation" {
             try testReduce(.Xor, [4]u128{ 0x00000000, 0x33333333, 0x88888888, 0x44444444 }, @as(u128, 0xffffffff));
 
             // Test the reduction on vectors containing NaNs.
-            const f16_nan = math.nan(f16);
-            const f32_nan = math.nan(f32);
-            const f64_nan = math.nan(f64);
+            const f16_nan = math.float.nan(f16);
+            const f32_nan = math.float.nan(f32);
+            const f64_nan = math.float.nan(f64);
 
             try testReduce(.Add, [4]f16{ -1.9, 5.1, f16_nan, 100.0 }, f16_nan);
             try testReduce(.Add, [4]f32{ -1.9, 5.1, f32_nan, 100.0 }, f32_nan);

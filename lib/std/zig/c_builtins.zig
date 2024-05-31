@@ -213,15 +213,15 @@ pub inline fn __builtin_expect(expr: c_long, c: c_long) c_long {
 pub inline fn __builtin_nanf(tagp: []const u8) f32 {
     const parsed = std.fmt.parseUnsigned(c_ulong, tagp, 0) catch 0;
     const bits: u23 = @truncate(parsed); // single-precision float trailing significand is 23 bits
-    return @bitCast(@as(u32, bits) | @as(u32, @bitCast(std.math.nan(f32))));
+    return @bitCast(@as(u32, bits) | @as(u32, @bitCast(std.math.float.nan(f32))));
 }
 
 pub inline fn __builtin_huge_valf() f32 {
-    return std.math.inf(f32);
+    return std.math.float.inf(f32);
 }
 
 pub inline fn __builtin_inff() f32 {
-    return std.math.inf(f32);
+    return std.math.float.inf(f32);
 }
 
 pub inline fn __builtin_isnan(x: anytype) c_int {

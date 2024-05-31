@@ -16708,7 +16708,7 @@ fn analyzeArithmetic(
                                     return Air.internedToRef(rhs_val.toIntern());
                                 }
                                 if (rhs_val.isInf(mod)) {
-                                    return Air.internedToRef((try mod.floatValue(resolved_type, std.math.nan(f128))).toIntern());
+                                    return Air.internedToRef((try mod.floatValue(resolved_type, std.math.float.nan(f128))).toIntern());
                                 }
                             } else if (resolved_type.isAnyFloat()) {
                                 break :lz;
@@ -16736,7 +16736,7 @@ fn analyzeArithmetic(
                     if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) rz: {
                         if (maybe_lhs_val) |lhs_val| {
                             if (lhs_val.isInf(mod)) {
-                                return Air.internedToRef((try mod.floatValue(resolved_type, std.math.nan(f128))).toIntern());
+                                return Air.internedToRef((try mod.floatValue(resolved_type, std.math.float.nan(f128))).toIntern());
                             }
                         } else if (resolved_type.isAnyFloat()) {
                             break :rz;

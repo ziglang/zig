@@ -242,8 +242,8 @@ test "atan32.special" {
 
     try expect(math.isPositiveZero(atan32(0.0)));
     try expect(math.isNegativeZero(atan32(-0.0)));
-    try expect(math.approxEqAbs(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan32(math.float.inf(f32)), math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f32, atan32(-math.float.inf(f32)), -math.pi / 2.0, epsilon));
 }
 
 test "atan64.special" {
@@ -251,6 +251,6 @@ test "atan64.special" {
 
     try expect(math.isPositiveZero(atan64(0.0)));
     try expect(math.isNegativeZero(atan64(-0.0)));
-    try expect(math.approxEqAbs(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
-    try expect(math.approxEqAbs(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan64(math.float.inf(f64)), math.pi / 2.0, epsilon));
+    try expect(math.approxEqAbs(f64, atan64(-math.float.inf(f64)), -math.pi / 2.0, epsilon));
 }

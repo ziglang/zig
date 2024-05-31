@@ -25,7 +25,7 @@ pub inline fn cmpf2(comptime T: type, comptime RT: type, a: T, b: T) RT {
     const exponentBits = std.math.float.exponentBits(T);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
-    const infT = comptime std.math.inf(T);
+    const infT = comptime std.math.float.inf(T);
     const infRep = @as(rep_t, @bitCast(infT));
 
     const aInt = @as(srep_t, @bitCast(a));
@@ -115,7 +115,7 @@ pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
     const exponentBits = std.math.float.exponentBits(T);
     const signBit = (@as(rep_t, 1) << (significandBits + exponentBits));
     const absMask = signBit - 1;
-    const infRep = @as(rep_t, @bitCast(std.math.inf(T)));
+    const infRep = @as(rep_t, @bitCast(std.math.float.inf(T)));
 
     const aAbs: rep_t = @as(rep_t, @bitCast(a)) & absMask;
     const bAbs: rep_t = @as(rep_t, @bitCast(b)) & absMask;

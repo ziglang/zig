@@ -167,17 +167,17 @@ test "sin64" {
 test "sin32.special" {
     try expect(sinf(0.0) == 0.0);
     try expect(sinf(-0.0) == -0.0);
-    try expect(math.isNan(sinf(math.inf(f32))));
-    try expect(math.isNan(sinf(-math.inf(f32))));
-    try expect(math.isNan(sinf(math.nan(f32))));
+    try expect(math.isNan(sinf(math.float.inf(f32))));
+    try expect(math.isNan(sinf(-math.float.inf(f32))));
+    try expect(math.isNan(sinf(math.float.nan(f32))));
 }
 
 test "sin64.special" {
     try expect(sin(0.0) == 0.0);
     try expect(sin(-0.0) == -0.0);
-    try expect(math.isNan(sin(math.inf(f64))));
-    try expect(math.isNan(sin(-math.inf(f64))));
-    try expect(math.isNan(sin(math.nan(f64))));
+    try expect(math.isNan(sin(math.float.inf(f64))));
+    try expect(math.isNan(sin(-math.float.inf(f64))));
+    try expect(math.isNan(sin(math.float.nan(f64))));
 }
 
 test "sin32 #9901" {

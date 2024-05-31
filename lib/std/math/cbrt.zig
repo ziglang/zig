@@ -149,15 +149,15 @@ test cbrt64 {
 test "cbrt.special" {
     try expect(math.isPositiveZero(cbrt32(0.0)));
     try expect(@as(u32, @bitCast(cbrt32(-0.0))) == @as(u32, 0x80000000));
-    try expect(math.isPositiveInf(cbrt32(math.inf(f32))));
-    try expect(math.isNegativeInf(cbrt32(-math.inf(f32))));
-    try expect(math.isNan(cbrt32(math.nan(f32))));
+    try expect(math.isPositiveInf(cbrt32(math.float.inf(f32))));
+    try expect(math.isNegativeInf(cbrt32(-math.float.inf(f32))));
+    try expect(math.isNan(cbrt32(math.float.nan(f32))));
 }
 
 test "cbrt64.special" {
     try expect(math.isPositiveZero(cbrt64(0.0)));
     try expect(math.isNegativeZero(cbrt64(-0.0)));
-    try expect(math.isPositiveInf(cbrt64(math.inf(f64))));
-    try expect(math.isNegativeInf(cbrt64(-math.inf(f64))));
-    try expect(math.isNan(cbrt64(math.nan(f64))));
+    try expect(math.isPositiveInf(cbrt64(math.float.inf(f64))));
+    try expect(math.isNegativeInf(cbrt64(-math.float.inf(f64))));
+    try expect(math.isNan(cbrt64(math.float.nan(f64))));
 }

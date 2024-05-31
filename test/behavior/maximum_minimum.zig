@@ -15,7 +15,7 @@ test "@max" {
         fn doTheTest() !void {
             var x: i32 = 10;
             var y: f32 = 0.68;
-            var nan: f32 = std.math.nan(f32);
+            var nan: f32 = std.math.float.nan(f32);
             _ = .{ &x, &y, &nan };
             try expect(@as(i32, 10) == @max(@as(i32, -3), x));
             try expect(@as(f32, 3.2) == @max(@as(f32, 3.2), y));
@@ -50,8 +50,8 @@ test "@max on vectors" {
             _ = .{ &c, &d };
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ 0, 0.42, -0.64, 7.8 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
-            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.float.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.float.nan(f32), 0 };
             const z = @max(e, f);
             _ = .{ &e, &f };
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
@@ -71,7 +71,7 @@ test "@min" {
         fn doTheTest() !void {
             var x: i32 = 10;
             var y: f32 = 0.68;
-            var nan: f32 = std.math.nan(f32);
+            var nan: f32 = std.math.float.nan(f32);
             _ = .{ &x, &y, &nan };
             try expect(@as(i32, -3) == @min(@as(i32, -3), x));
             try expect(@as(f32, 0.68) == @min(@as(f32, 3.2), y));
@@ -106,8 +106,8 @@ test "@min for vectors" {
             const y = @min(c, d);
             try expect(mem.eql(f32, &@as([4]f32, y), &[4]f32{ -0.23, 0.4, -2.4, 0.9 }));
 
-            var e: @Vector(2, f32) = [2]f32{ 0, std.math.nan(f32) };
-            var f: @Vector(2, f32) = [2]f32{ std.math.nan(f32), 0 };
+            var e: @Vector(2, f32) = [2]f32{ 0, std.math.float.nan(f32) };
+            var f: @Vector(2, f32) = [2]f32{ std.math.float.nan(f32), 0 };
             _ = .{ &e, &f };
             const z = @max(e, f);
             try expect(mem.eql(f32, &@as([2]f32, z), &[2]f32{ 0, 0 }));
@@ -137,7 +137,7 @@ test "@min/max for floats" {
             try expectEqual(y, @max(y, x));
 
             if (T != comptime_float) {
-                var nan: T = std.math.nan(T);
+                var nan: T = std.math.float.nan(T);
                 _ = &nan;
                 try expectEqual(y, @max(nan, y));
                 try expectEqual(y, @max(y, nan));

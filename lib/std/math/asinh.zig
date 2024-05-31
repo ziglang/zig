@@ -114,15 +114,15 @@ test asinh64 {
 test "asinh32.special" {
     try expect(math.isPositiveZero(asinh32(0.0)));
     try expect(math.isNegativeZero(asinh32(-0.0)));
-    try expect(math.isPositiveInf(asinh32(math.inf(f32))));
-    try expect(math.isNegativeInf(asinh32(-math.inf(f32))));
-    try expect(math.isNan(asinh32(math.nan(f32))));
+    try expect(math.isPositiveInf(asinh32(math.float.inf(f32))));
+    try expect(math.isNegativeInf(asinh32(-math.float.inf(f32))));
+    try expect(math.isNan(asinh32(math.float.nan(f32))));
 }
 
 test "asinh64.special" {
     try expect(math.isPositiveZero(asinh64(0.0)));
     try expect(math.isNegativeZero(asinh64(-0.0)));
-    try expect(math.isPositiveInf(asinh64(math.inf(f64))));
-    try expect(math.isNegativeInf(asinh64(-math.inf(f64))));
-    try expect(math.isNan(asinh64(math.nan(f64))));
+    try expect(math.isPositiveInf(asinh64(math.float.inf(f64))));
+    try expect(math.isNegativeInf(asinh64(-math.float.inf(f64))));
+    try expect(math.isNan(asinh64(math.float.nan(f64))));
 }

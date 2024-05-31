@@ -1538,9 +1538,9 @@ test "format f32" {
     try check(f32, -0.0, "-0e0");
     try check(f32, 1.0, "1e0");
     try check(f32, -1.0, "-1e0");
-    try check(f32, std.math.nan(f32), "nan");
-    try check(f32, std.math.inf(f32), "inf");
-    try check(f32, -std.math.inf(f32), "-inf");
+    try check(f32, std.math.float.nan(f32), "nan");
+    try check(f32, std.math.float.inf(f32), "inf");
+    try check(f32, -std.math.float.inf(f32), "-inf");
     try check(f32, 1.1754944e-38, "1.1754944e-38");
     try check(f32, @bitCast(@as(u32, 0x7f7fffff)), "3.4028235e38");
     try check(f32, @bitCast(@as(u32, 1)), "1e-45");
@@ -1599,9 +1599,9 @@ test "format f64" {
     try check(f64, -0.0, "-0e0");
     try check(f64, 1.0, "1e0");
     try check(f64, -1.0, "-1e0");
-    try check(f64, std.math.nan(f64), "nan");
-    try check(f64, std.math.inf(f64), "inf");
-    try check(f64, -std.math.inf(f64), "-inf");
+    try check(f64, std.math.float.nan(f64), "nan");
+    try check(f64, std.math.float.inf(f64), "inf");
+    try check(f64, -std.math.float.inf(f64), "-inf");
     try check(f64, 2.2250738585072014e-308, "2.2250738585072014e-308");
     try check(f64, @bitCast(@as(u64, 0x7fefffffffffffff)), "1.7976931348623157e308");
     try check(f64, @bitCast(@as(u64, 1)), "5e-324");
@@ -1648,9 +1648,9 @@ test "format f80" {
     try check(f80, -0.0, "-0e0");
     try check(f80, 1.0, "1e0");
     try check(f80, -1.0, "-1e0");
-    try check(f80, std.math.nan(f80), "nan");
-    try check(f80, std.math.inf(f80), "inf");
-    try check(f80, -std.math.inf(f80), "-inf");
+    try check(f80, std.math.float.nan(f80), "nan");
+    try check(f80, std.math.float.inf(f80), "inf");
+    try check(f80, -std.math.float.inf(f80), "-inf");
 
     try check(f80, 2.2250738585072014e-308, "2.2250738585072014e-308");
     try check(f80, 2.98023223876953125e-8, "2.98023223876953125e-8");
@@ -1669,9 +1669,9 @@ test "format f128" {
     try check(f128, -0.0, "-0e0");
     try check(f128, 1.0, "1e0");
     try check(f128, -1.0, "-1e0");
-    try check(f128, std.math.nan(f128), "nan");
-    try check(f128, std.math.inf(f128), "inf");
-    try check(f128, -std.math.inf(f128), "-inf");
+    try check(f128, std.math.float.nan(f128), "nan");
+    try check(f128, std.math.float.inf(f128), "inf");
+    try check(f128, -std.math.float.inf(f128), "-inf");
 
     try check(f128, 2.2250738585072014e-308, "2.2250738585072014e-308");
     try check(f128, 2.98023223876953125e-8, "2.98023223876953125e-8");

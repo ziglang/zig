@@ -50,11 +50,11 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     if (ix < 0x00800000 or ix >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return -math.inf(f32);
+            return -math.float.inf(f32);
         }
         // log(-#) = nan
         if (ix >> 31 != 0) {
-            return math.nan(f32);
+            return math.float.nan(f32);
         }
 
         k -= 25;
@@ -112,11 +112,11 @@ pub fn log10(x_: f64) callconv(.C) f64 {
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
         if (ix << 1 == 0) {
-            return -math.inf(f64);
+            return -math.float.inf(f64);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return math.nan(f64);
+            return math.float.nan(f64);
         }
 
         // subnormal, scale x
@@ -210,15 +210,15 @@ test "log10_64" {
 }
 
 test "log10_32.special" {
-    try testing.expect(math.isPositiveInf(log10f(math.inf(f32))));
+    try testing.expect(math.isPositiveInf(log10f(math.float.inf(f32))));
     try testing.expect(math.isNegativeInf(log10f(0.0)));
     try testing.expect(math.isNan(log10f(-1.0)));
-    try testing.expect(math.isNan(log10f(math.nan(f32))));
+    try testing.expect(math.isNan(log10f(math.float.nan(f32))));
 }
 
 test "log10_64.special" {
-    try testing.expect(math.isPositiveInf(log10(math.inf(f64))));
+    try testing.expect(math.isPositiveInf(log10(math.float.inf(f64))));
     try testing.expect(math.isNegativeInf(log10(0.0)));
     try testing.expect(math.isNan(log10(-1.0)));
-    try testing.expect(math.isNan(log10(math.nan(f64))));
+    try testing.expect(math.isNan(log10(math.float.nan(f64))));
 }

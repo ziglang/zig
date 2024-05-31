@@ -31,13 +31,13 @@ fn test__divtf3(a: f128, b: f128, expectedHi: u64, expectedLo: u64) !void {
 
 test "divtf3" {
     // NaN / any = NaN
-    try test__divtf3(math.nan(f128), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
+    try test__divtf3(math.float.nan(f128), 0x1.23456789abcdefp+5, 0x7fff800000000000, 0);
     // inf / any(except inf and nan) = inf
-    try test__divtf3(math.inf(f128), 0x1.23456789abcdefp+5, 0x7fff000000000000, 0);
+    try test__divtf3(math.float.inf(f128), 0x1.23456789abcdefp+5, 0x7fff000000000000, 0);
     // inf / inf = nan
-    try test__divtf3(math.inf(f128), math.inf(f128), 0x7fff800000000000, 0);
+    try test__divtf3(math.float.inf(f128), math.float.inf(f128), 0x7fff800000000000, 0);
     // inf / nan = nan
-    try test__divtf3(math.inf(f128), math.nan(f128), 0x7fff800000000000, 0);
+    try test__divtf3(math.float.inf(f128), math.float.nan(f128), 0x7fff800000000000, 0);
 
     try test__divtf3(0x1.a23b45362464523375893ab4cdefp+5, 0x1.eedcbaba3a94546558237654321fp-1, 0x4004b0b72924d407, 0x0717e84356c6eba2);
     try test__divtf3(0x1.a2b34c56d745382f9abf2c3dfeffp-50, 0x1.ed2c3ba15935332532287654321fp-9, 0x3fd5b2af3f828c9b, 0x40e51f64cde8b1f2);

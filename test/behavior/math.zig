@@ -1692,8 +1692,8 @@ test "NaN comparison f80" {
 }
 
 fn testNanEqNan(comptime F: type) !void {
-    var nan1 = math.nan(F);
-    var nan2 = math.nan(F);
+    var nan1 = math.float.nan(F);
+    var nan2 = math.float.nan(F);
     _ = .{ &nan1, &nan2 };
     try expect(nan1 != nan2);
     try expect(!(nan1 == nan2));

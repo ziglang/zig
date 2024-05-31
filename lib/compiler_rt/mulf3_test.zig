@@ -107,7 +107,7 @@ test "multf3" {
     try test__multf3(2.0, math.float.trueMin(f128), 0x0000_0000_0000_0000, 0x0000_0000_0000_0002);
 }
 
-const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.nan(f80))) | (1 << (math.float.fractionalBits(f80) - 1)));
+const qnan80: f80 = @bitCast(@as(u80, @bitCast(math.float.nan(f80))) | (1 << (math.float.fractionalBits(f80) - 1)));
 
 fn test__mulxf3(a: f80, b: f80, expected: u80) !void {
     const x = __mulxf3(a, b);
@@ -132,25 +132,25 @@ test "mulxf3" {
     try test__mulxf3(0x1.23456789abcdefp+5, @as(f80, @bitCast(@as(u80, 0x7fff_8000_8000_3000_0000))), @as(u80, @bitCast(qnan80)));
 
     // NaN * inf = NaN
-    try test__mulxf3(qnan80, math.inf(f80), @as(u80, @bitCast(qnan80)));
+    try test__mulxf3(qnan80, math.float.inf(f80), @as(u80, @bitCast(qnan80)));
 
     // inf * NaN = NaN
-    try test__mulxf3(math.inf(f80), qnan80, @as(u80, @bitCast(qnan80)));
+    try test__mulxf3(math.float.inf(f80), qnan80, @as(u80, @bitCast(qnan80)));
 
     // inf * inf = inf
-    try test__mulxf3(math.inf(f80), math.inf(f80), @as(u80, @bitCast(math.inf(f80))));
+    try test__mulxf3(math.float.inf(f80), math.float.inf(f80), @as(u80, @bitCast(math.float.inf(f80))));
 
     // inf * -inf = -inf
-    try test__mulxf3(math.inf(f80), -math.inf(f80), @as(u80, @bitCast(-math.inf(f80))));
+    try test__mulxf3(math.float.inf(f80), -math.float.inf(f80), @as(u80, @bitCast(-math.float.inf(f80))));
 
     // -inf + inf = -inf
-    try test__mulxf3(-math.inf(f80), math.inf(f80), @as(u80, @bitCast(-math.inf(f80))));
+    try test__mulxf3(-math.float.inf(f80), math.float.inf(f80), @as(u80, @bitCast(-math.float.inf(f80))));
 
     // inf * any = inf
-    try test__mulxf3(math.inf(f80), 0x1.2335653452436234723489432abcdefp+5, @as(u80, @bitCast(math.inf(f80))));
+    try test__mulxf3(math.float.inf(f80), 0x1.2335653452436234723489432abcdefp+5, @as(u80, @bitCast(math.float.inf(f80))));
 
     // any * inf = inf
-    try test__mulxf3(0x1.2335653452436234723489432abcdefp+5, math.inf(f80), @as(u80, @bitCast(math.inf(f80))));
+    try test__mulxf3(0x1.2335653452436234723489432abcdefp+5, math.float.inf(f80), @as(u80, @bitCast(math.float.inf(f80))));
 
     // any * any
     try test__mulxf3(0x1.0p+0, 0x1.dcba987654321p+5, 0x4004_ee5d_4c3b_2a19_0800);

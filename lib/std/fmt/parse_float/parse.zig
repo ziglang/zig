@@ -250,12 +250,12 @@ fn parsePartialInfOrNan(comptime T: type, s: []const u8, negative: bool, n: *usi
             n.* = 8;
         }
 
-        return if (!negative) std.math.inf(T) else -std.math.inf(T);
+        return if (!negative) std.math.float.inf(T) else -std.math.float.inf(T);
     }
 
     if (std.ascii.startsWithIgnoreCase(s, "nan")) {
         n.* = 3;
-        return std.math.nan(T);
+        return std.math.float.nan(T);
     }
 
     return null;

@@ -406,10 +406,10 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
             .And, .Min => std.math.maxInt(Child),
         },
         .Float => switch (op) {
-            .Max => -std.math.inf(Child),
+            .Max => -std.math.float.inf(Child),
             .Add => 0,
             .Mul => 1,
-            .Min => std.math.inf(Child),
+            .Min => std.math.float.inf(Child),
             else => @compileError("Invalid prefixScan operation " ++ @tagName(op) ++ " for vector of floats."),
         },
         else => @compileError("Invalid type " ++ @typeName(VecType) ++ " for prefixScan."),

@@ -130,14 +130,14 @@ fn testAbsFloats(comptime T: type) !void {
     }
 
     {
-        var x: T = -std.math.inf(T);
+        var x: T = -std.math.float.inf(T);
         _ = &x;
-        try expect(@abs(x) == std.math.inf(T));
+        try expect(@abs(x) == std.math.float.inf(T));
     }
     {
-        var x: T = std.math.inf(T);
+        var x: T = std.math.float.inf(T);
         _ = &x;
-        try expect(@abs(x) == std.math.inf(T));
+        try expect(@abs(x) == std.math.float.inf(T));
     }
     comptime {
         try expect(@abs(@as(T, -std.math.e)) == std.math.e);

@@ -20,7 +20,7 @@ pub fn isNormal(x: anytype) bool {
 }
 
 test isNormal {
-    // TODO add `c_longdouble' when math.inf(T) supports it
+    // TODO add `c_longdouble' when math.float.inf(T) supports it
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
 
@@ -38,9 +38,9 @@ test isNormal {
         try expect(!isNormal(@as(T, @bitCast(~(~@as(TBits, 0) << math.float.fractionalBits(T))))));
 
         // non-finite numbers
-        try expect(!isNormal(-math.inf(T)));
-        try expect(!isNormal(math.inf(T)));
-        try expect(!isNormal(math.nan(T)));
+        try expect(!isNormal(-math.float.inf(T)));
+        try expect(!isNormal(math.float.inf(T)));
+        try expect(!isNormal(math.float.nan(T)));
 
         // overflow edge-case (described in implementation, also see #10133)
         try expect(!isNormal(@as(T, @bitCast(~@as(TBits, 0)))));

@@ -34,7 +34,7 @@ fn test__powixf2(a: f80, b: i32, expected: f80) !void {
 }
 
 test "powihf2" {
-    const inf_f16 = math.inf(f16);
+    const inf_f16 = math.float.inf(f16);
     try test__powisf2(0, 0, 1);
     try test__powihf2(1, 0, 1);
     try test__powihf2(1.5, 0, 1);
@@ -143,7 +143,7 @@ test "powihf2" {
 }
 
 test "powisf2" {
-    const inf_f32 = math.inf(f32);
+    const inf_f32 = math.float.inf(f32);
     try test__powisf2(0, 0, 1);
     try test__powisf2(1, 0, 1);
     try test__powisf2(1.5, 0, 1);
@@ -248,7 +248,7 @@ test "powisf2" {
 }
 
 test "powidf2" {
-    const inf_f64 = math.inf(f64);
+    const inf_f64 = math.float.inf(f64);
     try test__powidf2(0, 0, 1);
     try test__powidf2(1, 0, 1);
     try test__powidf2(1.5, 0, 1);
@@ -353,7 +353,7 @@ test "powidf2" {
 }
 
 test "powitf2" {
-    const inf_f128 = math.inf(f128);
+    const inf_f128 = math.float.inf(f128);
     try test__powitf2(0, 0, 1);
     try test__powitf2(1, 0, 1);
     try test__powitf2(1.5, 0, 1);
@@ -458,7 +458,7 @@ test "powitf2" {
 }
 
 test "powixf2" {
-    const inf_f80 = math.inf(f80);
+    const inf_f80 = math.float.inf(f80);
     try test__powixf2(0, 0, 1);
     try test__powixf2(1, 0, 1);
     try test__powixf2(1.5, 0, 1);

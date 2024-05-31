@@ -121,14 +121,14 @@ fn ModfTests(comptime T: type) type {
         test "inf" {
             var r: Modf(T) = undefined;
 
-            r = modf(math.inf(T));
+            r = modf(math.float.inf(T));
             try expect(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
 
-            r = modf(-math.inf(T));
+            r = modf(-math.float.inf(T));
             try expect(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
         }
         test "nan" {
-            const r: Modf(T) = modf(math.nan(T));
+            const r: Modf(T) = modf(math.float.nan(T));
             try expect(math.isNan(r.ipart) and math.isNan(r.fpart));
         }
     };

@@ -368,7 +368,7 @@ test "pointer sentinel with +inf" {
 
     const S = struct {
         fn doTheTest() !void {
-            const inf_f32 = comptime std.math.inf(f32);
+            const inf_f32 = comptime std.math.float.inf(f32);
             var ptr: [*:inf_f32]const f32 = &[_:inf_f32]f32{ 1.1, 2.2, 3.3, 4.4 };
             _ = &ptr;
             try expect(ptr[4] == inf_f32); // TODO this should be comptime assert, see #3731

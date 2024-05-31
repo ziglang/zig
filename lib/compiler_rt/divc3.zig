@@ -36,15 +36,15 @@ pub inline fn divc3(comptime T: type, a: T, b: T, c_in: T, d_in: T) Complex(T) {
 
         if ((denom == 0.0) and (!isNan(a) or !isNan(b))) {
             return .{
-                .real = copysign(std.math.inf(T), c) * a,
-                .imag = copysign(std.math.inf(T), c) * b,
+                .real = copysign(std.math.float.inf(T), c) * a,
+                .imag = copysign(std.math.float.inf(T), c) * b,
             };
         } else if ((isInf(a) or isInf(b)) and isFinite(c) and isFinite(d)) {
             const boxed_a = copysign(if (isInf(a)) one else zero, a);
             const boxed_b = copysign(if (isInf(b)) one else zero, b);
             return .{
-                .real = std.math.inf(T) * (boxed_a * c - boxed_b * d),
-                .imag = std.math.inf(T) * (boxed_b * c - boxed_a * d),
+                .real = std.math.float.inf(T) * (boxed_a * c - boxed_b * d),
+                .imag = std.math.float.inf(T) * (boxed_b * c - boxed_a * d),
             };
         } else if (logbw == maxInt(i32) and isFinite(a) and isFinite(b)) {
             const boxed_c = copysign(if (isInf(c)) one else zero, c);

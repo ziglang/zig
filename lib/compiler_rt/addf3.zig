@@ -23,14 +23,14 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const significandMask = (@as(Z, 1) << significandBits) - 1;
 
     const absMask = signBit - 1;
-    const qnanRep = @as(Z, @bitCast(math.nan(T))) | quietBit;
+    const qnanRep = @as(Z, @bitCast(math.float.nan(T))) | quietBit;
 
     var aRep: Z = @bitCast(a);
     var bRep: Z = @bitCast(b);
     const aAbs = aRep & absMask;
     const bAbs = bRep & absMask;
 
-    const infRep: Z = @bitCast(math.inf(T));
+    const infRep: Z = @bitCast(math.float.inf(T));
 
     // Detect if a or b is zero, infinity, or NaN.
     if (aAbs -% @as(Z, 1) >= infRep - @as(Z, 1) or

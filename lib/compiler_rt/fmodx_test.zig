@@ -9,17 +9,17 @@ fn test_fmodx(a: f80, b: f80, exp: f80) !void {
 }
 
 fn test_fmodx_nans() !void {
-    try testing.expect(std.math.isNan(fmod.__fmodx(1.0, std.math.nan(f80))));
-    try testing.expect(std.math.isNan(fmod.__fmodx(1.0, -std.math.nan(f80))));
-    try testing.expect(std.math.isNan(fmod.__fmodx(std.math.nan(f80), 1.0)));
-    try testing.expect(std.math.isNan(fmod.__fmodx(-std.math.nan(f80), 1.0)));
+    try testing.expect(std.math.isNan(fmod.__fmodx(1.0, std.math.float.nan(f80))));
+    try testing.expect(std.math.isNan(fmod.__fmodx(1.0, -std.math.float.nan(f80))));
+    try testing.expect(std.math.isNan(fmod.__fmodx(std.math.float.nan(f80), 1.0)));
+    try testing.expect(std.math.isNan(fmod.__fmodx(-std.math.float.nan(f80), 1.0)));
 }
 
 fn test_fmodx_infs() !void {
-    try testing.expect(fmod.__fmodx(1.0, std.math.inf(f80)) == 1.0);
-    try testing.expect(fmod.__fmodx(1.0, -std.math.inf(f80)) == 1.0);
-    try testing.expect(std.math.isNan(fmod.__fmodx(std.math.inf(f80), 1.0)));
-    try testing.expect(std.math.isNan(fmod.__fmodx(-std.math.inf(f80), 1.0)));
+    try testing.expect(fmod.__fmodx(1.0, std.math.float.inf(f80)) == 1.0);
+    try testing.expect(fmod.__fmodx(1.0, -std.math.float.inf(f80)) == 1.0);
+    try testing.expect(std.math.isNan(fmod.__fmodx(std.math.float.inf(f80), 1.0)));
+    try testing.expect(std.math.isNan(fmod.__fmodx(-std.math.float.inf(f80), 1.0)));
 }
 
 test "fmodx" {

@@ -197,31 +197,31 @@ test "floor128" {
 test "floor16.special" {
     try expect(__floorh(0.0) == 0.0);
     try expect(__floorh(-0.0) == -0.0);
-    try expect(math.isPositiveInf(__floorh(math.inf(f16))));
-    try expect(math.isNegativeInf(__floorh(-math.inf(f16))));
-    try expect(math.isNan(__floorh(math.nan(f16))));
+    try expect(math.isPositiveInf(__floorh(math.float.inf(f16))));
+    try expect(math.isNegativeInf(__floorh(-math.float.inf(f16))));
+    try expect(math.isNan(__floorh(math.float.nan(f16))));
 }
 
 test "floor32.special" {
     try expect(floorf(0.0) == 0.0);
     try expect(floorf(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floorf(math.inf(f32))));
-    try expect(math.isNegativeInf(floorf(-math.inf(f32))));
-    try expect(math.isNan(floorf(math.nan(f32))));
+    try expect(math.isPositiveInf(floorf(math.float.inf(f32))));
+    try expect(math.isNegativeInf(floorf(-math.float.inf(f32))));
+    try expect(math.isNan(floorf(math.float.nan(f32))));
 }
 
 test "floor64.special" {
     try expect(floor(0.0) == 0.0);
     try expect(floor(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floor(math.inf(f64))));
-    try expect(math.isNegativeInf(floor(-math.inf(f64))));
-    try expect(math.isNan(floor(math.nan(f64))));
+    try expect(math.isPositiveInf(floor(math.float.inf(f64))));
+    try expect(math.isNegativeInf(floor(-math.float.inf(f64))));
+    try expect(math.isNan(floor(math.float.nan(f64))));
 }
 
 test "floor128.special" {
     try expect(floorq(0.0) == 0.0);
     try expect(floorq(-0.0) == -0.0);
-    try expect(math.isPositiveInf(floorq(math.inf(f128))));
-    try expect(math.isNegativeInf(floorq(-math.inf(f128))));
-    try expect(math.isNan(floorq(math.nan(f128))));
+    try expect(math.isPositiveInf(floorq(math.float.inf(f128))));
+    try expect(math.isNegativeInf(floorq(-math.float.inf(f128))));
+    try expect(math.isNan(floorq(math.float.nan(f128))));
 }

@@ -8,7 +8,7 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     // Any reasonable optimizer will fold and propagate all of these.
     const Z = Int(.unsigned, @bitSizeOf(@TypeOf(x)));
     const uT = Int(.unsigned, @bitSizeOf(T));
-    const inf = math.inf(T);
+    const inf = math.float.inf(T);
     const float_bits = @bitSizeOf(T);
     const int_bits = @bitSizeOf(@TypeOf(x));
     const exp_bits = math.float.exponentBits(T);

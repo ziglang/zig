@@ -30,7 +30,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         return Complex(f32).init(0, y);
     }
     if (math.isInf(y)) {
-        return Complex(f32).init(math.inf(f32), y);
+        return Complex(f32).init(math.float.inf(f32), y);
     }
     if (math.isNan(x)) {
         // raise invalid if y is not nan
@@ -81,7 +81,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         return Complex(f64).init(0, y);
     }
     if (math.isInf(y)) {
-        return Complex(f64).init(math.inf(f64), y);
+        return Complex(f64).init(math.float.inf(f64), y);
     }
     if (math.isNan(x)) {
         // raise invalid if y is not nan

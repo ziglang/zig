@@ -131,23 +131,23 @@ test "trunc128" {
 test "trunc32.special" {
     try expect(truncf(0.0) == 0.0); // 0x3F800000
     try expect(truncf(-0.0) == -0.0);
-    try expect(math.isPositiveInf(truncf(math.inf(f32))));
-    try expect(math.isNegativeInf(truncf(-math.inf(f32))));
-    try expect(math.isNan(truncf(math.nan(f32))));
+    try expect(math.isPositiveInf(truncf(math.float.inf(f32))));
+    try expect(math.isNegativeInf(truncf(-math.float.inf(f32))));
+    try expect(math.isNan(truncf(math.float.nan(f32))));
 }
 
 test "trunc64.special" {
     try expect(trunc(0.0) == 0.0);
     try expect(trunc(-0.0) == -0.0);
-    try expect(math.isPositiveInf(trunc(math.inf(f64))));
-    try expect(math.isNegativeInf(trunc(-math.inf(f64))));
-    try expect(math.isNan(trunc(math.nan(f64))));
+    try expect(math.isPositiveInf(trunc(math.float.inf(f64))));
+    try expect(math.isNegativeInf(trunc(-math.float.inf(f64))));
+    try expect(math.isNan(trunc(math.float.nan(f64))));
 }
 
 test "trunc128.special" {
     try expect(truncq(0.0) == 0.0);
     try expect(truncq(-0.0) == -0.0);
-    try expect(math.isPositiveInf(truncq(math.inf(f128))));
-    try expect(math.isNegativeInf(truncq(-math.inf(f128))));
-    try expect(math.isNan(truncq(math.nan(f128))));
+    try expect(math.isPositiveInf(truncq(math.float.inf(f128))));
+    try expect(math.isNegativeInf(truncq(-math.float.inf(f128))));
+    try expect(math.isNan(truncq(math.float.nan(f128))));
 }
