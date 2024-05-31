@@ -310,6 +310,10 @@ pub const table = [_]Entry{
 
     .{ .int3, .zo, &.{}, &.{ 0xcc }, 0, .none, .none },
 
+    .{ .int, .i, &.{ .imm8 }, &.{ 0xcd }, 0, .none, .none },
+
+    .{ .iret, .zo, &.{}, &.{ 0xcf }, 0, .none, .none },
+
     .{ .cmc, .zo, &.{}, &.{ 0xf5 }, 0, .none, .none },
     .{ .clc, .zo, &.{}, &.{ 0xf8 }, 0, .none, .none },
     .{ .stc, .zo, &.{}, &.{ 0xf9 }, 0, .none, .none },

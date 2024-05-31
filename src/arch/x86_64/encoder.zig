@@ -1125,6 +1125,11 @@ test "encode" {
 test "lower I encoding" {
     var enc = TestEncode{};
 
+    try enc.encode(.int, &.{
+        .{ .imm = Immediate.u(0x10) },
+    });
+    try expectEqualHexStrings("\xCD\x10", enc.code(), "int 0x10");
+
     try enc.encode(.push, &.{
         .{ .imm = Immediate.u(0x10) },
     });
@@ -1843,6 +1848,9 @@ test "lower NP encoding" {
 
     try enc.encode(.int3, &.{});
     try expectEqualHexStrings("\xCC", enc.code(), "int3");
+
+    try enc.encode(.iret, &.{});
+    try expectEqualHexStrings("\xCF", enc.code(), "iret");
 
     try enc.encode(.nop, &.{});
     try expectEqualHexStrings("\x90", enc.code(), "nop");
