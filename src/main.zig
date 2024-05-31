@@ -3367,6 +3367,7 @@ fn buildOutputType(
             if (build_options.only_c) unreachable;
             try serve(
                 comp,
+                color,
                 std.io.getStdIn(),
                 std.io.getStdOut(),
                 test_exec_args.items,
@@ -3392,6 +3393,7 @@ fn buildOutputType(
 
             try serve(
                 comp,
+                color,
                 .{ .handle = conn.stream.handle },
                 .{ .handle = conn.stream.handle },
                 test_exec_args.items,
@@ -4013,6 +4015,7 @@ fn saveState(comp: *Compilation, debug_incremental: bool) void {
 
 fn serve(
     comp: *Compilation,
+    color: Color,
     in: fs.File,
     out: fs.File,
     test_exec_args: []const ?[]const u8,
@@ -4033,7 +4036,9 @@ fn serve(
 
     var child_pid: ?std.process.Child.Id = null;
 
-    const main_progress_node = std.Progress.start(.{});
+    const main_progress_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -4405,7 +4410,7 @@ fn cmdTranslateC(
     prog_node: std.Progress.Node,
 ) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
-    const color: Color = .auto;
+    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4702,7 +4707,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
-    var color: Color = .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
 
     {
         var i: usize = 0;
@@ -5260,7 +5265,7 @@ fn jitCmd(
     args: []const []const u8,
     options: JitCmdOptions,
 ) !void {
-    const color: Color = .auto;
+    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(.{
         .disable_printing = (color == .off),
     });
@@ -5907,7 +5912,7 @@ fn cmdAstCheck(
 ) !void {
     const Zir = std.zig.Zir;
 
-    var color: Color = .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     var want_output_text = false;
     var zig_source_file: ?[]const u8 = null;
 
@@ -6307,7 +6312,7 @@ fn cmdChangelist(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const color: Color = .auto;
+    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
@@ -6808,7 +6813,7 @@ fn cmdFetch(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const color: Color = .auto;
+    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
@@ -6867,6 +6872,7 @@ fn cmdFetch(
 
     var root_prog_node = std.Progress.start(.{
         .root_name = "Fetch",
+        .disable_printing = (color == .off),
     });
     defer root_prog_node.end();
 
