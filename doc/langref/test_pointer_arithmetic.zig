@@ -11,6 +11,9 @@ test "pointer arithmetic with many-item pointer" {
     // slicing a many-item pointer without an end is equivalent to
     // pointer arithmetic: `ptr[start..] == ptr + start`
     try expect(ptr[1..] == ptr + 1);
+
+    // subtraction between the memory addresses of any two pointers except slices is supported
+    try expect(&ptr[1] - &ptr[0] == @sizeOf(i32));
 }
 
 test "pointer arithmetic with slices" {

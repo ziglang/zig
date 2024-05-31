@@ -2391,6 +2391,16 @@ fn failWithComptimeErrorRetTrace(
     return sema.failWithOwnedErrorMsg(block, msg);
 }
 
+fn failWithInvalidPtrArithmetic(sema: *Sema, block: *Block, src: LazySrcLoc, arithmetic: []const u8, supports: []const u8) CompileError {
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "invalid {s} arithmetic operator", .{arithmetic});
+        errdefer msg.destroy(sema.gpa);
+        try sema.errNote(block, src, msg, "{s} arithmetic only supports {s}", .{ arithmetic, supports });
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -15146,7 +15156,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -15311,7 +15321,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -15476,7 +15486,7 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -15586,7 +15596,7 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -15827,7 +15837,7 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -16011,7 +16021,7 @@ fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -16106,7 +16116,7 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison(mod);
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
-    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -16445,17 +16455,58 @@ fn analyzeArithmetic(
     const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison(mod);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
 
-    if (lhs_zig_ty_tag == .Pointer) switch (lhs_ty.ptrSize(mod)) {
-        .One, .Slice => {},
-        .Many, .C => {
-            const air_tag: Air.Inst.Tag = switch (zir_tag) {
-                .add => .ptr_add,
-                .sub => .ptr_sub,
-                else => return sema.fail(block, src, "invalid pointer arithmetic operator", .{}),
-            };
-            return sema.analyzePtrArithmetic(block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
-        },
-    };
+    if (lhs_zig_ty_tag == .Pointer) {
+        if (rhs_zig_ty_tag == .Pointer) {
+            if (lhs_ty.ptrSize(mod) != .Slice and rhs_ty.ptrSize(mod) != .Slice) {
+                if (zir_tag != .sub) {
+                    return sema.failWithInvalidPtrArithmetic(block, src, "pointer-pointer", "subtraction");
+                }
+
+                const runtime_src = runtime_src: {
+                    if (try sema.resolveValue(lhs)) |lhs_value| {
+                        if (try sema.resolveValue(rhs)) |rhs_value| {
+                            const lhs_ptr = switch (mod.intern_pool.indexToKey(lhs_value.toIntern())) {
+                                .undef => return sema.failWithUseOfUndef(block, lhs_src),
+                                .ptr => |ptr| ptr,
+                                else => unreachable,
+                            };
+                            const rhs_ptr = switch (mod.intern_pool.indexToKey(rhs_value.toIntern())) {
+                                .undef => return sema.failWithUseOfUndef(block, rhs_src),
+                                .ptr => |ptr| ptr,
+                                else => unreachable,
+                            };
+                            // Make sure the pointers point to the same data.
+                            if (!lhs_ptr.base_addr.eql(rhs_ptr.base_addr)) break :runtime_src src;
+                            const address = std.math.sub(u64, lhs_ptr.byte_offset, rhs_ptr.byte_offset) catch
+                                return sema.fail(block, src, "operation results in overflow", .{});
+                            return try mod.intRef(Type.usize, address);
+                        } else {
+                            break :runtime_src lhs_src;
+                        }
+                    } else {
+                        break :runtime_src rhs_src;
+                    }
+                };
+
+                try sema.requireRuntimeBlock(block, src, runtime_src);
+                const lhs_int = try block.addUnOp(.int_from_ptr, lhs);
+                const rhs_int = try block.addUnOp(.int_from_ptr, rhs);
+                return try block.addBinOp(.sub_wrap, lhs_int, rhs_int);
+            }
+        } else {
+            switch (lhs_ty.ptrSize(mod)) {
+                .One, .Slice => {},
+                .Many, .C => {
+                    const air_tag: Air.Inst.Tag = switch (zir_tag) {
+                        .add => .ptr_add,
+                        .sub => .ptr_sub,
+                        else => return sema.failWithInvalidPtrArithmetic(block, src, "pointer-integer", "addition and subtraction"),
+                    };
+                    return sema.analyzePtrArithmetic(block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
+                },
+            }
+        }
+    }
 
     const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
     const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
@@ -23715,7 +23766,7 @@ fn checkIntType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileEr
     }
 }
 
-fn checkInvalidPtrArithmetic(
+fn checkInvalidPtrIntArithmetic(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -23725,12 +23776,7 @@ fn checkInvalidPtrArithmetic(
     switch (try ty.zigTypeTagOrPoison(mod)) {
         .Pointer => switch (ty.ptrSize(mod)) {
             .One, .Slice => return,
-            .Many, .C => return sema.fail(
-                block,
-                src,
-                "invalid pointer arithmetic operator",
-                .{},
-            ),
+            .Many, .C => return sema.failWithInvalidPtrArithmetic(block, src, "pointer-integer", "addition and subtraction"),
         },
         else => return,
     }
