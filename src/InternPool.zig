@@ -1931,6 +1931,23 @@ pub const Key = union(enum) {
                 /// the original pointer type alignment must be used.
                 orig_ty: Index,
             };
+
+            pub fn eql(a: BaseAddr, b: BaseAddr) bool {
+                if (@as(Key.Ptr.BaseAddr.Tag, a) != @as(Key.Ptr.BaseAddr.Tag, b)) return false;
+
+                return switch (a) {
+                    .decl => |a_decl| a_decl == b.decl,
+                    .comptime_alloc => |a_alloc| a_alloc == b.comptime_alloc,
+                    .anon_decl => |ad| ad.val == b.anon_decl.val and
+                        ad.orig_ty == b.anon_decl.orig_ty,
+                    .int => true,
+                    .eu_payload => |a_eu_payload| a_eu_payload == b.eu_payload,
+                    .opt_payload => |a_opt_payload| a_opt_payload == b.opt_payload,
+                    .comptime_field => |a_comptime_field| a_comptime_field == b.comptime_field,
+                    .arr_elem => |a_elem| std.meta.eql(a_elem, b.arr_elem),
+                    .field => |a_field| std.meta.eql(a_field, b.field),
+                };
+            }
         };
     };
 
@@ -2369,21 +2386,8 @@ pub const Key = union(enum) {
                 const b_info = b.ptr;
                 if (a_info.ty != b_info.ty) return false;
                 if (a_info.byte_offset != b_info.byte_offset) return false;
-
-                if (@as(Key.Ptr.BaseAddr.Tag, a_info.base_addr) != @as(Key.Ptr.BaseAddr.Tag, b_info.base_addr)) return false;
-
-                return switch (a_info.base_addr) {
-                    .decl => |a_decl| a_decl == b_info.base_addr.decl,
-                    .comptime_alloc => |a_alloc| a_alloc == b_info.base_addr.comptime_alloc,
-                    .anon_decl => |ad| ad.val == b_info.base_addr.anon_decl.val and
-                        ad.orig_ty == b_info.base_addr.anon_decl.orig_ty,
-                    .int => true,
-                    .eu_payload => |a_eu_payload| a_eu_payload == b_info.base_addr.eu_payload,
-                    .opt_payload => |a_opt_payload| a_opt_payload == b_info.base_addr.opt_payload,
-                    .comptime_field => |a_comptime_field| a_comptime_field == b_info.base_addr.comptime_field,
-                    .arr_elem => |a_elem| std.meta.eql(a_elem, b_info.base_addr.arr_elem),
-                    .field => |a_field| std.meta.eql(a_field, b_info.base_addr.field),
-                };
+                if (!a_info.base_addr.eql(b_info.base_addr)) return false;
+                return true;
             },
 
             .int => |a_info| {

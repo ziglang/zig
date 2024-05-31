@@ -3752,7 +3752,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
     assert(parent_ptr_info.flags.size == .One);
 
-    // Exiting this `switch` indicates that the `field` pointer repsentation should be used.
+    // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
     const field_ty: Type, const field_align: InternPool.Alignment = switch (aggregate_ty.zigTypeTag(zcu)) {
         .Struct => field: {
