@@ -1846,6 +1846,9 @@ test "lower FD/TD encoding" {
 test "lower NP encoding" {
     var enc = TestEncode{};
 
+    try enc.encode(.int1, &.{});
+    try expectEqualHexStrings("\xF1", enc.code(), "int1");
+
     try enc.encode(.int3, &.{});
     try expectEqualHexStrings("\xCC", enc.code(), "int3");
 

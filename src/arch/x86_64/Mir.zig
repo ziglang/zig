@@ -337,6 +337,8 @@ pub const Inst = struct {
         /// Increment by 1
         inc,
         /// Call to interrupt procedure
+        int1,
+        /// Call to interrupt procedure
         int3,
         /// Call to interrupt procedure
         int,

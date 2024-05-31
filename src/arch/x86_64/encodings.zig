@@ -308,6 +308,8 @@ pub const table = [_]Entry{
     .{ .inc, .m, &.{ .rm32 }, &.{ 0xff }, 0, .none,  .none },
     .{ .inc, .m, &.{ .rm64 }, &.{ 0xff }, 0, .long,  .none },
 
+    .{ .int1, .zo, &.{}, &.{ 0xf1 }, 0, .none, .none },
+
     .{ .int3, .zo, &.{}, &.{ 0xcc }, 0, .none, .none },
 
     .{ .int, .i, &.{ .imm8 }, &.{ 0xcd }, 0, .none, .none },
