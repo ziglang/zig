@@ -205,9 +205,6 @@ pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
 pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
-pub const arg = @import("math/complex.zig").arg;
-pub const conj = @import("math/complex.zig").conj;
-pub const proj = @import("math/complex.zig").proj;
 pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
@@ -352,7 +349,7 @@ pub inline fn exp2(value: anytype) @TypeOf(value) {
     return @exp2(value);
 }
 
-const complex = @import("math/complex.zig");
+pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
