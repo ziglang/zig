@@ -6,18 +6,18 @@ const expectEqual = std.testing.expectEqual;
 
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 inline fn mantissaOne(comptime T: type) comptime_int {
-    return if (@typeInfo(T).Float.bits == 80) 1 << floatFractionalBits(T) else 0;
+    return if (@typeInfo(T).Float.bits == 80) 1 << fractionalBits(T) else 0;
 }
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
     const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
-    const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
-    return @as(T, @bitCast((biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa)));
+    const biased_exponent = @as(TBits, exponent + exponentMax(T));
+    return @as(T, @bitCast((biased_exponent << mantissaBits(T)) | @as(TBits, mantissa)));
 }
 
 /// Returns the number of bits in the exponent of floating point type T.
-pub inline fn floatExponentBits(comptime T: type) comptime_int {
+pub inline fn exponentBits(comptime T: type) comptime_int {
     comptime assert(@typeInfo(T) == .Float);
 
     return switch (@typeInfo(T).Float.bits) {
@@ -31,7 +31,7 @@ pub inline fn floatExponentBits(comptime T: type) comptime_int {
 }
 
 /// Returns the number of bits in the mantissa of floating point type T.
-pub inline fn floatMantissaBits(comptime T: type) comptime_int {
+pub inline fn mantissaBits(comptime T: type) comptime_int {
     comptime assert(@typeInfo(T) == .Float);
 
     return switch (@typeInfo(T).Float.bits) {
@@ -45,7 +45,7 @@ pub inline fn floatMantissaBits(comptime T: type) comptime_int {
 }
 
 /// Returns the number of fractional bits in the mantissa of floating point type T.
-pub inline fn floatFractionalBits(comptime T: type) comptime_int {
+pub inline fn fractionalBits(comptime T: type) comptime_int {
     comptime assert(@typeInfo(T) == .Float);
 
     // standard IEEE floats have an implicit 0.m or 1.m integer part
@@ -63,39 +63,39 @@ pub inline fn floatFractionalBits(comptime T: type) comptime_int {
 
 /// Returns the minimum exponent that can represent
 /// a normalised value in floating point type T.
-pub inline fn floatExponentMin(comptime T: type) comptime_int {
-    return -floatExponentMax(T) + 1;
+pub inline fn exponentMin(comptime T: type) comptime_int {
+    return -exponentMax(T) + 1;
 }
 
 /// Returns the maximum exponent that can represent
 /// a normalised value in floating point type T.
-pub inline fn floatExponentMax(comptime T: type) comptime_int {
-    return (1 << (floatExponentBits(T) - 1)) - 1;
+pub inline fn exponentMax(comptime T: type) comptime_int {
+    return (1 << (exponentBits(T) - 1)) - 1;
 }
 
 /// Returns the smallest subnormal number representable in floating point type T.
-pub inline fn floatTrueMin(comptime T: type) T {
-    return reconstructFloat(T, floatExponentMin(T) - 1, 1);
+pub inline fn trueMin(comptime T: type) T {
+    return reconstructFloat(T, exponentMin(T) - 1, 1);
 }
 
 /// Returns the smallest normal number representable in floating point type T.
-pub inline fn floatMin(comptime T: type) T {
-    return reconstructFloat(T, floatExponentMin(T), mantissaOne(T));
+pub inline fn min(comptime T: type) T {
+    return reconstructFloat(T, exponentMin(T), mantissaOne(T));
 }
 
 /// Returns the largest normal number representable in floating point type T.
-pub inline fn floatMax(comptime T: type) T {
-    const all1s_mantissa = (1 << floatMantissaBits(T)) - 1;
-    return reconstructFloat(T, floatExponentMax(T), all1s_mantissa);
+pub inline fn max(comptime T: type) T {
+    const all1s_mantissa = (1 << mantissaBits(T)) - 1;
+    return reconstructFloat(T, exponentMax(T), all1s_mantissa);
 }
 
 /// Returns the machine epsilon of floating point type T.
-pub inline fn floatEps(comptime T: type) T {
-    return reconstructFloat(T, -floatFractionalBits(T), mantissaOne(T));
+pub inline fn eps(comptime T: type) T {
+    return reconstructFloat(T, -fractionalBits(T), mantissaOne(T));
 }
 
 /// Returns the local epsilon of floating point type T.
-pub inline fn floatEpsAt(comptime T: type, x: T) T {
+pub inline fn epsAt(comptime T: type, x: T) T {
     switch (@typeInfo(T)) {
         .Float => |F| {
             const U: type = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = F.bits } });
@@ -103,21 +103,21 @@ pub inline fn floatEpsAt(comptime T: type, x: T) T {
             const y: T = @bitCast(u ^ 1);
             return @abs(x - y);
         },
-        else => @compileError("floatEpsAt only supports floats"),
+        else => @compileError("epsAt only supports floats"),
     }
 }
 
 /// Returns the value inf for floating point type T.
 pub inline fn inf(comptime T: type) T {
-    return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));
+    return reconstructFloat(T, exponentMax(T) + 1, mantissaOne(T));
 }
 
 /// Returns the canonical quiet NaN representation for floating point type T.
 pub inline fn nan(comptime T: type) T {
     return reconstructFloat(
         T,
-        floatExponentMax(T) + 1,
-        mantissaOne(T) | 1 << (floatFractionalBits(T) - 1),
+        exponentMax(T) + 1,
+        mantissaOne(T) | 1 << (fractionalBits(T) - 1),
     );
 }
 
@@ -128,20 +128,20 @@ pub inline fn nan(comptime T: type) T {
 pub inline fn snan(comptime T: type) T {
     return reconstructFloat(
         T,
-        floatExponentMax(T) + 1,
-        mantissaOne(T) | 1 << (floatFractionalBits(T) - 2),
+        exponentMax(T) + 1,
+        mantissaOne(T) | 1 << (fractionalBits(T) - 2),
     );
 }
 
 test "float bits" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // (1 +) for the sign bit, since it is separate from the other bits
-        const size = 1 + floatExponentBits(T) + floatMantissaBits(T);
+        const size = 1 + exponentBits(T) + mantissaBits(T);
         try expect(@bitSizeOf(T) == size);
 
         // for machine epsilon, assert expmin <= -prec <= expmax
-        try expect(floatExponentMin(T) <= -floatFractionalBits(T));
-        try expect(-floatFractionalBits(T) <= floatExponentMax(T));
+        try expect(exponentMin(T) <= -fractionalBits(T));
+        try expect(-fractionalBits(T) <= exponentMax(T));
     }
 }
 
