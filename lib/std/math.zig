@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
-const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
@@ -44,19 +43,10 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
-pub const floatExponentBits = float.floatExponentBits;
-pub const floatMantissaBits = float.floatMantissaBits;
-pub const floatFractionalBits = float.floatFractionalBits;
-pub const floatExponentMin = float.floatExponentMin;
-pub const floatExponentMax = float.floatExponentMax;
-pub const floatTrueMin = float.floatTrueMin;
-pub const floatMin = float.floatMin;
-pub const floatMax = float.floatMax;
-pub const floatEps = float.floatEps;
-pub const floatEpsAt = float.floatEpsAt;
-pub const inf = float.inf;
-pub const nan = float.nan;
-pub const snan = float.snan;
+pub const float = @import("math/float.zig");
+const inf = float.inf;
+const nan = float.nan;
+const snan = float.snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -64,7 +54,7 @@ pub const snan = float.snan;
 ///
 /// The `tolerance` parameter is the absolute tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is a small
-/// multiple of `floatEps(T)`.
+/// multiple of `float.eps(T)`.
 ///
 /// Note that this function is recommended for comparing small numbers
 /// around zero; using `approxEqRel` is suggested otherwise.
@@ -91,7 +81,7 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
 ///
 /// The `tolerance` parameter is the relative tolerance used when determining if
 /// the two numbers are close enough; a good value for this parameter is usually
-/// `sqrt(floatEps(T))`, meaning that the two numbers are considered equal if at
+/// `sqrt(float.eps(T))`, meaning that the two numbers are considered equal if at
 /// least half of the digits are equal.
 ///
 /// Note that for comparisons of small numbers around zero this function won't
@@ -114,8 +104,8 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 
 test approxEqAbs {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime floatEps(T);
-        const min_value = comptime floatMin(T);
+        const eps_value = comptime float.eps(T);
+        const min_value = comptime float.min(T);
 
         try testing.expect(approxEqAbs(T, 0.0, 0.0, eps_value));
         try testing.expect(approxEqAbs(T, -0.0, -0.0, eps_value));
@@ -144,11 +134,11 @@ test approxEqAbs {
 
 test approxEqRel {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime floatEps(T);
+        const eps_value = comptime float.eps(T);
         const sqrt_eps_value = comptime sqrt(eps_value);
         const nan_value = comptime nan(T);
         const inf_value = comptime inf(T);
-        const min_value = comptime floatMin(T);
+        const min_value = comptime float.min(T);
 
         try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
         try testing.expect(!approxEqRel(T, 1.0, 0.0, sqrt_eps_value));
@@ -343,15 +333,15 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test {
-    _ = floatExponentBits;
-    _ = floatMantissaBits;
-    _ = floatFractionalBits;
-    _ = floatExponentMin;
-    _ = floatExponentMax;
-    _ = floatTrueMin;
-    _ = floatMin;
-    _ = floatMax;
-    _ = floatEps;
+    _ = float.exponentBits;
+    _ = float.mantissaBits;
+    _ = float.fractionalBits;
+    _ = float.exponentMin;
+    _ = float.exponentMax;
+    _ = float.trueMin;
+    _ = float.min;
+    _ = float.max;
+    _ = float.eps;
     _ = inf;
     _ = nan;
     _ = snan;
