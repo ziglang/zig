@@ -1200,7 +1200,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
-            if (info == .@"packed" and @sizeOf(T) == @bitSizeOf(T) / 8) return true;
+            if (info.layout == .@"packed" and @sizeOf(T) == @bitSizeOf(T) / 8) return true;
 
             var sum_size = @as(usize, 0);
 
