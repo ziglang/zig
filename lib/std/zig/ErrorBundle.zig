@@ -193,11 +193,6 @@ fn renderErrorMessageToWriter(
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
         try counting_stderr.writeByteNTimes(' ', indent);
         try ttyconf.setColor(stderr, .bold);
-        try counting_stderr.print("{s}:{d}:{d}: ", .{
-            eb.nullTerminatedString(src.data.src_path),
-            src.data.line + 1,
-            src.data.column + 1,
-        });
         try ttyconf.setColor(stderr, color);
         try counting_stderr.writeAll(kind);
         try counting_stderr.writeAll(": ");
@@ -214,14 +209,35 @@ fn renderErrorMessageToWriter(
             try ttyconf.setColor(stderr, .dim);
             try stderr.print(" ({d} times)\n", .{err_msg.count});
         }
+        try counting_stderr.writeByteNTimes(' ', indent + (kind.len -| 2));
+        try ttyconf.setColor(stderr, .green);
+        try counting_stderr.print("at: ", .{});
+        try ttyconf.setColor(stderr, .reset);
+        try counting_stderr.print("{s}:{d}:{d}\n", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
         try ttyconf.setColor(stderr, .reset);
         if (src.data.source_line != 0 and options.include_source_line) {
+            var line_num_buf = [_]u8{0} ** 10;
+            const line_num_len = std.fmt.formatIntBuf(
+                &line_num_buf,
+                src.data.line + 1,
+                10,
+                .lower,
+                .{},
+            );
+            try stderr.writeByteNTimes(' ', line_num_len + 2);
+            try stderr.print("| \n {s} | ", .{line_num_buf[0..line_num_len]});
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
                 '\t' => try stderr.writeByte(' '),
                 else => try stderr.writeByte(b),
             };
             try stderr.writeByte('\n');
+            try stderr.writeByteNTimes(' ', line_num_len + 2);
+            try stderr.print("| ", .{});
             // TODO basic unicode code point monospace width
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
