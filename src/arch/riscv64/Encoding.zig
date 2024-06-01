@@ -45,6 +45,11 @@ const AmoWidth = enum(u3) {
     D = 0b011,
 };
 
+const FenceMode = enum(u4) {
+    none = 0b0000,
+    tso = 0b1000,
+};
+
 const Enc = struct {
     opcode: OpCode,
 
@@ -57,6 +62,10 @@ const Enc = struct {
         amo: struct {
             funct5: u5,
             width: AmoWidth,
+        },
+        fence: struct {
+            funct3: u3,
+            fm: FenceMode,
         },
         /// funct5 + rm + fmt
         fmt: struct {
@@ -210,6 +219,7 @@ pub const Mnemonic = enum {
 
     // MISC
     fence,
+    fencetso,
 
     // AMO
     amoswapw,
@@ -406,9 +416,12 @@ pub const Mnemonic = enum {
             
             .unimp   => .{ .opcode = .NONE, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
+
             // MISC_MEM
 
-            .fence   => .{ .opcode = .MISC_MEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .fence    => .{ .opcode = .MISC_MEM, .data = .{ .fence = .{ .funct3 = 0b000, .fm = .none } } },
+            .fencetso => .{ .opcode = .MISC_MEM, .data = .{ .fence = .{ .funct3 = 0b000, .fm = .tso  } } },
+
 
             // AMO
 
@@ -437,7 +450,6 @@ pub const Mnemonic = enum {
             .amomaxud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11100 } } },
 
                     
-
             // zig fmt: on
         };
     }
@@ -583,6 +595,7 @@ pub const InstEnc = enum {
             => .system,
 
             .fence,
+            .fencetso,
             => .fence,
 
             .amoswapw,
@@ -689,7 +702,7 @@ pub const Data = union(InstEnc) {
         rs1: u5 = 0,
         succ: u4,
         pred: u4,
-        _ignored: u4 = 0,
+        fm: u4,
     },
     amo: packed struct {
         opcode: u7,
@@ -711,11 +724,9 @@ pub const Data = union(InstEnc) {
 
     pub fn toU32(self: Data) u32 {
         return switch (self) {
-            // zig fmt: off
-            .B  => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
+            .fence => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.rd)) << 7) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.succ)) << 20) + (@as(u32, @intCast(v.pred)) << 24) + (@as(u32, @intCast(v.fm)) << 28),
             inline else => |v| @bitCast(v),
             .system => unreachable,
-            // zig fmt: on
         };
     }
 
@@ -869,16 +880,17 @@ pub const Data = union(InstEnc) {
             .fence => {
                 assert(ops.len == 2);
 
-                const succ = ops[0];
-                const pred = ops[1];
+                const succ = ops[0].barrier;
+                const pred = ops[1].barrier;
 
                 return .{
                     .fence = .{
-                        .succ = @intFromEnum(succ.barrier),
-                        .pred = @intFromEnum(pred.barrier),
+                        .succ = @intFromEnum(succ),
+                        .pred = @intFromEnum(pred),
 
                         .opcode = @intFromEnum(enc.opcode),
-                        .funct3 = enc.data.f.funct3,
+                        .funct3 = enc.data.fence.funct3,
+                        .fm = @intFromEnum(enc.data.fence.fm),
                     },
                 };
             },
@@ -891,7 +903,7 @@ pub const Data = union(InstEnc) {
                 const rl = ops[3];
                 const aq = ops[4];
 
-                const ret: Data = .{
+                return .{
                     .amo = .{
                         .rd = rd.reg.encodeId(),
                         .rs1 = rs1.reg.encodeId(),
@@ -906,9 +918,6 @@ pub const Data = union(InstEnc) {
                         .funct5 = enc.data.amo.funct5,
                     },
                 };
-
-                std.debug.print("ret: {}, {}", .{ ret.amo.rl, rl.barrier == .rl });
-                return ret;
             },
 
             else => std.debug.panic("TODO: construct {s}", .{@tagName(inst_enc)}),

@@ -1318,7 +1318,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try func.airBreakpoint(),
             .ret_addr        => try func.airRetAddr(inst),
             .frame_addr      => try func.airFrameAddress(inst),
-            .fence           => try func.airFence(),
+            .fence           => try func.airFence(inst),
             .cond_br         => try func.airCondBr(inst),
             .dbg_stmt        => try func.airDbgStmt(inst),
             .fptrunc         => try func.airFptrunc(inst),
@@ -4238,9 +4238,28 @@ fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airFence(func: *Func) !void {
-    return func.fail("TODO implement fence() for {}", .{func.target.cpu.arch});
-    //return func.finishAirBookkeeping();
+fn airFence(func: *Func, inst: Air.Inst.Index) !void {
+    const order = func.air.instructions.items(.data)[@intFromEnum(inst)].fence;
+    const pred: Mir.Barrier, const succ: Mir.Barrier = switch (order) {
+        .unordered, .monotonic => unreachable,
+        .acquire => .{ .r, .rw },
+        .release => .{ .rw, .r },
+        .acq_rel => .{ .rw, .rw },
+        .seq_cst => .{ .rw, .rw },
+    };
+
+    _ = try func.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_fence,
+        .data = .{
+            .fence = .{
+                .pred = pred,
+                .succ = succ,
+                .fm = if (order == .acq_rel) .tso else .none,
+            },
+        },
+    });
+    return func.finishAirBookkeeping();
 }
 
 fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
@@ -6264,12 +6283,13 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
 
     if (order == .seq_cst) {
         _ = try func.addInst(.{
-            .tag = .fence,
-            .ops = .fence,
+            .tag = .pseudo,
+            .ops = .pseudo_fence,
             .data = .{
                 .fence = .{
                     .pred = .rw,
                     .succ = .rw,
+                    .fm = .none,
                 },
             },
         });
@@ -6284,12 +6304,13 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
         // Make sure all previous reads happen before any reading or writing accurs.
         .seq_cst, .acquire => {
             _ = try func.addInst(.{
-                .tag = .fence,
-                .ops = .fence,
+                .tag = .pseudo,
+                .ops = .pseudo_fence,
                 .data = .{
                     .fence = .{
                         .pred = .r,
                         .succ = .rw,
+                        .fm = .none,
                     },
                 },
             });
@@ -6313,12 +6334,13 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
         .unordered, .monotonic => {},
         .release, .seq_cst => {
             _ = try func.addInst(.{
-                .tag = .fence,
-                .ops = .fence,
+                .tag = .pseudo,
+                .ops = .pseudo_fence,
                 .data = .{
                     .fence = .{
                         .pred = .rw,
                         .succ = .w,
+                        .fm = .none,
                     },
                 },
             });
