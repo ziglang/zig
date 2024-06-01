@@ -398,7 +398,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     else => unreachable,
 } {
     const default_value = if (Impl == PosixThreadImpl) null else 0;
-    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
     switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
         .NoReturn => {
@@ -422,18 +422,21 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             return default_value;
         },
         .ErrorUnion => |info| {
-            if (info.payload != void) {
-                @compileError(bad_fn_ret);
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+
+                    return default_value;
+                },
+                else => {
+                    @compileError(bad_fn_ret);
+                },
             }
-
-            @call(.auto, f, args) catch |err| {
-                std.debug.print("error: {s}\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-            };
-
-            return default_value;
         },
         else => {
             @compileError(bad_fn_ret);
