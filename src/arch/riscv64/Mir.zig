@@ -80,8 +80,6 @@ pub const Inst = struct {
         sh,
         sb,
 
-        fence,
-
         // M extension
         mul,
         mulw,
@@ -256,6 +254,10 @@ pub const Inst = struct {
         fence: struct {
             pred: Barrier,
             succ: Barrier,
+            fm: enum {
+                none,
+                tso,
+            },
         },
 
         amo: struct {
@@ -355,7 +357,7 @@ pub const Inst = struct {
         pseudo_extern_fn_reloc,
 
         /// IORW, IORW
-        fence,
+        pseudo_fence,
 
         /// Ordering, Src, Addr, Dest
         pseudo_amo,
@@ -396,8 +398,8 @@ pub const FrameLoc = struct {
 
 pub const Barrier = enum(u4) {
     // Fence
-    r = 0b0001,
-    w = 0b0010,
+    w = 0b0001,
+    r = 0b0010,
     rw = 0b0011,
 
     // Amo

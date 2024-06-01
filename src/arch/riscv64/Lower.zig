@@ -443,6 +443,18 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                 });
             },
 
+            .pseudo_fence => {
+                const fence = inst.data.fence;
+
+                try lower.emit(switch (fence.fm) {
+                    .tso => .fencetso,
+                    .none => .fence,
+                }, &.{
+                    .{ .barrier = fence.succ },
+                    .{ .barrier = fence.pred },
+                });
+            },
+
             else => return lower.fail("TODO lower: psuedo {s}", .{@tagName(inst.ops)}),
         },
     }
@@ -484,10 +496,6 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.r_type.rd },
             .{ .reg = inst.data.r_type.rs1 },
             .{ .reg = inst.data.r_type.rs2 },
-        },
-        .fence => &.{
-            .{ .barrier = inst.data.fence.succ },
-            .{ .barrier = inst.data.fence.pred },
         },
         else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
     });
