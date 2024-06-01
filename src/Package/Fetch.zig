@@ -1,9 +1,18 @@
 //! Represents one independent job whose responsibility is to:
 //!
-//! 1. Check the global zig package cache to see if the hash already exists.
-//!    If so, load, parse, and validate the build.zig.zon file therein, and
-//!    goto step 8. Likewise if the location is a relative path, treat this
-//!    the same as a cache hit. Otherwise, proceed.
+//! 1. if local zig packages is enabled:
+//!      a. Check the local zig package directory to see if the hash already exists.
+//!         If so, load, parse, and validate the build.zig.zon file therein, and
+//!         goto step 8. Likewise if the location is a relative path, treat this
+//!         the same as a cache hit. Otherwise, proceed.
+//!      b. Check the global zig package cache to see if the hash already exists.
+//!         If so, load, parse, and validate the build.zig.zon file therein, copy
+//!         it to the local zig package directory and goto step 8. Otherwise, proceed.
+//!    if local zig packages is disabled:
+//!      Check the global zig package cache to see if the hash already exists.
+//!      If so, load, parse, and validate the build.zig.zon file therein, and
+//!      goto step 8. Likewise if the location is a relative path, treat this
+//!      the same as a cache hit. Otherwise, proceed.
 //! 2. Fetch and unpack a URL into a temporary directory.
 //! 3. Load, parse, and validate the build.zig.zon file therein. It is allowed
 //!    for the file to be missing, in which case this fetched package is considered
@@ -18,7 +27,8 @@
 //!    directory. If the hash already exists, delete the temporary directory and
 //!    leave the zig package cache directory untouched as it may be in use by the
 //!    system. This is done even if the hash is invalid, in case the package with
-//!    the different hash is used in the future.
+//!    the different hash is used in the future. If local packages is enabled, copy
+//!    the package locally.
 //! 7. Validate the computed hash against the expected hash. If invalid,
 //!    this job is done.
 //! 8. Spawn a new fetch job for each dependency in the manifest file. Use
@@ -97,6 +107,7 @@ pub const JobQueue = struct {
     thread_pool: *ThreadPool,
     wait_group: WaitGroup = .{},
     global_cache: Cache.Directory,
+    local_package_cache_root: ?Cache.Directory,
     /// If true then, no fetching occurs, and:
     /// * The `global_cache` directory is assumed to be the direct parent
     ///   directory of on-disk packages rather than having the "p/" directory
@@ -299,7 +310,7 @@ pub fn run(f: *Fetch) RunError!void {
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
     const cache_root = f.job_queue.global_cache;
-
+    const local_package_cache = f.job_queue.local_package_cache_root;
     try eb.init(gpa);
 
     // Check the global zig package cache to see if the hash already exists. If
@@ -372,41 +383,102 @@ pub fn run(f: *Fetch) RunError!void {
         const prefixed_pkg_sub_path = "p" ++ s ++ expected_hash;
         const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
         const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
-        if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
-            assert(f.lazy_status != .unavailable);
-            f.package_root = .{
-                .root_dir = cache_root,
-                .sub_path = try arena.dupe(u8, pkg_sub_path),
-            };
-            try loadManifest(f, f.package_root);
-            try checkBuildFileExistence(f);
-            if (!f.job_queue.recursive) return;
-            return queueJobsForDeps(f);
-        } else |err| switch (err) {
-            error.FileNotFound => {
-                switch (f.lazy_status) {
-                    .eager => {},
-                    .available => if (!f.job_queue.unlazy_set.contains(expected_hash)) {
-                        f.lazy_status = .unavailable;
-                        return;
-                    },
-                    .unavailable => unreachable,
+        var check_cache_root = local_package_cache == null;
+        if (local_package_cache) |lpc| {
+            if (lpc.handle.access(&expected_hash, .{})) {
+                f.package_root = .{
+                    .root_dir = lpc,
+                    .sub_path = try arena.dupe(u8, &expected_hash),
+                };
+                try loadManifest(f, f.package_root);
+                try checkBuildFileExistence(f);
+                if (!f.job_queue.recursive) return;
+                return queueJobsForDeps(f);
+            } else |err| switch (err) {
+                error.FileNotFound => {
+                    check_cache_root = true;
+                },
+                else => |e| {
+                    try eb.addRootErrorMessage(.{
+                        .msg = try eb.printString("unable to open local package cache directory '{}{s}': {s}", .{
+                            lpc, &expected_hash, @errorName(e),
+                        }),
+                    });
+                    return error.FetchFailed;
+                },
+            }
+        }
+        if (check_cache_root) {
+            if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
+                assert(f.lazy_status != .unavailable);
+                if (local_package_cache) |lpc| {
+                    var dst_handle = lpc.handle.makeOpenPath(&expected_hash, .{}) catch |err| {
+                        try eb.addRootErrorMessage(.{
+                            .msg = try eb.printString("unable to open local package cache directory '{}{s}': {s}", .{
+                                lpc, &expected_hash, @errorName(err),
+                            }),
+                        });
+                        return error.FetchFailed;
+                    };
+                    defer dst_handle.close();
+                    var src_handle = cache_root.handle.openDir(pkg_sub_path, .{}) catch |err| {
+                        try eb.addRootErrorMessage(.{
+                            .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                                cache_root, pkg_sub_path, @errorName(err),
+                            }),
+                        });
+                        return error.FetchFailed;
+                    };
+                    defer src_handle.close();
+                    f.recursiveDirectoryCopy(src_handle, dst_handle) catch |err| {
+                        const src = try cache_root.join(arena, &.{pkg_sub_path});
+                        const dest = try lpc.join(arena, &.{&expected_hash});
+                        try eb.addRootErrorMessage(.{ .msg = try eb.printString(
+                            "sunable to copy into local package directory '{s}' from package cache directory '{s}': {s}",
+                            .{ dest, src, @errorName(err) },
+                        ) });
+                        return error.FetchFailed;
+                    };
+                    f.package_root = .{
+                        .root_dir = lpc,
+                        .sub_path = try arena.dupe(u8, &expected_hash),
+                    };
+                } else {
+                    f.package_root = .{
+                        .root_dir = cache_root,
+                        .sub_path = try arena.dupe(u8, pkg_sub_path),
+                    };
                 }
-                if (f.job_queue.read_only) return f.fail(
-                    f.name_tok,
-                    try eb.printString("package not found at '{}{s}'", .{
-                        cache_root, pkg_sub_path,
-                    }),
-                );
-            },
-            else => |e| {
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
-                        cache_root, pkg_sub_path, @errorName(e),
-                    }),
-                });
-                return error.FetchFailed;
-            },
+                try loadManifest(f, f.package_root);
+                try checkBuildFileExistence(f);
+                if (!f.job_queue.recursive) return;
+                return queueJobsForDeps(f);
+            } else |err| switch (err) {
+                error.FileNotFound => {
+                    switch (f.lazy_status) {
+                        .eager => {},
+                        .available => if (!f.job_queue.unlazy_set.contains(expected_hash)) {
+                            f.lazy_status = .unavailable;
+                            return;
+                        },
+                        .unavailable => unreachable,
+                    }
+                    if (f.job_queue.read_only) return f.fail(
+                        f.name_tok,
+                        try eb.printString("package not found at '{}{s}'", .{
+                            cache_root, pkg_sub_path,
+                        }),
+                    );
+                },
+                else => |e| {
+                    try eb.addRootErrorMessage(.{
+                        .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                            cache_root, pkg_sub_path, @errorName(e),
+                        }),
+                    });
+                    return error.FetchFailed;
+                },
+            }
         }
     } else if (f.job_queue.read_only) {
         try eb.addRootErrorMessage(.{
@@ -444,6 +516,7 @@ fn runResource(
     const eb = &f.error_bundle;
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
+    const local_package_cache = f.job_queue.local_package_cache_root;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
 
@@ -526,6 +599,36 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
+    if (local_package_cache) |lpc| {
+        var dst_handle = lpc.handle.makeOpenPath(&Manifest.hexDigest(f.actual_hash), .{}) catch |err| {
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.printString("unable to open local package cache directory '{}{s}': {s}", .{
+                    lpc, &Manifest.hexDigest(f.actual_hash), @errorName(err),
+                }),
+            });
+            return error.FetchFailed;
+        };
+        defer dst_handle.close();
+        var src_handle = cache_root.handle.openDir(f.package_root.sub_path, .{}) catch |err| {
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                    cache_root, f.package_root.sub_path, @errorName(err),
+                }),
+            });
+            return error.FetchFailed;
+        };
+        defer src_handle.close();
+        f.recursiveDirectoryCopy(src_handle, dst_handle) catch |err| {
+            const src = try cache_root.join(arena, &.{f.package_root.sub_path});
+            const dest = try lpc.join(arena, &.{&Manifest.hexDigest(f.actual_hash)});
+            try eb.addRootErrorMessage(.{ .msg = try eb.printString(
+                "unable to copy into local package directory '{s}' from package cache directory '{s}': {s}",
+                .{ dest, src, @errorName(err) },
+            ) });
+            return error.FetchFailed;
+        };
+    }
+
     // Remove temporary directory root if not already renamed to global cache.
     if (!std.mem.eql(u8, package_sub_path, tmp_dir_sub_path)) {
         cache_root.handle.deleteDir(tmp_dir_sub_path) catch {};

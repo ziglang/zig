@@ -4632,6 +4632,7 @@ const usage_build =
     \\  --build-file [file]           Override path to build.zig
     \\  --cache-dir [path]            Override path to local Zig cache directory
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
+    \\  --cache-dependencies-locally  Cache dependencies locally in zig-deps
     \\  --zig-lib-dir [arg]           Override path to Zig lib directory
     \\  --build-runner [file]         Override path to build runner
     \\  --prominent-compile-errors    Buffer compile errors and display at end
@@ -4647,6 +4648,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
+    var cache_dependencies_locally = false;
     var child_argv = std.ArrayList([]const u8).init(arena);
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
@@ -4734,6 +4736,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_global_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--cache-dependencies-locally")) {
+                    cache_dependencies_locally = true;
                     continue;
                 } else if (mem.eql(u8, arg, "-freference-trace")) {
                     reference_trace = 256;
@@ -4860,6 +4865,15 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     defer global_cache_directory.handle.close();
 
+    var local_package_cache_root: ?Compilation.Directory = null;
+    if (cache_dependencies_locally) {
+        local_package_cache_root = .{
+            .handle = try fs.cwd().makeOpenPath("zig-deps", .{}),
+            .path = "zig-deps",
+        };
+    }
+    defer if (local_package_cache_root) |*lpc| lpc.handle.close();
+
     child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
 
     var local_cache_directory: Compilation.Directory = l: {
@@ -4976,6 +4990,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .http_client = &http_client,
                     .thread_pool = &thread_pool,
                     .global_cache = global_cache_directory,
+                    .local_package_cache_root = local_package_cache_root,
                     .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
@@ -6800,7 +6815,7 @@ const usage_fetch =
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
     \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
     \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
-    \\
+    \\  --cache-dependencies-locally  Cache dependencies locally in zig-deps
 ;
 
 fn cmdFetch(
@@ -6813,6 +6828,7 @@ fn cmdFetch(
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var cache_dependencies_locally = false;
     var debug_hash: bool = false;
     var save: union(enum) {
         no,
@@ -6837,6 +6853,8 @@ fn cmdFetch(
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
                     save = .{ .yes = null };
+                } else if (mem.eql(u8, arg, "--cache-dependencies-locally")) {
+                    cache_dependencies_locally = true;
                 } else if (mem.startsWith(u8, arg, "--save=")) {
                     save = .{ .yes = arg["--save=".len..] };
                 } else if (mem.eql(u8, arg, "--save-exact")) {
@@ -6879,10 +6897,20 @@ fn cmdFetch(
     };
     defer global_cache_directory.handle.close();
 
+    var local_package_cache_root: ?Compilation.Directory = null;
+    if (cache_dependencies_locally) {
+        local_package_cache_root = .{
+            .handle = try fs.cwd().makeOpenPath("zig-deps", .{}),
+            .path = "zig-deps",
+        };
+    }
+    defer if (local_package_cache_root) |*lpc| lpc.handle.close();
+
     var job_queue: Package.Fetch.JobQueue = .{
         .http_client = &http_client,
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
+        .local_package_cache_root = local_package_cache_root,
         .recursive = false,
         .read_only = false,
         .debug_hash = debug_hash,
