@@ -43,11 +43,6 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
-pub const float = @import("math/float.zig");
-const inf = float.inf;
-const nan = float.nan;
-const snan = float.snan;
-
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
 /// the specified tolerance.
@@ -136,8 +131,8 @@ test approxEqRel {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const eps_value = comptime float.eps(T);
         const sqrt_eps_value = comptime sqrt(eps_value);
-        const nan_value = comptime nan(T);
-        const inf_value = comptime inf(T);
+        const nan_value = comptime float.nan(T);
+        const inf_value = comptime float.inf(T);
         const min_value = comptime float.min(T);
 
         try testing.expect(approxEqRel(T, 1.0, 1.0, sqrt_eps_value));
@@ -329,7 +324,7 @@ pub inline fn exp2(value: anytype) @TypeOf(value) {
 
 pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
-
+pub const float = @import("math/float.zig");
 pub const big = @import("math/big.zig");
 
 test {
@@ -342,9 +337,9 @@ test {
     _ = float.min;
     _ = float.max;
     _ = float.eps;
-    _ = inf;
-    _ = nan;
-    _ = snan;
+    _ = float.inf;
+    _ = float.nan;
+    _ = float.snan;
     _ = isNan;
     _ = isSignalNan;
     _ = frexp;
@@ -1345,7 +1340,7 @@ test lossyCast {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
-    try testing.expect(lossyCast(u32, nan(f32)) == 0);
+    try testing.expect(lossyCast(u32, float.nan(f32)) == 0);
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
