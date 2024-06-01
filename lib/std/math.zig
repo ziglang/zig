@@ -518,7 +518,15 @@ test wrap {
 /// ```
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
-    assert(lower <= upper);
+    const T = @TypeOf(val, lower, upper);
+    switch (@typeInfo(T)) {
+        .Int, .Float, .ComptimeInt, .ComptimeFloat => assert(lower <= upper),
+        .Vector => |vinfo| switch (@typeInfo(vinfo.child)) {
+            .Int, .Float => assert(@reduce(.And, lower <= upper)),
+            else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),
+        },
+        else => @compileError("Expected an int, float or vector of one, found " ++ @typeName(T)),
+    }
     return @max(lower, @min(val, upper));
 }
 test clamp {
@@ -532,6 +540,9 @@ test clamp {
     // Floating point
     try testing.expect(std.math.clamp(@as(f32, 1.1), @as(f32, 0.0), @as(f32, 1.0)) == 1.0);
     try testing.expect(std.math.clamp(@as(f32, -127.5), @as(f32, -200), @as(f32, -100)) == -127.5);
+
+    // Vector
+    try testing.expect(@reduce(.And, std.math.clamp(@as(@Vector(3, f32), .{ 1.4, 15.23, 28.3 }), @as(@Vector(3, f32), .{ 9.8, 13.2, 15.6 }), @as(@Vector(3, f32), .{ 15.2, 22.8, 26.3 })) == @as(@Vector(3, f32), .{ 9.8, 15.23, 26.3 })));
 
     // Mix of comptime and non-comptime
     var i: i32 = 1;
