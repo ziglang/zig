@@ -994,11 +994,7 @@ fn buildOutputType(
         .native_system_include_paths = &.{},
     };
 
-    // before arg parsing, check for the NO_COLOR environment variable
-    // if it exists, default the color setting to .off
-    // explicit --color arguments will still override this setting.
-    // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = defaultColor();
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -3412,7 +3408,7 @@ fn buildOutputType(
     defer root_prog_node.end();
 
     if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null, root_prog_node);
+        return cmdTranslateC(comp, color, arena, null, root_prog_node);
     }
 
     updateModule(comp, color, root_prog_node) catch |err| switch (err) {
@@ -4053,7 +4049,7 @@ fn serve(
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
                     var output: Compilation.CImportResult = undefined;
-                    try cmdTranslateC(comp, arena, &output, main_progress_node);
+                    try cmdTranslateC(comp, color, arena, &output, main_progress_node);
                     defer output.deinit(gpa);
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
@@ -4405,12 +4401,12 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
 
 fn cmdTranslateC(
     comp: *Compilation,
+    color: Color,
     arena: Allocator,
     fancy_output: ?*Compilation.CImportResult,
     prog_node: std.Progress.Node,
 ) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
-    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
@@ -4707,7 +4703,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = defaultColor();
 
     {
         var i: usize = 0;
@@ -5265,7 +5261,7 @@ fn jitCmd(
     args: []const []const u8,
     options: JitCmdOptions,
 ) !void {
-    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    const color: Color = defaultColor();
     const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(.{
         .disable_printing = (color == .off),
     });
@@ -5912,7 +5908,7 @@ fn cmdAstCheck(
 ) !void {
     const Zir = std.zig.Zir;
 
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = defaultColor();
     var want_output_text = false;
     var zig_source_file: ?[]const u8 = null;
 
@@ -6312,7 +6308,7 @@ fn cmdChangelist(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    const color: Color = defaultColor();
     const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
@@ -6813,7 +6809,7 @@ fn cmdFetch(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    const color: Color = defaultColor();
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
@@ -7367,6 +7363,24 @@ fn parseStackSize(s: []const u8) u64 {
 fn parseImageBase(s: []const u8) u64 {
     return std.fmt.parseUnsigned(u64, s, 0) catch |err|
         fatal("unable to parse image base '{s}': {s}", .{ s, @errorName(err) });
+}
+
+/// Before arg parsing, check for the NO_COLOR environment variable. If it
+/// exists, default the color setting to `.off`. Explicit --color arguments will
+/// still override this setting.
+///
+/// Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
+fn defaultColor() Color {
+    switch (native_os) {
+        .wasi => {
+            return .off;
+        },
+        else => if (EnvVar.NO_COLOR.isSet()) {
+            return .off;
+        } else {
+            return .auto;
+        },
+    }
 }
 
 fn handleModArg(
