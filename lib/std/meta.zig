@@ -1200,6 +1200,8 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
+            if (info == .@"packed" and @sizeOf(T) == @bitSizeOf(T) / 8) return true;
+
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
@@ -1244,6 +1246,19 @@ test hasUniqueRepresentation {
     const TestStruct5 = struct { a: TestStruct4 };
 
     try testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestStruct6 = packed struct(u8) {
+        @"0": bool,
+        @"1": bool,
+        @"2": bool,
+        @"3": bool,
+        @"4": bool,
+        @"5": bool,
+        @"6": bool,
+        @"7": bool,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct6));
 
     const TestUnion1 = packed union {
         a: u32,
