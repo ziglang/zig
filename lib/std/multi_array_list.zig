@@ -100,7 +100,7 @@ pub fn MultiArrayList(comptime T: type) type {
                     else => unreachable,
                 };
                 inline for (fields, 0..) |field_info, i| {
-                    @memset(self.items(@as(Field, @enumFromInt(i)))[index..(index + count)], @field(e, field_info.name));
+                    @memset(self.items(@as(Field, @enumFromInt(i)))[index..][0..count], @field(e, field_info.name));
                 }
             }
 
@@ -135,14 +135,16 @@ pub fn MultiArrayList(comptime T: type) type {
                 self.* = undefined;
             }
 
-            fn addManyAt(self: *Slice, index: usize, count: usize, old_len: usize) void {
+            fn addManyAtAssumeCapacity(self: *Slice, index: usize, count: usize) void {
                 inline for (fields, 0..) |field_info, i| {
                     const field_array = self.items(@as(Field, @enumFromInt(i)));
+                    const result = field_array[index..][0..count];
                     std.mem.copyBackwards(
                         field_info.type,
-                        field_array[(index + count)..self.len],
-                        field_array[index..old_len],
+                        field_array[index + count ..],
+                        result,
                     );
+                    @memset(result, undefined);
                 }
             }
 
@@ -305,19 +307,55 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Add `count` new elements at position `index`, which have undefined values.
         pub fn addManyAt(self: *Self, allocator: Allocator, index: usize, count: usize) Allocator.Error!void {
-            try self.ensureUnusedCapacity(allocator, count);
-            return self.addManyAtAssumeCapacity(index, count);
+            const new_len = self.len + count;
+            const new_capacity = self.growCapacity(new_len);
+
+            if (self.capacity >= new_capacity)
+                return self.addManyAtAssumeCapacity(index, count);
+
+            // Avoid copying allocated by resizing in place.
+            const old_memory = self.allocatedBytes();
+            if (allocator.resize(old_memory, capacityInBytes(new_capacity))) {
+                self.capacity = new_capacity;
+                return self.addManyAtAssumeCapacity(index, count);
+            }
+
+            // Make a new allocation, avoiding `ensureTotalCapacity` in order
+            // to avoid extra memory copies.
+            const new_memory = try allocator.alignedAlloc(
+                u8,
+                @alignOf(Elem),
+                capacityInBytes(new_capacity),
+            );
+            var new_self = Self{
+                .bytes = new_memory.ptr,
+                .capacity = new_capacity,
+                .len = new_len,
+            };
+            var new_slices: Slice = new_self.slice();
+            const old_slices = self.slice();
+            inline for (fields, 0..) |_, field_index| {
+                const field = @as(Field, @enumFromInt(field_index));
+                const new_fields = new_slices.items(field);
+                const old_fields = old_slices.items(field);
+                const to_move = old_fields[index..];
+                @memcpy(new_fields[0..index], old_fields[0..index]);
+                @memcpy(new_fields[index + count ..][0..to_move.len], to_move);
+                // The inserted elements at `new_memory[index..][0..count]` have
+                // already been set to `undefined` by memory allocation.
+            }
+            allocator.free(old_memory);
+            self.* = new_self;
         }
 
         /// Add `count` new elements at position `index`, which have undefined values.
         /// Asserts that there is enough capacity for the new elements.
         pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) void {
             const new_len = self.len + count;
-            const old_len = self.len;
             assert(new_len < self.capacity);
             self.len = new_len;
             var slices = self.slice();
-            slices.addManyAt(index, count, old_len);
+            slices.addManyAtAssumeCapacity(index, count);
         }
 
         /// Remove and return the last element from the list.
@@ -461,17 +499,23 @@ pub fn MultiArrayList(comptime T: type) type {
             self.len = new_len;
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Implements super-linear growth to achieve amortized O(1) append operations.
-        /// Invalidates pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
+        /// Called when memory growth is necessary. Returns a capacity larger than
+        /// minimum that grows super-linearly.
+        fn growCapacity(self: *Self, new_capacity: usize) usize {
             var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
-
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
+            return better_capacity;
+        }
+
+        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// Implements super-linear growth to achieve amortized O(1) append operations.
+        /// Invalidates pointers if additional memory is needed.
+        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
+            if (self.capacity >= new_capacity) return;
+            const better_capacity = self.growCapacity(new_capacity);
 
             return self.setCapacity(gpa, better_capacity);
         }
