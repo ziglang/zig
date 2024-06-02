@@ -100,10 +100,7 @@ pub fn MultiArrayList(comptime T: type) type {
                     else => unreachable,
                 };
                 inline for (fields, 0..) |field_info, i| {
-                    @memset(
-                        self.items(@as(Field, @enumFromInt(i)))[index..(index+count)],
-                        @field(e, field_info.name)
-                    );
+                    @memset(self.items(@as(Field, @enumFromInt(i)))[index..(index + count)], @field(e, field_info.name));
                 }
             }
 
@@ -745,15 +742,11 @@ test "basic usage" {
 
     list.shrinkAndFree(ally, 0);
 
-    try list.appendNTimes(
-        ally,
-        .{
-            .a = 1,
-            .b = "foobar",
-            .c = 'a',
-        },
-        10
-    );
+    try list.appendNTimes(ally, .{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
     for (0..10) |i| {
         try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
         try testing.expectEqualStrings("foobar", list.items(.b)[i]);
