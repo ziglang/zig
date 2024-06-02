@@ -1060,6 +1060,7 @@ pub const EnvVar = enum {
     ZIG_DEBUG_CMD,
     CC,
     NO_COLOR,
+    CLICOLOR_FORCE,
     XDG_CACHE_HOME,
     HOME,
 

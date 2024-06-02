@@ -104,7 +104,7 @@ fn printOutput(
     tmp_dir_path: []const u8,
 ) !void {
     var env_map = try process.getEnvMap(arena);
-    try env_map.put("YES_COLOR", "1");
+    try env_map.put("CLICOLOR_FORCE", "1");
 
     const host = try std.zig.system.resolveTargetQuery(.{});
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
