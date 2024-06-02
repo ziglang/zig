@@ -297,6 +297,20 @@ test allocLowerString {
     try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
 }
 
+/// Returns a lower case copy of `ascii_string`.
+/// `ascii_string` must be comptime-known.
+pub inline fn comptimeLowerString(comptime ascii_string: []const u8) [ascii_string.len]u8 {
+    comptime {
+        var buffer: [ascii_string.len]u8 = undefined;
+        return lowerString(&buffer, ascii_string)[0..ascii_string.len].*;
+    }
+}
+
+test comptimeLowerString {
+    const result = comptimeLowerString("aBcDeFgHiJkLmNOPqrst0234+💩!");
+    try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", &result);
+}
+
 /// Writes an upper case copy of `ascii_string` to `output`.
 /// Asserts `output.len >= ascii_string.len`.
 pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
@@ -324,6 +338,20 @@ test allocUpperString {
     const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
+}
+
+/// Returns an upper case copy of `ascii_string`.
+/// `ascii_string` must be comptime-known.
+pub inline fn comptimeUpperString(comptime ascii_string: []const u8) [ascii_string.len]u8 {
+    comptime {
+        var buffer: [ascii_string.len]u8 = undefined;
+        return upperString(&buffer, ascii_string)[0..ascii_string.len].*;
+    }
+}
+
+test comptimeUpperString {
+    const result = comptimeUpperString("aBcDeFgHiJkLmNOPqrst0234+💩!");
+    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", &result);
 }
 
 /// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
