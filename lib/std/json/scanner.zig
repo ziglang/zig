@@ -270,8 +270,11 @@ pub const Diagnostics = struct {
         try writer.writeByteNTimes(' ', start_elipsis.len + self.cursor_in_current_input - start);
         try writer.writeAll("^\n");
 
-        for (self.context_stack.slice()) |item| {
-            try writer.print("  in {s}\n", .{item});
+        if (self.context_stack.len > 0) {
+            try writer.print("{s}\n", .{self.context_stack.slice()[0]});
+            for (self.context_stack.slice()[1..]) |item| {
+                try writer.print("  in {s}\n", .{item});
+            }
         }
     }
 };

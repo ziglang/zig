@@ -286,7 +286,10 @@ pub fn innerParse(
             var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
-                else => return error.MissingField,
+                else => {
+                    if (options.diagnostics) |diag| diag.recordContext("tagged union requires a field to identify the active tag");
+                    return error.MissingField;
+                },
             };
 
             inline for (unionInfo.fields) |u_field| {
@@ -301,7 +304,10 @@ pub fn innerParse(
                             .object_begin => {},
                             else => |t| return typeError(options.diagnostics, t, "void payload ('{}')"),
                         }
-                        if (.object_end != try source.next()) return error.UnknownField;
+                        if (.object_end != try source.next()) {
+                            if (options.diagnostics) |diag| diag.recordContext("void payload '{}' should have no fields");
+                            return error.UnknownField;
+                        }
                         result = @unionInit(T, u_field.name, {});
                     } else {
                         // Recurse.
@@ -311,10 +317,14 @@ pub fn innerParse(
                 }
             } else {
                 // Didn't match anything.
+                if (options.diagnostics) |diag| diag.recordContext("unrecognized tag name");
                 return error.UnknownField;
             }
 
-            if (.object_end != try source.next()) return error.UnknownField;
+            if (.object_end != try source.next()) {
+                if (options.diagnostics) |diag| diag.recordContext("tagged union requires only one field");
+                return error.UnknownField;
+            }
 
             return result.?;
         },
@@ -328,11 +338,23 @@ pub fn innerParse(
 
                 var r: T = undefined;
                 inline for (0..structInfo.fields.len) |i| {
-                    if (.array_end == try source.peekNextTokenType()) return error.LengthMismatch;
+                    if (.array_end == try source.peekNextTokenType()) {
+                        if (options.diagnostics) |diag| diag.recordContext(std.fmt.comptimePrint(
+                            "tuple too short. expected length: {}",
+                            .{structInfo.fields.len},
+                        ));
+                        return error.LengthMismatch;
+                    }
                     r[i] = try innerParse(structInfo.fields[i].type, allocator, source, options);
                 }
 
-                if (.array_end != try source.next()) return error.LengthMismatch;
+                if (.array_end != try source.next()) {
+                    if (options.diagnostics) |diag| diag.recordContext(std.fmt.comptimePrint(
+                        "tuple too long. expected length: {}",
+                        .{structInfo.fields.len},
+                    ));
+                    return error.LengthMismatch;
+                }
 
                 return r;
             }
@@ -375,7 +397,10 @@ pub fn innerParse(
                                     _ = try innerParse(field.type, allocator, source, options);
                                     break;
                                 },
-                                .@"error" => return error.DuplicateField,
+                                .@"error" => {
+                                    if (options.diagnostics) |diag| diag.recordContext("duplicate field name: " ++ field.name);
+                                    return error.DuplicateField;
+                                },
                                 .use_last => {},
                             }
                         }
@@ -389,11 +414,12 @@ pub fn innerParse(
                     if (options.ignore_unknown_fields) {
                         try source.skipValue();
                     } else {
+                        if (options.diagnostics) |diag| diag.recordContext("unrecognized field name");
                         return error.UnknownField;
                     }
                 }
             }
-            try fillDefaultStructValues(T, &r, &fields_seen);
+            try fillDefaultStructValues(T, options, &r, &fields_seen);
             return r;
         },
 
@@ -591,6 +617,7 @@ fn typeError(diagnostics: ?*Diagnostics, token: anytype, comptime expected: []co
             .null => prefix ++ "null",
             .number => prefix ++ "number",
             .string => prefix ++ "string",
+
             .object_end => unreachable, // type errors happen at the start of a value.
             .array_end => unreachable, // type errors happen at the start of a value.
             .end_of_document => unreachable, // type errors happen at the start of a value.
@@ -732,7 +759,7 @@ pub fn innerParseFromValue(
                     if (!options.ignore_unknown_fields) return error.UnknownField;
                 }
             }
-            try fillDefaultStructValues(T, &r, &fields_seen);
+            try fillDefaultStructValues(T, options, &r, &fields_seen);
             return r;
         },
 
@@ -846,13 +873,14 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
     return std.meta.intToEnum(T, n);
 }
 
-fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).Struct.fields.len]bool) !void {
+fn fillDefaultStructValues(comptime T: type, options: ParseOptions, r: *T, fields_seen: *[@typeInfo(T).Struct.fields.len]bool) !void {
     inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
         if (!fields_seen[i]) {
             if (field.default_value) |default_ptr| {
                 const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
                 @field(r, field.name) = default;
             } else {
+                if (options.diagnostics) |diag| diag.recordContext("missing field: " ++ @typeName(T) ++ "." ++ field.name);
                 return error.MissingField;
             }
         }
