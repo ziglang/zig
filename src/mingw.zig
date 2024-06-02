@@ -191,7 +191,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var man = cache.obtain();
     defer man.deinit();
 
-    _ = try man.addFile(def_file_path, null);
+    _ = try man.addFile(def_file_path, null, false);
 
     const final_lib_basename = try std.fmt.allocPrint(comp.gpa, "{s}.lib", .{lib_name});
     errdefer comp.gpa.free(final_lib_basename);
