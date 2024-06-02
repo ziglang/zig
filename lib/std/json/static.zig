@@ -11,7 +11,6 @@ const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Diagnostics = @import("./scanner.zig").Diagnostics;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
-const maybeRecordDiagnosticContext = @import("./scanner.zig").maybeRecordDiagnosticContext;
 
 const Value = @import("./dynamic.zig").Value;
 const Array = @import("./dynamic.zig").Array;
@@ -220,13 +219,13 @@ pub fn innerParse(
     options: ParseOptions,
 ) ParseError(@TypeOf(source.*))!T {
     errdefer source.saveDiagnostics();
-    errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T));
+    errdefer if (options.diagnostics) |diag| diag.recordContext(@typeName(T));
     switch (@typeInfo(T)) {
         .Bool => {
             return switch (try source.next()) {
                 .true => true,
                 .false => false,
-                else => |t| return typeError(allocator, options.diagnostics, t, "bool"),
+                else => |t| return typeError(options.diagnostics, t, "bool"),
             };
         },
         .Float, .ComptimeFloat => {
@@ -234,7 +233,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => |t| return typeError(allocator, options.diagnostics, t, "float"),
+                else => |t| return typeError(options.diagnostics, t, "float"),
             };
             return try std.fmt.parseFloat(T, slice);
         },
@@ -243,7 +242,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => |t| return typeError(allocator, options.diagnostics, t, "int"),
+                else => |t| return typeError(options.diagnostics, t, "int"),
             };
             return sliceToInt(T, slice);
         },
@@ -267,7 +266,7 @@ pub fn innerParse(
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
-                else => |t| return typeError(allocator, options.diagnostics, t, "enum (number or string)"),
+                else => |t| return typeError(options.diagnostics, t, "enum (number or string)"),
             };
             return sliceToEnum(T, slice);
         },
@@ -280,7 +279,7 @@ pub fn innerParse(
 
             switch (try source.next()) {
                 .object_begin => {},
-                else => |t| return typeError(allocator, options.diagnostics, t, "union (object with one field)"),
+                else => |t| return typeError(options.diagnostics, t, "union (object with one field)"),
             }
 
             var result: ?T = null;
@@ -300,7 +299,7 @@ pub fn innerParse(
                         // void isn't really a json type, but we can support void payload union tags with {} as a value.
                         switch (try source.next()) {
                             .object_begin => {},
-                            else => |t| return typeError(allocator, options.diagnostics, t, "void payload ('{}')"),
+                            else => |t| return typeError(options.diagnostics, t, "void payload ('{}')"),
                         }
                         if (.object_end != try source.next()) return error.UnknownField;
                         result = @unionInit(T, u_field.name, {});
@@ -324,7 +323,7 @@ pub fn innerParse(
             if (structInfo.is_tuple) {
                 switch (try source.next()) {
                     .array_begin => {},
-                    else => |t| return typeError(allocator, options.diagnostics, t, "tuple (array of values)"),
+                    else => |t| return typeError(options.diagnostics, t, "tuple (array of values)"),
                 }
 
                 var r: T = undefined;
@@ -344,7 +343,7 @@ pub fn innerParse(
 
             switch (try source.next()) {
                 .object_begin => {},
-                else => |t| return typeError(allocator, options.diagnostics, t, "struct ('{...}')"),
+                else => |t| return typeError(options.diagnostics, t, "struct ('{...}')"),
             }
 
             var r: T = undefined;
@@ -366,7 +365,7 @@ pub fn innerParse(
                         // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
                         // (Recursing into innerParse() might trigger more allocations.)
                         freeAllocated(allocator, name_token.?);
-                        errdefer maybeRecordDiagnosticContext(allocator, options.diagnostics, @typeName(T) ++ "." ++ field.name);
+                        errdefer if (options.diagnostics) |diag| diag.recordContext(@typeName(T) ++ "." ++ field.name);
                         name_token = null;
                         if (fields_seen[i]) {
                             switch (options.duplicate_field_behavior) {
@@ -405,7 +404,7 @@ pub fn innerParse(
                     return internalParseArray(T, arrayInfo.child, arrayInfo.len, allocator, source, options);
                 },
                 .string => {
-                    if (arrayInfo.child != u8) return typeError(allocator, options.diagnostics, .string, "array");
+                    if (arrayInfo.child != u8) return typeError(options.diagnostics, .string, "array");
                     // Fixed-length string.
 
                     var r: T = undefined;
@@ -449,7 +448,7 @@ pub fn innerParse(
                     return r;
                 },
 
-                else => |t| return typeError(allocator, options.diagnostics, t, "array"),
+                else => |t| return typeError(options.diagnostics, t, "array"),
             }
         },
 
@@ -458,7 +457,7 @@ pub fn innerParse(
                 .array_begin => {
                     return internalParseArray(T, vecInfo.child, vecInfo.len, allocator, source, options);
                 },
-                else => |t| return typeError(allocator, options.diagnostics, t, "array"),
+                else => |t| return typeError(options.diagnostics, t, "array"),
             }
         },
 
@@ -497,7 +496,7 @@ pub fn innerParse(
                             return try arraylist.toOwnedSlice();
                         },
                         .string => {
-                            if (ptrInfo.child != u8) return typeError(allocator, options.diagnostics, .string, "array");
+                            if (ptrInfo.child != u8) return typeError(options.diagnostics, .string, "array");
 
                             // Dynamic length string.
                             if (ptrInfo.sentinel) |sentinel_ptr| {
@@ -519,7 +518,7 @@ pub fn innerParse(
                                 }
                             }
                         },
-                        else => |t| return typeError(allocator, options.diagnostics, t, "array"),
+                        else => |t| return typeError(options.diagnostics, t, "array"),
                     }
                 },
                 else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
@@ -582,24 +581,21 @@ fn coerceToTokenType(token: anytype) TokenType {
         .end_of_document => .end_of_document,
     };
 }
-fn typeError(allocator: Allocator, diagnostics: ?*Diagnostics, token: anytype, expected: []const u8) error{UnexpectedToken} {
+fn typeError(diagnostics: ?*Diagnostics, token: anytype, comptime expected: []const u8) error{UnexpectedToken} {
     if (diagnostics) |diag| {
-        if (std.fmt.allocPrint(allocator, "expected: {s}, found: {s}", .{
-            expected,
-            switch (coerceToTokenType(token)) {
-                .object_begin => "'{'",
-                .array_begin => "'['",
-                .true, .false => "bool",
-                .null => "null",
-                .number => "number",
-                .string => "string",
-                .object_end => unreachable, // type errors happen at the start of a value.
-                .array_end => unreachable, // type errors happen at the start of a value.
-                .end_of_document => unreachable, // type errors happen at the start of a value.
-            },
-        })) |s| {
-            diag.recordContext(allocator, s) catch {};
-        } else |_| {}
+        const prefix = "expected: " ++ expected ++ ", found: ";
+        const s = switch (coerceToTokenType(token)) {
+            .object_begin => prefix ++ "'{'",
+            .array_begin => prefix ++ "'['",
+            .true, .false => prefix ++ "bool",
+            .null => prefix ++ "null",
+            .number => prefix ++ "number",
+            .string => prefix ++ "string",
+            .object_end => unreachable, // type errors happen at the start of a value.
+            .array_end => unreachable, // type errors happen at the start of a value.
+            .end_of_document => unreachable, // type errors happen at the start of a value.
+        };
+        diag.recordContext(s);
     }
     return error.UnexpectedToken;
 }

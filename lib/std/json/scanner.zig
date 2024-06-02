@@ -35,6 +35,7 @@ const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const assert = std.debug.assert;
 const BitStack = std.BitStack;
+const BoundedArray = std.BoundedArray;
 
 /// Scan the input and check for malformed JSON.
 /// On `SyntaxError` or `UnexpectedEndOfInput`, returns `false`.
@@ -204,7 +205,7 @@ pub const Diagnostics = struct {
     current_input: []const u8 = undefined,
 
     // updated by recordContext().
-    context_stack: ArrayListUnmanaged([]const u8) = .{},
+    context_stack: BoundedArray([]const u8, 8) = .{},
 
     /// Starts at 1.
     pub fn getLine(self: *const @This()) u64 {
@@ -219,15 +220,22 @@ pub const Diagnostics = struct {
         return self.total_bytes_before_current_input + self.cursor_in_current_input;
     }
 
-    pub fn recordContext(self: *@This(), allocator: Allocator, context: []const u8) Allocator.Error!void {
-        return self.context_stack.append(allocator, context);
+    /// Attemps to push a human-readable string onto the context stack.
+    /// Only works up to a maximum number of times, after which this does nothing.
+    pub fn recordContext(self: *@This(), context: []const u8) void {
+        self.context_stack.append(context) catch {};
     }
 
     /// Pretty-print diagnostic information to the given writer, such as `std.io.getStdErr().writer()`.
-    /// file_name if non-null will be printed in a line with the line and column numbers;
+    /// displayed_file_name if non-null will be printed in a line with the line and column numbers;
     /// it is purely aesthetic and is not touched on any actual file system.
-    pub fn dump(self: *const @This(), writer: anytype, err: anyerror, file_name: ?[]const u8) !void {
-        try writer.print("{s}:{}:{}: {s}\n", .{ file_name orelse "<json>", self.getLine(), self.getColumn(), @errorName(err) });
+    pub fn dump(self: *const @This(), writer: anytype, err: anyerror, displayed_file_name: ?[]const u8) !void {
+        try writer.print("{s}:{}:{}: {s}\n", .{
+            displayed_file_name orelse "<json>",
+            self.getLine(),
+            self.getColumn(),
+            @errorName(err),
+        });
 
         // Show a "line" of context, or in case of very long lines, just an excerpt of the line.
         // (Very long lines are common in minified JSON such as in an HTTP API or other machine-to-machine contexts.)
@@ -262,17 +270,11 @@ pub const Diagnostics = struct {
         try writer.writeByteNTimes(' ', start_elipsis.len + self.cursor_in_current_input - start);
         try writer.writeAll("^\n");
 
-        for (self.context_stack.items) |item| {
+        for (self.context_stack.slice()) |item| {
             try writer.print("  in {s}\n", .{item});
         }
     }
 };
-
-pub inline fn maybeRecordDiagnosticContext(allocator: Allocator, maybe_diagnostics: ?*Diagnostics, context: []const u8) void {
-    if (maybe_diagnostics) |diag| {
-        diag.recordContext(allocator, context) catch {};
-    }
-}
 
 /// See the documentation for `std.json.Token`.
 pub const AllocWhen = enum { alloc_if_needed, alloc_always };
