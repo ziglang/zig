@@ -287,7 +287,7 @@ pub fn innerParse(
             const field_name = switch (name_token.?) {
                 inline .string, .allocated_string => |slice| slice,
                 else => {
-                    if (options.diagnostics) |diag| diag.recordContext("tagged union requires a field to identify the active tag");
+                    if (options.diagnostics) |diag| diag.setMessage("tagged union requires a field to identify the active tag");
                     return error.MissingField;
                 },
             };
@@ -305,7 +305,7 @@ pub fn innerParse(
                             else => |t| return typeError(options.diagnostics, t, "void payload ('{}')"),
                         }
                         if (.object_end != try source.next()) {
-                            if (options.diagnostics) |diag| diag.recordContext("void payload '{}' should have no fields");
+                            if (options.diagnostics) |diag| diag.setMessage("void payload '{}' should have no fields");
                             return error.UnknownField;
                         }
                         result = @unionInit(T, u_field.name, {});
@@ -317,12 +317,12 @@ pub fn innerParse(
                 }
             } else {
                 // Didn't match anything.
-                if (options.diagnostics) |diag| diag.recordContext("unrecognized tag name");
+                if (options.diagnostics) |diag| diag.setMessage("unrecognized tag name");
                 return error.UnknownField;
             }
 
             if (.object_end != try source.next()) {
-                if (options.diagnostics) |diag| diag.recordContext("tagged union requires only one field");
+                if (options.diagnostics) |diag| diag.setMessage("tagged union requires only one field");
                 return error.UnknownField;
             }
 
@@ -339,7 +339,7 @@ pub fn innerParse(
                 var r: T = undefined;
                 inline for (0..structInfo.fields.len) |i| {
                     if (.array_end == try source.peekNextTokenType()) {
-                        if (options.diagnostics) |diag| diag.recordContext(std.fmt.comptimePrint(
+                        if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint(
                             "tuple too short. expected length: {}",
                             .{structInfo.fields.len},
                         ));
@@ -349,7 +349,7 @@ pub fn innerParse(
                 }
 
                 if (.array_end != try source.next()) {
-                    if (options.diagnostics) |diag| diag.recordContext(std.fmt.comptimePrint(
+                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint(
                         "tuple too long. expected length: {}",
                         .{structInfo.fields.len},
                     ));
@@ -398,7 +398,7 @@ pub fn innerParse(
                                     break;
                                 },
                                 .@"error" => {
-                                    if (options.diagnostics) |diag| diag.recordContext("duplicate field name: " ++ field.name);
+                                    if (options.diagnostics) |diag| diag.setMessage("duplicate field name: " ++ field.name);
                                     return error.DuplicateField;
                                 },
                                 .use_last => {},
@@ -414,7 +414,7 @@ pub fn innerParse(
                     if (options.ignore_unknown_fields) {
                         try source.skipValue();
                     } else {
-                        if (options.diagnostics) |diag| diag.recordContext("unrecognized field name");
+                        if (options.diagnostics) |diag| diag.setMessage("unrecognized field name");
                         return error.UnknownField;
                     }
                 }
@@ -438,32 +438,54 @@ pub fn innerParse(
                     while (true) {
                         switch (try source.next()) {
                             .string => |slice| {
-                                if (i + slice.len != r.len) return error.LengthMismatch;
+                                if (i + slice.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
+                                if (i + slice.len < r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too short for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..slice.len], slice);
                                 break;
                             },
                             .partial_string => |slice| {
-                                if (i + slice.len > r.len) return error.LengthMismatch;
+                                if (i + slice.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..slice.len], slice);
                                 i += slice.len;
                             },
                             .partial_string_escaped_1 => |arr| {
-                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                if (i + arr.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_2 => |arr| {
-                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                if (i + arr.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_3 => |arr| {
-                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                if (i + arr.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_4 => |arr| {
-                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                if (i + arr.len > r.len) {
+                                    if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("string too long for fixed length array. expected length: {}", .{r.len}));
+                                    return error.LengthMismatch;
+                                }
                                 @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
@@ -568,11 +590,17 @@ fn internalParseArray(
     var r: T = undefined;
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        if (.array_end == try source.peekNextTokenType()) return error.LengthMismatch;
+        if (.array_end == try source.peekNextTokenType()) {
+            if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("not enough items for fixed length array. expected length: {}", .{len}));
+            return error.LengthMismatch;
+        }
         r[i] = try innerParse(Child, allocator, source, options);
     }
 
-    if (.array_end != try source.next()) return error.LengthMismatch;
+    if (.array_end != try source.next()) {
+        if (options.diagnostics) |diag| diag.setMessage(std.fmt.comptimePrint("too many items for fixed length array. expected length: {}", .{len}));
+        return error.LengthMismatch;
+    }
 
     return r;
 }
@@ -622,7 +650,7 @@ fn typeError(diagnostics: ?*Diagnostics, token: anytype, comptime expected: []co
             .array_end => unreachable, // type errors happen at the start of a value.
             .end_of_document => unreachable, // type errors happen at the start of a value.
         };
-        diag.recordContext(s);
+        diag.setMessage(s);
     }
     return error.UnexpectedToken;
 }
@@ -880,7 +908,7 @@ fn fillDefaultStructValues(comptime T: type, options: ParseOptions, r: *T, field
                 const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
                 @field(r, field.name) = default;
             } else {
-                if (options.diagnostics) |diag| diag.recordContext("missing field: " ++ @typeName(T) ++ "." ++ field.name);
+                if (options.diagnostics) |diag| diag.setMessage("missing field: " ++ @typeName(T) ++ "." ++ field.name);
                 return error.MissingField;
             }
         }

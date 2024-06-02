@@ -204,6 +204,8 @@ pub const Diagnostics = struct {
     cursor_in_current_input: usize = undefined,
     current_input: []const u8 = undefined,
 
+    // updated setMessage().
+    message: []const u8 = "",
     // updated by recordContext().
     context_stack: BoundedArray([]const u8, 8) = .{},
 
@@ -220,6 +222,13 @@ pub const Diagnostics = struct {
         return self.total_bytes_before_current_input + self.cursor_in_current_input;
     }
 
+    /// Set the headline message of the problem.
+    /// Must not be called multiple times.
+    pub fn setMessage(self: *@This(), message: []const u8) void {
+        assert(message.len != 0);
+        assert(self.message.len == 0); // already set message.
+        self.message = message;
+    }
     /// Attemps to push a human-readable string onto the context stack.
     /// Only works up to a maximum number of times, after which this does nothing.
     pub fn recordContext(self: *@This(), context: []const u8) void {
@@ -270,11 +279,11 @@ pub const Diagnostics = struct {
         try writer.writeByteNTimes(' ', start_elipsis.len + self.cursor_in_current_input - start);
         try writer.writeAll("^\n");
 
-        if (self.context_stack.len > 0) {
-            try writer.print("{s}\n", .{self.context_stack.slice()[0]});
-            for (self.context_stack.slice()[1..]) |item| {
-                try writer.print("  in {s}\n", .{item});
-            }
+        if (self.message.len > 0) {
+            try writer.print("{s}\n", .{self.message});
+        }
+        for (self.context_stack.slice()) |item| {
+            try writer.print("  in {s}\n", .{item});
         }
     }
 };
