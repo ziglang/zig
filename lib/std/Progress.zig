@@ -1106,6 +1106,7 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
 fn computePrefix(
     buf: []u8,
     start_i: usize,
+    nl_n: usize,
     serialized: Serialized,
     children: []const Children,
     node_index: Node.Index,
@@ -1118,25 +1119,29 @@ fn computePrefix(
     {
         return i;
     }
-    i = computePrefix(buf, i, serialized, children, parent_index);
+    i = computePrefix(buf, i, nl_n, serialized, children, parent_index);
     if (children[@intFromEnum(parent_index)].sibling == .none) {
         const prefix = "   ";
-        const upper_bound_len = prefix.len + line_upper_bound_len;
+        const upper_bound_len = prefix.len + lineUpperBoundLen(nl_n);
         if (i + upper_bound_len > buf.len) return buf.len;
         buf[i..][0..prefix.len].* = prefix.*;
         i += prefix.len;
     } else {
-        const upper_bound_len = comptime (TreeSymbol.line.maxByteLen() + line_upper_bound_len);
+        const upper_bound_len = TreeSymbol.line.maxByteLen() + lineUpperBoundLen(nl_n);
         if (i + upper_bound_len > buf.len) return buf.len;
         i = appendTreeSymbol(.line, buf, i);
     }
     return i;
 }
 
-// \r\n on Windows, \n otherwise.
-const nl_len = if (is_windows) 2 else 1;
-const line_upper_bound_len = @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) +
-    "[4294967296/4294967296] ".len + Node.max_name_len + nl_len + (1 + up_one_line.len) + finish_sync.len;
+fn lineUpperBoundLen(nl_n: usize) usize {
+    // \r\n on Windows, \n otherwise.
+    const nl_len = if (is_windows) 2 else 1;
+    return @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) +
+        "[4294967296/4294967296] ".len + Node.max_name_len + nl_len +
+        (1 + (nl_n + 1) * up_one_line.len) +
+        finish_sync.len;
+}
 
 fn computeNode(
     buf: []u8,
@@ -1149,9 +1154,9 @@ fn computeNode(
     var i = start_i;
     var nl_n = start_nl_n;
 
-    i = computePrefix(buf, i, serialized, children, node_index);
+    i = computePrefix(buf, i, nl_n, serialized, children, node_index);
 
-    if (i + line_upper_bound_len > buf.len)
+    if (i + lineUpperBoundLen(nl_n) > buf.len)
         return .{ start_i, start_nl_n };
 
     const storage = &serialized.storage[@intFromEnum(node_index)];
