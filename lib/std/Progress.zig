@@ -1133,8 +1133,10 @@ fn computePrefix(
     return i;
 }
 
+// \r\n on Windows, \n otherwise.
+const nl_len = if (is_windows) 2 else 1;
 const line_upper_bound_len = @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) +
-    "[4294967296/4294967296] ".len + Node.max_name_len + (1 + up_one_line.len) + finish_sync.len;
+    "[4294967296/4294967296] ".len + Node.max_name_len + nl_len + (1 + up_one_line.len) + finish_sync.len;
 
 fn computeNode(
     buf: []u8,
@@ -1183,6 +1185,13 @@ fn computeNode(
         }
 
         i = @min(global_progress.cols + start_i, i);
+        if (is_windows) {
+            // \r\n on Windows is necessary for the old console with the
+            // ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN
+            // console modes set to behave properly.
+            buf[i] = '\r';
+            i += 1;
+        }
         buf[i] = '\n';
         i += 1;
         nl_n += 1;
