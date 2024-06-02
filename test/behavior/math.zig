@@ -440,7 +440,6 @@ test "division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -530,7 +529,6 @@ test "division half-precision floats" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -622,7 +620,6 @@ test "negation wrapping" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expectEqual(@as(u1, 1), negateWrap(u1, 1));
 }
@@ -1030,6 +1027,60 @@ test "@mulWithOverflow bitsize > 32" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    {
+        var a: u40 = 3;
+        var b: u40 = 0x55_5555_5555;
+        var ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == 0xff_ffff_ffff);
+        try expect(ov[1] == 0);
+
+        // Check that overflow bits in the low-word of wide-multiplications are checked too.
+        // Intermediate result is less than 2**64
+        b = 0x55_5555_5556;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 2);
+        try expect(ov[1] == 1);
+
+        // Check that overflow bits in the high-word of wide-multiplications are checked too.
+        // Intermediate result is more than 2**64 and bits 40..64 are not set.
+        a = 0x10_0000_0000;
+        b = 0x10_0000_0000;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 0);
+        try expect(ov[1] == 1);
+    }
+
+    {
+        var a: i40 = 3;
+        var b: i40 = -0x2a_aaaa_aaaa;
+        var ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == -0x7f_ffff_fffe);
+        try expect(ov[1] == 0);
+
+        // Check that the sign bit is properly checked
+        b = -0x2a_aaaa_aaab;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 0x7f_ffff_ffff);
+        try expect(ov[1] == 1);
+
+        // Check that the low-order bits above the sign are checked.
+        a = 6;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == -2);
+        try expect(ov[1] == 1);
+
+        // Check that overflow bits in the high-word of wide-multiplications are checked too.
+        // high parts and sign of low-order bits are all 1.
+        a = 0x08_0000_0000;
+        b = -0x08_0000_0001;
+        ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == -0x8_0000_0000);
+        try expect(ov[1] == 1);
+    }
 
     {
         var a: u62 = 3;
@@ -1580,7 +1631,6 @@ test "@round f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1592,7 +1642,6 @@ test "@round f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
