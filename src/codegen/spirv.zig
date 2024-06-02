@@ -780,21 +780,14 @@ const DeclGen = struct {
     /// Result is in `direct` representation.
     fn constructStruct(self: *DeclGen, ty: Type, types: []const Type, constituents: []const IdRef) !IdRef {
         assert(types.len == constituents.len);
-        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
-        // operands are not constant.
-        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
-        // For now, just initialize the struct by setting the fields manually...
-        // TODO: Make this OpCompositeConstruct when we can
-        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
-        for (constituents, types, 0..) |constitent_id, member_ty, index| {
-            const ptr_member_ty_id = try self.ptrType(member_ty, .Function);
-            const ptr_id = try self.accessChain(ptr_member_ty_id, ptr_composite_id, &.{@as(u32, @intCast(index))});
-            try self.func.body.emit(self.spv.gpa, .OpStore, .{
-                .pointer = ptr_id,
-                .object = constitent_id,
-            });
-        }
-        return try self.load(ty, ptr_composite_id, .{});
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = try self.resolveType(ty, .direct),
+            .id_result = result_id,
+            .constituents = constituents,
+        });
+        return result_id;
     }
 
     /// Construct a vector at runtime.
@@ -839,23 +832,13 @@ const DeclGen = struct {
     /// Constituents should be in `indirect` representation (as the elements of an array should be).
     /// Result is in `direct` representation.
     fn constructArray(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
-        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
-        // operands are not constant.
-        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
-        // For now, just initialize the struct by setting the fields manually...
-        // TODO: Make this OpCompositeConstruct when we can
-        const mod = self.module;
-        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
-        const ptr_elem_ty_id = try self.ptrType(ty.elemType2(mod), .Function);
-        for (constituents, 0..) |constitent_id, index| {
-            const ptr_id = try self.accessChain(ptr_elem_ty_id, ptr_composite_id, &.{@as(u32, @intCast(index))});
-            try self.func.body.emit(self.spv.gpa, .OpStore, .{
-                .pointer = ptr_id,
-                .object = constitent_id,
-            });
-        }
-
-        return try self.load(ty, ptr_composite_id, .{});
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = try self.resolveType(ty, .direct),
+            .id_result = result_id,
+            .constituents = constituents,
+        });
+        return result_id;
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
