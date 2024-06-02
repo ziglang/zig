@@ -3404,23 +3404,25 @@ fn buildOutputType(
         },
     }
 
-    const root_prog_node = std.Progress.start(.{
-        .disable_printing = (color == .off),
-    });
-    defer root_prog_node.end();
+    {
+        const root_prog_node = std.Progress.start(.{
+            .disable_printing = (color == .off),
+        });
+        defer root_prog_node.end();
 
-    if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null, root_prog_node);
+        if (arg_mode == .translate_c) {
+            return cmdTranslateC(comp, arena, null, root_prog_node);
+        }
+
+        updateModule(comp, color, root_prog_node) catch |err| switch (err) {
+            error.SemanticAnalyzeFail => {
+                assert(listen == .none);
+                saveState(comp, debug_incremental);
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
     }
-
-    updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => {
-            assert(listen == .none);
-            saveState(comp, debug_incremental);
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
     saveState(comp, debug_incremental);
@@ -4228,7 +4230,9 @@ fn runOrTest(
     // the error message and invocation below.
     if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
+        std.debug.lockStdErr();
         const err = process.execve(gpa, argv.items, &env_map);
+        std.debug.unlockStdErr();
         try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
@@ -4244,7 +4248,12 @@ fn runOrTest(
         comp.destroy();
         comp_destroyed.* = true;
 
-        const term = child.spawnAndWait() catch |err| {
+        const term_result = t: {
+            std.debug.lockStdErr();
+            defer std.debug.unlockStdErr();
+            break :t child.spawnAndWait();
+        };
+        const term = term_result catch |err| {
             try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
