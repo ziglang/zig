@@ -1783,6 +1783,8 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErro
     return fbs.getWritten();
 }
 
+/// Print a Formatter string into `buf`, terminated with zero. Actually just a thin wrapper around `bufPrint`.
+/// Returns a slice of the bytes printed to.
 pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
     const result = try bufPrint(buf, fmt ++ "\x00", args);
     return result[0 .. result.len - 1 :0];
