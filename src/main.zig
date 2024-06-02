@@ -994,11 +994,16 @@ fn buildOutputType(
         .native_system_include_paths = &.{},
     };
 
-    // before arg parsing, check for the NO_COLOR environment variable
-    // if it exists, default the color setting to .off
+    // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
+    // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+        .off
+    else if (EnvVar.CLICOLOR_FORCE.isSet())
+        .on
+    else
+        .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
