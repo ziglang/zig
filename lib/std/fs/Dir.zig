@@ -1001,12 +1001,20 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
         },
         else => {},
     }
-
-    var os_flags: posix.O = .{
-        .ACCMODE = if (flags.read) .RDWR else .WRONLY,
-        .CREAT = true,
-        .TRUNC = flags.truncate,
-        .EXCL = flags.exclusive,
+    var os_flags: posix.O = switch (native_os) {
+        .wasi => .{
+            .read = flags.read,
+            .write = true,
+            .CREAT = true,
+            .TRUNC = flags.truncate,
+            .EXCL = flags.exclusive,
+        },
+        else => .{
+            .ACCMODE = if (flags.read) .RDWR else .WRONLY,
+            .CREAT = true,
+            .TRUNC = flags.truncate,
+            .EXCL = flags.exclusive,
+        },
     };
     if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
     if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
