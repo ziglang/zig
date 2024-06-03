@@ -963,7 +963,7 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.createFileW(path_w.span(), flags);
     }
-    if (native_os == .wasi) {
+    if (native_os == .wasi and !builtin.link_libc) {
         return .{
             .handle = try posix.openatWasi(self.fd, sub_path, .{}, .{
                 .CREAT = true,
