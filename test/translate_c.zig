@@ -2457,9 +2457,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = c.*.b;
         \\}
         ,
-        \\pub const DOT = a.b;
+        \\pub inline fn ARROW() @TypeOf(a.*.b) {
+        \\    return a.*.b;
+        \\}
         ,
-        \\pub const ARROW = a.*.b;
+        \\pub inline fn DOT() @TypeOf(a.b) {
+        \\    return a.b;
+        \\}
     });
 
     cases.add("array access",
@@ -3136,7 +3140,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
-        \\pub const FOO = if (a) b else c;
+        \\pub inline fn FOO() @TypeOf(if (a) b else c) {
+        \\    return if (a) b else c;
+        \\}
     });
 
     cases.add("do while as expr",
