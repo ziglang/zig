@@ -1030,14 +1030,16 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
     const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
-    if (!has_flock_open_flags and flags.lock != .none) {
-        // TODO: integrate async I/O
-        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-        try posix.flock(fd, switch (flags.lock) {
-            .none => unreachable,
-            .shared => posix.LOCK.SH | lock_nonblocking,
-            .exclusive => posix.LOCK.EX | lock_nonblocking,
-        });
+    if (@hasDecl(posix.system, "LOCK")) {
+        if (!has_flock_open_flags and flags.lock != .none) {
+            // TODO: integrate async I/O
+            const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
+            try posix.flock(fd, switch (flags.lock) {
+                .none => unreachable,
+                .shared => posix.LOCK.SH | lock_nonblocking,
+                .exclusive => posix.LOCK.EX | lock_nonblocking,
+            });
+        }
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
