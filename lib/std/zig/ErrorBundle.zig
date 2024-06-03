@@ -155,8 +155,8 @@ pub const RenderOptions = struct {
 };
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     const stderr = std.io.getStdErr();
     return renderToWriter(eb, options, stderr.writer()) catch return;
 }

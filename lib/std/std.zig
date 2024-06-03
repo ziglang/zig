@@ -14,8 +14,6 @@ pub const BoundedArrayAligned = @import("bounded_array.zig").BoundedArrayAligned
 pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
-/// Deprecated: use `process.Child`.
-pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
@@ -27,7 +25,6 @@ pub const EnumMap = enums.EnumMap;
 pub const EnumSet = enums.EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
-pub const Ini = @import("Ini.zig");
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
 pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;

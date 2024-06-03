@@ -23,6 +23,11 @@ cwd: ?Build.LazyPath,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
+/// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
+/// to the child process, which otherwise would be used for the child to send
+/// progress updates to the parent.
+disable_zig_progress: bool,
+
 /// Configures whether the Run step is considered to have side-effects, and also
 /// whether the Run step will inherit stdio streams, forwarding them to the
 /// parent process, in which case will require a global lock to prevent other
@@ -152,6 +157,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .argv = .{},
         .cwd = null,
         .env_map = null,
+        .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
         .extra_file_dependencies = &.{},
@@ -574,7 +580,7 @@ const IndexedOutput = struct {
     tag: @typeInfo(Arg).Union.tag_type.?,
     output: *Output,
 };
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const arena = b.allocator;
     const run: *Run = @fieldParentPtr("step", step);
@@ -659,7 +665,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
-    if (try step.cacheHit(&man) and !has_side_effects) {
+    if (!has_side_effects and try step.cacheHit(&man)) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -678,7 +684,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const dep_output_file = run.dep_output_file orelse {
         // We already know the final output paths, use them directly.
-        const digest = man.final();
+        const digest = if (has_side_effects)
+            man.hash.final()
+        else
+            man.final();
 
         try populateGeneratedPaths(
             arena,
@@ -710,7 +719,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
-        try step.writeManifest(&man);
+        if (!has_side_effects) try step.writeManifest(&man);
         return;
     };
 
@@ -741,9 +750,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
 
-    try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
+    const dep_file_dir = std.fs.cwd();
+    const dep_file_basename = dep_output_file.generated_file.getPath();
+    if (has_side_effects)
+        try man.addDepFile(dep_file_dir, dep_file_basename)
+    else
+        try man.addDepFilePost(dep_file_dir, dep_file_basename);
 
-    const digest = man.final();
+    const digest = if (has_side_effects)
+        man.hash.final()
+    else
+        man.final();
 
     const any_output = output_placeholders.items.len > 0 or
         run.captured_stdout != null or run.captured_stderr != null;
@@ -778,7 +795,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
     }
 
-    try step.writeManifest(&man);
+    if (!has_side_effects) try step.writeManifest(&man);
 
     try populateGeneratedPaths(
         arena,
@@ -867,7 +884,7 @@ fn runCommand(
     argv: []const []const u8,
     has_side_effects: bool,
     output_dir_path: []const u8,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     const step = &run.step;
     const b = step.owner;
@@ -1184,7 +1201,7 @@ fn spawnChildAndCollect(
     run: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !ChildProcResult {
     const b = run.step.owner;
     const arena = b.allocator;
@@ -1224,16 +1241,26 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    try child.spawn();
-    var timer = try std.time.Timer.start();
+    const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
 
-    const result = if (run.stdio == .zig_test)
-        evalZigTest(run, &child, prog_node)
-    else
-        evalGeneric(run, &child);
+    if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
+        child.progress_node = prog_node;
+    }
 
-    const term = try child.wait();
-    const elapsed_ns = timer.read();
+    const term, const result, const elapsed_ns = t: {
+        if (inherit) std.debug.lockStdErr();
+        defer if (inherit) std.debug.unlockStdErr();
+
+        try child.spawn();
+        var timer = try std.time.Timer.start();
+
+        const result = if (run.stdio == .zig_test)
+            evalZigTest(run, &child, prog_node)
+        else
+            evalGeneric(run, &child);
+
+        break :t .{ try child.wait(), result, timer.read() };
+    };
 
     return .{
         .stdio = try result,
@@ -1253,7 +1280,7 @@ const StdIoResult = struct {
 fn evalZigTest(
     run: *Run,
     child: *std.process.Child,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !StdIoResult {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
@@ -1280,7 +1307,7 @@ fn evalZigTest(
     var metadata: ?TestMetadata = null;
 
     var sub_prog_node: ?std.Progress.Node = null;
-    defer if (sub_prog_node) |*n| n.end();
+    defer if (sub_prog_node) |n| n.end();
 
     poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
@@ -1395,7 +1422,7 @@ const TestMetadata = struct {
     expected_panic_msgs: []const u32,
     string_bytes: []const u8,
     next_index: u32,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 
     fn testName(tm: TestMetadata, index: u32) []const u8 {
         return std.mem.sliceTo(tm.string_bytes[tm.names[index]..], 0);
@@ -1410,7 +1437,7 @@ fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Pr
         if (metadata.expected_panic_msgs[i] != 0) continue;
 
         const name = metadata.testName(i);
-        if (sub_prog_node.*) |*n| n.end();
+        if (sub_prog_node.*) |n| n.end();
         sub_prog_node.* = metadata.prog_node.start(name, 0);
 
         try sendRunTestMessage(in, i);

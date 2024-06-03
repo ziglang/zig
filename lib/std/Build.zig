@@ -178,7 +178,7 @@ pub const RunError = error{
     ExitCodeFailure,
     ProcessTerminated,
     ExecNotSupported,
-} || std.ChildProcess.SpawnError;
+} || std.process.Child.SpawnError;
 
 pub const PkgConfigError = error{
     PkgConfigCrashed,
@@ -1059,7 +1059,7 @@ pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+fn makeUninstall(uninstall_step: *Step, prog_node: std.Progress.Node) anyerror!void {
     _ = prog_node;
     const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
     const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
@@ -1719,7 +1719,7 @@ pub fn runAllowFail(
     b: *Build,
     argv: []const []const u8,
     out_code: *u8,
-    stderr_behavior: std.ChildProcess.StdIo,
+    stderr_behavior: std.process.Child.StdIo,
 ) RunError![]u8 {
     assert(argv.len != 0);
 
@@ -1727,7 +1727,7 @@ pub fn runAllowFail(
         return error.ExecNotSupported;
 
     const max_output_size = 400 * 1024;
-    var child = std.ChildProcess.init(argv, b.allocator);
+    var child = std.process.Child.init(argv, b.allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = stderr_behavior;
@@ -2281,10 +2281,10 @@ pub const LazyPath = union(enum) {
             .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| {
                 var file_path: []const u8 = gen.file.step.owner.pathFromRoot(gen.file.path orelse {
-                    std.debug.getStderrMutex().lock();
+                    std.debug.lockStdErr();
                     const stderr = std.io.getStdErr();
                     dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                    std.debug.getStderrMutex().unlock();
+                    std.debug.unlockStdErr();
                     @panic("misconfigured build script");
                 });
 
@@ -2351,8 +2351,8 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    debug.getStderrMutex().lock();
-    defer debug.getStderrMutex().unlock();
+    debug.lockStdErr();
+    defer debug.unlockStdErr();
 
     const stderr = io.getStdErr();
     const w = stderr.writer();

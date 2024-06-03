@@ -212,6 +212,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .callable => "callable",
         .mesh => "mesh",
         .amplification => "amplification",
+        .ohos => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
 
@@ -3774,6 +3775,7 @@ pub const Object = struct {
             .float,
             .enum_tag,
             => {},
+            .opt => {}, // pointer like optional expected
             else => unreachable,
         }
         const bits = ty.bitSize(mod);
@@ -4375,7 +4377,7 @@ pub const Object = struct {
             .int => try o.builder.castConst(
                 .inttoptr,
                 try o.builder.intConst(try o.lowerType(Type.usize), offset),
-                .ptr,
+                try o.lowerType(Type.fromInterned(ptr.ty)),
             ),
             .eu_payload => |eu_ptr| try o.lowerPtr(
                 eu_ptr,
@@ -7623,7 +7625,8 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const index = pl_op.payload;
-        return self.wip.callIntrinsic(.normal, .none, .@"wasm.memory.size", &.{.i32}, &.{
+        const llvm_usize = try o.lowerType(Type.usize);
+        return self.wip.callIntrinsic(.normal, .none, .@"wasm.memory.size", &.{llvm_usize}, &.{
             try o.builder.intValue(.i32, index),
         }, "");
     }
@@ -7632,7 +7635,8 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const index = pl_op.payload;
-        return self.wip.callIntrinsic(.normal, .none, .@"wasm.memory.grow", &.{.i32}, &.{
+        const llvm_isize = try o.lowerType(Type.isize);
+        return self.wip.callIntrinsic(.normal, .none, .@"wasm.memory.grow", &.{llvm_isize}, &.{
             try o.builder.intValue(.i32, index), try self.resolveInst(pl_op.operand),
         }, "");
     }

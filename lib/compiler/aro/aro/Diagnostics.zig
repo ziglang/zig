@@ -528,7 +528,7 @@ const MsgWriter = struct {
     config: std.io.tty.Config,
 
     fn init(config: std.io.tty.Config) MsgWriter {
-        std.debug.getStderrMutex().lock();
+        std.debug.lockStdErr();
         return .{
             .w = std.io.bufferedWriter(std.io.getStdErr().writer()),
             .config = config,
@@ -537,7 +537,7 @@ const MsgWriter = struct {
 
     pub fn deinit(m: *MsgWriter) void {
         m.w.flush() catch {};
-        std.debug.getStderrMutex().unlock();
+        std.debug.unlockStdErr();
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {

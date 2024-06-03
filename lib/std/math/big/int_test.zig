@@ -3232,3 +3232,52 @@ test "Managed sqrt(n) succeed with res.bitCountAbs() >= usize bits" {
     try expected.setString(10, "11663466984815033033");
     try std.testing.expectEqual(std.math.Order.eq, expected.order(res));
 }
+
+test "(BigInt) positive" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = pow(2, 64 * @sizeOf(usize) * 8), b = a - 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    try b.sub(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+}
+
+test "(BigInt) negative" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = -pow(2, 64 * @sizeOf(usize) * 8), b = a + 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    a.negate();
+    try b.add(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+}

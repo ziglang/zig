@@ -91,6 +91,7 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
         run.expectStdErrEqual("");
     }
     run.expectStdOutEqual(case.expected_stdout);
+    run.skip_foreign_checks = true;
 
     self.step.dependOn(&run.step);
 }
