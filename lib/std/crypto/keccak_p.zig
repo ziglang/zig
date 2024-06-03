@@ -7,7 +7,7 @@ const native_endian = builtin.cpu.arch.endian();
 
 /// The Keccak-f permutation.
 pub fn KeccakF(comptime f: u11) type {
-    comptime assert(f > 200 and f <= 1600 and f % 200 == 0); // invalid bit size
+    comptime assert(f >= 200 and f <= 1600 and f % 200 == 0); // invalid bit size
     const T = std.meta.Int(.unsigned, f / 25);
     const Block = [25]T;
 
@@ -196,7 +196,7 @@ pub fn KeccakF(comptime f: u11) type {
 
 /// A generic Keccak-P state.
 pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type {
-    comptime assert(f > 200 and f <= 1600 and f % 200 == 0); // invalid state size
+    comptime assert(f >= 200 and f <= 1600 and f % 200 == 0); // invalid state size
     comptime assert(capacity < f and capacity % 8 == 0); // invalid capacity size
 
     return struct {
