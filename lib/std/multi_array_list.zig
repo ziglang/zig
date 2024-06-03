@@ -137,17 +137,16 @@ pub fn MultiArrayList(comptime T: type) type {
                 self.* = undefined;
             }
 
-            fn addManyAtAssumeCapacity(self: *Slice, index: usize, count: usize) void {
+            fn addManyAtAssumeCapacity(self: *Slice, index: usize, count: usize, old_len: usize) void {
                 inline for (fields, 0..) |field_info, i| {
                     if (@sizeOf(field_info.type) != 0) {
                         const field_array = self.items(@as(Field, @enumFromInt(i)));
-                        const result = field_array[index..][0..count];
                         std.mem.copyBackwards(
                             field_info.type,
                             field_array[index + count ..],
-                            result,
+                            field_array[index..old_len],
                         );
-                        @memset(result, undefined);
+                        @memset(field_array[index..][0..count], undefined);
                     }
                 }
             }
@@ -358,10 +357,11 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Asserts that there is enough capacity for the new elements.
         pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) void {
             const new_len = self.len + count;
-            assert(new_len < self.capacity);
+            const old_len = self.len;
+            assert(new_len <= self.capacity);
             self.len = new_len;
             var slices = self.slice();
-            slices.addManyAtAssumeCapacity(index, count);
+            slices.addManyAtAssumeCapacity(index, count, old_len);
         }
 
         /// Remove and return the last element from the list.
@@ -791,6 +791,20 @@ test "basic usage" {
     try testing.expectEqual(@as(?Foo, null), list.popOrNull());
 
     list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    for (0..10) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    list.shrinkAndFree(ally, 0);
 
     try list.appendNTimes(ally, .{
         .a = 1,
@@ -803,6 +817,53 @@ test "basic usage" {
         try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
     }
 
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    list.addManyAtAssumeCapacity(3, 3);
+    for (0..2) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+    for (6..13) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    try list.addManyAt(ally, 3, 3);
+    for (0..2) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+    for (6..13) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    // case where addManyAt needs to reallocate
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 10);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
     try list.addManyAt(ally, 3, 3);
     for (0..2) |i| {
         try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
