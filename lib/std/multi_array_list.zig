@@ -139,14 +139,16 @@ pub fn MultiArrayList(comptime T: type) type {
 
             fn addManyAtAssumeCapacity(self: *Slice, index: usize, count: usize) void {
                 inline for (fields, 0..) |field_info, i| {
-                    const field_array = self.items(@as(Field, @enumFromInt(i)));
-                    const result = field_array[index..][0..count];
-                    std.mem.copyBackwards(
-                        field_info.type,
-                        field_array[index + count ..],
-                        result,
-                    );
-                    @memset(result, undefined);
+                    if (@sizeOf(field_info.type) != 0) {
+                        const field_array = self.items(@as(Field, @enumFromInt(i)));
+                        const result = field_array[index..][0..count];
+                        std.mem.copyBackwards(
+                            field_info.type,
+                            field_array[index + count ..],
+                            result,
+                        );
+                        @memset(result, undefined);
+                    }
                 }
             }
 
