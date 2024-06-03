@@ -100,7 +100,9 @@ pub fn MultiArrayList(comptime T: type) type {
                     else => unreachable,
                 };
                 inline for (fields, 0..) |field_info, i| {
-                    @memset(self.items(@as(Field, @enumFromInt(i)))[index..][0..count], @field(e, field_info.name));
+                    if (@sizeOf(field_info.type) != 0) {
+                        @memset(self.items(@as(Field, @enumFromInt(i)))[index..][0..count], @field(e, field_info.name));
+                    }
                 }
             }
 
@@ -308,7 +310,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Add `count` new elements at position `index`, which have undefined values.
         pub fn addManyAt(self: *Self, allocator: Allocator, index: usize, count: usize) Allocator.Error!void {
             const new_len = self.len + count;
-            const new_capacity = self.growCapacity(new_len);
+            const new_capacity = growCapacity(self.capacity, new_len);
 
             if (self.capacity >= new_capacity)
                 return self.addManyAtAssumeCapacity(index, count);
@@ -334,15 +336,17 @@ pub fn MultiArrayList(comptime T: type) type {
             };
             var new_slices: Slice = new_self.slice();
             const old_slices = self.slice();
-            inline for (fields, 0..) |_, field_index| {
-                const field = @as(Field, @enumFromInt(field_index));
-                const new_fields = new_slices.items(field);
-                const old_fields = old_slices.items(field);
-                const to_move = old_fields[index..];
-                @memcpy(new_fields[0..index], old_fields[0..index]);
-                @memcpy(new_fields[index + count ..][0..to_move.len], to_move);
-                // The inserted elements at `new_memory[index..][0..count]` have
-                // already been set to `undefined` by memory allocation.
+            inline for (fields, 0..) |field_info, field_index| {
+                if (@sizeOf(field_info.type) != 0) {
+                    const field = @as(Field, @enumFromInt(field_index));
+                    const new_fields = new_slices.items(field);
+                    const old_fields = old_slices.items(field);
+                    const to_move = old_fields[index..];
+                    @memcpy(new_fields[0..index], old_fields[0..index]);
+                    @memcpy(new_fields[index + count ..][0..to_move.len], to_move);
+                    // The inserted elements at `new_memory[index..][0..count]` have
+                    // already been set to `undefined` by memory allocation.
+                }
             }
             allocator.free(old_memory);
             self.* = new_self;
@@ -501,8 +505,8 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
-        fn growCapacity(self: *Self, new_capacity: usize) usize {
-            var better_capacity = self.capacity;
+        fn growCapacity(old_capacity: usize, new_capacity: usize) usize {
+            var better_capacity = old_capacity;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
@@ -515,7 +519,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             if (self.capacity >= new_capacity) return;
-            const better_capacity = self.growCapacity(new_capacity);
+            const better_capacity = growCapacity(self.capacity, new_capacity);
 
             return self.setCapacity(gpa, better_capacity);
         }
