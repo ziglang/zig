@@ -5,6 +5,7 @@ pub const Instruction = struct {
     pub const Operand = union(enum) {
         none,
         reg: Register,
+        csr: CSR,
         mem: Memory,
         imm: Immediate,
         barrier: Mir.Barrier,
@@ -58,6 +59,7 @@ pub const Instruction = struct {
                 .imm => |imm| try writer.print("{d}", .{imm.asSigned(64)}),
                 .mem => try writer.writeAll("mem"),
                 .barrier => |barrier| try writer.writeAll(@tagName(barrier)),
+                .csr => |csr| try writer.writeAll(@tagName(csr)),
             }
         }
     }
@@ -71,6 +73,7 @@ const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");
 
 const Register = bits.Register;
+const CSR = bits.CSR;
 const Memory = bits.Memory;
 const Immediate = bits.Immediate;
 

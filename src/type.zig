@@ -1696,11 +1696,7 @@ pub const Type = struct {
                 const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
                 return (len - 1) * 8 * elem_size + elem_bit_size;
             },
-            .vector_type => |vector_type| {
-                const child_ty = Type.fromInterned(vector_type.child);
-                const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
-                return elem_bit_size * vector_type.len;
-            },
+            .vector_type => return ty.totalVectorBits(mod),
             .opt_type => {
                 // Optionals and error unions are not packed so their bitsize
                 // includes padding bits.
