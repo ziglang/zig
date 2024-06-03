@@ -13,6 +13,7 @@ extern float foo;
 // pub inline fn FOO_TWICE() @TypeOf(foo * @as(f32, 2.0)) {
 //     return foo * @as(f32, 2.0);
 // }
+//
 // pub inline fn FOO_NEGATIVE() @TypeOf(-foo) {
 //     return -foo;
 // }
