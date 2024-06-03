@@ -447,7 +447,7 @@ fn runResource(
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
 
-    const package_sub_path = blk: {
+    const package_sub_path, const size = blk: {
         const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
         var tmp_directory: Cache.Directory = .{
             .path = tmp_directory_path,
@@ -499,12 +499,14 @@ fn runResource(
         // Empty directories have already been omitted by `unpackResource`.
         // Compute the package hash based on the remaining files in the temporary
         // directory.
-        f.actual_hash = try computeHash(f, pkg_path, filter);
+        f.actual_hash, const size = try computeHash(f, pkg_path, filter);
 
-        break :blk if (unpack_result.root_dir.len > 0)
+        const pkg_sub_path = if (unpack_result.root_dir.len > 0)
             try fs.path.join(arena, &.{ tmp_dir_sub_path, unpack_result.root_dir })
         else
             tmp_dir_sub_path;
+
+        break :blk .{ pkg_sub_path, size };
     };
 
     // Rename the temporary directory into the global zig package cache
@@ -512,6 +514,14 @@ fn runResource(
     // and leave the zig package cache directory untouched as it may be in use
     // by the system. This is done even if the hash is invalid, in case the
     // package with the different hash is used in the future.
+
+    const name = f.manifest.?.name;
+    const semver = f.manifest.?.version;
+    const new_hash = Package.Manifest.NewHashDecoded.init(name, semver, @intCast(size), f.actual_hash);
+    const encoded = new_hash.encode();
+    std.debug.print("new hash: {s}\n", .{encoded.toSlice()});
+
+    if (true) std.process.exit(0);
 
     f.package_root = .{
         .root_dir = cache_root,
@@ -1420,7 +1430,7 @@ fn computeHash(
     f: *Fetch,
     pkg_path: Cache.Path,
     filter: Filter,
-) RunError!Manifest.Digest {
+) RunError!struct { Manifest.Digest, u64 } {
     // All the path name strings need to be in memory for sorting.
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -1499,6 +1509,7 @@ fn computeHash(
                 .normalized_path = try normalizePathAlloc(arena, entry_pkg_path),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
+                .size = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
             thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
@@ -1540,6 +1551,7 @@ fn computeHash(
 
     var hasher = Manifest.Hash.init(.{});
     var any_failures = false;
+    var total_size: u64 = 0;
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
             any_failures = true;
@@ -1550,6 +1562,7 @@ fn computeHash(
             });
         };
         hasher.update(&hashed_file.hash);
+        total_size += hashed_file.size;
     }
     for (deleted_files.items) |deleted_file| {
         deleted_file.failure catch |err| {
@@ -1574,7 +1587,7 @@ fn computeHash(
         };
     }
 
-    return hasher.finalResult();
+    return .{ hasher.finalResult(), total_size };
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
@@ -1604,20 +1617,20 @@ fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
     var hasher = Manifest.Hash.init(.{});
+    var size: u64 = 0;
     hasher.update(hashed_file.normalized_path);
 
     switch (hashed_file.kind) {
         .file => {
             var file = try dir.openFile(hashed_file.fs_path, .{});
             defer file.close();
-            // Hard-coded false executable bit: https://github.com/ziglang/zig/issues/17463
-            hasher.update(&.{ 0, 0 });
             var file_header: FileHeader = .{};
             while (true) {
                 const bytes_read = try file.read(&buf);
                 if (bytes_read == 0) break;
                 hasher.update(buf[0..bytes_read]);
                 file_header.update(buf[0..bytes_read]);
+                size += bytes_read;
             }
             if (file_header.isExecutable()) {
                 try setExecutable(file);
@@ -1635,6 +1648,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         },
     }
     hasher.final(&hashed_file.hash);
+    hashed_file.size = size;
 }
 
 fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
@@ -1662,6 +1676,7 @@ const HashedFile = struct {
     fs_path: []const u8,
     normalized_path: []const u8,
     hash: Manifest.Digest,
+    size: u64,
     failure: Error!void,
     kind: Kind,
 

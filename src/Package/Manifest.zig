@@ -6,6 +6,84 @@ pub const multihash_len = 1 + 1 + Hash.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
+pub const NewHashDecoded = extern struct {
+    name: [16]u8,
+    semver: [16]u8,
+    size: u32 align(1),
+    hash: [5]u8,
+
+    pub fn init(name: []const u8, semver: std.SemanticVersion, size: u32, hash: Digest) NewHashDecoded {
+        var result: NewHashDecoded = undefined;
+
+        const name_len = @min(name.len, result.name.len);
+        @memcpy(result.name[0..name_len], name[0..name_len]);
+        @memset(result.name[name_len..], 0);
+
+        if (std.fmt.bufPrint(&result.semver, "{}", .{semver})) |slice| {
+            @memset(result.semver[slice.len..], 0);
+        } else |err| switch (err) {
+            error.NoSpaceLeft => {
+                result.semver[result.semver.len - 1] = '-';
+            },
+        }
+
+        result.size = size;
+
+        @memcpy(&result.hash, hash[0..result.hash.len]);
+
+        return result;
+    }
+
+    pub fn getName(h: *const NewHashDecoded) []const u8 {
+        const len = mem.indexOfScalar(u8, &h.name, 0) orelse h.name.len;
+        return h.name[0..len];
+    }
+
+    pub fn getSemVer(h: *const NewHashDecoded) []const u8 {
+        const len = mem.indexOfScalar(u8, &h.semver, 0) orelse h.semver.len;
+        return h.semver[0..len];
+    }
+
+    pub fn encode(h: NewHashDecoded) NewHashEncoded {
+        var result: NewHashEncoded = .{ .bytes = undefined };
+        var i: usize = 0;
+
+        const name = h.getName();
+        @memcpy(result.bytes[i..][0..name.len], name);
+        i += name.len;
+
+        result.bytes[i] = '-';
+        i += 1;
+
+        const semver = h.getSemVer();
+        @memcpy(result.bytes[i..][0..semver.len], semver);
+        i += semver.len;
+
+        result.bytes[i] = '-';
+        i += 1;
+
+        const hash_len = 5; // TODO `h.hash.len`
+        var decoded_bytes: [hash_len + @sizeOf(u32)]u8 = undefined;
+        std.mem.writeInt(u32, decoded_bytes[0..@sizeOf(u32)], h.size, .little);
+        @memcpy(decoded_bytes[@sizeOf(u32)..], &h.hash);
+
+        i += (std.fs.base64_encoder.encode(result.bytes[i..], &decoded_bytes)).len;
+
+        @memset(result.bytes[i..], 0);
+        return result;
+    }
+};
+
+pub const new_hash_encoded_max_len = std.fs.base64_encoder.calcSize(@sizeOf(NewHashDecoded));
+pub const NewHashEncoded = extern struct {
+    bytes: [new_hash_encoded_max_len]u8,
+
+    pub fn toSlice(h: *const NewHashEncoded) []const u8 {
+        const len = mem.indexOfScalar(u8, &h.bytes, 0) orelse h.bytes.len;
+        return h.bytes[0..len];
+    }
+};
+
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
@@ -591,12 +669,14 @@ const Parse = struct {
 };
 
 const Manifest = @This();
+const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const testing = std.testing;
+const native_endian = builtin.cpu.arch.endian();
 
 test "basic" {
     const gpa = testing.allocator;
