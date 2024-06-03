@@ -996,7 +996,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
             const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
             return self.createFileW(path_w.span(), flags);
         },
-        .wasi => {
+        .wasi => if (!builtin.link_libc) {
             return createFile(self, mem.sliceTo(sub_path_c, 0), flags);
         },
         else => {},
