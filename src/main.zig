@@ -3867,7 +3867,7 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => if (info.needed)
+                                    .dynamic => if (info.needed or target.isDarwin())
                                         try create_module.resolved_system_libs.append(arena, .{
                                             .name = lib_name,
                                             .lib = .{
@@ -3907,7 +3907,7 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => if (info.needed)
+                                    .dynamic => if (info.needed or target.isDarwin())
                                         try create_module.resolved_system_libs.append(arena, .{
                                             .name = lib_name,
                                             .lib = .{
@@ -3947,7 +3947,7 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => if (info.needed)
+                                    .dynamic => if (info.needed or target.isDarwin())
                                         try create_module.resolved_system_libs.append(arena, .{
                                             .name = lib_name,
                                             .lib = .{
@@ -3977,7 +3977,7 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => if (info.needed)
+                                    .dynamic => if (info.needed or target.isDarwin())
                                         try create_module.resolved_system_libs.append(arena, .{
                                             .name = lib_name,
                                             .lib = .{
