@@ -98,12 +98,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                                 .dword => .fld,
                             },
                             .vector => switch (src_size) {
-                                .byte,
-                                .hword,
-                                => return lower.fail(
-                                    "TODO: lowerMir pseudo_load_rm support {s} vector",
-                                    .{@tagName(src_size)},
-                                ),
+                                .byte => .vle8v,
+                                .hword => .vle32v,
                                 .word => .vle32v,
                                 .dword => .vle64v,
                             },
@@ -118,10 +114,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                                 });
                             },
                             .vector => {
+                                assert(frame_loc.disp == 0);
                                 try lower.emit(tag, &.{
                                     .{ .reg = rm.r },
                                     .{ .reg = frame_loc.base },
-                                    .{ .reg = .x0 },
+                                    .{ .reg = .zero },
                                 });
                             },
                         }
@@ -146,12 +143,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                                 .dword => .fsd,
                             },
                             .vector => switch (dest_size) {
-                                .byte,
-                                .hword,
-                                => return lower.fail(
-                                    "TODO: lowerMir pseudo_load_rm support {s} vector",
-                                    .{@tagName(dest_size)},
-                                ),
+                                .byte => .vse8v,
+                                .hword => .vse16v,
                                 .word => .vse32v,
                                 .dword => .vse64v,
                             },
@@ -166,10 +159,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                                 });
                             },
                             .vector => {
+                                assert(frame_loc.disp == 0);
                                 try lower.emit(tag, &.{
-                                    .{ .reg = frame_loc.base },
                                     .{ .reg = rm.r },
-                                    .{ .reg = .x0 },
+                                    .{ .reg = frame_loc.base },
+                                    .{ .reg = .zero },
                                 });
                             },
                         }
@@ -204,20 +198,20 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                             });
                         },
                         .vector => {
-                            try lower.emit(.vadcxv, &.{
+                            try lower.emit(.vmvvx, &.{
                                 .{ .reg = rr.rd },
                                 .{ .reg = rr.rs },
-                                .{ .reg = .zero },
+                                .{ .reg = .x0 },
                             });
                         },
                         .float => return lower.fail("TODO: lowerMir pseudo_mv int -> {s}", .{@tagName(dst_class)}),
                     },
                     .vector => switch (dst_class) {
                         .int => {
-                            try lower.emit(.vadcvx, &.{
+                            try lower.emit(.vadcvv, &.{
                                 .{ .reg = rr.rd },
-                                .{ .reg = rr.rs },
                                 .{ .reg = .zero },
+                                .{ .reg = rr.rs },
                             });
                         },
                         .float, .vector => return lower.fail("TODO: lowerMir pseudo_mv vector -> {s}", .{@tagName(dst_class)}),

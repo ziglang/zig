@@ -142,6 +142,8 @@ pub const Inst = struct {
         vsetivli,
         vsetvl,
         vaddvv,
+        vsubvv,
+        vslidedownvx,
 
         // A Extension Instructions
         amo,
