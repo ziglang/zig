@@ -115,7 +115,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     return install_artifact;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const install_artifact: *InstallArtifact = @fieldParentPtr("step", step);
     const b = step.owner;

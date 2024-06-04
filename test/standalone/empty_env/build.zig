@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
 
     const run = b.addRunArtifact(main);
     run.clearEnvironment();
+    run.disable_zig_progress = true;
 
     test_step.dependOn(&run.step);
 }

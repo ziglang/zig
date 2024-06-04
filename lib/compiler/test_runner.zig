@@ -129,12 +129,11 @@ fn mainTerminal() void {
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
-    var progress = std.Progress{
-        .dont_print_on_dumb = true,
-    };
-    const root_node = progress.start("Test", test_fn_list.len);
-    const have_tty = progress.terminal != null and
-        (progress.supports_ansi_escape_codes or progress.is_windows_terminal);
+    const root_node = std.Progress.start(.{
+        .root_name = "Test",
+        .estimated_total_items = test_fn_list.len,
+    });
+    const have_tty = std.io.getStdErr().isTty();
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
@@ -151,11 +150,9 @@ fn mainTerminal() void {
         }
         std.testing.log_level = .warn;
 
-        var test_node = root_node.start(test_fn.name, 0);
-        test_node.activate();
-        progress.refresh();
+        const test_node = root_node.start(test_fn.name, 0);
         if (!have_tty) {
-            std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         if (test_fn.func()) |_| {
             ok_count += 1;
@@ -164,12 +161,22 @@ fn mainTerminal() void {
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
-                progress.log("SKIP\n", .{});
+                if (have_tty) {
+                    std.debug.print("{d}/{d} {s}...SKIP\n", .{ i + 1, test_fn_list.len, test_fn.name });
+                } else {
+                    std.debug.print("SKIP\n", .{});
+                }
                 test_node.end();
             },
             else => {
                 fail_count += 1;
-                progress.log("FAIL ({s})\n", .{@errorName(err)});
+                if (have_tty) {
+                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
+                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                    });
+                } else {
+                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                }
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }

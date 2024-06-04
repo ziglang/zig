@@ -360,11 +360,11 @@ pub fn deinit(self: *MachO) void {
     self.unwind_records.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -375,8 +375,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
     }
 
-    var sub_prog_node = prog_node.start("MachO Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
     const directory = self.base.emit.directory;

@@ -61,7 +61,7 @@ fn addExpect(
     });
 
     const run = b.addRunArtifact(exe);
-    run.removeEnvironmentVariable("YES_COLOR");
+    run.removeEnvironmentVariable("CLICOLOR_FORCE");
     run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
     run.expectStdOutEqual("");

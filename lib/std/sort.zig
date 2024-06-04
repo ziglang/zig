@@ -616,7 +616,7 @@ pub fn upperBound(
     var right: usize = items.len;
 
     while (left < right) {
-        const mid = (right + left) / 2;
+        const mid = left + (right - left) / 2;
         if (!lessThan(context, key, items[mid])) {
             left = mid + 1;
         } else {

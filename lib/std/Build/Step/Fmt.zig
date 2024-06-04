@@ -36,7 +36,7 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     return fmt;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     // zig fmt is fast enough that no progress is needed.
     _ = prog_node;
 

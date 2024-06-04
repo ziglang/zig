@@ -13,7 +13,7 @@ pub const BuildError = error{
     TSANUnsupportedCPUArchitecture,
 };
 
-pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }

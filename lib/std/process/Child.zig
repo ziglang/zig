@@ -12,6 +12,7 @@ const EnvMap = std.process.EnvMap;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
+const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
 
 pub const Id = switch (native_os) {
@@ -91,6 +92,16 @@ request_resource_usage_statistics: bool = false,
 /// `request_resource_usage_statistics` was set to `true` before calling
 /// `spawn`.
 resource_usage_statistics: ResourceUsageStatistics = .{},
+
+/// When populated, a pipe will be created for the child process to
+/// communicate progress back to the parent. The file descriptor of the
+/// write end of the pipe will be specified in the `ZIG_PROGRESS`
+/// environment variable inside the child process. The progress reported by
+/// the child will be attached to this progress node in the parent process.
+///
+/// The child's progress tree will be grafted into the parent's progress tree,
+/// by substituting this node with the child's root node.
+progress_node: std.Progress.Node = .{ .index = .none },
 
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
@@ -205,9 +216,9 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .stdin = null,
         .stdout = null,
         .stderr = null,
-        .stdin_behavior = StdIo.Inherit,
-        .stdout_behavior = StdIo.Inherit,
-        .stderr_behavior = StdIo.Inherit,
+        .stdin_behavior = .Inherit,
+        .stdout_behavior = .Inherit,
+        .stderr_behavior = .Inherit,
         .expand_arg0 = .no_expand,
     };
 }
@@ -538,22 +549,22 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // turns out, we `dup2` everything anyway, so there's no need!
     const pipe_flags: posix.O = .{ .CLOEXEC = true };
 
-    const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stdin_behavior == StdIo.Pipe) {
+    const stdin_pipe = if (self.stdin_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (self.stdin_behavior == .Pipe) {
         destroyPipe(stdin_pipe);
     };
 
-    const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stdout_behavior == StdIo.Pipe) {
+    const stdout_pipe = if (self.stdout_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (self.stdout_behavior == .Pipe) {
         destroyPipe(stdout_pipe);
     };
 
-    const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try posix.pipe2(pipe_flags) else undefined;
-    errdefer if (self.stderr_behavior == StdIo.Pipe) {
+    const stderr_pipe = if (self.stderr_behavior == .Pipe) try posix.pipe2(pipe_flags) else undefined;
+    errdefer if (self.stderr_behavior == .Pipe) {
         destroyPipe(stderr_pipe);
     };
 
-    const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
+    const any_ignore = (self.stdin_behavior == .Ignore or self.stdout_behavior == .Ignore or self.stderr_behavior == .Ignore);
     const dev_null_fd = if (any_ignore)
         posix.openZ("/dev/null", .{ .ACCMODE = .RDWR }, 0) catch |err| switch (err) {
             error.PathAlreadyExists => unreachable,
@@ -572,6 +583,16 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         if (any_ignore) posix.close(dev_null_fd);
     }
 
+    const prog_pipe: [2]posix.fd_t = p: {
+        if (self.progress_node.index == .none) {
+            break :p .{ -1, -1 };
+        } else {
+            // We use CLOEXEC for the same reason as in `pipe_flags`.
+            break :p try posix.pipe2(.{ .NONBLOCK = true, .CLOEXEC = true });
+        }
+    };
+    errdefer destroyPipe(prog_pipe);
+
     var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -588,16 +609,25 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const argv_buf = try arena.allocSentinel(?[*:0]const u8, self.argv.len, null);
     for (self.argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
-    const envp = m: {
+    const prog_fileno = 3;
+    comptime assert(@max(posix.STDIN_FILENO, posix.STDOUT_FILENO, posix.STDERR_FILENO) + 1 == prog_fileno);
+
+    const envp: [*:null]const ?[*:0]const u8 = m: {
+        const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
         if (self.env_map) |env_map| {
-            const envp_buf = try process.createNullDelimitedEnvMap(arena, env_map);
-            break :m envp_buf.ptr;
+            break :m (try process.createEnvironFromMap(arena, env_map, .{
+                .zig_progress_fd = prog_fd,
+            })).ptr;
         } else if (builtin.link_libc) {
-            break :m std.c.environ;
+            break :m (try process.createEnvironFromExisting(arena, std.c.environ, .{
+                .zig_progress_fd = prog_fd,
+            })).ptr;
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
-            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
+            break :m (try process.createEnvironFromExisting(arena, @ptrCast(std.os.environ.ptr), .{
+                .zig_progress_fd = prog_fd,
+            })).ptr;
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -631,6 +661,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             posix.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
+        // Must happen after fchdir above, the cwd file descriptor might be
+        // equal to prog_fileno and be clobbered by this dup2 call.
+        if (prog_pipe[1] != -1) posix.dup2(prog_pipe[1], prog_fileno) catch |err| forkChildErrReport(err_pipe[1], err);
+
         if (self.gid) |gid| {
             posix.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
@@ -648,18 +682,18 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
     // we are the parent
     const pid: i32 = @intCast(pid_result);
-    if (self.stdin_behavior == StdIo.Pipe) {
-        self.stdin = File{ .handle = stdin_pipe[1] };
+    if (self.stdin_behavior == .Pipe) {
+        self.stdin = .{ .handle = stdin_pipe[1] };
     } else {
         self.stdin = null;
     }
-    if (self.stdout_behavior == StdIo.Pipe) {
-        self.stdout = File{ .handle = stdout_pipe[0] };
+    if (self.stdout_behavior == .Pipe) {
+        self.stdout = .{ .handle = stdout_pipe[0] };
     } else {
         self.stdout = null;
     }
-    if (self.stderr_behavior == StdIo.Pipe) {
-        self.stderr = File{ .handle = stderr_pipe[0] };
+    if (self.stderr_behavior == .Pipe) {
+        self.stderr = .{ .handle = stderr_pipe[0] };
     } else {
         self.stderr = null;
     }
@@ -668,15 +702,20 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     self.err_pipe = err_pipe;
     self.term = null;
 
-    if (self.stdin_behavior == StdIo.Pipe) {
+    if (self.stdin_behavior == .Pipe) {
         posix.close(stdin_pipe[0]);
     }
-    if (self.stdout_behavior == StdIo.Pipe) {
+    if (self.stdout_behavior == .Pipe) {
         posix.close(stdout_pipe[1]);
     }
-    if (self.stderr_behavior == StdIo.Pipe) {
+    if (self.stderr_behavior == .Pipe) {
         posix.close(stderr_pipe[1]);
     }
+
+    if (prog_pipe[1] != -1) {
+        posix.close(prog_pipe[1]);
+    }
+    self.progress_node.setIpcFd(prog_pipe[0]);
 }
 
 fn spawnWindows(self: *ChildProcess) SpawnError!void {
@@ -962,7 +1001,7 @@ fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !
 }
 
 fn destroyPipe(pipe: [2]posix.fd_t) void {
-    posix.close(pipe[0]);
+    if (pipe[0] != -1) posix.close(pipe[0]);
     if (pipe[0] != pipe[1]) posix.close(pipe[1]);
 }
 

@@ -22,7 +22,7 @@ const usage =
     \\   -o output              Where to write output HTML docs to
     \\   --zig zig              Path to the zig compiler
     \\   --zig-lib-dir dir      Override the zig compiler library path
-    \\   --cache-root dir       Path to local zig-cache/
+    \\   --cache-root dir       Path to local .zig-cache/
     \\
 ;
 
@@ -104,7 +104,7 @@ fn printOutput(
     tmp_dir_path: []const u8,
 ) !void {
     var env_map = try process.getEnvMap(arena);
-    try env_map.put("YES_COLOR", "1");
+    try env_map.put("CLICOLOR_FORCE", "1");
 
     const host = try std.zig.system.resolveTargetQuery(.{});
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);

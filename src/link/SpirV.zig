@@ -193,11 +193,11 @@ pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
     _ = decl_index;
 }
 
-pub fn flush(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *SpirV, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     return self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -205,8 +205,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
     const spv = &self.object.spv;
@@ -253,7 +252,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const module = try spv.finalize(arena, target);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, &sub_prog_node) catch |err| switch (err) {
+    const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| {
             log.err("error while linking: {s}\n", .{@errorName(other)});
@@ -264,7 +263,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
 }
 
-fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: *std.Progress.Node) ![]Word {
+fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
     _ = self;
 
     const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");

@@ -52,8 +52,8 @@ pub const Value = union(enum) {
     }
 
     pub fn dump(self: Value) void {
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
 
         const stderr = std.io.getStdErr().writer();
         stringify(self, .{}, stderr) catch return;

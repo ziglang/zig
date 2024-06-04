@@ -45,8 +45,8 @@
 //!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
-//!     std.debug.getStderrMutex().lock();
-//!     defer std.debug.getStderrMutex().unlock();
+//!     std.debug.lockStdErr();
+//!     defer std.debug.unlockStdErr();
 //!     const stderr = std.io.getStdErr().writer();
 //!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
@@ -152,8 +152,8 @@ pub fn defaultLog(
     var bw = std.io.bufferedWriter(stderr);
     const writer = bw.writer();
 
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     nosuspend {
         writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
         bw.flush() catch return;

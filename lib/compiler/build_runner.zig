@@ -285,17 +285,18 @@ pub fn main() !void {
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try graph.env_map.put("YES_COLOR", "1"),
+        .escape_codes => try graph.env_map.put("CLICOLOR_FORCE", "1"),
         .windows_api => {},
     }
 
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const main_progress_node = progress.start("", 0);
+    const main_progress_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
     {
-        var prog_node = main_progress_node.start("user build.zig logic", 0);
+        var prog_node = main_progress_node.start("Configure", 0);
         defer prog_node.end();
         try builder.runBuild(root);
     }
@@ -385,7 +386,7 @@ fn runStepNames(
     arena: std.mem.Allocator,
     b: *std.Build,
     step_names: []const []const u8,
-    parent_prog_node: *std.Progress.Node,
+    parent_prog_node: std.Progress.Node,
     thread_pool_options: std.Thread.Pool.Options,
     run: *Run,
     seed: u32,
@@ -452,7 +453,7 @@ fn runStepNames(
     {
         defer parent_prog_node.end();
 
-        var step_prog = parent_prog_node.start("steps", step_stack.count());
+        const step_prog = parent_prog_node.start("steps", step_stack.count());
         defer step_prog.end();
 
         var wait_group: std.Thread.WaitGroup = .{};
@@ -467,7 +468,7 @@ fn runStepNames(
             if (step.state == .skipped_oom) continue;
 
             thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
-                &wait_group, &thread_pool, b, step, &step_prog, run,
+                &wait_group, &thread_pool, b, step, step_prog, run,
             });
         }
     }
@@ -891,7 +892,7 @@ fn workerMakeOneStep(
     thread_pool: *std.Thread.Pool,
     b: *std.Build,
     s: *Step,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
     run: *Run,
 ) void {
     // First, check the conditions for running this step. If they are not met,
@@ -941,11 +942,10 @@ fn workerMakeOneStep(
         }
     }
 
-    var sub_prog_node = prog_node.start(s.name, 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start(s.name, 0);
     defer sub_prog_node.end();
 
-    const make_result = s.make(&sub_prog_node);
+    const make_result = s.make(sub_prog_node);
 
     // No matter the result, we want to display error/warning messages.
     const show_compile_errors = !run.prominent_compile_errors and
@@ -954,8 +954,8 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        sub_prog_node.context.lock_stderr();
-        defer sub_prog_node.context.unlock_stderr();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
 
         printErrorMessages(b, s, run) catch {};
     }
@@ -1225,7 +1225,7 @@ fn cleanExit() void {
     process.exit(0);
 }
 
-const Color = enum { auto, off, on };
+const Color = std.zig.Color;
 const Summary = enum { all, new, failures, none };
 
 fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {

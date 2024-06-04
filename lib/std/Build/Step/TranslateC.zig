@@ -116,7 +116,7 @@ pub fn defineCMacroRaw(translate_c: *TranslateC, name_and_value: []const u8) voi
     translate_c.c_macros.append(translate_c.step.owner.dupe(name_and_value)) catch @panic("OOM");
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const translate_c: *TranslateC = @fieldParentPtr("step", step);
 
