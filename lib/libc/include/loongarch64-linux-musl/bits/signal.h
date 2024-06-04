@@ -2,59 +2,38 @@
  || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 
 #if defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
-# define MINSIGSTKSZ 2048
-# define SIGSTKSZ 8192
+#define MINSIGSTKSZ 4096
+#define SIGSTKSZ 16384
 #endif
 
-typedef unsigned long __riscv_mc_gp_state[32];
-
-struct __riscv_mc_f_ext_state {
-	unsigned int __f[32];
-	unsigned int __fcsr;
-};
-
-struct __riscv_mc_d_ext_state {
-	unsigned long long __f[32];
-	unsigned int __fcsr;
-};
-
-struct __riscv_mc_q_ext_state {
-	unsigned long long __f[64] __attribute__((aligned(16)));
-	unsigned int __fcsr;
-	unsigned int __reserved[3];
-};
-
-union __riscv_mc_fp_state {
-	struct __riscv_mc_f_ext_state __f;
-	struct __riscv_mc_d_ext_state __d;
-	struct __riscv_mc_q_ext_state __q;
-};
-
-typedef struct mcontext_t {
-	__riscv_mc_gp_state __gregs;
-	union __riscv_mc_fp_state __fpregs;
-} mcontext_t;
-
 #if defined(_GNU_SOURCE)
-#define REG_PC 0
-#define REG_RA 1
-#define REG_SP 2
-#define REG_TP 4
-#define REG_S0 8
-#define REG_S1 9
-#define REG_A0 10
-#define REG_S2 18
+#define LARCH_NGREG 32
+#define LARCH_REG_RA 1
+#define LARCH_REG_SP 3
+#define LARCH_REG_S0 23
+#define LARCH_REG_S1 24
+#define LARCH_REG_A0 4
+#define LARCH_REG_S2 25
+#define LARCH_REG_NARGS 8
 #endif
 
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
-typedef unsigned long greg_t;
-typedef unsigned long gregset_t[32];
-typedef union __riscv_mc_fp_state fpregset_t;
+typedef unsigned long greg_t, gregset_t[32];
+
 struct sigcontext {
-	gregset_t gregs;
-	fpregset_t fpregs;
+	unsigned long sc_pc;
+	unsigned long sc_regs[32];
+	unsigned sc_flags;
+	unsigned long sc_extcontext[] __attribute__((__aligned__(16)));
 };
 #endif
+
+typedef struct {
+	unsigned long __pc;
+	unsigned long __gregs[32];
+	unsigned __flags;
+	unsigned long __extcontext[] __attribute__((__aligned__(16)));
+} mcontext_t;
 
 struct sigaltstack {
 	void *ss_sp;
@@ -68,8 +47,11 @@ typedef struct __ucontext
 	struct __ucontext *uc_link;
 	stack_t uc_stack;
 	sigset_t uc_sigmask;
+	long __uc_pad;
 	mcontext_t uc_mcontext;
 } ucontext_t;
+
+#define __uc_flags uc_flags
 
 #define SA_NOCLDSTOP 1
 #define SA_NOCLDWAIT 2
@@ -116,4 +98,4 @@ typedef struct __ucontext
 #define SIGSYS    31
 #define SIGUNUSED SIGSYS
 
-#define _NSIG     65
+#define _NSIG 65
