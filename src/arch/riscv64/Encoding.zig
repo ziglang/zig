@@ -116,8 +116,12 @@ const Enc = struct {
     };
 
     const VecWidth = enum(u3) {
+        // zig fmt: off
+        @"8"  = 0b000,
+        @"16" = 0b101,
         @"32" = 0b110,
         @"64" = 0b111,
+        // zig fmt: on
     };
 
     const VecType = enum(u3) {
@@ -266,15 +270,26 @@ pub const Mnemonic = enum {
     fsgnjxd,
 
     // V Extension
+    vle8v,
+    vle16v,
     vle32v,
     vle64v,
 
+    vse8v,
+    vse16v,
     vse32v,
     vse64v,
 
+    vsoxei8v,
+
     vaddvv,
-    vadcxv,
-    vadcvx,
+    vsubvv,
+
+    vadcvv,
+
+    vmvvx,
+
+    vslidedownvx,
 
     // MISC
     fence,
@@ -431,19 +446,25 @@ pub const Mnemonic = enum {
             // LOAD_FP
 
             .flw     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
-            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
-
-            .vle32v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = true, .nf = 0b000 } } },
-            .vle64v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = true, .nf = 0b000 } } },
+            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },   
+    
+            .vle8v   => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"8",  .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle16v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"16", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle32v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle64v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
             
 
             // STORE_FP
 
-            .fsw     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
-            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
+            .fsw        => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .fsd        => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
 
-            .vse32v  => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = true, .nf = 0b000 } } },
-            .vse64v  => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = true, .nf = 0b000 } } },
+            .vse8v      => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"8",  .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse16v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"16", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse32v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse64v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+
+            .vsoxei8v   => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"8", .umop = .unit, .vm = true, .mop = .ord,  .mew = false, .nf = 0b000 } } },
 
             // JALR
 
@@ -516,11 +537,15 @@ pub const Mnemonic = enum {
             .amomaxud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11100 } } },
 
             // OP_V
-            .vsetivli  => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
-            .vsetvli   => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
-            .vaddvv    => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPIVV } } },
-            .vadcxv    => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true,  .funct6 = 0b010000, .funct3 = .OPMVX } } },
-            .vadcvx    => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true,  .funct6 = 0b010000, .funct3 = .OPMVV } } },
+            .vsetivli       => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
+            .vsetvli        => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
+            .vaddvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPIVV } } },
+            .vsubvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000010, .funct3 = .OPIVV } } },
+            
+            .vadcvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010000, .funct3 = .OPMVV } } },
+            .vmvvx          => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010111, .funct3 = .OPIVX } } },
+
+            .vslidedownvx   => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b001111, .funct3 = .OPIVX } } },
             
             // zig fmt: on
         };
@@ -663,13 +688,23 @@ pub const InstEnc = enum {
             .fsgnjxs,
             .fsgnjxd,
 
+            .vle8v,
+            .vle16v,
             .vle32v,
             .vle64v,
+
+            .vse8v,
+            .vse16v,
             .vse32v,
             .vse64v,
+
+            .vsoxei8v,
+
             .vaddvv,
-            .vadcxv,
-            .vadcvx,
+            .vsubvv,
+            .vadcvv,
+            .vmvvx,
+            .vslidedownvx,
             => .R,
 
             .ecall,

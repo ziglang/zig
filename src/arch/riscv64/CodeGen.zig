@@ -995,7 +995,6 @@ fn addInst(func: *Func, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
         .pseudo_dbg_prologue_end,
         .pseudo_dbg_line_column,
         .pseudo_dbg_epilogue_begin,
-        .pseudo_mv,
         .pseudo_dead,
         => false,
     }) wip_mir_log.debug("{}", .{func.fmtWipMir(result_index)});
@@ -2445,6 +2444,7 @@ fn genBinOp(
                 .Vector => {
                     const mir_tag: Mir.Inst.Tag = switch (tag) {
                         .add => .vaddvv,
+                        .sub => .vsubvv,
                         else => return func.fail("TODO: genBinOp {s} Vector", .{@tagName(tag)}),
                     };
 
@@ -2454,7 +2454,6 @@ fn genBinOp(
                     const elem_size = lhs_ty.childType(zcu).bitSize(pt);
 
                     try func.setVl(.zero, num_elem, .{
-                        .vlmul = .mf2,
                         .vsew = switch (elem_size) {
                             8 => .@"8",
                             16 => .@"16",
@@ -2462,6 +2461,7 @@ fn genBinOp(
                             64 => .@"64",
                             else => unreachable,
                         },
+                        .vlmul = .m1,
                         .vma = true,
                         .vta = true,
                     });
@@ -2472,8 +2472,8 @@ fn genBinOp(
                         .data = .{
                             .r_type = .{
                                 .rd = dst_reg,
-                                .rs1 = lhs_reg,
-                                .rs2 = rhs_reg,
+                                .rs1 = rhs_reg,
+                                .rs2 = lhs_reg,
                             },
                         },
                     });
@@ -3576,20 +3576,54 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
             else => try func.genSetReg(Type.usize, addr_reg, array_mcv.address()),
         }
 
+        const dst_mcv = try func.allocRegOrMem(result_ty, inst, false);
+
+        if (array_ty.isVector(zcu)) {
+            // we need to load the vector, vslidedown to get the element we want
+            // and store that element at in a load frame.
+
+            const src_reg, const src_lock = try func.allocReg(.vector);
+            defer func.register_manager.unlockReg(src_lock);
+
+            // load the vector into a temporary register
+            try func.genCopy(array_ty, .{ .register = src_reg }, .{ .indirect = .{ .reg = addr_reg } });
+
+            // we need to construct a 1xbitSize vector because of how lane splitting works in RISC-V
+            const single_ty = try pt.vectorType(.{ .child = elem_ty.toIntern(), .len = 1 });
+
+            // we can do a shortcut here where we don't need a vslicedown
+            // and can just copy to the frame index.
+            if (!(index_mcv == .immediate and index_mcv.immediate == 0)) {
+                const index_reg = try func.copyToTmpRegister(Type.usize, index_mcv);
+
+                _ = try func.addInst(.{
+                    .tag = .vslidedownvx,
+                    .ops = .rrr,
+                    .data = .{ .r_type = .{
+                        .rd = src_reg,
+                        .rs1 = index_reg,
+                        .rs2 = src_reg,
+                    } },
+                });
+            }
+
+            try func.genCopy(single_ty, dst_mcv, .{ .register = src_reg });
+            break :result dst_mcv;
+        }
+
         const offset_reg = try func.elemOffset(index_ty, index_mcv, elem_abi_size);
         const offset_lock = func.register_manager.lockRegAssumeUnused(offset_reg);
         defer func.register_manager.unlockReg(offset_lock);
-
-        const dst_mcv = try func.allocRegOrMem(result_ty, inst, false);
         _ = try func.addInst(.{
             .tag = .add,
             .ops = .rrr,
             .data = .{ .r_type = .{
                 .rd = addr_reg,
-                .rs1 = offset_reg,
-                .rs2 = addr_reg,
+                .rs1 = addr_reg,
+                .rs2 = offset_reg,
             } },
         });
+
         try func.genCopy(elem_ty, dst_mcv, .{ .indirect = .{ .reg = addr_reg } });
         break :result dst_mcv;
     };
@@ -5965,6 +5999,27 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             if (src_reg.id() == reg.id())
                 return;
 
+            // there is no instruction for loading the contents of a vector register
+            // into an integer register, however we can cheat a bit by setting the element
+            // size to the total size of the vector, and vmv.x.s will work then
+            if (src_reg.class() == .vector) {
+                try func.setVl(.zero, 0, .{
+                    .vsew = switch (ty.totalVectorBits(pt)) {
+                        8 => .@"8",
+                        16 => .@"16",
+                        32 => .@"32",
+                        64 => .@"64",
+                        else => |vec_bits| return func.fail("TODO: genSetReg vec -> {s} bits {d}", .{
+                            @tagName(reg.class()),
+                            vec_bits,
+                        }),
+                    },
+                    .vlmul = .m1,
+                    .vta = true,
+                    .vma = true,
+                });
+            }
+
             // mv reg, src_reg
             _ = try func.addInst(.{
                 .tag = .pseudo,
@@ -5978,57 +6033,28 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         .register_pair => return func.fail("genSetReg should we allow reg -> reg_pair?", .{}),
         .load_frame => |frame| {
             if (reg.class() == .vector) {
-                if (abi_size > 8)
-                    return func.fail("TODO: genSetReg vectors > 8", .{});
+                const addr_reg, const addr_lock = try func.allocReg(.int);
+                defer func.register_manager.unlockReg(addr_lock);
 
-                const temp_reg = try func.register_manager.allocReg(null, abi.Registers.Integer.temporary);
-                const temp_lock = func.register_manager.lockRegAssumeUnused(temp_reg);
-                defer func.register_manager.unlockReg(temp_lock);
-
-                try func.setVl(.zero, 1, .{
-                    .vsew = switch (abi_size) {
-                        1 => .@"8",
-                        2 => .@"16",
-                        4 => .@"32",
-                        8 => .@"64",
-                        else => unreachable,
-                    },
-                    .vlmul = .m1,
-                    .vma = true,
-                    .vta = true,
-                });
-
-                try func.genCopy(ty, .{ .register = temp_reg }, .{ .load_frame = frame });
-
+                try func.genCopy(ty, .{ .register = addr_reg }, src_mcv.address());
+                try func.genCopy(ty, .{ .register = reg }, .{ .indirect = .{ .reg = addr_reg } });
+            } else {
                 _ = try func.addInst(.{
                     .tag = .pseudo,
-                    .ops = .pseudo_mv,
-                    .data = .{
-                        .rr = .{
-                            .rd = reg,
-                            .rs = temp_reg,
+                    .ops = .pseudo_load_rm,
+                    .data = .{ .rm = .{
+                        .r = reg,
+                        .m = .{
+                            .base = .{ .frame = frame.index },
+                            .mod = .{
+                                .size = func.memSize(ty),
+                                .unsigned = ty.isUnsignedInt(zcu),
+                                .disp = frame.off,
+                            },
                         },
-                    },
+                    } },
                 });
-
-                return;
             }
-
-            _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_load_rm,
-                .data = .{ .rm = .{
-                    .r = reg,
-                    .m = .{
-                        .base = .{ .frame = frame.index },
-                        .mod = .{
-                            .size = func.memSize(ty),
-                            .unsigned = ty.isUnsignedInt(zcu),
-                            .disp = frame.off,
-                        },
-                    },
-                } },
-            });
         },
         .memory => |addr| {
             try func.genSetReg(ty, reg, .{ .immediate = addr });
@@ -6072,20 +6098,64 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             });
         },
         .indirect => |reg_off| {
-            const float_class = dst_reg_class == .float;
+            const load_tag: Mir.Inst.Tag = switch (reg.class()) {
+                .float => switch (abi_size) {
+                    1 => unreachable, // Zig does not support 8-bit floats
+                    2 => return func.fail("TODO: genSetReg indirect 16-bit float", .{}),
+                    4 => .flw,
+                    8 => .fld,
+                    else => return std.debug.panic("TODO: genSetReg for float size {d}", .{abi_size}),
+                },
+                .int => switch (abi_size) {
+                    1 => .lb,
+                    2 => .lh,
+                    4 => .lw,
+                    8 => .ld,
+                    else => return std.debug.panic("TODO: genSetReg for int size {d}", .{abi_size}),
+                },
+                .vector => {
+                    assert(reg_off.off == 0);
 
-            const load_tag: Mir.Inst.Tag = switch (abi_size) {
-                1 => if (float_class)
-                    unreachable // Zig does not support 8-bit floats
-                else
-                    .lb,
-                2 => if (float_class)
-                    return func.fail("TODO: genSetReg indirect 16-bit float", .{})
-                else
-                    .lh,
-                4 => if (float_class) .flw else .lw,
-                8 => if (float_class) .fld else .ld,
-                else => return std.debug.panic("TODO: genSetReg for size {d}", .{abi_size}),
+                    // There is no vector instruction for loading with an offset to a base register,
+                    // so we need to get an offset register containing the address of the vector first
+                    // and load from it.
+                    const len: u5 = math.cast(u5, ty.vectorLen(zcu)) orelse {
+                        return func.fail("TODO: genSetReg load_frame -> vec reg, vector length doesn't fit into imm avl", .{});
+                    };
+                    const elem_ty = ty.childType(zcu);
+                    const elem_size = elem_ty.abiSize(pt);
+
+                    try func.setVl(.zero, len, .{
+                        .vsew = switch (elem_size) {
+                            1 => .@"8",
+                            2 => .@"16",
+                            4 => .@"32",
+                            8 => .@"64",
+                            else => unreachable,
+                        },
+                        .vlmul = .m1,
+                        .vma = true,
+                        .vta = true,
+                    });
+
+                    _ = try func.addInst(.{
+                        .tag = .pseudo,
+                        .ops = .pseudo_load_rm,
+                        .data = .{ .rm = .{
+                            .r = reg,
+                            .m = .{
+                                .base = .{ .reg = reg_off.reg },
+                                .mod = .{
+                                    .size = func.memSize(elem_ty),
+                                    .unsigned = false,
+                                    .disp = 0,
+                                },
+                            },
+                        } },
+                    });
+
+                    return;
+                },
             };
 
             _ = try func.addInst(.{
@@ -6100,7 +6170,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         },
         .lea_symbol => |sym_off| {
             assert(sym_off.off == 0);
-
             const atom_index = try func.symbolIndex();
 
             _ = try func.addInst(.{
@@ -6166,12 +6235,12 @@ fn genSetMem(
         => switch (abi_size) {
             0 => {},
             1, 2, 4, 8 => {
-                // no matter what type, it should use an integer register
-                const src_reg = try func.copyToTmpRegister(ty, src_mcv);
-                const src_lock = func.register_manager.lockRegAssumeUnused(src_reg);
+                const reg = try func.register_manager.allocReg(null, abi.Registers.Integer.temporary);
+                const src_lock = func.register_manager.lockRegAssumeUnused(reg);
                 defer func.register_manager.unlockReg(src_lock);
 
-                try func.genSetMem(base, disp, ty, .{ .register = src_reg });
+                try func.genSetReg(ty, reg, src_mcv);
+                try func.genSetMem(base, disp, ty, .{ .register = reg });
             },
             else => try func.genInlineMemcpy(
                 dst_ptr_mcv,
@@ -6180,6 +6249,46 @@ fn genSetMem(
             ),
         },
         .register => |reg| {
+            if (reg.class() == .vector) {
+                const addr_reg = try func.copyToTmpRegister(Type.usize, dst_ptr_mcv);
+
+                const num_elem: u5 = math.cast(u5, ty.vectorLen(pt.zcu)) orelse {
+                    return func.fail("TODO: genBinOp use vsetvli for larger avl sizes", .{});
+                };
+                const elem_size = ty.childType(pt.zcu).bitSize(pt);
+
+                try func.setVl(.zero, num_elem, .{
+                    .vsew = switch (elem_size) {
+                        8 => .@"8",
+                        16 => .@"16",
+                        32 => .@"32",
+                        64 => .@"64",
+                        else => unreachable,
+                    },
+                    .vlmul = .m1,
+                    .vma = true,
+                    .vta = true,
+                });
+
+                _ = try func.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_store_rm,
+                    .data = .{ .rm = .{
+                        .r = reg,
+                        .m = .{
+                            .base = .{ .reg = addr_reg },
+                            .mod = .{
+                                .disp = 0,
+                                .size = func.memSize(ty.childType(pt.zcu)),
+                                .unsigned = false,
+                            },
+                        },
+                    } },
+                });
+
+                return;
+            }
+
             const mem_size = switch (base) {
                 .frame => |base_fi| mem_size: {
                     assert(disp >= 0);
