@@ -4152,7 +4152,19 @@ const LowerZon = struct {
         return error.AnalysisFail;
     }
 
-    fn ident(self: *LowerZon, token: Ast.TokenIndex) ![]const u8 {
+    const Ident = struct {
+        bytes: []const u8,
+        owned: bool,
+
+        fn deinit(self: *Ident, allocator: Allocator) void {
+            if (self.owned) {
+                allocator.free(self.bytes);
+            }
+            self.* = undefined;
+        }
+    };
+
+    fn ident(self: *LowerZon, token: Ast.TokenIndex) !Ident {
         var bytes = self.file.tree.tokenSlice(token);
 
         if (bytes[0] == '@' and bytes[1] == '"') {
@@ -4167,8 +4179,10 @@ const LowerZon = struct {
                     if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {                
                         return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
                     }
-                    // XXX: does caller free?
-                    return parsed.toOwnedSliceSentinel(gpa, 0);
+                    return .{
+                        .bytes = try parsed.toOwnedSlice(gpa),
+                        .owned = true,
+                    };
                 },
                 .failure => |err| {
                     const offset = self.file.tree.tokens.items(.start)[token];
@@ -4184,7 +4198,16 @@ const LowerZon = struct {
             }
         }
 
-        return bytes;
+        return .{
+            .bytes = bytes,
+            .owned = false,
+        };
+    }
+
+    fn identAsNullTerminatedString(self: *LowerZon, token: Ast.TokenIndex) !InternPool.NullTerminatedString {
+        var parsed = try self.ident(token);
+        defer parsed.deinit(self.mod.gpa);
+        return try self.mod.intern_pool.getOrPutString(self.mod.gpa, parsed.bytes, .no_embedded_nulls);
     }
 
     fn expr(self: *LowerZon, node: Ast.Node.Index) !InternPool.Index {
@@ -4195,17 +4218,18 @@ const LowerZon = struct {
         switch (tags[node]) {
             .identifier => {
                 const token = main_tokens[node];
-                const bytes = try self.ident(token);
+                var litIdent = try self.ident(token);
+                defer litIdent.deinit(gpa);
 
-                const Ident = enum { true, false, null, nan, inf };
-                const values = std.StaticStringMap(Ident).initComptime(.{
+                const LitIdent = enum { true, false, null, nan, inf };
+                const values = std.StaticStringMap(LitIdent).initComptime(.{
                     .{ "true", .true },
                     .{ "false", .false },
                     .{ "null", .null },
                     .{ "nan", .nan },
                     .{ "inf", .inf },
                 });
-                if (values.get(bytes)) |value| {
+                if (values.get(litIdent.bytes)) |value| {
                     return switch (value) {
                         .true => .bool_true,
                         .false => .bool_false,
@@ -4220,17 +4244,13 @@ const LowerZon = struct {
                         } }),
                     };
                 }
-                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ litIdent.bytes });
             },
             .number_literal, .char_literal => return self.number(node, null),
             .negation => return self.number(data[node].lhs, node),
-            .enum_literal => {
-                const token = main_tokens[node];
-                const bytes = try self.ident(token);
-                return self.mod.intern_pool.get(gpa, .{
-                    .enum_literal = try self.mod.intern_pool.getOrPutString(gpa, bytes, .no_embedded_nulls),
-                });
-            },
+            .enum_literal => return self.mod.intern_pool.get(gpa, .{
+                .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
+            }),
             .string_literal => {
                 const token = main_tokens[node];
                 const raw_string = self.file.tree.tokenSlice(token);
@@ -4339,7 +4359,7 @@ const LowerZon = struct {
                     types[i] = self.mod.intern_pool.typeOf(values[i]);
 
                     const name_token = self.file.tree.firstToken(field) - 2;
-                    const name = try self.mod.intern_pool.getOrPutString(gpa, try self.ident(name_token), .no_embedded_nulls);
+                    const name = try self.identAsNullTerminatedString(name_token);
                     const gop = names.getOrPutAssumeCapacity(name);
                     if (gop.found_existing) {
                         return self.fail(.{ .token_abs = name_token }, "duplicate field", .{});
@@ -4562,8 +4582,8 @@ const LowerZon = struct {
             .identifier => {
                 const token = main_tokens[node];
                 const bytes = self.file.tree.tokenSlice(token);
-                const Ident = enum { nan, inf };
-                const values = std.StaticStringMap(Ident).initComptime(.{
+                const LitIdent = enum { nan, inf };
+                const values = std.StaticStringMap(LitIdent).initComptime(.{
                     .{ "nan", .nan },
                     .{ "inf", .inf },
                 });
