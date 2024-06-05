@@ -264,16 +264,17 @@ pub fn getOrEnableAnsiEscapeSupport(self: File) bool {
 
             // For Windows Console, VT Sequences processing support was added in Windows 10 build 14361, but disabled by default.
             // https://devblogs.microsoft.com/commandline/tmux-support-arrives-for-bash-on-ubuntu-on-windows/
-            // Use Microsoft's recommended way to enable virtual terminal processing.
+            //
+            // Note: In Microsoft's example for enabling virtual terminal processing, it
+            // shows attempting to enable `DISABLE_NEWLINE_AUTO_RETURN` as well:
             // https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#example-of-enabling-virtual-terminal-processing
-            var requested_console_modes: windows.DWORD = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | windows.DISABLE_NEWLINE_AUTO_RETURN;
-            var console_mode = original_console_mode | requested_console_modes;
-            if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
-
-            // An application receiving ERROR_INVALID_PARAMETER with one of the newer console mode
-            // flags in the bit field should gracefully degrade behavior and try again.
-            requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            console_mode = original_console_mode | requested_console_modes;
+            // This is avoided because in the old Windows Console, that flag causes \n (as opposed to \r\n)
+            // to behave unexpectedly (the cursor moves down 1 row but remains on the same column).
+            // Additionally, the default console mode in Windows Terminal does not have
+            // `DISABLE_NEWLINE_AUTO_RETURN` set, so by only enabling `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+            // we end up matching the mode of Windows Terminal.
+            const requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            const console_mode = original_console_mode | requested_console_modes;
             if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
         }
 
