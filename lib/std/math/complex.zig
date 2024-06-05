@@ -78,9 +78,10 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the quotient of two complex numbers.
         pub fn div(self: Self, other: anytype) Self {
+            const abs2 = if (isComplex(@TypeOf(other))) other.re * other.re + other.im * other.im else other;
             return if (isComplex(@TypeOf(other))) .{
-                .re = (self.re * other.re + self.im * other.im) / abs2(other),
-                .im = (self.im * other.re - self.re * other.im) / abs2(other),
+                .re = (self.re * other.re + self.im * other.im) / abs2,
+                .im = (self.im * other.re - self.re * other.im) / abs2,
             } else .{
                 .re = self.re / other,
                 .im = self.im / other,
@@ -113,7 +114,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the inverse of a complex number.
         pub fn inv(self: Self) Self {
-            return self.conj().div(abs2(self));
+            return self.conj().div(self.re * self.re + self.im * self.im);
         }
 
         /// Returns the magnitude of a complex number.
@@ -121,11 +122,6 @@ pub fn Complex(comptime T: type) type {
             return complex.abs(self);
         }
     };
-}
-
-/// Evaluates the squared modulus of a complex number
-pub inline fn abs2(z: anytype) ScalarType(@TypeOf(z)) {
-    return if (isComplex(@TypeOf(z))) z.re * z.re + z.im * z.im else z * z;
 }
 
 /// Returns the underlying scalar type if it is a complex number,
