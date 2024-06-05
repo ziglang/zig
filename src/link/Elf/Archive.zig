@@ -36,7 +36,7 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
             try elf_file.reportParseError(path, "invalid archive header delimiter: {s}", .{
-                std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+                std.fmt.fmtSliceEscape(&hdr.ar_fmag, .lower),
             });
             return error.MalformedArchive;
         }
@@ -271,7 +271,7 @@ pub const ArStrtab = struct {
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
+        try writer.print("{s}", .{std.fmt.fmtSliceEscape(ar.buffer.items, .lower)});
     }
 };
 

@@ -2979,18 +2979,18 @@ fn writeToFile(
                 std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
                 var uuid: [36]u8 = undefined;
                 _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-                    std.fmt.fmtSliceHexLower(id[0..4]),
-                    std.fmt.fmtSliceHexLower(id[4..6]),
-                    std.fmt.fmtSliceHexLower(id[6..8]),
-                    std.fmt.fmtSliceHexLower(id[8..10]),
-                    std.fmt.fmtSliceHexLower(id[10..]),
+                    std.fmt.fmtSliceHex(id[0..4], .lower),
+                    std.fmt.fmtSliceHex(id[4..6], .lower),
+                    std.fmt.fmtSliceHex(id[6..8], .lower),
+                    std.fmt.fmtSliceHex(id[8..10], .lower),
+                    std.fmt.fmtSliceHex(id[10..], .lower),
                 });
                 try emitBuildIdSection(&binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
                 const str = std.fmt.bufPrint(&buffer, "{s}", .{
-                    std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    std.fmt.fmtSliceHex(hs.toSlice(), .lower),
                 }) catch unreachable;
                 try emitBuildIdSection(&binary_bytes, str);
             },
@@ -3407,17 +3407,17 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) !voi
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("WASM LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("WASM LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHex(&digest, .lower), @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("WASM LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            log.debug("WASM LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHex(&digest, .lower)});
             // Hot diggity dog! The output binary is already there.
             wasm.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("WASM LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("WASM LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHex(prev_digest, .lower), std.fmt.fmtSliceHex(&digest, .lower) });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {

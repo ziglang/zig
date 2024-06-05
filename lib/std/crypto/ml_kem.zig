@@ -1738,7 +1738,7 @@ test "NIST KAT test" {
         for (0..100) |i| {
             g.fill(&seed);
             try std.fmt.format(fw, "count = {}\n", .{i});
-            try std.fmt.format(fw, "seed = {s}\n", .{std.fmt.fmtSliceHexUpper(&seed)});
+            try std.fmt.format(fw, "seed = {s}\n", .{std.fmt.fmtSliceHex(&seed, .upper)});
             var g2 = NistDRBG.init(seed);
 
             // This is not equivalent to g2.fill(kseed[:]). As the reference
@@ -1753,16 +1753,16 @@ test "NIST KAT test" {
             const e = kp.public_key.encaps(eseed);
             const ss2 = try kp.secret_key.decaps(&e.ciphertext);
             try testing.expectEqual(ss2, e.shared_secret);
-            try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.public_key.toBytes())});
-            try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHexUpper(&kp.secret_key.toBytes())});
-            try std.fmt.format(fw, "ct = {s}\n", .{std.fmt.fmtSliceHexUpper(&e.ciphertext)});
-            try std.fmt.format(fw, "ss = {s}\n\n", .{std.fmt.fmtSliceHexUpper(&e.shared_secret)});
+            try std.fmt.format(fw, "pk = {s}\n", .{std.fmt.fmtSliceHex(&kp.public_key.toBytes(), .upper)});
+            try std.fmt.format(fw, "sk = {s}\n", .{std.fmt.fmtSliceHex(&kp.secret_key.toBytes(), .upper)});
+            try std.fmt.format(fw, "ct = {s}\n", .{std.fmt.fmtSliceHex(&e.ciphertext, .upper)});
+            try std.fmt.format(fw, "ss = {s}\n\n", .{std.fmt.fmtSliceHex(&e.shared_secret, .upper)});
         }
 
         var out: [32]u8 = undefined;
         f.final(&out);
         var outHex: [64]u8 = undefined;
-        _ = try std.fmt.bufPrint(&outHex, "{s}", .{std.fmt.fmtSliceHexLower(&out)});
+        _ = try std.fmt.bufPrint(&outHex, "{s}", .{std.fmt.fmtSliceHex(&out, .lower)});
         try testing.expectEqual(outHex, modeHash[1].*);
     }
 }

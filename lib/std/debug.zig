@@ -1271,11 +1271,11 @@ pub fn readElfDebugInfo(
                 var id_prefix_buf: [2]u8 = undefined;
                 var filename_buf: [38 + extension.len]u8 = undefined;
 
-                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHex(id[0..1], .lower)}) catch unreachable;
                 const filename = std.fmt.bufPrint(
                     &filename_buf,
                     "{s}" ++ extension,
-                    .{std.fmt.fmtSliceHexLower(id[1..])},
+                    .{std.fmt.fmtSliceHex(id[1..], .lower)},
                 ) catch break :blk;
 
                 for (global_debug_directories) |global_directory| {

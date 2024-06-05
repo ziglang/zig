@@ -120,17 +120,17 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) 
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("COFF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHex(&digest, .lower), @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("COFF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            log.debug("COFF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHex(&digest, .lower)});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("COFF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("COFF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHex(prev_digest, .lower), std.fmt.fmtSliceHex(&digest, .lower) });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {

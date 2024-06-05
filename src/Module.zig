@@ -2133,7 +2133,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         _ = std.fmt.bufPrint(
             &hex,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            .{std.fmt.fmtSliceHex(&bin_digest, .lower)},
         ) catch unreachable;
         break :hex hex;
     };
@@ -2498,8 +2498,8 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
                 log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
                     old_inst,
                     ti.inst,
-                    std.fmt.fmtSliceHexLower(&old_hash),
-                    std.fmt.fmtSliceHexLower(&new_hash),
+                    std.fmt.fmtSliceHex(&old_hash, .lower),
+                    std.fmt.fmtSliceHex(&new_hash, .lower),
                 });
             }
             // The source hash associated with this instruction changed - invalidate relevant dependencies.

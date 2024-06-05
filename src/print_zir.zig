@@ -1402,7 +1402,7 @@ const Writer = struct {
             extra.data.fields_hash_3,
         });
 
-        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHex(&fields_hash, .lower)});
 
         var extra_index: usize = extra.end;
 
@@ -1616,7 +1616,7 @@ const Writer = struct {
             extra.data.fields_hash_3,
         });
 
-        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHex(&fields_hash, .lower)});
 
         var extra_index: usize = extra.end;
 
@@ -1783,7 +1783,7 @@ const Writer = struct {
             extra.data.fields_hash_3,
         });
 
-        try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
+        try stream.print("hash({}) ", .{std.fmt.fmtSliceHex(&fields_hash, .lower)});
 
         var extra_index: usize = extra.end;
 
@@ -2759,7 +2759,7 @@ const Writer = struct {
             extra.data.src_hash_3,
         };
         const src_hash_bytes: [16]u8 = @bitCast(src_hash_arr);
-        try stream.print(" line(+{d}) hash({})", .{ extra.data.line_offset, std.fmt.fmtSliceHexLower(&src_hash_bytes) });
+        try stream.print(" line(+{d}) hash({})", .{ extra.data.line_offset, std.fmt.fmtSliceHex(&src_hash_bytes, .lower) });
 
         {
             const prev_parent_decl_node = self.parent_decl_node;

@@ -489,9 +489,9 @@ test "Trie basic" {
 fn expectEqualHexStrings(expected: []const u8, given: []const u8) !void {
     assert(expected.len > 0);
     if (mem.eql(u8, expected, given)) return;
-    const expected_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(expected)});
+    const expected_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHex(expected, .lower)});
     defer testing.allocator.free(expected_fmt);
-    const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHexLower(given)});
+    const given_fmt = try std.fmt.allocPrint(testing.allocator, "{x}", .{std.fmt.fmtSliceHex(given, .lower)});
     defer testing.allocator.free(given_fmt);
     const idx = mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
     const padding = try testing.allocator.alloc(u8, idx + 5);

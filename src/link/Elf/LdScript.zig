@@ -33,7 +33,7 @@ pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
         switch (tok.id) {
             .invalid => {
                 try elf_file.reportParseError(scr.path, "invalid token in LD script: '{s}' ({d}:{d})", .{
-                    std.fmt.fmtSliceEscapeLower(tok.get(data)),
+                    std.fmt.fmtSliceEscape(tok.get(data), .lower),
                     line,
                     column,
                 });

@@ -255,7 +255,7 @@ pub const HashHelper = struct {
         _ = fmt.bufPrint(
             &out_digest,
             "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHex(&bin_digest, .lower)},
         ) catch unreachable;
         return out_digest;
     }
@@ -269,7 +269,7 @@ pub const HashHelper = struct {
         _ = fmt.bufPrint(
             &out_digest,
             "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHex(&bin_digest, .lower)},
         ) catch unreachable;
         return out_digest;
     }
@@ -429,7 +429,7 @@ pub const Manifest = struct {
         _ = fmt.bufPrint(
             &self.hex_digest,
             "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHex(&bin_digest, .lower)},
         ) catch unreachable;
 
         self.hash.hasher = hasher_init;
@@ -894,7 +894,7 @@ pub const Manifest = struct {
         _ = fmt.bufPrint(
             &out_digest,
             "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
+            .{fmt.fmtSliceHex(&bin_digest, .lower)},
         ) catch unreachable;
 
         return out_digest;
@@ -919,7 +919,7 @@ pub const Manifest = struct {
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
-                    fmt.fmtSliceHexLower(&file.bin_digest),
+                    fmt.fmtSliceHex(&file.bin_digest, .lower),
                     file.prefixed_path.prefix,
                     file.prefixed_path.sub_path,
                 });

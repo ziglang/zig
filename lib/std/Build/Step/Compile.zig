@@ -1622,7 +1622,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     if (compile.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
             .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
+                std.fmt.fmtSliceHex(hs.toSlice(), .lower),
             }),
             .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
         });
@@ -1703,7 +1703,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         _ = try std.fmt.bufPrint(
             &args_hex_hash,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&args_hash)},
+            .{std.fmt.fmtSliceHex(&args_hash, .lower)},
         );
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;

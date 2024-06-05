@@ -897,8 +897,8 @@ fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.w
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
-    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
+    log.debug("to write: {x}", .{std.fmt.fmtSliceHex(code, .lower)});
+    log.debug("in memory: {x}", .{std.fmt.fmtSliceHex(memread, .lower)});
 }
 
 fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
