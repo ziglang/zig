@@ -29819,7 +29819,20 @@ fn coerceExtra(
             try sema.errNote(inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
         }
 
-        try in_memory_result.report(sema, inst_src, msg);
+        // T to ?T
+        if (dest_ty.zigTypeTag(zcu) == .Optional) {
+            const child_ty = dest_ty.optionalChild(sema.mod);
+            _ = sema.coerceExtra(block, child_ty, inst, inst_src, .{ .report_err = false }) catch |err| switch (err) {
+                error.NotCoercible => {
+                    if (maybe_inst_val) |val| {
+                        try sema.errNote(block, inst_src, msg, "child type '{}' cannot represent value '{}'", .{ child_ty.fmt(zcu), val.fmtValue(zcu, sema) });
+                    }
+                },
+                else => {},
+            };
+        }
+
+        try in_memory_result.report(sema, block, inst_src, msg);
 
         // Add notes about function return type
         if (opts.is_ret and
