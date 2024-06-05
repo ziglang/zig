@@ -4531,29 +4531,24 @@ const LowerZon = struct {
                             }});
                         }
                     },
-                    // XXX: any way to do big int math without allocating all args..?
                     .big_int => |base| {
-                        // XXX: compare to `zirIntBig`, but I think that function only works because this logic was already done elsewhere.
-                        var base_managed = try std.math.big.int.Managed.initSet(gpa, @as(u8, @intFromEnum(base)));
-                        defer base_managed.deinit();
-                        const prefix_offset = @as(u8, 2) * @intFromBool(base != .decimal);
-                        var result = try std.math.big.int.Managed.init(gpa);
-                        defer result.deinit();
-                        for (token_bytes[prefix_offset..]) |char| {
-                            if (char == '_') continue;
-                            // XXX: ...
-                            var d = try std.math.big.int.Managed.initSet(gpa, std.fmt.charToDigit(char, @intFromEnum(base)) catch unreachable);
-                            defer d.deinit();
-                            try result.mul(&result, &base_managed);
-                            if (is_negative == null) {
-                                try result.add(&result, &d);
-                            } else {
-                                try result.sub(&result, &d);
-                            }
-                        }
+                        var big_int = try std.math.big.int.Managed.init(gpa);
+                        defer big_int.deinit();
+
+                        const prefix_offset: usize = if (base == .decimal) 0 else 2;
+                        big_int.setString(@intFromEnum(base), token_bytes[prefix_offset..]) catch |err| switch (err) {
+                            error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
+                            error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
+                            error.OutOfMemory => return error.OutOfMemory,
+                        };
+
+                        assert(big_int.isPositive());
+
+                        if (is_negative != null) big_int.negate();
+
                         return self.mod.intern_pool.get(gpa, .{ .int = .{
                             .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
-                            .storage = .{ .big_int = result.toConst() },
+                            .storage = .{ .big_int = big_int.toConst() },
                         }});
                     },
                     // XXX: I think it's okay to ignore float base, parseFloat will handle it right?
