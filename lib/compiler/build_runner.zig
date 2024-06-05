@@ -985,7 +985,12 @@ fn printStepStatus(
         },
         .skipped, .skipped_oom => |skip| {
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.writeAll(" skipped");
+            try stderr.writeAll(" skipped: ");
+            if (s.result_skip_reason) |reason| {
+                try stderr.writeAll(reason);
+            } else {
+                try stderr.writeAll("Unspecified");
+            }
             if (skip == .skipped_oom) {
                 try stderr.writeAll(" (not enough memory)");
                 try ttyconf.setColor(stderr, .dim);
