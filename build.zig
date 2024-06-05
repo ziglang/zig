@@ -489,6 +489,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_libc = true,
+        .no_builtin = true,
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
@@ -501,6 +502,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_libc = true,
+        .no_builtin = true,
     }));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
