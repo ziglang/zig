@@ -7168,10 +7168,50 @@ fn cmdDepHash(
     }
 
     if (package_opt) |package| {
-        const dep = manifest.dependencies.get(package) orelse {
-            const stderr = std.io.getStdErr().writer();
-            stderr.print("There is no dependency named '{s}' in the manifest\n", .{package}) catch {};
-            process.exit(1);
+        if (package.len == 0) {
+            fatal("package name must not be empty", .{});
+        }
+        const dep: Package.Manifest.Dependency = dep: {
+            var iter = std.mem.tokenizeScalar(u8, package, '.');
+
+            var dep = manifest.dependencies.get(iter.next().?) orelse {
+                fatal("there is no dependency named '{s}' in the manifest\n", .{package});
+            };
+
+            var dep_name = iter.buffer[0 .. iter.index - 1];
+
+            while (iter.next()) |p| {
+                if (dep.hash) |hash| {
+                    var package_dir = global_cache_package_directory.openDir(hash, .{}) catch |e| switch (e) {
+                        error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
+                            dep_name, hash,
+                        }),
+                        else => |err| return err,
+                    };
+                    defer package_dir.close();
+
+                    const sub_manifest, _ = try loadManifest(arena, arena, .{
+                        .root_name = null,
+                        .dir = package_dir,
+                        .color = color,
+                    });
+
+                    dep = sub_manifest.dependencies.get(p) orelse {
+                        fatal("{s} has no dependency named '{s}' in its manifest", .{ dep_name, package });
+                    };
+                    dep_name = iter.buffer[0 .. iter.index - 1];
+
+                } else switch (dep.location) {
+                    .url => fatal("the hash for {s} is missing from the manifest.\n", .{
+                        dep_name,
+                    }),
+                    .path => |path| fatal("{s} is a local dependency located at {s}\n", .{
+                        dep_name, path,
+                    }),
+                }
+            }
+
+            break :dep dep;
         };
 
         const stdout = std.io.getStdOut().writer();
