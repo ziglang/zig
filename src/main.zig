@@ -323,6 +323,11 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .cmd_name = "objcopy",
             .root_src_path = "objcopy.zig",
         });
+    } else if (mem.eql(u8, cmd, "dep-hash")) {
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "dep-hash",
+            .root_src_path = "dep-hash.zig",
+        });
     } else if (mem.eql(u8, cmd, "fetch")) {
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
