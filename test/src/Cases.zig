@@ -561,7 +561,11 @@ pub fn lowerToTranslateCSteps(
     for (self.translate.items) |case| switch (case.kind) {
         .run => |output| {
             if (translate_c_options.skip_run_translated_c) continue;
-            const annotated_case_name = b.fmt("run-translated-c {s}", .{case.name});
+
+            const use_clang = case.c_frontend == .clang;
+            const frontend_str = if (use_clang) "clang" else "aro";
+            const annotated_case_name = b.fmt("run-translated-c c_frontend={s} {s}", .{ frontend_str, case.name });
+
             for (test_filters) |test_filter| {
                 if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (test_filters.len > 0) continue;
@@ -578,7 +582,7 @@ pub fn lowerToTranslateCSteps(
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
+                .use_clang = use_clang,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
@@ -594,7 +598,11 @@ pub fn lowerToTranslateCSteps(
         },
         .translate => |output| {
             if (translate_c_options.skip_translate_c) continue;
-            const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
+
+            const use_clang = case.c_frontend == .clang;
+            const frontend_str = if (use_clang) "clang" else "aro";
+            const annotated_case_name = b.fmt("translate-c c_frontend={s} {s}", .{ frontend_str, case.name });
+
             for (test_filters) |test_filter| {
                 if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (test_filters.len > 0) continue;
@@ -607,7 +615,7 @@ pub fn lowerToTranslateCSteps(
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
+                .use_clang = use_clang,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
