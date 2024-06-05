@@ -4511,9 +4511,7 @@ const LowerZon = struct {
                             if (unsigned == 0) {
                                 return self.fail(.{ .node_abs = negative_node }, "integer literal '-0' is ambiguous", .{});
                             }
-                            const signed = std.math.negate(unsigned) catch {
-                                // XXX: test all cases...
-                                // XXX: can I just always do this or is that worse for perf?
+                            const signed = std.math.negateCast(unsigned) catch {
                                 var result = try std.math.big.int.Managed.initSet(gpa, unsigned);
                                 defer result.deinit();
                                 result.negate();
@@ -4524,7 +4522,7 @@ const LowerZon = struct {
                             };
                             return self.mod.intern_pool.get(gpa, .{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .u64 = signed },
+                                .storage = .{ .i64 = signed },
                             }});
                         } else {
                             return self.mod.intern_pool.get(gpa, .{ .int = .{
@@ -4568,7 +4566,6 @@ const LowerZon = struct {
                             .storage = .{ .f128 = float },
                         } });
                     },
-                    // XXX: ...
                     .failure => |err| return AstGen.failWithNumberError(
                         self,
                         numberError,

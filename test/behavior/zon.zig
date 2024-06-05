@@ -132,6 +132,8 @@ test "int" {
         // Test big integers
         @as(u65, 36893488147419103231),
         @as(u65, 36893488147419103231),
+        @as(i128, -18446744073709551615), // Only a big int due to negation
+        @as(i128, -9223372036854775809), // Only a big int due to negation
 
         // Test big integer limits
         @as(i66, 36893488147419103231),
