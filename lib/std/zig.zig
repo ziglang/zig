@@ -955,7 +955,7 @@ pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot
 }
 
 const LoadManifestOptions = struct {
-    root_name: []const u8,
+    root_name: ?[]const u8,
     dir: fs.Dir,
     color: Color,
 };
@@ -975,21 +975,23 @@ pub fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                const fingerprint: Package.Fingerprint = .generate(options.root_name);
-                var templates = findTemplates(gpa, arena);
-                defer templates.deinit();
-                templates.write(
-                    arena,
-                    options.dir,
-                    options.root_name,
-                    Package.Manifest.basename,
-                    fingerprint,
-                ) catch |e| {
-                    fatal("unable to write {s}: {s}", .{
-                        Package.Manifest.basename, @errorName(e),
-                    });
-                };
-                continue;
+                if (options.root_name) |root_name| {
+                    const fingerprint: Package.Fingerprint = .generate(root_name);
+                    var templates = findTemplates(gpa, arena);
+                    defer templates.deinit();
+                    templates.write(
+                        arena,
+                        options.dir,
+                        root_name,
+                        Package.Manifest.basename,
+                        fingerprint,
+                    ) catch |e| {
+                        fatal("unable to write {s}: {s}", .{
+                            Package.Manifest.basename, @errorName(e),
+                        });
+                    };
+                    continue;
+                } else return error.FileNotFound;
             },
             else => |e| fatal("unable to load {s}: {s}", .{
                 Package.Manifest.basename, @errorName(e),
