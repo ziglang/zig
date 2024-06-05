@@ -177,7 +177,6 @@ pub fn translate(
 
     try transPreprocessorEntities(&context, ast_unit);
 
-    try addMacros(&context);
     for (context.alias_list.items) |alias| {
         const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
         try addTopLevelDecl(&context, alias.alias, node);
@@ -5105,6 +5104,7 @@ const MacroCtx = struct {
     i: usize = 0,
     loc: clang.SourceLocation,
     name: []const u8,
+    refs_var_decl: bool = false,
 
     fn peek(self: *MacroCtx) ?CToken.Id {
         if (self.i >= self.list.len) return null;
@@ -5244,7 +5244,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         // We define it as an empty string so that it can still be used with ++
                         const str_node = try Tag.string_literal.create(c.arena, "\"\"");
                         const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = name, .init = str_node });
-                        try c.global_scope.macro_table.put(name, var_decl);
+                        try addTopLevelDecl(c, name, var_decl);
                         try c.global_scope.blank_macros.put(name, {});
                         continue;
                     },
@@ -5291,7 +5291,7 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
                 try c.global_scope.blank_macros.put(m.name, {});
                 const init_node = try Tag.string_literal.create(c.arena, "\"\"");
                 const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
-                try c.global_scope.macro_table.put(m.name, var_decl);
+                try addTopLevelDecl(c, m.name, var_decl);
                 return;
             },
             else => {},
@@ -5304,8 +5304,32 @@ fn transMacroDefine(c: *Context, m: *MacroCtx) ParseError!void {
     if (last != .eof and last != .nl)
         return m.fail(c, "unable to translate C expr: unexpected token '{s}'", .{last.symbol()});
 
-    const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
-    try c.global_scope.macro_table.put(m.name, var_decl);
+    const node = node: {
+        const var_decl = try Tag.pub_var_simple.create(c.arena, .{ .name = m.name, .init = init_node });
+
+        if (getFnProto(c, var_decl)) |proto_node| {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            break :node try transCreateNodeMacroFn(c, m.name, var_decl, proto_node);
+        } else if (m.refs_var_decl) {
+            const return_type = try Tag.typeof.create(c.arena, init_node);
+            const return_expr = try Tag.@"return".create(c.arena, init_node);
+            const block = try Tag.block_single.create(c.arena, return_expr);
+            try warn(c, scope, m.loc, "macro '{s}' contains a runtime value, translated to function", .{m.name});
+
+            break :node try Tag.pub_inline_fn.create(c.arena, .{
+                .name = m.name,
+                .params = &.{},
+                .return_type = return_type,
+                .body = block,
+            });
+        }
+
+        break :node var_decl;
+    };
+
+    try addTopLevelDecl(c, m.name, node);
 }
 
 fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
@@ -5315,7 +5339,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
             .name = m.name,
             .init = try Tag.helpers_macro.create(c.arena, pattern.impl),
         });
-        try c.global_scope.macro_table.put(m.name, decl);
+        try addTopLevelDecl(c, m.name, decl);
         return;
     }
 
@@ -5380,7 +5404,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
         .return_type = return_type,
         .body = try block_scope.complete(c),
     });
-    try c.global_scope.macro_table.put(m.name, fn_decl);
+    try addTopLevelDecl(c, m.name, fn_decl);
 }
 
 const ParseError = Error || error{ParseError};
@@ -5768,6 +5792,11 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
             const identifier = try Tag.identifier.create(c.arena, mangled_name);
             scope.skipVariableDiscard(identifier.castTag(.identifier).?.data);
+            refs_var: {
+                const ident_node = c.global_scope.sym_table.get(slice) orelse break :refs_var;
+                const var_decl_node = ident_node.castTag(.var_decl) orelse break :refs_var;
+                if (!var_decl_node.data.is_const) m.refs_var_decl = true;
+            }
             return identifier;
         },
         .l_paren => {
@@ -6495,18 +6524,4 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
         }
     }
     return null;
-}
-
-fn addMacros(c: *Context) !void {
-    var it = c.global_scope.macro_table.iterator();
-    while (it.next()) |entry| {
-        if (getFnProto(c, entry.value_ptr.*)) |proto_node| {
-            // If a macro aliases a global variable which is a function pointer, we conclude that
-            // the macro is intended to represent a function that assumes the function pointer
-            // variable is non-null and calls it.
-            try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
-        } else {
-            try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
-        }
-    }
 }
