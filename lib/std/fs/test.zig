@@ -1161,7 +1161,8 @@ test "makepath existing directories" {
     defer tmp.cleanup();
 
     try tmp.dir.makeDir("A");
-    const tmpA = try tmp.dir.openDir("A", .{});
+    var tmpA = try tmp.dir.openDir("A", .{});
+    defer tmpA.close();
     try tmpA.makeDir("B");
 
     const testPath = "A" ++ fs.path.sep_str ++ "B" ++ fs.path.sep_str ++ "C";
