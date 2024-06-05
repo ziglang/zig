@@ -1217,10 +1217,13 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
             },
             else => |e| return e,
         };
-        // Don't leak the intermediate file handles
-        errdefer if (result) |*dir| dir.close();
 
         component = it.next() orelse return result.?;
+
+        // Don't leak the intermediate file handles
+        if (result) |*dir| {
+            dir.close();
+        }
     }
 }
 
