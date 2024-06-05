@@ -13,6 +13,7 @@ const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
+    const only_dep_hash = b.option(bool, "only-dep-hash", "Only compile zig dep-hash") orelse false;
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
@@ -27,7 +28,7 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse only_dep_hash;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
@@ -229,6 +230,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
     exe_options.addOption(bool, "only_core_functionality", only_c);
+    exe_options.addOption(bool, "only_dep_hash", only_dep_hash);
 
     if (link_libc) {
         exe.linkLibC();
