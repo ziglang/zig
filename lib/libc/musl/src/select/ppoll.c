@@ -1,4 +1,4 @@
-#define _GNU_SOURCE
+#define _BSD_SOURCE
 #include <poll.h>
 #include <signal.h>
 #include <errno.h>

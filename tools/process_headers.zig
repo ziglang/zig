@@ -214,6 +214,11 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
+        .name = "loongarch64",
+        .arch = MultiArch{ .specific = .loongarch64 },
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
         .name = "mips",
         .arch = MultiArch.mips,
         .abi = MultiAbi.musl,
@@ -231,6 +236,11 @@ const musl_targets = [_]LibCTarget{
     LibCTarget{
         .name = "powerpc64",
         .arch = MultiArch.powerpc64,
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
+        .name = "riscv32",
+        .arch = MultiArch{ .specific = .riscv32 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{
