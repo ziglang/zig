@@ -5100,9 +5100,9 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
         .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
-        .aarch64_be => return "aarch64_be_linux",
+        .aarch64_be => return "aarch64linuxb",
         .arm, .thumb => return "armelf_linux_eabi",
-        .armeb, .thumbeb => return "armebelf_linux_eabi",
+        .armeb, .thumbeb => return "armelfb_linux_eabi",
         .powerpc => return "elf32ppclinux",
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
