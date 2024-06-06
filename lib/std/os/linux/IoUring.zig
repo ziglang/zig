@@ -3503,6 +3503,10 @@ test "accept multishot" {
 }
 
 test "accept/connect/send_zc/recv" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/20212
+        return error.SkipZigTest;
+    }
     try skipKernelLessThan(.{ .major = 6, .minor = 0, .patch = 0 });
 
     var ring = IoUring.init(16, 0) catch |err| switch (err) {
