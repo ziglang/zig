@@ -684,12 +684,8 @@ pub const Manifest = struct {
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
         const pp = ch_file.prefixed_path;
-        const directory = self.cache.prefixes()[pp.prefix];
-        const dir = directory.handle;
-        const file = dir.openFile(pp.sub_path, .{}) catch |err| {
-            log.err("Failed to open file for hashing: {s} in directory: {?s}", .{ pp.sub_path, directory.path });
-            return err;
-        };
+        const dir = self.cache.prefixes()[pp.prefix].handle;
+        const file = try dir.openFile(pp.sub_path, .{});
         defer file.close();
 
         const actual_stat = try file.stat();
