@@ -43,6 +43,20 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
+pub const floatExponentBits = @compileError("Deprecated, use float.exponentBits instead.");
+pub const floatMantissaBits = @compileError("Deprecated, use float.mantissaBits instead.");
+pub const floatFractionalBits = @compileError("Deprecated, use float.fractionalBits instead.");
+pub const floatExponentMin = @compileError("Deprecated, use float.exponentMin instead.");
+pub const floatExponentMax = @compileError("Deprecated, use float.exponentMax instead.");
+pub const floatTrueMin = @compileError("Deprecated, use float.trueMin instead.");
+pub const floatMin = @compileError("Deprecated, use float.min instead.");
+pub const floatMax = @compileError("Deprecated, use float.max instead.");
+pub const floatEps = @compileError("Deprecated, use float.eps instead.");
+pub const floatEpsAt = @compileError("Deprecated, use float.epsAt instead.");
+pub const inf = @compileError("Deprecated, use float.inf instead.");
+pub const nan = @compileError("Deprecated, use float.nan instead.");
+pub const snan = @compileError("Deprecated, use float.snan instead.");
+
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
 /// the specified tolerance.
