@@ -1,5 +1,5 @@
 /* Wrapper for file descriptors that refers to a process functions.
-   Copyright (C) 2022-2023 Free Software Foundation, Inc.
+   Copyright (C) 2022-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -45,5 +45,9 @@ extern int pidfd_getfd (int __pidfd, int __targetfd,
    as 0.  */
 extern int pidfd_send_signal (int __pidfd, int __sig, siginfo_t *__info,
 			      unsigned int __flags) __THROW;
+
+/* Query the process ID (PID) from process descriptor FD.  Return the PID
+   or -1 in case of an error.  */
+extern pid_t pidfd_getpid (int __fd) __THROW;
 
 #endif /* _PIDFD_H  */

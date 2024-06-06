@@ -1,5 +1,5 @@
 /* O_*, F_*, FD_* bit values for Linux/PowerPC.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -33,7 +33,7 @@
 # define __O_LARGEFILE	0200000
 #endif
 
-#if __WORDSIZE == 64
+#if __WORDSIZE == 64 && !defined __USE_FILE_OFFSET64
 # define F_GETLK	5
 # define F_SETLK	6
 # define F_SETLKW	7
