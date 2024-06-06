@@ -1,5 +1,5 @@
 /* Create a special or ordinary file.  Linux version.
-   Copyright (C) 2020-2023 Free Software Foundation, Inc.
+   Copyright (C) 2020-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,7 +16,6 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>

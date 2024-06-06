@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 2010-2023 Free Software Foundation, Inc.
+   Copyright (C) 2010-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -49,5 +49,9 @@
 
 /* Alpha requires old sysvipc even being a 64-bit architecture.  */
 #undef __ASSUME_SYSVIPC_DEFAULT_IPC_64
+
+/* Alpha does not provide clone3.  */
+#undef __ASSUME_CLONE3
+#define __ASSUME_CLONE3 0
 
 #endif /* _KERNEL_FEATURES_H */

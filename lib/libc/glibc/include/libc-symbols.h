@@ -1,6 +1,6 @@
 /* Support macros for making weak and strong aliases for symbols,
    and for using symbol sets and linker warnings with GNU ld.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -154,18 +154,6 @@
 # define _weak_alias(name, aliasname) \
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name))) \
     __attribute_copy__ (name);
-
-/* Zig patch.  weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
-   needs it for the v2.32 and earlier {f,l,}stat wrappers, so only include
-   in this header for 2.32 and earlier. */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ <= 32) || __GLIBC__ < 2
-# define weak_hidden_alias(name, aliasname) \
-  _weak_hidden_alias (name, aliasname)
-# define _weak_hidden_alias(name, aliasname) \
-  extern __typeof (name) aliasname \
-    __attribute__ ((weak, alias (#name), __visibility__ ("hidden"))) \
-    __attribute_copy__ (name);
-#endif
 
 /* Declare SYMBOL as weak undefined symbol (resolved to 0 if not defined).  */
 # define weak_extern(symbol) _weak_extern (weak symbol)
@@ -612,8 +600,10 @@ for linking")
 #endif
 
 #if IS_IN (libmvec)
+# define libmvec_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define libmvec_hidden_def(name) hidden_def (name)
 #else
+# define libmvec_hidden_proto(name, attrs...)
 # define libmvec_hidden_def(name)
 #endif
 
