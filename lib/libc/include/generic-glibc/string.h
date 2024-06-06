@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -501,11 +501,6 @@ extern char *stpncpy (char *__restrict __dest,
      __THROW __nonnull ((1, 2));
 #endif
 
-/*
- * strlcpy and strlcat introduced in glibc 2.38
- * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2
 #ifdef __USE_MISC
 /* Copy at most N - 1 characters from SRC to DEST.  */
 extern size_t strlcpy (char *__restrict __dest,
@@ -518,7 +513,6 @@ extern size_t strlcat (char *__restrict __dest,
 		       const char *__restrict __src, size_t __n)
   __THROW __nonnull ((1, 2))  __attr_access ((__read_write__, 1, 3));
 #endif
-#endif /* glibc v2.38 and later */
 
 #ifdef	__USE_GNU
 /* Compare S1 and S2 as strings holding name & indices/version numbers.  */

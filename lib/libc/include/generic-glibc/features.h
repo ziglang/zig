@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -159,14 +159,6 @@
 # define __KERNEL_STRICT_NAMES
 #endif
 
-/* Major and minor version number of the GNU C library package.  Use
-   these macros to test for features in specific releases.  */
-#define	__GLIBC__	2
-/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
-
-#define __GLIBC_PREREQ(maj, min) \
-	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
-
 /* Convenience macro to test the version of gcc.
    Use like this:
    #if __GNUC_PREREQ (2,8)
@@ -230,12 +222,8 @@
 # define _DEFAULT_SOURCE	1
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
-
-# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 # undef  _DYNAMIC_STACK_SIZE_SOURCE
 # define _DYNAMIC_STACK_SIZE_SOURCE 1
-# endif
-
 #endif
 
 /* If nothing (other than _GNU_SOURCE and _DEFAULT_SOURCE) is defined,
@@ -468,10 +456,7 @@
    instance, with GCC, -std=gnu11 will have C99-compliant scanf with
    or without -D_GNU_SOURCE, but -std=c89 -D_GNU_SOURCE will have the
    old extension.  */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 7)
-/* support for ISOC99 was added in glibc-2.7 */
-# define __GLIBC_USE_DEPRECATED_SCANF 1
-#elif (defined __USE_GNU							\
+#if (defined __USE_GNU							\
      && (defined __cplusplus						\
 	 ? (__cplusplus < 201103L && !defined __GXX_EXPERIMENTAL_CXX0X__) \
 	 : (!defined __STDC_VERSION__ || __STDC_VERSION__ < 199901L)))
@@ -480,11 +465,6 @@
 # define __GLIBC_USE_DEPRECATED_SCANF 0
 #endif
 
-
-/* support for ISO C2X strtol was added in 2.38
- * glibc commit 64924422a99690d147a166b4de3103f3bf3eaf6c
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2
 /* ISO C2X added support for a 0b or 0B prefix on binary constants as
    inputs to strtol-family functions (base 0 or 2).  This macro is
    used to condition redirection in headers to allow that redirection
@@ -493,9 +473,6 @@
 #if __GLIBC_USE (ISOC2X)
 # define __GLIBC_USE_C2X_STRTOL 1
 #else
-# define __GLIBC_USE_C2X_STRTOL 0
-#endif
-#else	/* glibc 2.37 or lower */
 # define __GLIBC_USE_C2X_STRTOL 0
 #endif
 
@@ -511,6 +488,14 @@
    the sonames of the shared libraries.  */
 #undef  __GNU_LIBRARY__
 #define __GNU_LIBRARY__ 6
+
+/* Major and minor version number of the GNU C library package.  Use
+   these macros to test for features in specific releases.  */
+#define	__GLIBC__	2
+#define	__GLIBC_MINOR__	39
+
+#define __GLIBC_PREREQ(maj, min) \
+	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
 
 /* This is here only because every header file already includes this one.  */
 #ifndef __ASSEMBLER__

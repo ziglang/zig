@@ -1,5 +1,5 @@
 /* Definitions for POSIX memory map interface.  Linux/x86_64 version.
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,6 +25,12 @@
 
 /* Other flags.  */
 #define MAP_32BIT	0x40		/* Only give out 32-bit addresses.  */
+#define MAP_ABOVE4G	0x80		/* Only map above 4GB.  */
+
+#ifdef __USE_MISC
+/* Set up a restore token in the newly allocated shadow stack */
+# define SHADOW_STACK_SET_TOKEN 0x1
+#endif
 
 #include <bits/mman-map-flags-generic.h>
 

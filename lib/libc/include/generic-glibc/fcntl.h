@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -167,11 +167,6 @@ typedef __pid_t pid_t;
 					   effective IDs, not real IDs.  */
 #endif
 
-
-/* fcntl was a simple symbol until glibc 2.27 inclusive.
- * glibc 2.28 onwards converted it to a macro when compiled with
- * USE_LARGEFILE64. */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2
 /* Do the file control operation described by CMD on FD.
    The remaining arguments are interpreted depending on CMD.
 
@@ -201,9 +196,6 @@ extern int __fcntl_time64 (int __fd, int __request, ...) __THROW;
 #  define fcntl64 __fcntl_time64
 #  define fcntl __fcntl_time64
 # endif
-#endif
-#else /* glibc 2.27 or lower */
-extern int fcntl (int __fd, int __cmd, ...);
 #endif
 
 /* Open FILE and return a new file descriptor for it, or -1 on error.

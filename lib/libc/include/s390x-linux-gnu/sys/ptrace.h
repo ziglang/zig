@@ -1,5 +1,5 @@
 /* `ptrace' debugger support interface.  Linux/S390 version.
-   Copyright (C) 2000-2023 Free Software Foundation, Inc.
+   Copyright (C) 2000-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -86,6 +86,8 @@ __BEGIN_DECLS
 # undef PTRACE_SYSCALL_INFO_EXIT
 # undef PTRACE_SYSCALL_INFO_SECCOMP
 # undef PTRACE_GET_RSEQ_CONFIGURATION
+# undef PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG
+# undef PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG
 #endif
 /* Type of the REQUEST argument to `ptrace.'  */
 enum __ptrace_request
@@ -220,6 +222,16 @@ enum __ptrace_request
   /* Get rseq configuration information.  */
   PTRACE_GET_RSEQ_CONFIGURATION = 0x420f,
 #define PTRACE_GET_RSEQ_CONFIGURATION PTRACE_GET_RSEQ_CONFIGURATION
+
+  /* Set configuration for syscall user dispatch.  */
+  PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG = 0x4210,
+#define PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG \
+  PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG
+
+  /* Get configuration for syscall user dispatch.  */
+  PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG = 0x4211,
+#define PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG \
+  PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG
 
   PTRACE_PEEKUSR_AREA = 0x5000,
 #define PTRACE_PEEKUSR_AREA PTRACE_PEEKUSR_AREA

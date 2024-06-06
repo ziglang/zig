@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -686,11 +686,6 @@ extern void *realloc (void *__ptr, size_t __size)
 /* Free a block allocated by `malloc', `realloc' or `calloc'.  */
 extern void free (void *__ptr) __THROW;
 
-/*
- * reallocarray introduced in glibc 2.26
- * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2
 #ifdef __USE_MISC
 /* Re-allocate the previously allocated block in PTR, making the new
    block large enough for NMEMB elements of SIZE bytes each.  */
@@ -706,7 +701,6 @@ extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
 extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
      __THROW __attr_dealloc (reallocarray, 1);
 #endif
-#endif /* glibc v2.26 and later */
 
 #ifdef __USE_MISC
 # include <alloca.h>

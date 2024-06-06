@@ -1,5 +1,5 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -51,11 +51,6 @@ __THROW __attribute_malloc__ __attribute_alloc_size__ ((1, 2)) __wur;
 extern void *realloc (void *__ptr, size_t __size)
 __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 
-/*
- * reallocarray introduced in glibc 2.26
- * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2
 /* Re-allocate the previously allocated block in PTR, making the new
    block large enough for NMEMB elements of SIZE bytes each.  */
 /* __attribute_malloc__ is not used, because if reallocarray returns
@@ -64,7 +59,6 @@ __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 extern void *reallocarray (void *__ptr, size_t __nmemb, size_t __size)
   __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2, 3))
   __attr_dealloc_free;
-#endif /* glibc v2.26 and later */
 
 /* Free a block allocated by `malloc', `realloc' or `calloc'.  */
 extern void free (void *__ptr) __THROW;

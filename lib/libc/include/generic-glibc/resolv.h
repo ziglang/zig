@@ -170,35 +170,6 @@ __END_DECLS
 #define res_init		__res_init
 #define res_isourserver		__res_isourserver
 
-/* In glibc 2.33 and earlier res_search, res_nsearch, res_query, res_nquery,
- * res_querydomain, res_nquerydomain, dn_skipname, dn_comp, dn_expand were
- * #define'd to __res_search, __res_nsearch, etc. glibc 2.34 onwards removes
- * the macros and exposes the symbols directly. New glibc exposes compat
- * symbols with underscores for backwards compatibility. Applications linked to
- * glibc 2.34+ are expected to use the non-underscored symbols.
- *
- * It is enough to bring the macros back when compiling against the older glibc
- * versions.
- *
- * See glibc commits:
- * - ea9878ec271c791880fcbbe519d70c42f8113750 res_*
- * - 391e02236b931132c0e8b5ba4c3b087c2aaa1044 dn_skipname
- * - fd8a87c0c1932de591e7ad108ff6288a4b6b18c9 dn_comp
- * - 640bbdf71c6f10ac26252ac67a22902e26657bd8 dn_expand
- */
-#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 34)
-#define res_search        __res_search
-#define res_nsearch       __res_nsearch
-#define res_query         __res_query
-#define res_nquery        __res_nquery
-#define res_querydomain   __res_querydomain
-#define res_nquerydomain  __res_nquerydomain
-#define dn_skipname       __dn_skipname
-#define dn_comp           __dn_comp
-#define dn_expand         __dn_expand
-#endif
-/* end glibc compat hacks */
-
 #ifdef _LIBC
 # define __RESOLV_DEPRECATED
 # define __RESOLV_DEPRECATED_MSG(msg)
