@@ -9101,7 +9101,7 @@ pub const FuncGen = struct {
         const mod = o.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
-        const ptr = try self.resolveInst(extra.ptr);
+        var ptr = try self.resolveInst(extra.ptr);
         const ptr_ty = self.typeOf(extra.ptr);
         var expected_value = try self.resolveInst(extra.expected_value);
         var new_value = try self.resolveInst(extra.new_value);
@@ -9116,9 +9116,14 @@ pub const FuncGen = struct {
             new_value = try self.wip.conv(signedness, new_value, llvm_abi_ty, "");
 
             // ptr needs truncating as well
-            const result_align = ptr_ty.abiAlignment(mod).toLlvm();
-            const op = try self.load(ptr, ptr_ty);
-            _ = try self.wip.store(.normal, op, ptr, result_align);
+            const alignment = operand_ty.abiAlignment(mod).toLlvm();
+            const ptr_alloca = try self.buildAllocaWorkaround(operand_ty, alignment);
+
+            const ptr_val = try self.load(ptr, ptr_ty);
+            const ext_val = try self.wip.conv(signedness, ptr_val, llvm_abi_ty, "");
+            _ = try self.wip.store(.normal, ext_val, ptr_alloca, alignment);
+
+            ptr = ptr_alloca;
         }
 
         const result = try self.wip.cmpxchg(
