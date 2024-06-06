@@ -314,8 +314,8 @@
           <a href="https://ziglang.org/documentation/0.9.1/">0.9.1</a> |
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
           <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
-          <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
-          master
+          0.12.1 |
+          <a href="https://ziglang.org/documentation/master/">master</a>
         </nav>
         <nav aria-labelledby="table-of-contents">
           <h2 id="table-of-contents">Table of Contents</h2>
