@@ -38,6 +38,38 @@ fn testCmpxchg() !void {
     try expect(x == 42);
 }
 
+test "@cmpxchg truncates ptr" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTest(T: type) !void {
+            var foo_value: T = 10;
+            const foo: *T = &foo_value;
+
+            _ = @atomicRmw(T, foo, .Add, std.math.maxInt(T), .seq_cst);
+            _ = @atomicRmw(T, foo, .Add, 1, .seq_cst);
+
+            try expect(null == @cmpxchgStrong(T, foo, foo_value, 0, .seq_cst, .seq_cst));
+        }
+    };
+
+    try S.doTest(u8);
+    comptime try S.doTest(u8);
+
+    try S.doTest(u10);
+    comptime try S.doTest(u10);
+
+    try S.doTest(u17);
+    comptime try S.doTest(u17);
+
+    try S.doTest(u32);
+    comptime try S.doTest(u32);
+}
+
 test "fence" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

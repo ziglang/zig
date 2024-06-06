@@ -9114,6 +9114,11 @@ pub const FuncGen = struct {
                 if (operand_ty.isSignedInt(mod)) .signed else .unsigned;
             expected_value = try self.wip.conv(signedness, expected_value, llvm_abi_ty, "");
             new_value = try self.wip.conv(signedness, new_value, llvm_abi_ty, "");
+
+            // ptr needs truncating as well
+            const result_align = ptr_ty.abiAlignment(mod).toLlvm();
+            const op = try self.load(ptr, ptr_ty);
+            _ = try self.wip.store(.normal, op, ptr, result_align);
         }
 
         const result = try self.wip.cmpxchg(
