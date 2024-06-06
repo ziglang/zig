@@ -684,12 +684,8 @@ pub const Manifest = struct {
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
         const pp = ch_file.prefixed_path;
-        const directory = self.cache.prefixes()[pp.prefix];
-        const dir = directory.handle;
-        const file = dir.openFile(pp.sub_path, .{}) catch |err| {
-            log.err("Failed to open file for hashing: {s} in directory: {?s}", .{ pp.sub_path, directory.path });
-            return err;
-        };
+        const dir = self.cache.prefixes()[pp.prefix].handle;
+        const file = try dir.openFile(pp.sub_path, .{});
         defer file.close();
 
         const actual_stat = try file.stat();
@@ -859,34 +855,36 @@ pub const Manifest = struct {
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
-        var error_buf = std.ArrayList(u8).init(self.cache.gpa);
-        defer error_buf.deinit();
+        var error_or_resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
+        defer error_or_resolve_buf.deinit();
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
         while (it.next()) |token| {
-            switch (token) {
+            const file_path = switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
-                .target, .target_must_resolve => {},
-                .prereq => |file_path| if (self.manifest_file == null) {
-                    _ = try self.addFile(file_path, null);
-                } else try self.addFilePost(file_path),
-                .prereq_must_resolve => {
-                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
-                    defer resolve_buf.deinit();
-
-                    try token.resolve(resolve_buf.writer());
-                    if (self.manifest_file == null) {
-                        _ = try self.addFile(resolve_buf.items, null);
-                    } else try self.addFilePost(resolve_buf.items);
+                .target, .target_must_resolve => continue,
+                .prereq => |file_path| file_path,
+                .prereq_must_resolve => file_path: {
+                    error_or_resolve_buf.clearRetainingCapacity();
+                    try token.resolve(error_or_resolve_buf.writer());
+                    break :file_path error_or_resolve_buf.items;
                 },
                 else => |err| {
-                    try err.printError(error_buf.writer());
-                    log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
+                    error_or_resolve_buf.clearRetainingCapacity();
+                    try err.printError(error_or_resolve_buf.writer());
+                    log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_or_resolve_buf.items });
                     return error.InvalidDepFile;
                 },
-            }
+            };
+
+            if (self.manifest_file == null) {
+                _ = try self.addFile(file_path, null);
+            } else self.addFilePost(file_path) catch |err| {
+                log.err("failed to add prereq {s} from {s}: {s}", .{ file_path, dep_file_basename, @errorName(err) });
+                return error.InvalidDepFile;
+            };
         }
     }
 
