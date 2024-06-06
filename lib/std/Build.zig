@@ -199,7 +199,7 @@ const AvailableOption = struct {
     name: []const u8,
     type_id: TypeId,
     description: []const u8,
-    /// If the `type_id` is `enum` this provides the list of enum options
+    /// If the `type_id` is `enum` or `enum_list` this provides the list of enum options
     enum_options: ?[]const []const u8,
 };
 
@@ -221,6 +221,7 @@ const TypeId = enum {
     int,
     float,
     @"enum",
+    enum_list,
     string,
     list,
     build_id,
@@ -1084,8 +1085,9 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const name = b.dupe(name_raw);
     const description = b.dupe(description_raw);
     const type_id = comptime typeToEnum(T);
-    const enum_options = if (type_id == .@"enum") blk: {
-        const fields = comptime std.meta.fields(T);
+    const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
+        const EnumType = if (type_id == .enum_list) @typeInfo(T).Pointer.child else T;
+        const fields = comptime std.meta.fields(EnumType);
         var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
@@ -1228,6 +1230,38 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return b.allocator.dupe([]const u8, &[_][]const u8{s}) catch @panic("OOM");
             },
             .list => |lst| return lst.items,
+        },
+        .enum_list => switch (option_ptr.value) {
+            .flag, .map => {
+                log.err("Expected -D{s} to be a list, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
+            },
+            .scalar => |s| {
+                const Child = @typeInfo(T).Pointer.child;
+                const value = std.meta.stringToEnum(Child, s) orelse {
+                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                    b.markInvalidUserInput();
+                    return null;
+                };
+                return b.allocator.dupe(Child, &[_]Child{value}) catch @panic("OOM");
+            },
+            .list => |lst| {
+                const Child = @typeInfo(T).Pointer.child;
+                var new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
+                for (lst.items, 0..) |str, i| {
+                    const value = std.meta.stringToEnum(Child, str) orelse {
+                        log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                        b.markInvalidUserInput();
+                        b.allocator.free(new_list);
+                        return null;
+                    };
+                    new_list[i] = value;
+                }
+                return new_list;
+            },
         },
     }
 }
@@ -1487,11 +1521,15 @@ fn typeToEnum(comptime T: type) TypeId {
             .Float => .float,
             .Bool => .bool,
             .Enum => .@"enum",
-            else => switch (T) {
-                []const u8 => .string,
-                []const []const u8 => .list,
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            .Pointer => |pointer| switch (pointer.child) {
+                u8 => .string,
+                []const u8 => .list,
+                else => switch (@typeInfo(pointer.child)) {
+                    .Enum => .enum_list,
+                    else => @compileError("Unsupported type: " ++ @typeName(T)),
+                },
             },
+            else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
     };
 }
