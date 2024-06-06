@@ -27,18 +27,6 @@
 #include <sys/sysmacros.h>
 #include <internal-stat.h>
 
-#if __TIMESIZE == 64 \
-     && (__WORDSIZE == 32 \
-     && (!defined __SYSCALL_WORDSIZE || __SYSCALL_WORDSIZE == 32))
-/* Sanity check to avoid newer 32-bit ABI to support non-LFS calls.  */
-_Static_assert (sizeof (__off_t) == sizeof (__off64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__ino_t) == sizeof (__ino64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-_Static_assert (sizeof (__blkcnt_t) == sizeof (__blkcnt64_t),
-                "__blkcnt_t and __blkcnt64_t must match");
-#endif
-
 #if FSTATAT_USE_STATX
 
 static inline int
