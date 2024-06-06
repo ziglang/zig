@@ -42,6 +42,10 @@ test "basic slices" {
 
     // Note that `slice.ptr` does not invoke safety checking, while `&slice[0]`
     // asserts that the slice has len > 0.
+
+    // Empty slices can be created like this
+    const empty: []u8 = &.{};
+    try expect(empty.len == 0);
 }
 
 // test_safety=index out of bounds
