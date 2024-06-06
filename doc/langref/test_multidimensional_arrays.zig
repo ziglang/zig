@@ -21,7 +21,7 @@ test "multidimensional arrays" {
     }
 
     // initialize a mutli-dimenisonal array to zeros
-    const all_zero: [2][2]u16 = @bitCast([_]u16{0} ** (2 * 2));
+    const all_zero = std.mem.zeroes([2][2]u16);
     try expect(all_zero[0][0] == 0);
 }
 
