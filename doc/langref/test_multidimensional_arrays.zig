@@ -20,7 +20,7 @@ test "multidimensional arrays" {
         }
     }
 
-    // initialize a mutli-dimenisonal array to zeros
+    // initialize a multidimensional array to zeros
     const all_zero = std.mem.zeroes([2][2]u16);
     try expect(all_zero[0][0] == 0);
 }
