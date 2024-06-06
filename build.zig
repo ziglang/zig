@@ -9,7 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 13, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
