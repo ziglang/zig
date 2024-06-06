@@ -860,8 +860,7 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        while (true) {
-            const token = it.next() orelse return;
+        while (it.next()) |token| {
             switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
