@@ -5933,6 +5933,8 @@ pub fn sendmsg(
 pub const SendToError = SendMsgError || error{
     /// The destination address is not reachable by the bound address.
     UnreachableAddress,
+    /// The destination address is not listening.
+    ConnectionRefused,
 };
 
 /// Transmit a message to another socket.
@@ -6005,6 +6007,7 @@ pub fn sendto(
             .AGAIN => return error.WouldBlock,
             .ALREADY => return error.FastOpenAlreadyInProgress,
             .BADF => unreachable, // always a race condition
+            .CONNREFUSED => return error.ConnectionRefused,
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
             .FAULT => unreachable, // An invalid user space address was specified for an argument.
@@ -6066,6 +6069,7 @@ pub fn send(
         error.AddressNotAvailable => unreachable,
         error.SocketNotConnected => unreachable,
         error.UnreachableAddress => unreachable,
+        error.ConnectionRefused => unreachable,
         else => |e| return e,
     };
 }
