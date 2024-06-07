@@ -21,7 +21,7 @@ test "multidimensional arrays" {
     }
 
     // initialize a multidimensional array to zeros
-    const all_zero = std.mem.zeroes([2][2]u16);
+    const all_zero: [4][4]f32 = .{.{0} ** 4} ** 4;
     try expect(all_zero[0][0] == 0);
 }
 
