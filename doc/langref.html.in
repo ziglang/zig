@@ -2087,7 +2087,7 @@ or
       A slice is a pointer and a length. The difference between an array and
       a slice is that the array's length is part of the type and known at
       compile-time, whereas the slice's length is known at runtime.
-      Both can be accessed with the `len` field.
+      Both can be accessed with the {#syntax#}len{#endsyntax#} field.
       </p>
       {#code|test_basic_slices.zig#}
 
