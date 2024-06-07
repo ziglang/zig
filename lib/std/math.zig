@@ -112,8 +112,10 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 /// For example, two numbers with three representable values (points)
 /// between them are four intervals (gaps) apart from each other, i.e.
 ///
+/// ```
 /// ... a - * - * - * - b ...
 ///     | 1 | 2 | 3 | 4 |
+/// ```
 ///
 /// The `ulp` parameter is the maximum permissible number of representable
 /// floating point intervals between the two numbers being compared.
@@ -123,7 +125,9 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 /// where positive and negative zeros are mapped to the same point and do not
 /// comprise an extraneous interval, i.e.
 ///
+/// ```
 /// | -NaN | -inf | -nor | -den | 0 | +den | +nor | +inf | +NaN |
+/// ```
 ///
 /// NaN values are never equal to any value, including themselves.
 pub fn approxEqUlp(comptime T: type, x: T, y: T, ulp: comptime_int) bool {
