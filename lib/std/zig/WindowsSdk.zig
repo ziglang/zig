@@ -476,6 +476,7 @@ pub const Installation = struct {
 
             var iterator = sdk_lib_dir.iterate();
             const versions = try iterateAndFilterByVersion(&iterator, allocator, prefix);
+            if (versions.len == 0) return error.InstallationNotFound;
             defer {
                 for (versions[1..]) |version| allocator.free(version);
                 allocator.free(versions);
