@@ -102,7 +102,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     assert(tolerance >= 0);
     if (x == y) return true;
     if (isNan(x) or isNan(y)) return false;
-    return @abs(x - y) <= tolerance * 0.5 * @abs(x + y);
+    return @abs(x - y) <= tolerance * @abs(0.5 * x + 0.5 * y);
 }
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
