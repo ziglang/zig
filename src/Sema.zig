@@ -29819,20 +29819,7 @@ fn coerceExtra(
             try sema.errNote(inst_src, msg, "consider using '.?', 'orelse', or 'if'", .{});
         }
 
-        // T to ?T
-        if (dest_ty.zigTypeTag(zcu) == .Optional) {
-            const child_ty = dest_ty.optionalChild(sema.mod);
-            _ = sema.coerceExtra(block, child_ty, inst, inst_src, .{ .report_err = false }) catch |err| switch (err) {
-                error.NotCoercible => {
-                    if (maybe_inst_val) |val| {
-                        try sema.errNote(block, inst_src, msg, "child type '{}' cannot represent value '{}'", .{ child_ty.fmt(zcu), val.fmtValue(zcu, sema) });
-                    }
-                },
-                else => {},
-            };
-        }
-
-        try in_memory_result.report(sema, block, inst_src, msg);
+        try in_memory_result.report(sema, inst_src, msg);
 
         // Add notes about function return type
         if (opts.is_ret and
@@ -29872,6 +29859,7 @@ const InMemoryCoercionResult = union(enum) {
     ok,
     no_match: Pair,
     int_not_coercible: Int,
+    comptime_int_not_coercible: Pair,
     error_union_payload: PairAndChild,
     array_len: IntPair,
     array_sentinel: Sentinel,
@@ -29998,6 +29986,12 @@ const InMemoryCoercionResult = union(enum) {
             .int_not_coercible => |int| {
                 try sema.errNote(src, msg, "{s} {d}-bit int cannot represent all possible {s} {d}-bit values", .{
                     @tagName(int.wanted_signedness), int.wanted_bits, @tagName(int.actual_signedness), int.actual_bits,
+                });
+                break;
+            },
+            .comptime_int_not_coercible => |int| {
+                try sema.errNote(src, msg, "type '{}' cannot represent provided value of type '{}'", .{
+                    int.wanted.fmt(mod), int.actual.fmt(mod),
                 });
                 break;
             },
@@ -30275,6 +30269,22 @@ pub fn coerceInMemoryAllowed(
                 .wanted_bits = dest_info.bits,
             } };
         }
+    }
+
+    // Comptime to regular int.
+    if (dest_tag == .Int and src_tag == .ComptimeInt) {
+        const src_ty_inst = Air.internedToRef(src_ty.toIntern());
+        _ = sema.coerceExtra(block, dest_ty, src_ty_inst, src_src, .{ .report_err = false }) catch |err| switch (err) {
+            error.NotCoercible => {
+                return InMemoryCoercionResult{
+                    .comptime_int_not_coercible = .{
+                        .actual = src_ty,
+                        .wanted = dest_ty,
+                    },
+                };
+            },
+            else => {},
+        };
     }
 
     // Differently-named floats with the same number of bits.

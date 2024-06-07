@@ -13,4 +13,5 @@ export fn entry() usize {
 //
 // :4:12: error: expected type '*const i32', found '*const comptime_int'
 // :4:12: note: pointer type child 'comptime_int' cannot cast into pointer type child 'i32'
+// :4:12: note: type 'i32' cannot represent provided value of type 'comptime_int'
 // :3:10: note: function return type declared here
