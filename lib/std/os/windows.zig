@@ -2809,43 +2809,27 @@ pub const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86)
 else
     .C;
 
+// primitive types
+
 pub const BOOL = c_int;
-pub const BOOLEAN = BYTE;
+pub const BOOLEAN = u8;
 pub const BYTE = u8;
 pub const CHAR = u8;
 pub const UCHAR = u8;
 pub const FLOAT = f32;
-pub const HANDLE = *anyopaque;
-pub const HCRYPTPROV = ULONG_PTR;
+pub const HCRYPTPROV = usize;
 pub const ATOM = u16;
-pub const HBRUSH = *opaque {};
-pub const HCURSOR = *opaque {};
-pub const HICON = *opaque {};
-pub const HINSTANCE = *opaque {};
-pub const HMENU = *opaque {};
-pub const HMODULE = *opaque {};
-pub const HWND = *opaque {};
-pub const HDC = *opaque {};
-pub const HGLRC = *opaque {};
 pub const FARPROC = *opaque {};
 pub const PROC = *opaque {};
-pub const INT = c_int;
-pub const LPCSTR = [*:0]const CHAR;
+pub const INT = i32;
 pub const LPCVOID = *const anyopaque;
-pub const LPSTR = [*:0]CHAR;
 pub const LPVOID = *anyopaque;
-pub const LPWSTR = [*:0]WCHAR;
-pub const LPCWSTR = [*:0]const WCHAR;
 pub const PVOID = *anyopaque;
-pub const PWSTR = [*:0]WCHAR;
-pub const PCWSTR = [*:0]const WCHAR;
-/// Allocated by SysAllocString, freed by SysFreeString
-pub const BSTR = [*:0]WCHAR;
 pub const SIZE_T = usize;
-pub const UINT = c_uint;
+pub const UINT = u32;
 pub const ULONG_PTR = usize;
 pub const LONG_PTR = isize;
-pub const DWORD_PTR = ULONG_PTR;
+pub const DWORD_PTR = usize;
 pub const WCHAR = u16;
 pub const WORD = u16;
 pub const DWORD = u32;
@@ -2859,12 +2843,55 @@ pub const LONG = i32;
 pub const ULONG64 = u64;
 pub const ULONGLONG = u64;
 pub const LONGLONG = i64;
-pub const HLOCAL = HANDLE;
-pub const LANGID = c_ushort;
+pub const LANGID = u16;
+pub const LPCSTR = [*:0]const CHAR;
+pub const PCSTR = [*:0]const CHAR;
+pub const LPSTR = [*:0]CHAR;
+pub const PSTR = [*:0]CHAR;
+pub const LPCWSTR = [*:0]const WCHAR;
+pub const PCWSTR = [*:0]const WCHAR;
+pub const LPWSTR = [*:0]WCHAR;
+pub const PWSTR = [*:0]WCHAR;
 
+/// Base address of the module in memory.
+/// Equals HMODULE, differs only in Win16.
+pub const HINSTANCE = *opaque {};
+
+/// Base address of the module in memory.
+/// Equals HINSTANCE, differs only in Win16.
+pub const HMODULE = HINSTANCE;
+
+/// Handle to icon resource.
+pub const HICON = *opaque {};
+
+/// Handle to cursor resource.
+/// Actually equals HICON in windef.h even under STRICT mode,
+/// but differentiated here for destructor type safety.
+pub const HCURSOR = *opaque {};
+
+/// Handle to GDI brush.
+pub const HBRUSH = *opaque {};
+
+/// Handle to menu resource.
+pub const HMENU = *opaque {};
+
+/// Handle to window object.
+pub const HWND = *opaque {};
+
+/// Handle to device context.
+pub const HDC = *opaque {};
+
+/// Handle to OpenGL rendering context.
+pub const HGLRC = *opaque {};
+
+// polymorphic handles
+pub const HANDLE = *anyopaque;
+pub const HLOCAL = *anyopaque;
+
+// polymorphic types
 pub const WPARAM = usize;
-pub const LPARAM = LONG_PTR;
-pub const LRESULT = LONG_PTR;
+pub const LPARAM = isize;
+pub const LRESULT = isize;
 
 pub const va_list = *opaque {};
 
