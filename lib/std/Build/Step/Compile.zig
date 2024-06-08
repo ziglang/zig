@@ -248,6 +248,7 @@ pub const Options = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+    pie: ?bool = null,
 };
 
 pub const Kind = enum {
@@ -384,6 +385,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
         .installed_path = null,
+        .pie = options.pie,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
 
         .emit_directory = null,

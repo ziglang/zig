@@ -45,6 +45,7 @@ pub fn build(b: *std.Build) void {
                     .root_source_file = b.path(case.src_path),
                     .optimize = optimize,
                     .target = resolved_target,
+                    .pie = case.is_pie,
                 });
                 if (case.link_libc) exe.linkLibC();
 
@@ -78,6 +79,7 @@ const Case = struct {
     is_exe: bool = true,
     /// Run only on this OS.
     os_filter: ?std.Target.Os.Tag = null,
+    is_pie: bool = false,
 };
 
 const cases = [_]Case{
@@ -86,12 +88,27 @@ const cases = [_]Case{
         .all_modes = true,
     },
     .{
+        .src_path = "hello_world/hello.zig",
+        .all_modes = true,
+        .is_pie = true,
+    },
+    .{
+        .src_path = "hello_world/hello_libc.zig",
+        .link_libc = true,
+        .all_modes = true,
+        .is_pie = true,
+    },
+    .{
         .src_path = "hello_world/hello_libc.zig",
         .link_libc = true,
         .all_modes = true,
     },
     .{
         .src_path = "cat/main.zig",
+    },
+    .{
+        .src_path = "cat/main.zig",
+        .is_pie = true,
     },
     // https://github.com/ziglang/zig/issues/6025
     //.{
