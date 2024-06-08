@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -251,7 +251,7 @@ extern int __REDIRECT_NTH (fstat64, (int __fd, struct stat64 *__buf),
      __nonnull ((2));
 #  else
 #   define stat64 __stat64_time64
-#   define fstat64 __fstat64_time
+#   define fstat64 __fstat64_time64
 #  endif
 # endif
 #endif

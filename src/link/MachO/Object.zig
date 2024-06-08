@@ -13,7 +13,7 @@ symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 
 platform: ?MachO.Platform = null,
-dwarf_info: ?DwarfInfo = null,
+compile_unit: ?CompileUnit = null,
 stab_files: std.ArrayListUnmanaged(StabFile) = .{},
 
 eh_frame_sect_index: ?u8 = null,
@@ -30,12 +30,6 @@ hidden: bool = false,
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
-
-const InArchive = struct {
-    path: []const u8,
-    offset: u64,
-    size: u32,
-};
 
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -60,7 +54,6 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.fdes.deinit(allocator);
     self.eh_frame_data.deinit(allocator);
     self.unwind_records.deinit(allocator);
-    if (self.dwarf_info) |*dw| dw.deinit(allocator);
     for (self.stab_files.items) |*sf| {
         sf.stabs.deinit(allocator);
     }
@@ -208,7 +201,9 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         try self.initSections(nlists.items, macho_file);
     }
 
-    try self.initLiteralSections(macho_file);
+    try self.initCstringLiterals(macho_file);
+    try self.initFixedSizeLiterals(macho_file);
+    try self.initPointerLiterals(macho_file);
     try self.linkNlistToAtom(macho_file);
 
     try self.sortAtoms(macho_file);
@@ -249,8 +244,6 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         // }
     }
 
-    try self.initDwarfInfo(macho_file);
-
     for (self.atoms.items) |atom_index| {
         const atom = macho_file.getAtom(atom_index).?;
         const isec = atom.getInputSection(macho_file);
@@ -263,16 +256,22 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     }
 }
 
-inline fn isLiteral(sect: macho.section_64) bool {
+pub fn isCstringLiteral(sect: macho.section_64) bool {
+    return sect.type() == macho.S_CSTRING_LITERALS;
+}
+
+pub fn isFixedSizeLiteral(sect: macho.section_64) bool {
     return switch (sect.type()) {
-        macho.S_CSTRING_LITERALS,
         macho.S_4BYTE_LITERALS,
         macho.S_8BYTE_LITERALS,
         macho.S_16BYTE_LITERALS,
-        macho.S_LITERAL_POINTERS,
         => true,
         else => false,
     };
+}
+
+pub fn isPtrLiteral(sect: macho.section_64) bool {
+    return sect.type() == macho.S_LITERAL_POINTERS;
 }
 
 fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
@@ -281,7 +280,9 @@ fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.subsections), 0..) |sect, *subsections, n_sect| {
-        if (isLiteral(sect)) continue;
+        if (isCstringLiteral(sect)) continue;
+        if (isFixedSizeLiteral(sect)) continue;
+        if (isPtrLiteral(sect)) continue;
 
         const nlist_start = for (nlists, 0..) |nlist, i| {
             if (nlist.nlist.n_sect - 1 == n_sect) break i;
@@ -352,7 +353,9 @@ fn initSections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     try self.atoms.ensureUnusedCapacity(gpa, self.sections.items(.header).len);
 
     for (slice.items(.header), 0..) |sect, n_sect| {
-        if (isLiteral(sect)) continue;
+        if (isCstringLiteral(sect)) continue;
+        if (isFixedSizeLiteral(sect)) continue;
+        if (isPtrLiteral(sect)) continue;
 
         const name = try std.fmt.allocPrintZ(gpa, "{s}${s}", .{ sect.segName(), sect.sectName() });
         defer gpa.free(name);
@@ -393,6 +396,220 @@ fn initSections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     }
 }
 
+fn initCstringLiterals(self: *Object, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const slice = self.sections.slice();
+
+    for (slice.items(.header), 0..) |sect, n_sect| {
+        if (!isCstringLiteral(sect)) continue;
+
+        const data = try self.getSectionData(@intCast(n_sect), macho_file);
+        defer gpa.free(data);
+
+        var start: u32 = 0;
+        while (start < data.len) {
+            var end = start;
+            while (end < data.len - 1 and data[end] != 0) : (end += 1) {}
+            if (data[end] != 0) {
+                try macho_file.reportParseError2(
+                    self.index,
+                    "string not null terminated in '{s},{s}'",
+                    .{ sect.segName(), sect.sectName() },
+                );
+                return error.MalformedObject;
+            }
+            end += 1;
+
+            const atom_index = try self.addAtom(.{
+                .name = 0,
+                .n_sect = @intCast(n_sect),
+                .off = start,
+                .size = end - start,
+                .alignment = sect.@"align",
+            }, macho_file);
+            try slice.items(.subsections)[n_sect].append(gpa, .{
+                .atom = atom_index,
+                .off = start,
+            });
+
+            start = end;
+        }
+    }
+}
+
+fn initFixedSizeLiterals(self: *Object, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const slice = self.sections.slice();
+
+    for (slice.items(.header), 0..) |sect, n_sect| {
+        if (!isFixedSizeLiteral(sect)) continue;
+        const rec_size: u8 = switch (sect.type()) {
+            macho.S_4BYTE_LITERALS => 4,
+            macho.S_8BYTE_LITERALS => 8,
+            macho.S_16BYTE_LITERALS => 16,
+            else => unreachable,
+        };
+        if (sect.size % rec_size != 0) {
+            try macho_file.reportParseError2(
+                self.index,
+                "size not multiple of record size in '{s},{s}'",
+                .{ sect.segName(), sect.sectName() },
+            );
+            return error.MalformedObject;
+        }
+        var pos: u32 = 0;
+        while (pos < sect.size) : (pos += rec_size) {
+            const atom_index = try self.addAtom(.{
+                .name = 0,
+                .n_sect = @intCast(n_sect),
+                .off = pos,
+                .size = rec_size,
+                .alignment = sect.@"align",
+            }, macho_file);
+            try slice.items(.subsections)[n_sect].append(gpa, .{
+                .atom = atom_index,
+                .off = pos,
+            });
+        }
+    }
+}
+
+fn initPointerLiterals(self: *Object, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const slice = self.sections.slice();
+
+    for (slice.items(.header), 0..) |sect, n_sect| {
+        if (!isPtrLiteral(sect)) continue;
+
+        const rec_size: u8 = 8;
+        if (sect.size % rec_size != 0) {
+            try macho_file.reportParseError2(
+                self.index,
+                "size not multiple of record size in '{s},{s}'",
+                .{ sect.segName(), sect.sectName() },
+            );
+            return error.MalformedObject;
+        }
+        const num_ptrs = math.cast(usize, @divExact(sect.size, rec_size)) orelse return error.Overflow;
+
+        for (0..num_ptrs) |i| {
+            const pos: u32 = @as(u32, @intCast(i)) * rec_size;
+            const atom_index = try self.addAtom(.{
+                .name = 0,
+                .n_sect = @intCast(n_sect),
+                .off = pos,
+                .size = rec_size,
+                .alignment = sect.@"align",
+            }, macho_file);
+            try slice.items(.subsections)[n_sect].append(gpa, .{
+                .atom = atom_index,
+                .off = pos,
+            });
+        }
+    }
+}
+
+pub fn resolveLiterals(self: Object, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    const slice = self.sections.slice();
+    for (slice.items(.header), slice.items(.subsections), 0..) |header, subs, n_sect| {
+        if (isCstringLiteral(header) or isFixedSizeLiteral(header)) {
+            const data = try self.getSectionData(@intCast(n_sect), macho_file);
+            defer gpa.free(data);
+
+            for (subs.items) |sub| {
+                const atom = macho_file.getAtom(sub.atom).?;
+                const atom_off = math.cast(usize, atom.off) orelse return error.Overflow;
+                const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+                const atom_data = data[atom_off..][0..atom_size];
+                const res = try lp.insert(gpa, header.type(), atom_data);
+                if (!res.found_existing) {
+                    res.atom.* = sub.atom;
+                }
+                atom.flags.literal_pool = true;
+                try atom.addExtra(.{ .literal_index = res.index }, macho_file);
+            }
+        } else if (isPtrLiteral(header)) {
+            for (subs.items) |sub| {
+                const atom = macho_file.getAtom(sub.atom).?;
+                const relocs = atom.getRelocs(macho_file);
+                assert(relocs.len == 1);
+                const rel = relocs[0];
+                const target = switch (rel.tag) {
+                    .local => rel.target,
+                    .@"extern" => rel.getTargetSymbol(macho_file).atom,
+                };
+                const addend = math.cast(u32, rel.addend) orelse return error.Overflow;
+                const target_atom = macho_file.getAtom(target).?;
+                const target_atom_size = math.cast(usize, target_atom.size) orelse return error.Overflow;
+                try buffer.ensureUnusedCapacity(target_atom_size);
+                buffer.resize(target_atom_size) catch unreachable;
+                try target_atom.getData(macho_file, buffer.items);
+                const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
+                buffer.clearRetainingCapacity();
+                if (!res.found_existing) {
+                    res.atom.* = sub.atom;
+                }
+                atom.flags.literal_pool = true;
+                try atom.addExtra(.{ .literal_index = res.index }, macho_file);
+            }
+        }
+    }
+}
+
+pub fn dedupLiterals(self: Object, lp: MachO.LiteralPool, macho_file: *MachO) void {
+    for (self.atoms.items) |atom_index| {
+        const atom = macho_file.getAtom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        if (!atom.flags.relocs) continue;
+
+        const relocs = blk: {
+            const extra = atom.getExtra(macho_file).?;
+            const relocs = self.sections.items(.relocs)[atom.n_sect].items;
+            break :blk relocs[extra.rel_index..][0..extra.rel_count];
+        };
+        for (relocs) |*rel| switch (rel.tag) {
+            .local => {
+                const target = macho_file.getAtom(rel.target).?;
+                if (target.getLiteralPoolIndex(macho_file)) |lp_index| {
+                    const lp_atom = lp.getAtom(lp_index, macho_file);
+                    if (target.atom_index != lp_atom.atom_index) {
+                        lp_atom.alignment = lp_atom.alignment.max(target.alignment);
+                        target.flags.alive = false;
+                        rel.target = lp_atom.atom_index;
+                    }
+                }
+            },
+            .@"extern" => {
+                const target_sym = rel.getTargetSymbol(macho_file);
+                if (target_sym.getAtom(macho_file)) |target_atom| {
+                    if (target_atom.getLiteralPoolIndex(macho_file)) |lp_index| {
+                        const lp_atom = lp.getAtom(lp_index, macho_file);
+                        if (target_atom.atom_index != lp_atom.atom_index) {
+                            lp_atom.alignment = lp_atom.alignment.max(target_atom.alignment);
+                            target_atom.flags.alive = false;
+                            target_sym.atom = lp_atom.atom_index;
+                        }
+                    }
+                }
+            },
+        };
+    }
+}
+
 const AddAtomArgs = struct {
     name: u32,
     n_sect: u8,
@@ -414,34 +631,6 @@ fn addAtom(self: *Object, args: AddAtomArgs, macho_file: *MachO) !Atom.Index {
     atom.off = args.off;
     try self.atoms.append(gpa, atom_index);
     return atom_index;
-}
-
-fn initLiteralSections(self: *Object, macho_file: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    // TODO here we should split into equal-sized records, hash the contents, and then
-    // deduplicate - ICF.
-    // For now, we simply cover each literal section with one large atom.
-    const gpa = macho_file.base.comp.gpa;
-    const slice = self.sections.slice();
-
-    try self.atoms.ensureUnusedCapacity(gpa, self.sections.items(.header).len);
-
-    for (slice.items(.header), 0..) |sect, n_sect| {
-        if (!isLiteral(sect)) continue;
-
-        const name = try std.fmt.allocPrintZ(gpa, "{s}${s}", .{ sect.segName(), sect.sectName() });
-        defer gpa.free(name);
-
-        const atom_index = try self.addAtom(.{
-            .name = try self.addString(gpa, name),
-            .n_sect = @intCast(n_sect),
-            .off = 0,
-            .size = sect.size,
-            .alignment = sect.@"align",
-        }, macho_file);
-        try slice.items(.subsections)[n_sect].append(gpa, .{ .atom = atom_index, .off = 0 });
-    }
 }
 
 pub fn findAtom(self: Object, addr: u64) ?Atom.Index {
@@ -1016,7 +1205,7 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
 /// and record that so that we can emit symbol stabs.
 /// TODO in the future, we want parse debug info and debug line sections so that
 /// we can provide nice error locations to the user.
-fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
+pub fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1042,17 +1231,107 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
     const debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index), macho_file) else &[0]u8{};
     defer gpa.free(debug_str);
 
-    var dwarf_info = DwarfInfo{};
-    errdefer dwarf_info.deinit(gpa);
-    dwarf_info.init(gpa, .{
+    self.compile_unit = self.findCompileUnit(.{
+        .gpa = gpa,
         .debug_info = debug_info,
         .debug_abbrev = debug_abbrev,
         .debug_str = debug_str,
-    }) catch {
-        try macho_file.reportParseError2(self.index, "invalid __DWARF info found", .{});
-        return error.MalformedObject;
+    }) catch null; // TODO figure out what errors are fatal, and when we silently fail
+}
+
+fn findCompileUnit(self: *Object, args: struct {
+    gpa: Allocator,
+    debug_info: []const u8,
+    debug_abbrev: []const u8,
+    debug_str: []const u8,
+}) !CompileUnit {
+    var cu_wip: struct {
+        comp_dir: ?[:0]const u8 = null,
+        tu_name: ?[:0]const u8 = null,
+    } = .{};
+
+    const gpa = args.gpa;
+    var info_reader = dwarf.InfoReader{ .bytes = args.debug_info, .strtab = args.debug_str };
+    var abbrev_reader = dwarf.AbbrevReader{ .bytes = args.debug_abbrev };
+
+    const cuh = try info_reader.readCompileUnitHeader();
+    try abbrev_reader.seekTo(cuh.debug_abbrev_offset);
+
+    const cu_decl = (try abbrev_reader.readDecl()) orelse return error.Eof;
+    if (cu_decl.tag != dwarf.TAG.compile_unit) return error.UnexpectedTag;
+
+    try info_reader.seekToDie(cu_decl.code, cuh, &abbrev_reader);
+
+    while (try abbrev_reader.readAttr()) |attr| switch (attr.at) {
+        dwarf.AT.name => {
+            cu_wip.tu_name = try info_reader.readString(attr.form, cuh);
+        },
+        dwarf.AT.comp_dir => {
+            cu_wip.comp_dir = try info_reader.readString(attr.form, cuh);
+        },
+        else => switch (attr.form) {
+            dwarf.FORM.sec_offset,
+            dwarf.FORM.ref_addr,
+            => {
+                _ = try info_reader.readOffset(cuh.format);
+            },
+
+            dwarf.FORM.addr => {
+                _ = try info_reader.readNBytes(cuh.address_size);
+            },
+
+            dwarf.FORM.block1,
+            dwarf.FORM.block2,
+            dwarf.FORM.block4,
+            dwarf.FORM.block,
+            => {
+                _ = try info_reader.readBlock(attr.form);
+            },
+
+            dwarf.FORM.exprloc => {
+                _ = try info_reader.readExprLoc();
+            },
+
+            dwarf.FORM.flag_present => {},
+
+            dwarf.FORM.data1,
+            dwarf.FORM.ref1,
+            dwarf.FORM.flag,
+            dwarf.FORM.data2,
+            dwarf.FORM.ref2,
+            dwarf.FORM.data4,
+            dwarf.FORM.ref4,
+            dwarf.FORM.data8,
+            dwarf.FORM.ref8,
+            dwarf.FORM.ref_sig8,
+            dwarf.FORM.udata,
+            dwarf.FORM.ref_udata,
+            dwarf.FORM.sdata,
+            => {
+                _ = try info_reader.readConstant(attr.form);
+            },
+
+            dwarf.FORM.strp,
+            dwarf.FORM.string,
+            => {
+                _ = try info_reader.readString(attr.form, cuh);
+            },
+
+            else => {
+                // TODO actual errors?
+                log.err("unhandled DW_FORM_* value with identifier {x}", .{attr.form});
+                return error.UnhandledForm;
+            },
+        },
     };
-    self.dwarf_info = dwarf_info;
+
+    if (cu_wip.comp_dir == null) return error.MissingCompDir;
+    if (cu_wip.tu_name == null) return error.MissingTuName;
+
+    return .{
+        .comp_dir = try self.addString(gpa, cu_wip.comp_dir.?),
+        .tu_name = try self.addString(gpa, cu_wip.tu_name.?),
+    };
 }
 
 pub fn resolveSymbols(self: *Object, macho_file: *MachO) void {
@@ -1369,7 +1648,10 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
         const name = sym.getName(macho_file);
         // TODO in -r mode, we actually want to merge symbol names and emit only one
         // work it out when emitting relocs
-        if (name.len > 0 and (name[0] == 'L' or name[0] == 'l') and !macho_file.base.isObject()) continue;
+        if (name.len > 0 and
+            (name[0] == 'L' or name[0] == 'l' or
+            mem.startsWith(u8, name, "_OBJC_SELECTOR_REFERENCES_")) and
+            !macho_file.base.isObject()) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             try sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
@@ -1390,10 +1672,9 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
 }
 
 pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
-    if (self.dwarf_info) |dw| {
-        const cu = dw.compile_units.items[0];
-        const comp_dir = try cu.getCompileDir(dw) orelse return;
-        const tu_name = try cu.getSourceFile(dw) orelse return;
+    if (self.compile_unit) |cu| {
+        const comp_dir = cu.getCompDir(self);
+        const tu_name = cu.getTuName(self);
 
         self.output_symtab_ctx.nstabs += 4; // N_SO, N_SO, N_OSO, N_SO
         self.output_symtab_ctx.strsize += @as(u32, @intCast(comp_dir.len + 1)); // comp_dir
@@ -1508,10 +1789,9 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
 
     var index = self.output_symtab_ctx.istab;
 
-    if (self.dwarf_info) |dw| {
-        const cu = dw.compile_units.items[0];
-        const comp_dir = try cu.getCompileDir(dw) orelse return;
-        const tu_name = try cu.getSourceFile(dw) orelse return;
+    if (self.compile_unit) |cu| {
+        const comp_dir = cu.getCompDir(self);
+        const tu_name = cu.getTuName(self);
 
         // Open scope
         // N_SO comp_dir
@@ -1757,10 +2037,7 @@ pub fn hasEhFrameRecords(self: Object) bool {
 }
 
 pub fn hasDebugInfo(self: Object) bool {
-    if (self.dwarf_info) |dw| {
-        return dw.compile_units.items.len > 0;
-    }
-    return self.hasSymbolStabs();
+    return self.compile_unit != null or self.hasSymbolStabs();
 }
 
 fn hasSymbolStabs(self: Object) bool {
@@ -1991,6 +2268,25 @@ const StabFile = struct {
             return if (stab.symbol) |s| macho_file.getSymbol(s) else null;
         }
     };
+};
+
+const CompileUnit = struct {
+    comp_dir: u32,
+    tu_name: u32,
+
+    fn getCompDir(cu: CompileUnit, object: *const Object) [:0]const u8 {
+        return object.getString(cu.comp_dir);
+    }
+
+    fn getTuName(cu: CompileUnit, object: *const Object) [:0]const u8 {
+        return object.getString(cu.tu_name);
+    }
+};
+
+const InArchive = struct {
+    path: []const u8,
+    offset: u64,
+    size: u32,
 };
 
 const x86_64 = struct {
@@ -2347,6 +2643,7 @@ const aarch64 = struct {
 };
 
 const assert = std.debug.assert;
+const dwarf = @import("dwarf.zig");
 const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -2359,7 +2656,6 @@ const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
-const DwarfInfo = @import("DwarfInfo.zig");
 const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const LoadCommandIterator = macho.LoadCommandIterator;

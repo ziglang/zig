@@ -94,6 +94,19 @@ pub inline fn floatEps(comptime T: type) T {
     return reconstructFloat(T, -floatFractionalBits(T), mantissaOne(T));
 }
 
+/// Returns the local epsilon of floating point type T.
+pub inline fn floatEpsAt(comptime T: type, x: T) T {
+    switch (@typeInfo(T)) {
+        .Float => |F| {
+            const U: type = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = F.bits } });
+            const u: U = @bitCast(x);
+            const y: T = @bitCast(u ^ 1);
+            return @abs(x - y);
+        },
+        else => @compileError("floatEpsAt only supports floats"),
+    }
+}
+
 /// Returns the value inf for floating point type T.
 pub inline fn inf(comptime T: type) T {
     return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));

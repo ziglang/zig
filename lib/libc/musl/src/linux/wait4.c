@@ -26,7 +26,7 @@ pid_t wait4(pid_t pid, int *status, int options, struct rusage *ru)
 	}
 #endif
 	char *dest = ru ? (char *)&ru->ru_maxrss - 4*sizeof(long) : 0;
-	r = __syscall(SYS_wait4, pid, status, options, dest);
+	r = __sys_wait4(pid, status, options, dest);
 	if (r>0 && ru && sizeof(time_t) > sizeof(long)) {
 		long kru[4];
 		memcpy(kru, dest, 4*sizeof(long));

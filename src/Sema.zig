@@ -2228,8 +2228,20 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     });
 }
 
-fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, optional_ty: Type) CompileError {
-    return sema.fail(block, src, "expected optional type, found '{}'", .{optional_ty.fmt(sema.mod)});
+fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, non_optional_ty: Type) CompileError {
+    const mod = sema.mod;
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "expected optional type, found '{}'", .{
+            non_optional_ty.fmt(mod),
+        });
+        errdefer msg.destroy(sema.gpa);
+        if (non_optional_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
+        try addDeclaredHereNote(sema, msg, non_optional_ty);
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
@@ -3557,9 +3569,10 @@ fn ensureResultUsed(
     const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Void, .NoReturn => return,
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is ignored", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is ignored", .{});
+                const msg = try sema.errMsg(block, src, "error union is ignored", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
@@ -3571,7 +3584,7 @@ fn ensureResultUsed(
                 const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "all non-void values must be used", .{});
-                try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
+                try sema.errNote(block, src, msg, "to discard the value, assign it to '_'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -3589,9 +3602,10 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const src = inst_data.src();
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag(mod)) {
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is discarded", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is discarded", .{});
+                const msg = try sema.errMsg(block, src, "error union is discarded", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
@@ -9038,7 +9052,7 @@ fn analyzeOptionalPayloadPtr(
 
     const opt_type = optional_ptr_ty.childType(zcu);
     if (opt_type.zigTypeTag(zcu) != .Optional) {
-        return sema.fail(block, src, "expected optional type, found '{}'", .{opt_type.fmt(zcu)});
+        return sema.failWithExpectedOptionalType(block, src, opt_type);
     }
 
     const child_type = opt_type.optionalChild(zcu);
@@ -9531,7 +9545,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code; fixed by '-l{s}' or '-fPIC'",
                 .{ lib_name, lib_name },
             );
         }
@@ -9700,18 +9714,18 @@ fn funcCommon(
         {
             return sema.fail(block, param_src, "non-pointer parameter declared noalias", .{});
         }
-
-        if (cc_resolved == .Interrupt) switch (target.cpu.arch) {
-            .x86, .x86_64 => {
+        switch (cc_resolved) {
+            .Interrupt => if (target.cpu.arch.isX86()) {
                 const err_code_size = target.ptrBitWidth();
                 switch (i) {
-                    0 => if (param_ty.zigTypeTag(mod) != .Pointer) return sema.fail(block, param_src, "parameter must be a pointer type", .{}),
-                    1 => if (param_ty.bitSize(mod) != err_code_size) return sema.fail(block, param_src, "parameter must be a {d}-bit integer", .{err_code_size}),
-                    else => return sema.fail(block, param_src, "Interrupt calling convention supports up to 2 parameters, found {d}", .{i + 1}),
+                    0 => if (param_ty.zigTypeTag(mod) != .Pointer) return sema.fail(block, param_src, "first parameter of function with 'Interrupt' calling convention must be a pointer type", .{}),
+                    1 => if (param_ty.bitSize(mod) != err_code_size) return sema.fail(block, param_src, "second parameter of function with 'Interrupt' calling convention must be a {d}-bit integer", .{err_code_size}),
+                    else => return sema.fail(block, param_src, "'Interrupt' calling convention supports up to 2 parameters, found {d}", .{i + 1}),
                 }
-            },
-            else => return sema.fail(block, param_src, "parameters are not allowed with Interrupt calling convention", .{}),
-        };
+            } else return sema.fail(block, param_src, "parameters are not allowed with 'Interrupt' calling convention", .{}),
+            .Signal => return sema.fail(block, param_src, "parameters are not allowed with 'Signal' calling convention", .{}),
+            else => {},
+        }
     }
 
     var ret_ty_requires_comptime = false;
@@ -10017,6 +10031,16 @@ fn finishFunc(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
+    switch (cc_resolved) {
+        .Interrupt, .Signal => if (return_type.zigTypeTag(mod) != .Void and return_type.zigTypeTag(mod) != .NoReturn) {
+            return sema.fail(block, ret_ty_src, "function with calling convention '{s}' must return 'void' or 'noreturn'", .{@tagName(cc_resolved)});
+        },
+        .Inline => if (is_noinline) {
+            return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
+        },
+        else => {},
+    }
+
     const arch = target.cpu.arch;
     if (@as(?[]const u8, switch (cc_resolved) {
         .Unspecified, .C, .Naked, .Async, .Inline => null,
@@ -10060,20 +10084,7 @@ fn finishFunc(
         });
     }
 
-    if (cc_resolved == .Interrupt and return_type.zigTypeTag(mod) != .Void) {
-        return sema.fail(
-            block,
-            cc_src,
-            "non-void return type '{}' not allowed in function with calling convention 'Interrupt'",
-            .{return_type.fmt(mod)},
-        );
-    }
-
-    if (cc_resolved == .Inline and is_noinline) {
-        return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
-    }
     if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
-
     if (!final_is_generic and sema.wantErrorReturnTracing(return_type)) {
         // Make sure that StackTrace's fields are resolved so that the backend can
         // lower this fn type.
@@ -22708,7 +22719,16 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             .storage = .{ .elems = new_elems },
         } }));
     }
+    if (try sema.typeRequiresComptime(ptr_ty)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "pointer to comptime-only type '{}' must be comptime-known, but operand is runtime-known", .{ptr_ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
 
+            const src_decl = mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), ptr_ty);
+            break :msg msg;
+        });
+    }
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (!is_vector) {
         if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag(mod) == .Fn)) {
@@ -26239,7 +26259,7 @@ fn zirWasmMemoryGrow(
     const index: u32 = @intCast(try sema.resolveInt(block, index_src, extra.lhs, Type.u32, .{
         .needed_comptime_reason = "wasm memory size index must be comptime-known",
     }));
-    const delta = try sema.coerce(block, Type.u32, try sema.resolveInst(extra.rhs), delta_src);
+    const delta = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.rhs), delta_src);
 
     try sema.requireRuntimeBlock(block, builtin_src, null);
     return block.addInst(.{
@@ -27874,6 +27894,9 @@ fn fieldCallBind(
         if (found_decl) |decl_idx| {
             const decl = mod.declPtr(decl_idx);
             try mod.errNoteNonLazy(decl.srcLoc(mod), msg, "'{}' is not a member function", .{field_name.fmt(ip)});
+        }
+        if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
         break :msg msg;
     };

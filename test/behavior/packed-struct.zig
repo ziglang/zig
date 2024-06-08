@@ -1304,3 +1304,10 @@ test "2-byte packed struct argument in C calling convention" {
         try S.bar(s);
     }
 }
+
+test "packed struct contains optional pointer" {
+    const foo: packed struct {
+        a: ?*@This() = null,
+    } = .{};
+    try expect(foo.a == null);
+}

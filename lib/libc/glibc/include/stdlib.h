@@ -59,6 +59,8 @@ libc_hidden_proto (__isoc23_strtoull_l)
    libc_hidden_proto.  */
 # undef strtol
 # define strtol __isoc23_strtol
+# undef atoi
+# define atoi(nptr) __isoc23_strtol(nptr, NULL, 10)
 # undef strtoul
 # define strtoul __isoc23_strtoul
 # undef strtoll
@@ -147,8 +149,6 @@ extern int __posix_openpt (int __oflag) attribute_hidden;
 extern int __add_to_environ (const char *name, const char *value,
 			     const char *combines, int replace)
      attribute_hidden;
-extern void _quicksort (void *const pbase, size_t total_elems,
-			size_t size, __compar_d_fn_t cmp, void *arg);
 
 extern int __on_exit (void (*__func) (int __status, void *__arg), void *__arg);
 
@@ -157,11 +157,7 @@ libc_hidden_proto (__cxa_atexit);
 
 extern int __cxa_thread_atexit_impl (void (*func) (void *), void *arg,
 				     void *d);
-extern void __call_tls_dtors (void)
-#ifndef SHARED
-  __attribute__ ((weak))
-#endif
-  ;
+extern void __call_tls_dtors (void);
 libc_hidden_proto (__call_tls_dtors)
 
 extern void __cxa_finalize (void *d);

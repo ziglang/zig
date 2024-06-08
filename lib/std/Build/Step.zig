@@ -58,7 +58,7 @@ pub const TestResults = struct {
     }
 };
 
-pub const MakeFn = *const fn (step: *Step, prog_node: *std.Progress.Node) anyerror!void;
+pub const MakeFn = *const fn (step: *Step, prog_node: std.Progress.Node) anyerror!void;
 
 pub const State = enum {
     precheck_unstarted,
@@ -176,7 +176,7 @@ pub fn init(options: StepOptions) Step {
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
-pub fn make(s: *Step, prog_node: *std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
+pub fn make(s: *Step, prog_node: std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
     s.makeFn(s, prog_node) catch |err| switch (err) {
@@ -217,7 +217,7 @@ pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
     };
 }
 
-fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
+fn makeNoOp(step: *Step, prog_node: std.Progress.Node) anyerror!void {
     _ = prog_node;
 
     var all_cached = true;
@@ -275,7 +275,7 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    const result = std.ChildProcess.run(.{
+    const result = std.process.Child.run(.{
         .allocator = arena,
         .argv = argv,
     }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
@@ -303,7 +303,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 pub fn evalZigProcess(
     s: *Step,
     argv: []const []const u8,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !?[]const u8 {
     assert(argv.len != 0);
     const b = s.owner;
@@ -313,12 +313,13 @@ pub fn evalZigProcess(
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
 
-    var child = std.ChildProcess.init(argv, arena);
+    var child = std.process.Child.init(argv, arena);
     child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     child.request_resource_usage_statistics = true;
+    child.progress_node = prog_node;
 
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
@@ -336,11 +337,6 @@ pub fn evalZigProcess(
 
     const Header = std.zig.Server.Message.Header;
     var result: ?[]const u8 = null;
-
-    var node_name: std.ArrayListUnmanaged(u8) = .{};
-    defer node_name.deinit(gpa);
-    var sub_prog_node = prog_node.start("", 0);
-    defer sub_prog_node.end();
 
     const stdout = poller.fifo(.stdout);
 
@@ -378,11 +374,6 @@ pub fn evalZigProcess(
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
                 };
-            },
-            .progress => {
-                node_name.clearRetainingCapacity();
-                try node_name.appendSlice(gpa, body);
-                sub_prog_node.setName(node_name.items);
             },
             .emit_bin_path => {
                 const EbpHdr = std.zig.Server.Message.EmitBinPath;
@@ -480,7 +471,7 @@ pub inline fn handleChildProcUnsupported(
 
 pub fn handleChildProcessTerm(
     s: *Step,
-    term: std.ChildProcess.Term,
+    term: std.process.Child.Term,
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
 ) error{ MakeFailed, OutOfMemory }!void {

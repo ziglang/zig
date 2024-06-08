@@ -1,5 +1,5 @@
 /* Syscall definitions, Linux MIPS generic version.
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -28,3 +28,5 @@
 #endif
 #define HAVE_GETTIMEOFDAY_VSYSCALL      "__vdso_gettimeofday"
 #define HAVE_CLOCK_GETRES_VSYSCALL      "__vdso_clock_getres"
+
+#define HAVE_CLONE3_WRAPPER		1

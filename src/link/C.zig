@@ -370,7 +370,7 @@ pub fn updateDeclLineNumber(self: *C, zcu: *Zcu, decl_index: InternPool.DeclInde
     _ = decl_index;
 }
 
-pub fn flush(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+pub fn flush(self: *C, arena: Allocator, prog_node: std.Progress.Node) !void {
     return self.flushModule(arena, prog_node);
 }
 
@@ -389,14 +389,13 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     return defines;
 }
 
-pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
     const comp = self.base.comp;

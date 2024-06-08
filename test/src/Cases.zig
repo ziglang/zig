@@ -545,9 +545,6 @@ pub fn lowerToTranslateCSteps(
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
-    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
-        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
-
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
@@ -564,17 +561,12 @@ pub fn lowerToTranslateCSteps(
     for (self.translate.items) |case| switch (case.kind) {
         .run => |output| {
             if (translate_c_options.skip_run_translated_c) continue;
-            const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
+            const annotated_case_name = b.fmt("run-translated-c {s}", .{case.name});
             for (test_filters) |test_filter| {
                 if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (test_filters.len > 0) continue;
             if (!std.process.can_spawn) {
                 std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
-                continue; // Pass test.
-            }
-
-            if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
-                // We wouldn't be able to run the compiled C code.
                 continue; // Pass test.
             }
 
@@ -596,6 +588,7 @@ pub fn lowerToTranslateCSteps(
             const run = b.addRunArtifact(run_exe);
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
+            run.skip_foreign_checks = true;
 
             test_run_translated_c_step.dependOn(&run.step);
         },
@@ -1456,14 +1449,14 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
     var global_tmp = std.testing.tmpDir(.{});
     defer global_tmp.cleanup();
 
-    var cache_dir = try global_tmp.dir.makeOpenPath("zig-cache", .{});
+    var cache_dir = try global_tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
-    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ ".", "zig-cache", "tmp", &global_tmp.sub_path });
+    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ ".", ".zig-cache", "tmp", &global_tmp.sub_path });
     defer self.gpa.free(tmp_dir_path);
 
     const global_cache_directory: Compilation.Directory = .{
         .handle = cache_dir,
-        .path = try std.fs.path.join(self.gpa, &[_][]const u8{ tmp_dir_path, "zig-cache" }),
+        .path = try std.fs.path.join(self.gpa, &[_][]const u8{ tmp_dir_path, ".zig-cache" }),
     };
     defer self.gpa.free(global_cache_directory.path.?);
 
@@ -1536,16 +1529,16 @@ fn runOneCase(
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var cache_dir = try tmp.dir.makeOpenPath("zig-cache", .{});
+    var cache_dir = try tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
 
     const tmp_dir_path = try std.fs.path.join(
         arena,
-        &[_][]const u8{ ".", "zig-cache", "tmp", &tmp.sub_path },
+        &[_][]const u8{ ".", ".zig-cache", "tmp", &tmp.sub_path },
     );
     const local_cache_path = try std.fs.path.join(
         arena,
-        &[_][]const u8{ tmp_dir_path, "zig-cache" },
+        &[_][]const u8{ tmp_dir_path, ".zig-cache" },
     );
 
     const zig_cache_directory: Compilation.Directory = .{
@@ -1839,7 +1832,7 @@ fn runOneCase(
                     try comp.makeBinFileExecutable();
 
                     while (true) {
-                        break :x std.ChildProcess.run(.{
+                        break :x std.process.Child.run(.{
                             .allocator = allocator,
                             .argv = argv.items,
                             .cwd_dir = tmp.dir,

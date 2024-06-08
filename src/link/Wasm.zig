@@ -2464,7 +2464,7 @@ fn appendDummySegment(wasm: *Wasm) !void {
     });
 }
 
-pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
 
@@ -2475,7 +2475,7 @@ pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.
 }
 
 /// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
-pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2486,8 +2486,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
         if (use_lld) return;
     }
 
-    var sub_prog_node = prog_node.start("Wasm Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Wasm Flush", 0);
     defer sub_prog_node.end();
 
     const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
@@ -3323,7 +3322,7 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     }
 }
 
-fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3350,9 +3349,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const is_obj = comp.config.output_mode == .Obj;
@@ -3637,7 +3634,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
             // If possible, we run LLD as a child process because it does not always
             // behave properly as a library, unfortunately.
             // https://github.com/ziglang/zig/issues/3825
-            var child = std.ChildProcess.init(argv.items, arena);
+            var child = std.process.Child.init(argv.items, arena);
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;

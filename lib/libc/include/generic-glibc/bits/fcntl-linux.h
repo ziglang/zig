@@ -1,5 +1,5 @@
 /* O_*, F_*, FD_* bit values for Linux.
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -286,6 +286,7 @@ struct f_owner_ex
 # define F_SEAL_WRITE	0x0008	/* Prevent writes.  */
 # define F_SEAL_FUTURE_WRITE	0x0010	/* Prevent future writes while
 					   mapped.  */
+# define F_SEAL_EXEC	0x0020	/* Prevent chmod modifying exec bits. */
 #endif
 
 #ifdef __USE_GNU
@@ -365,6 +366,17 @@ struct file_handle
 
 /* Maximum handle size (for now).  */
 # define MAX_HANDLE_SZ	128
+#endif
+
+#ifdef __USE_GNU
+/* Flags for name_to_handle_at.  See comment in fcntl.h about the use
+   of the same AT_* flag bits for different purposes in different
+   functions.  */
+# define AT_HANDLE_FID		AT_REMOVEDIR /* File handle is needed
+						to compare object
+						identity and may not
+						be usable to
+						open_by_handle_at.  */
 #endif
 
 __BEGIN_DECLS

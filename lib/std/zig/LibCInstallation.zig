@@ -261,7 +261,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
         dev_null,
     });
 
-    const run_res = std.ChildProcess.run(.{
+    const run_res = std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
@@ -588,7 +588,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     try appendCcExe(&argv, skip_cc_env_var);
     try argv.append(arg1);
 
-    const run_res = std.ChildProcess.run(.{
+    const run_res = std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
