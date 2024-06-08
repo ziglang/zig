@@ -4552,7 +4552,6 @@ const LowerZon = struct {
                         }});
                     },
                     .float => {
-                        // XXX: always f128?
                         const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable; // Already validated
                         const float = if (is_negative == null) unsigned_float else -unsigned_float;
                         return try self.mod.intern(.{ .float = .{

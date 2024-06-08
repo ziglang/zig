@@ -2368,7 +2368,6 @@ fn parseBigNumber(
 ) error{Type}!T {
     switch (@typeInfo(T)) {
         .Int => return self.parseBigInt(T, node, base),
-        // XXX: passing in f128 to work around possible float parsing bug
         .Float => {
             const result = @as(T, @floatCast(try self.parseFloat(f128, node)));
             if (std.math.isNegativeZero(result)) {
@@ -2401,22 +2400,17 @@ fn parseFloat(
     comptime T: type,
     node: NodeIndex,
 ) error{Type}!T {
-    const Float = switch (@typeInfo(T)) {
-        .Float => T,
-        .Int => f128,
-        else => @compileError("internal error: expected integer or float type"),
-    };
     const num_lit_node = self.numLitNode(node);
     const main_tokens = self.ast.nodes.items(.main_token);
     const num_lit_token = main_tokens[num_lit_node];
     const bytes = self.ast.tokenSlice(num_lit_token);
-    const unsigned_float = std.fmt.parseFloat(Float, bytes) catch unreachable; // Already validated
+    const unsigned_float = std.fmt.parseFloat(f128, bytes) catch unreachable; // Already validated
     const result = if (self.isNegative(node)) -unsigned_float else unsigned_float;
-    if (T == Float) {
-        return result;
-    } else {
-        return intFromFloatExact(T, result) orelse
-            self.failCannotRepresent(T, node);
+    switch (@typeInfo(T)) {
+        .Float => return @as(T, @floatCast(result)),
+        .Int => return intFromFloatExact(T, result) orelse
+            return self.failCannotRepresent(T, node),
+        else => @compileError("internal error: expected integer or float type"),
     }
 }
 
@@ -2958,13 +2952,19 @@ test "std.zon parse float" {
     }
 }
 
-// XXX: zig float parsing bug example
+// XXX: float parsing bug example
+// I think we should make a minimal repro and file an issue to ask for help for this
 // Hmm look at astgen, isn't it calling into the same code?
-// test "std.zon bug" {
-//     const float: f32 = 0xffffffffffffffff.0p0;
-//     const parsed = try std.fmt.parseFloat(f128, "0xffffffffffffffff.0p0");
-//     try std.testing.expectEqual(float, parsed);
-// }
+// Only an issue when we cast to f32 not leave as f128...
+// What if we cast ourselves?
+// Here's my theory: when the value doesn't fit in the dest, it does it anyway,
+// if it's comptime, resulting in the wrong value
+test "std.zon bug" {
+    const gpa = std.testing.allocator;
+    const float: f32 = 0xffffffffffffffff.0p0;
+    const parsed = try parseFromSlice(f32, gpa, "0xffffffffffffffff.0p0", .{});
+    try std.testing.expectEqual(float, parsed);
+}
 
 test "std.zon free on error" {
     // Test freeing partially allocated structs
