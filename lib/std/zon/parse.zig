@@ -2958,10 +2958,11 @@ test "std.zon parse float" {
     }
 }
 
-// TODO: zig float parsing bug example
+// XXX: zig float parsing bug example
+// Hmm look at astgen, isn't it calling into the same code?
 // test "std.zon bug" {
-//     const float: f32 = 0xffffffffffffffff;
-//     const parsed = try std.fmt.parseFloat(f32, "0xffffffffffffffff.0p0");
+//     const float: f32 = 0xffffffffffffffff.0p0;
+//     const parsed = try std.fmt.parseFloat(f128, "0xffffffffffffffff.0p0");
 //     try std.testing.expectEqual(float, parsed);
 // }
 

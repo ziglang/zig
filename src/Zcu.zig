@@ -4551,7 +4551,6 @@ const LowerZon = struct {
                             .storage = .{ .big_int = big_int.toConst() },
                         }});
                     },
-                    // XXX: I think it's okay to ignore float base, parseFloat will handle it right?
                     .float => {
                         // XXX: always f128?
                         const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable; // Already validated
