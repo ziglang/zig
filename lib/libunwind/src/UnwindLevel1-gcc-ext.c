@@ -143,7 +143,7 @@ _Unwind_Backtrace(_Unwind_Trace_Fn callback, void *ref) {
   // Create a mock exception object for force unwinding.
   _Unwind_Exception ex;
   memset(&ex, '\0', sizeof(ex));
-  strcpy((char *)&ex.exception_class, "CLNGUNW");
+  memcpy(&ex.exception_class, "CLNGUNW", sizeof(ex.exception_class));
 #endif
 
   // walk each frame

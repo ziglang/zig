@@ -35,7 +35,7 @@ template <class _Tp, class _Up, __enable_if_t<__is_less_than_comparable<const _T
 _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _LIBCPP_NO_SANITIZE("address") bool __is_pointer_in_range(
     const _Tp* __begin, const _Tp* __end, const _Up* __ptr) {
   if (__libcpp_is_constant_evaluated()) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__builtin_constant_p(__begin <= __end), "__begin and __end do not form a range");
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(__builtin_constant_p(__begin <= __end), "__begin and __end do not form a range");
 
     // If this is not a constant during constant evaluation we know that __ptr is not part of the allocation where
     // [__begin, __end) is.

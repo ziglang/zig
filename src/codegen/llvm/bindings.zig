@@ -43,6 +43,9 @@ pub const Context = opaque {
 
     pub const getBrokenDebugInfo = ZigLLVMGetBrokenDebugInfo;
     extern fn ZigLLVMGetBrokenDebugInfo(C: *Context) bool;
+
+    pub const intType = LLVMIntTypeInContext;
+    extern fn LLVMIntTypeInContext(C: *Context, NumBits: c_uint) *Type;
 };
 
 pub const Module = opaque {
@@ -96,12 +99,20 @@ pub const TargetMachine = opaque {
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
     ) bool;
+
+    pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
+    extern fn LLVMCreateTargetDataLayout(*TargetMachine) *TargetData;
 };
 
 pub const TargetData = opaque {
     pub const dispose = LLVMDisposeTargetData;
     extern fn LLVMDisposeTargetData(*TargetData) void;
+
+    pub const abiAlignmentOfType = LLVMABIAlignmentOfType;
+    extern fn LLVMABIAlignmentOfType(TD: *TargetData, Ty: *Type) c_uint;
 };
+
+pub const Type = opaque {};
 
 pub const CodeModel = enum(c_int) {
     Default,
@@ -166,6 +177,7 @@ pub extern fn LLVMInitializeM68kTargetInfo() void;
 pub extern fn LLVMInitializeCSKYTargetInfo() void;
 pub extern fn LLVMInitializeVETargetInfo() void;
 pub extern fn LLVMInitializeARCTargetInfo() void;
+pub extern fn LLVMInitializeLoongArchTargetInfo() void;
 
 pub extern fn LLVMInitializeAArch64Target() void;
 pub extern fn LLVMInitializeAMDGPUTarget() void;
@@ -189,6 +201,7 @@ pub extern fn LLVMInitializeM68kTarget() void;
 pub extern fn LLVMInitializeVETarget() void;
 pub extern fn LLVMInitializeCSKYTarget() void;
 pub extern fn LLVMInitializeARCTarget() void;
+pub extern fn LLVMInitializeLoongArchTarget() void;
 
 pub extern fn LLVMInitializeAArch64TargetMC() void;
 pub extern fn LLVMInitializeAMDGPUTargetMC() void;
@@ -212,6 +225,7 @@ pub extern fn LLVMInitializeM68kTargetMC() void;
 pub extern fn LLVMInitializeCSKYTargetMC() void;
 pub extern fn LLVMInitializeVETargetMC() void;
 pub extern fn LLVMInitializeARCTargetMC() void;
+pub extern fn LLVMInitializeLoongArchTargetMC() void;
 
 pub extern fn LLVMInitializeAArch64AsmPrinter() void;
 pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
@@ -233,6 +247,7 @@ pub extern fn LLVMInitializeXCoreAsmPrinter() void;
 pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
+pub extern fn LLVMInitializeLoongArchAsmPrinter() void;
 
 pub extern fn LLVMInitializeAArch64AsmParser() void;
 pub extern fn LLVMInitializeAMDGPUAsmParser() void;
@@ -253,6 +268,7 @@ pub extern fn LLVMInitializeXtensaAsmParser() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
+pub extern fn LLVMInitializeLoongArchAsmParser() void;
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
@@ -284,8 +300,6 @@ extern fn ZigLLVMWriteArchive(
 
 pub const OSType = enum(c_int) {
     UnknownOS,
-    Ananas,
-    CloudABI,
     Darwin,
     DragonFly,
     FreeBSD,
@@ -302,7 +316,6 @@ pub const OSType = enum(c_int) {
     Win32,
     ZOS,
     Haiku,
-    Minix,
     RTEMS,
     NaCl,
     AIX,
@@ -315,8 +328,8 @@ pub const OSType = enum(c_int) {
     TvOS,
     WatchOS,
     DriverKit,
+    XROS,
     Mesa3D,
-    Contiki,
     AMDPAL,
     HermitCore,
     Hurd,
@@ -324,6 +337,8 @@ pub const OSType = enum(c_int) {
     Emscripten,
     ShaderModel,
     LiteOS,
+    Serenity,
+    Vulkan,
 };
 
 pub const ArchType = enum(c_int) {
@@ -378,6 +393,7 @@ pub const ArchType = enum(c_int) {
     hsail64,
     spir,
     spir64,
+    spirv,
     spirv32,
     spirv64,
     kalimba,
@@ -400,3 +416,9 @@ extern fn ZigLLVMWriteImportLibrary(
     output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;
+
+pub const GetHostCPUName = LLVMGetHostCPUName;
+extern fn LLVMGetHostCPUName() ?[*:0]u8;
+
+pub const GetHostCPUFeatures = LLVMGetHostCPUFeatures;
+extern fn LLVMGetHostCPUFeatures() ?[*:0]u8;

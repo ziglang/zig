@@ -1,9 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Foo = struct {
-    data: *u32
-};
+const Foo = struct { data: *u32 };
 
 fn getData() !u32 {
     return 666;
@@ -19,7 +17,7 @@ fn genFoos(allocator: Allocator, num: usize) ![]Foo {
         errdefer allocator.destroy(foo.data);
 
         // The data for the first 3 foos will be leaked
-        if(i >= 3) return error.TooManyFoos;
+        if (i >= 3) return error.TooManyFoos;
 
         foo.data.* = try getData();
     }

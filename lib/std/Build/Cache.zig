@@ -397,6 +397,11 @@ pub const Manifest = struct {
         }
     }
 
+    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+        assert(self.manifest_file == null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
+
     /// Check the cache to see if the input exists in it. If it exists, returns `true`.
     /// A hex encoding of its hash is available by calling `final`.
     ///
@@ -843,7 +848,10 @@ pub const Manifest = struct {
 
     pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
 
+    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
@@ -852,12 +860,23 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        while (true) {
-            switch (it.next() orelse return) {
+        while (it.next()) |token| {
+            switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
                 .target, .target_must_resolve => {},
-                .prereq => |file_path| try self.addFilePost(file_path),
+                .prereq => |file_path| if (self.manifest_file == null) {
+                    _ = try self.addFile(file_path, null);
+                } else try self.addFilePost(file_path),
+                .prereq_must_resolve => {
+                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
+                    defer resolve_buf.deinit();
+
+                    try token.resolve(resolve_buf.writer());
+                    if (self.manifest_file == null) {
+                        _ = try self.addFile(resolve_buf.items, null);
+                    } else try self.addFilePost(resolve_buf.items);
+                },
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });

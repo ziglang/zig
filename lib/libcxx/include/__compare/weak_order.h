@@ -28,71 +28,70 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // [cmp.alg]
 namespace __weak_order {
-    struct __fn {
-    // NOLINTBEGIN(libcpp-robust-against-adl) weak_order should use ADL, but only here
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<3>)
-            noexcept(noexcept(weak_ordering(weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      weak_ordering(weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          weak_ordering(weak_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
-    // NOLINTEND(libcpp-robust-against-adl)
+struct __fn {
+  // NOLINTBEGIN(libcpp-robust-against-adl) weak_order should use ADL, but only here
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<3>) noexcept(
+      noexcept(weak_ordering(weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(weak_ordering(weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return weak_ordering(weak_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
+  // NOLINTEND(libcpp-robust-against-adl)
 
-        template<class _Tp, class _Up, class _Dp = decay_t<_Tp>>
-            requires is_same_v<_Dp, decay_t<_Up>> && is_floating_point_v<_Dp>
-        _LIBCPP_HIDE_FROM_ABI static constexpr weak_ordering
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<2>) noexcept
-        {
-            partial_ordering __po = (__t <=> __u);
-            if (__po == partial_ordering::less) {
-                return weak_ordering::less;
-            } else if (__po == partial_ordering::equivalent) {
-                return weak_ordering::equivalent;
-            } else if (__po == partial_ordering::greater) {
-                return weak_ordering::greater;
-            } else {
-                // Otherwise, at least one of them is a NaN.
-                bool __t_is_nan = _VSTD::isnan(__t);
-                bool __u_is_nan = _VSTD::isnan(__u);
-                bool __t_is_negative = _VSTD::signbit(__t);
-                bool __u_is_negative = _VSTD::signbit(__u);
-                if (__t_is_nan && __u_is_nan) {
-                    return (__u_is_negative <=> __t_is_negative);
-                } else if (__t_is_nan) {
-                    return __t_is_negative ? weak_ordering::less : weak_ordering::greater;
-                } else {
-                    return __u_is_negative ? weak_ordering::greater : weak_ordering::less;
-                }
-            }
-        }
+  template <class _Tp, class _Up, class _Dp = decay_t<_Tp>>
+    requires is_same_v<_Dp, decay_t<_Up>> && is_floating_point_v<_Dp>
+  _LIBCPP_HIDE_FROM_ABI static constexpr weak_ordering __go(_Tp&& __t, _Up&& __u, __priority_tag<2>) noexcept {
+    partial_ordering __po = (__t <=> __u);
+    if (__po == partial_ordering::less) {
+      return weak_ordering::less;
+    } else if (__po == partial_ordering::equivalent) {
+      return weak_ordering::equivalent;
+    } else if (__po == partial_ordering::greater) {
+      return weak_ordering::greater;
+    } else {
+      // Otherwise, at least one of them is a NaN.
+      bool __t_is_nan      = std::isnan(__t);
+      bool __u_is_nan      = std::isnan(__u);
+      bool __t_is_negative = std::signbit(__t);
+      bool __u_is_negative = std::signbit(__u);
+      if (__t_is_nan && __u_is_nan) {
+        return (__u_is_negative <=> __t_is_negative);
+      } else if (__t_is_nan) {
+        return __t_is_negative ? weak_ordering::less : weak_ordering::greater;
+      } else {
+        return __u_is_negative ? weak_ordering::greater : weak_ordering::less;
+      }
+    }
+  }
 
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<1>)
-            noexcept(noexcept(weak_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      weak_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          weak_ordering(compare_three_way()(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<1>) noexcept(
+      noexcept(weak_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(weak_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return weak_ordering(compare_three_way()(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
 
-        template<class _Tp, class _Up>
-            requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
-        _LIBCPP_HIDE_FROM_ABI static constexpr auto
-        __go(_Tp&& __t, _Up&& __u, __priority_tag<0>)
-            noexcept(noexcept(weak_ordering(_VSTD::strong_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u)))))
-            -> decltype(      weak_ordering(_VSTD::strong_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-            { return          weak_ordering(_VSTD::strong_order(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))); }
+  template <class _Tp, class _Up>
+    requires is_same_v<decay_t<_Tp>, decay_t<_Up>>
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __go(_Tp&& __t, _Up&& __u, __priority_tag<0>) noexcept(
+      noexcept(weak_ordering(std::strong_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))))
+      -> decltype(weak_ordering(std::strong_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)))) {
+    return weak_ordering(std::strong_order(std::forward<_Tp>(__t), std::forward<_Up>(__u)));
+  }
 
-        template<class _Tp, class _Up>
-        _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t, _Up&& __u) const
-            noexcept(noexcept(__go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<3>())))
-            -> decltype(      __go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<3>()))
-            { return          __go(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u), __priority_tag<3>()); }
-    };
+  template <class _Tp, class _Up>
+  _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Tp&& __t, _Up&& __u) const
+      noexcept(noexcept(__go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<3>())))
+          -> decltype(__go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<3>())) {
+    return __go(std::forward<_Tp>(__t), std::forward<_Up>(__u), __priority_tag<3>());
+  }
+};
 } // namespace __weak_order
 
 inline namespace __cpo {
-    inline constexpr auto weak_order = __weak_order::__fn{};
+inline constexpr auto weak_order = __weak_order::__fn{};
 } // namespace __cpo
 
 #endif // _LIBCPP_STD_VER >= 20

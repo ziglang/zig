@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const lossyCast = std.math.lossyCast;
+const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 
 pub const default_max_depth = 3;
@@ -480,7 +480,7 @@ pub fn formatType(
 ) @TypeOf(writer).Error!void {
     const T = @TypeOf(value);
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
-        defaultSpec(@TypeOf(value))
+        defaultSpec(T)
     else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
         .Optional, .ErrorUnion => fmt,
         else => stripOptionalOrErrorUnionSpec(fmt),
@@ -1494,10 +1494,20 @@ pub fn Formatter(comptime format_fn: anytype) type {
 /// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
+    return parseIntWithGenericCharacter(T, u8, buf, base);
+}
+
+/// Like `parseInt`, but with a generic `Character` type.
+pub fn parseIntWithGenericCharacter(
+    comptime Result: type,
+    comptime Character: type,
+    buf: []const Character,
+    base: u8,
+) ParseIntError!Result {
     if (buf.len == 0) return error.InvalidCharacter;
-    if (buf[0] == '+') return parseWithSign(T, buf[1..], base, .pos);
-    if (buf[0] == '-') return parseWithSign(T, buf[1..], base, .neg);
-    return parseWithSign(T, buf, base, .pos);
+    if (buf[0] == '+') return parseIntWithSign(Result, Character, buf[1..], base, .pos);
+    if (buf[0] == '-') return parseIntWithSign(Result, Character, buf[1..], base, .neg);
+    return parseIntWithSign(Result, Character, buf, base, .pos);
 }
 
 test parseInt {
@@ -1560,12 +1570,13 @@ test parseInt {
     try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
-fn parseWithSign(
-    comptime T: type,
-    buf: []const u8,
+fn parseIntWithSign(
+    comptime Result: type,
+    comptime Character: type,
+    buf: []const Character,
     base: u8,
     comptime sign: enum { pos, neg },
-) ParseIntError!T {
+) ParseIntError!Result {
     if (buf.len == 0) return error.InvalidCharacter;
 
     var buf_base = base;
@@ -1575,7 +1586,7 @@ fn parseWithSign(
         buf_base = 10;
         // Detect the base by looking at buf prefix.
         if (buf.len > 2 and buf[0] == '0') {
-            switch (std.ascii.toLower(buf[1])) {
+            if (math.cast(u8, buf[1])) |c| switch (std.ascii.toLower(c)) {
                 'b' => {
                     buf_base = 2;
                     buf_start = buf[2..];
@@ -1589,7 +1600,7 @@ fn parseWithSign(
                     buf_start = buf[2..];
                 },
                 else => {},
-            }
+            };
         }
     }
 
@@ -1598,33 +1609,33 @@ fn parseWithSign(
         .neg => math.sub,
     };
 
-    // accumulate into U which is always 8 bits or larger.  this prevents
-    // `buf_base` from overflowing T.
-    const info = @typeInfo(T);
-    const U = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
-    var x: U = 0;
+    // accumulate into Accumulate which is always 8 bits or larger.  this prevents
+    // `buf_base` from overflowing Result.
+    const info = @typeInfo(Result);
+    const Accumulate = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
+    var accumulate: Accumulate = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
 
     for (buf_start) |c| {
         if (c == '_') continue;
-        const digit = try charToDigit(c, buf_base);
-        if (x != 0) {
-            x = try math.mul(U, x, math.cast(U, buf_base) orelse return error.Overflow);
+        const digit = try charToDigit(math.cast(u8, c) orelse return error.InvalidCharacter, buf_base);
+        if (accumulate != 0) {
+            accumulate = try math.mul(Accumulate, accumulate, math.cast(Accumulate, buf_base) orelse return error.Overflow);
         } else if (sign == .neg) {
             // The first digit of a negative number.
             // Consider parsing "-4" as an i3.
             // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
-            x = math.cast(U, -@as(i8, @intCast(digit))) orelse return error.Overflow;
+            accumulate = math.cast(Accumulate, -@as(i8, @intCast(digit))) orelse return error.Overflow;
             continue;
         }
-        x = try add(U, x, math.cast(U, digit) orelse return error.Overflow);
+        accumulate = try add(Accumulate, accumulate, math.cast(Accumulate, digit) orelse return error.Overflow);
     }
 
-    return if (T == U)
-        x
+    return if (Result == Accumulate)
+        accumulate
     else
-        math.cast(T, x) orelse return error.Overflow;
+        math.cast(Result, accumulate) orelse return error.Overflow;
 }
 
 /// Parses the string `buf` as unsigned representation in the specified base
@@ -1639,7 +1650,7 @@ fn parseWithSign(
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
-    return parseWithSign(T, buf, base, .pos);
+    return parseIntWithSign(T, u8, buf, base, .pos);
 }
 
 test parseUnsigned {

@@ -47,9 +47,9 @@ mechanism supports that use case too (i.e. `/usr/bin/zig` and `/usr/lib/zig/`).
 
 Ensure you have the required dependencies:
 
- * CMake >= 3.5
+ * CMake >= 3.15
  * System C/C++ Toolchain
- * LLVM, Clang, LLD development libraries == 17.x
+ * LLVM, Clang, LLD development libraries == 18.x
 
 Then it is the standard CMake build process:
 

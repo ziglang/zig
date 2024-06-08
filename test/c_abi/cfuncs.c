@@ -5478,16 +5478,34 @@ f80_extra_struct c_f80_extra_struct(f80_extra_struct a) {
 #endif
 
 #ifndef ZIG_NO_F128
+__float128 zig_f128(__float128 a);
 __float128 c_f128(__float128 a) {
     assert_or_panic((double)a == 12.34);
+    assert_or_panic(zig_f128(12) == 34);
     return 56.78;
 }
 typedef struct {
     __float128 a;
 } f128_struct;
+f128_struct zig_f128_struct(f128_struct a);
 f128_struct c_f128_struct(f128_struct a) {
     assert_or_panic((double)a.a == 12.34);
+    f128_struct b = zig_f128_struct((f128_struct){12345});
+    assert_or_panic(b.a == 98765);
     return (f128_struct){56.78};
+}
+
+typedef struct {
+    __float128 a, b;
+} f128_f128_struct;
+f128_f128_struct zig_f128_f128_struct(f128_f128_struct a);
+f128_f128_struct c_f128_f128_struct(f128_f128_struct a) {
+    assert_or_panic((double)a.a == 12.34);
+    assert_or_panic((double)a.b == 87.65);
+    f128_f128_struct b = zig_f128_f128_struct((f128_f128_struct){13, 57});
+    assert_or_panic((double)b.a == 24);
+    assert_or_panic((double)b.b == 68);
+    return (f128_f128_struct){56.78, 43.21};
 }
 #endif
 

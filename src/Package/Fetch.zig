@@ -35,7 +35,7 @@ name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
-prog_node: *std.Progress.Node,
+prog_node: std.Progress.Node,
 job_queue: *JobQueue,
 /// If true, don't add an error for a missing hash. This flag is not passed
 /// down to recursive dependencies. It's intended to be used only be the CLI.
@@ -44,6 +44,8 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+/// If true and URL points to a Git repository, will use the latest commit.
+use_latest_commit: bool,
 
 // Above this are fields provided as inputs to `run`.
 // Below this are fields populated by `run`.
@@ -59,6 +61,10 @@ actual_hash: Manifest.Digest,
 has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
+/// If `use_latest_commit` was true, this will be set to the commit that was used.
+/// If the resource pointed to by the location is not a Git-repository, this
+/// will be left unchanged.
+latest_commit: ?git.Oid,
 
 // This field is used by the CLI only, untouched by this file.
 
@@ -699,6 +705,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .use_latest_commit = false,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
@@ -707,13 +714,13 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .actual_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
+                .latest_commit = null,
 
                 .module = null,
             };
         }
 
-        // job_queue mutex is locked so this is OK.
-        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+        f.prog_node.increaseEstimatedTotalItems(new_fetch_index);
 
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
@@ -722,14 +729,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     const thread_pool = f.job_queue.thread_pool;
 
     for (new_fetches, prog_names) |*new_fetch, prog_name| {
-        f.job_queue.wait_group.start();
-        thread_pool.spawn(workerRun, .{ new_fetch, prog_name }) catch |err| switch (err) {
-            error.OutOfMemory => {
-                new_fetch.oom_flag = true;
-                f.job_queue.wait_group.finish();
-                continue;
-            },
-        };
+        thread_pool.spawnWg(&f.job_queue.wait_group, workerRun, .{ new_fetch, prog_name });
     }
 }
 
@@ -750,11 +750,8 @@ pub fn relativePathDigest(
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
-    defer f.job_queue.wait_group.finish();
-
-    var prog_node = f.prog_node.start(prog_name, 0);
+    const prog_node = f.prog_node.start(prog_name, 0);
     defer prog_node.end();
-    prog_node.activate();
 
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
@@ -1003,7 +1000,9 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             }
             return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
         };
-        if (uri.fragment == null) {
+        if (f.use_latest_commit) {
+            f.latest_commit = want_oid;
+        } else if (uri.fragment == null) {
             const notes_len = 1;
             try eb.addRootErrorMessage(.{
                 .msg = try eb.addString("url field is missing an explicit ref"),
@@ -1310,9 +1309,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
         {
-            var index_prog_node = f.prog_node.start("Index pack", 0);
+            const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            index_prog_node.activate();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
             try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
@@ -1320,9 +1318,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         }
 
         {
-            var checkout_prog_node = f.prog_node.start("Checkout", 0);
+            const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
@@ -1477,10 +1474,7 @@ fn computeHash(
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                wait_group.start();
-                try thread_pool.spawn(workerDeleteFile, .{
-                    root_dir, deleted_file, &wait_group,
-                });
+                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
                 try deleted_files.append(deleted_file);
                 continue;
             }
@@ -1507,10 +1501,7 @@ fn computeHash(
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
-            wait_group.start();
-            try thread_pool.spawn(workerHashFile, .{
-                root_dir, hashed_file, &wait_group,
-            });
+            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
         }
     }
@@ -1602,13 +1593,11 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     try bw.flush();
 }
 
-fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {
     hashed_file.failure = hashFileFallible(dir, hashed_file);
 }
 
-fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
     deleted_file.failure = deleteFileFallible(dir, deleted_file);
 }
 
@@ -2011,7 +2000,7 @@ test "zip" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2044,7 +2033,7 @@ test "zip with one root folder" {
         try bw.flush();
     }
 
-    const zip_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
@@ -2080,7 +2069,7 @@ test "tarball with duplicate paths" {
 
     const tarball_name = "duplicate_paths.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, expect to fail
@@ -2112,7 +2101,7 @@ test "tarball with excluded duplicate paths" {
 
     const tarball_name = "duplicate_paths_excluded.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2156,7 +2145,7 @@ test "tarball without root folder" {
 
     const tarball_name = "no_root.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2187,7 +2176,7 @@ test "set executable bit based on file content" {
 
     const tarball_name = "executables.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // $ tar -tvf executables.tar.gz

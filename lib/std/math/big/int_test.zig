@@ -288,31 +288,29 @@ test "string set bad base error" {
 }
 
 test "twos complement limit set" {
-    const test_types = [_]type{
-        u64,
-        i64,
-        u1,
-        i1,
-        u0,
-        i0,
-        u65,
-        i65,
-    };
+    try testTwosComplementLimit(u64);
+    try testTwosComplementLimit(i64);
+    try testTwosComplementLimit(u1);
+    try testTwosComplementLimit(i1);
+    try testTwosComplementLimit(u0);
+    try testTwosComplementLimit(i0);
+    try testTwosComplementLimit(u65);
+    try testTwosComplementLimit(i65);
+}
 
-    inline for (test_types) |T| {
-        const int_info = @typeInfo(T).Int;
+fn testTwosComplementLimit(comptime T: type) !void {
+    const int_info = @typeInfo(T).Int;
 
-        var a = try Managed.init(testing.allocator);
-        defer a.deinit();
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
 
-        try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
-        const max: T = maxInt(T);
-        try testing.expect(max == try a.to(T));
+    try a.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+    const max: T = maxInt(T);
+    try testing.expect(max == try a.to(T));
 
-        try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
-        const min: T = minInt(T);
-        try testing.expect(min == try a.to(T));
-    }
+    try a.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+    const min: T = minInt(T);
+    try testing.expect(min == try a.to(T));
 }
 
 test "string to" {
@@ -3233,4 +3231,53 @@ test "Managed sqrt(n) succeed with res.bitCountAbs() >= usize bits" {
     defer expected.deinit();
     try expected.setString(10, "11663466984815033033");
     try std.testing.expectEqual(std.math.Order.eq, expected.order(res));
+}
+
+test "(BigInt) positive" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = pow(2, 64 * @sizeOf(usize) * 8), b = a - 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    try b.sub(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+}
+
+test "(BigInt) negative" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = -pow(2, 64 * @sizeOf(usize) * 8), b = a + 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    a.negate();
+    try b.add(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
 }

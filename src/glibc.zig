@@ -160,7 +160,7 @@ pub const CRTFile = enum {
     libc_nonshared_a,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -658,7 +658,7 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1065,7 +1065,7 @@ fn buildSharedLib(
     bin_directory: Compilation.Directory,
     asm_file_basename: []const u8,
     lib: Lib,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();

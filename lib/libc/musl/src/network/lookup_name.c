@@ -109,7 +109,7 @@ struct dpc_ctx {
 #define RR_CNAME 5
 #define RR_AAAA 28
 
-#define ABUF_SIZE 768
+#define ABUF_SIZE 4800
 
 static int dns_parse_callback(void *c, int rr, const void *data, int len, const void *packet, int plen)
 {

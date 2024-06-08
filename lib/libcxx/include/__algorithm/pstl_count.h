@@ -23,11 +23,14 @@
 #include <__type_traits/is_execution_policy.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/move.h>
-#include <__utility/terminate_on_exception.h>
+#include <optional>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 #if !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
 
@@ -41,13 +44,13 @@ template <class _ExecutionPolicy,
           class _Predicate,
           class _RawPolicy                                    = __remove_cvref_t<_ExecutionPolicy>,
           enable_if_t<is_execution_policy_v<_RawPolicy>, int> = 0>
-_LIBCPP_HIDE_FROM_ABI __iter_diff_t<_ForwardIterator>
-count_if(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, _Predicate __pred) {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI optional<__iter_diff_t<_ForwardIterator>> __count_if(
+    _ExecutionPolicy&& __policy, _ForwardIterator&& __first, _ForwardIterator&& __last, _Predicate&& __pred) noexcept {
   using __diff_t = __iter_diff_t<_ForwardIterator>;
   return std::__pstl_frontend_dispatch(
-      _LIBCPP_PSTL_CUSTOMIZATION_POINT(__pstl_count_if),
-      [&](_ForwardIterator __g_first, _ForwardIterator __g_last, _Predicate __g_pred) {
-        return std::transform_reduce(
+      _LIBCPP_PSTL_CUSTOMIZATION_POINT(__pstl_count_if, _RawPolicy),
+      [&](_ForwardIterator __g_first, _ForwardIterator __g_last, _Predicate __g_pred) -> optional<__diff_t> {
+        return std::__transform_reduce(
             __policy,
             std::move(__g_first),
             std::move(__g_last),
@@ -60,6 +63,19 @@ count_if(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator
       std::move(__pred));
 }
 
+template <class _ExecutionPolicy,
+          class _ForwardIterator,
+          class _Predicate,
+          class _RawPolicy                                    = __remove_cvref_t<_ExecutionPolicy>,
+          enable_if_t<is_execution_policy_v<_RawPolicy>, int> = 0>
+_LIBCPP_HIDE_FROM_ABI __iter_diff_t<_ForwardIterator>
+count_if(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, _Predicate __pred) {
+  auto __res = std::__count_if(__policy, std::move(__first), std::move(__last), std::move(__pred));
+  if (!__res)
+    std::__throw_bad_alloc();
+  return *std::move(__res);
+}
+
 template <class>
 void __pstl_count(); // declaration needed for the frontend dispatch below
 
@@ -68,11 +84,12 @@ template <class _ExecutionPolicy,
           class _Tp,
           class _RawPolicy                                    = __remove_cvref_t<_ExecutionPolicy>,
           enable_if_t<is_execution_policy_v<_RawPolicy>, int> = 0>
-_LIBCPP_HIDE_FROM_ABI __iter_diff_t<_ForwardIterator>
-count(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI optional<__iter_diff_t<_ForwardIterator>>
+__count(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
   return std::__pstl_frontend_dispatch(
-      _LIBCPP_PSTL_CUSTOMIZATION_POINT(__pstl_count),
-      [&](_ForwardIterator __g_first, _ForwardIterator __g_last, const _Tp& __g_value) {
+      _LIBCPP_PSTL_CUSTOMIZATION_POINT(__pstl_count, _RawPolicy),
+      [&](_ForwardIterator __g_first, _ForwardIterator __g_last, const _Tp& __g_value)
+          -> optional<__iter_diff_t<_ForwardIterator>> {
         return std::count_if(__policy, __g_first, __g_last, [&](__iter_reference<_ForwardIterator> __v) {
           return __v == __g_value;
         });
@@ -82,8 +99,23 @@ count(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __
       __value);
 }
 
+template <class _ExecutionPolicy,
+          class _ForwardIterator,
+          class _Tp,
+          class _RawPolicy                                    = __remove_cvref_t<_ExecutionPolicy>,
+          enable_if_t<is_execution_policy_v<_RawPolicy>, int> = 0>
+_LIBCPP_HIDE_FROM_ABI __iter_diff_t<_ForwardIterator>
+count(_ExecutionPolicy&& __policy, _ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
+  auto __res = std::__count(__policy, std::move(__first), std::move(__last), __value);
+  if (!__res)
+    std::__throw_bad_alloc();
+  return *__res;
+}
+
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PSTL_COUNT_H

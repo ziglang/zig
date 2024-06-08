@@ -29,6 +29,7 @@ const os_has_fork = switch (native_os) {
     .illumos,
     .tvos,
     .watchos,
+    .visionos,
     .haiku,
     => true,
 

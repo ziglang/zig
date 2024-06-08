@@ -19,11 +19,11 @@
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS256                                                  \
   __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("avx512fp16, avx512vl"),                           \
+                 __target__("avx512fp16,avx512vl,no-evex512"),                 \
                  __min_vector_width__(256)))
 #define __DEFAULT_FN_ATTRS128                                                  \
   __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("avx512fp16, avx512vl"),                           \
+                 __target__("avx512fp16,avx512vl,no-evex512"),                 \
                  __min_vector_width__(128)))
 
 static __inline__ _Float16 __DEFAULT_FN_ATTRS128 _mm_cvtsh_h(__m128h __a) {

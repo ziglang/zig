@@ -16,7 +16,7 @@ const Allocator = mem.Allocator;
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
 
-pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) !void {
+pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -38,9 +38,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const is_lib = comp.config.output_mode == .Lib;

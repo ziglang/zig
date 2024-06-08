@@ -184,6 +184,10 @@ const llvm_targets = [_]LlvmTarget{
                 .flatten = true,
             },
             .{
+                .llvm_name = "apple-a17",
+                .flatten = true,
+            },
+            .{
                 .llvm_name = "apple-a7-sysreg",
                 .flatten = true,
             },
@@ -205,6 +209,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "cortex-x3",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "cortex-x4",
                 .flatten = true,
             },
             .{
@@ -255,6 +263,10 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "ampere1",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "ampere1b",
                 .flatten = true,
             },
         },
@@ -682,6 +694,10 @@ const llvm_targets = [_]LlvmTarget{
                 .zig_name = "v9_4a",
             },
             .{
+                .llvm_name = "armv9.5-a",
+                .zig_name = "v9_5a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -1090,7 +1106,7 @@ fn processOneTarget(job: Job) anyerror!void {
         }),
     };
 
-    const child_result = try std.ChildProcess.run(.{
+    const child_result = try std.process.Child.run(.{
         .allocator = arena,
         .argv = &child_args,
         .max_output_bytes = 400 * 1024 * 1024,

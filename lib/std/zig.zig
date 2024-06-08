@@ -718,7 +718,7 @@ pub const LazySrcLoc = union(enum) {
     /// where in semantic analysis the value got set.
     pub const TracedOffset = struct {
         x: i32,
-        trace: std.debug.Trace = .{},
+        trace: std.debug.Trace = std.debug.Trace.init,
 
         const want_tracing = false;
     };
@@ -1060,6 +1060,7 @@ pub const EnvVar = enum {
     ZIG_DEBUG_CMD,
     CC,
     NO_COLOR,
+    CLICOLOR_FORCE,
     XDG_CACHE_HOME,
     HOME,
 

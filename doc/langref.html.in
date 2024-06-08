@@ -315,6 +315,7 @@
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
           <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
+          <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -5056,7 +5057,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@wasmMemorySize#}
-      <pre>{#syntax#}@wasmMemorySize(index: u32) u32{#endsyntax#}</pre>
+      <pre>{#syntax#}@wasmMemorySize(index: u32) usize{#endsyntax#}</pre>
       <p>
       This function returns the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} as
       an unsigned value in units of Wasm pages. Note that each Wasm page is 64KB in size.
@@ -5070,7 +5071,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@wasmMemoryGrow#}
-      <pre>{#syntax#}@wasmMemoryGrow(index: u32, delta: u32) i32{#endsyntax#}</pre>
+      <pre>{#syntax#}@wasmMemoryGrow(index: u32, delta: usize) isize{#endsyntax#}</pre>
       <p>
       This function increases the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} by
       {#syntax#}delta{#endsyntax#} in units of unsigned number of Wasm pages. Note that each Wasm page

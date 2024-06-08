@@ -35,12 +35,7 @@
 #include <stdint.h>
 
 #include <arm_bf16.h>
-typedef float float32_t;
-typedef __fp16 float16_t;
-#ifdef __aarch64__
-typedef double float64_t;
-#endif
-
+#include <arm_vector_types.h>
 #ifdef __aarch64__
 typedef uint8_t poly8_t;
 typedef uint16_t poly16_t;
@@ -51,30 +46,6 @@ typedef int8_t poly8_t;
 typedef int16_t poly16_t;
 typedef int64_t poly64_t;
 #endif
-typedef __attribute__((neon_vector_type(8))) int8_t int8x8_t;
-typedef __attribute__((neon_vector_type(16))) int8_t int8x16_t;
-typedef __attribute__((neon_vector_type(4))) int16_t int16x4_t;
-typedef __attribute__((neon_vector_type(8))) int16_t int16x8_t;
-typedef __attribute__((neon_vector_type(2))) int32_t int32x2_t;
-typedef __attribute__((neon_vector_type(4))) int32_t int32x4_t;
-typedef __attribute__((neon_vector_type(1))) int64_t int64x1_t;
-typedef __attribute__((neon_vector_type(2))) int64_t int64x2_t;
-typedef __attribute__((neon_vector_type(8))) uint8_t uint8x8_t;
-typedef __attribute__((neon_vector_type(16))) uint8_t uint8x16_t;
-typedef __attribute__((neon_vector_type(4))) uint16_t uint16x4_t;
-typedef __attribute__((neon_vector_type(8))) uint16_t uint16x8_t;
-typedef __attribute__((neon_vector_type(2))) uint32_t uint32x2_t;
-typedef __attribute__((neon_vector_type(4))) uint32_t uint32x4_t;
-typedef __attribute__((neon_vector_type(1))) uint64_t uint64x1_t;
-typedef __attribute__((neon_vector_type(2))) uint64_t uint64x2_t;
-typedef __attribute__((neon_vector_type(4))) float16_t float16x4_t;
-typedef __attribute__((neon_vector_type(8))) float16_t float16x8_t;
-typedef __attribute__((neon_vector_type(2))) float32_t float32x2_t;
-typedef __attribute__((neon_vector_type(4))) float32_t float32x4_t;
-#ifdef __aarch64__
-typedef __attribute__((neon_vector_type(1))) float64_t float64x1_t;
-typedef __attribute__((neon_vector_type(2))) float64_t float64x2_t;
-#endif
 typedef __attribute__((neon_polyvector_type(8))) poly8_t poly8x8_t;
 typedef __attribute__((neon_polyvector_type(16))) poly8_t poly8x16_t;
 typedef __attribute__((neon_polyvector_type(4))) poly16_t poly16x4_t;
@@ -82,96 +53,6 @@ typedef __attribute__((neon_polyvector_type(8))) poly16_t poly16x8_t;
 typedef __attribute__((neon_polyvector_type(1))) poly64_t poly64x1_t;
 typedef __attribute__((neon_polyvector_type(2))) poly64_t poly64x2_t;
 
-typedef struct int8x8x2_t {
-  int8x8_t val[2];
-} int8x8x2_t;
-
-typedef struct int8x16x2_t {
-  int8x16_t val[2];
-} int8x16x2_t;
-
-typedef struct int16x4x2_t {
-  int16x4_t val[2];
-} int16x4x2_t;
-
-typedef struct int16x8x2_t {
-  int16x8_t val[2];
-} int16x8x2_t;
-
-typedef struct int32x2x2_t {
-  int32x2_t val[2];
-} int32x2x2_t;
-
-typedef struct int32x4x2_t {
-  int32x4_t val[2];
-} int32x4x2_t;
-
-typedef struct int64x1x2_t {
-  int64x1_t val[2];
-} int64x1x2_t;
-
-typedef struct int64x2x2_t {
-  int64x2_t val[2];
-} int64x2x2_t;
-
-typedef struct uint8x8x2_t {
-  uint8x8_t val[2];
-} uint8x8x2_t;
-
-typedef struct uint8x16x2_t {
-  uint8x16_t val[2];
-} uint8x16x2_t;
-
-typedef struct uint16x4x2_t {
-  uint16x4_t val[2];
-} uint16x4x2_t;
-
-typedef struct uint16x8x2_t {
-  uint16x8_t val[2];
-} uint16x8x2_t;
-
-typedef struct uint32x2x2_t {
-  uint32x2_t val[2];
-} uint32x2x2_t;
-
-typedef struct uint32x4x2_t {
-  uint32x4_t val[2];
-} uint32x4x2_t;
-
-typedef struct uint64x1x2_t {
-  uint64x1_t val[2];
-} uint64x1x2_t;
-
-typedef struct uint64x2x2_t {
-  uint64x2_t val[2];
-} uint64x2x2_t;
-
-typedef struct float16x4x2_t {
-  float16x4_t val[2];
-} float16x4x2_t;
-
-typedef struct float16x8x2_t {
-  float16x8_t val[2];
-} float16x8x2_t;
-
-typedef struct float32x2x2_t {
-  float32x2_t val[2];
-} float32x2x2_t;
-
-typedef struct float32x4x2_t {
-  float32x4_t val[2];
-} float32x4x2_t;
-
-#ifdef __aarch64__
-typedef struct float64x1x2_t {
-  float64x1_t val[2];
-} float64x1x2_t;
-
-typedef struct float64x2x2_t {
-  float64x2_t val[2];
-} float64x2x2_t;
-
-#endif
 typedef struct poly8x8x2_t {
   poly8x8_t val[2];
 } poly8x8x2_t;
@@ -196,96 +77,6 @@ typedef struct poly64x2x2_t {
   poly64x2_t val[2];
 } poly64x2x2_t;
 
-typedef struct int8x8x3_t {
-  int8x8_t val[3];
-} int8x8x3_t;
-
-typedef struct int8x16x3_t {
-  int8x16_t val[3];
-} int8x16x3_t;
-
-typedef struct int16x4x3_t {
-  int16x4_t val[3];
-} int16x4x3_t;
-
-typedef struct int16x8x3_t {
-  int16x8_t val[3];
-} int16x8x3_t;
-
-typedef struct int32x2x3_t {
-  int32x2_t val[3];
-} int32x2x3_t;
-
-typedef struct int32x4x3_t {
-  int32x4_t val[3];
-} int32x4x3_t;
-
-typedef struct int64x1x3_t {
-  int64x1_t val[3];
-} int64x1x3_t;
-
-typedef struct int64x2x3_t {
-  int64x2_t val[3];
-} int64x2x3_t;
-
-typedef struct uint8x8x3_t {
-  uint8x8_t val[3];
-} uint8x8x3_t;
-
-typedef struct uint8x16x3_t {
-  uint8x16_t val[3];
-} uint8x16x3_t;
-
-typedef struct uint16x4x3_t {
-  uint16x4_t val[3];
-} uint16x4x3_t;
-
-typedef struct uint16x8x3_t {
-  uint16x8_t val[3];
-} uint16x8x3_t;
-
-typedef struct uint32x2x3_t {
-  uint32x2_t val[3];
-} uint32x2x3_t;
-
-typedef struct uint32x4x3_t {
-  uint32x4_t val[3];
-} uint32x4x3_t;
-
-typedef struct uint64x1x3_t {
-  uint64x1_t val[3];
-} uint64x1x3_t;
-
-typedef struct uint64x2x3_t {
-  uint64x2_t val[3];
-} uint64x2x3_t;
-
-typedef struct float16x4x3_t {
-  float16x4_t val[3];
-} float16x4x3_t;
-
-typedef struct float16x8x3_t {
-  float16x8_t val[3];
-} float16x8x3_t;
-
-typedef struct float32x2x3_t {
-  float32x2_t val[3];
-} float32x2x3_t;
-
-typedef struct float32x4x3_t {
-  float32x4_t val[3];
-} float32x4x3_t;
-
-#ifdef __aarch64__
-typedef struct float64x1x3_t {
-  float64x1_t val[3];
-} float64x1x3_t;
-
-typedef struct float64x2x3_t {
-  float64x2_t val[3];
-} float64x2x3_t;
-
-#endif
 typedef struct poly8x8x3_t {
   poly8x8_t val[3];
 } poly8x8x3_t;
@@ -310,96 +101,6 @@ typedef struct poly64x2x3_t {
   poly64x2_t val[3];
 } poly64x2x3_t;
 
-typedef struct int8x8x4_t {
-  int8x8_t val[4];
-} int8x8x4_t;
-
-typedef struct int8x16x4_t {
-  int8x16_t val[4];
-} int8x16x4_t;
-
-typedef struct int16x4x4_t {
-  int16x4_t val[4];
-} int16x4x4_t;
-
-typedef struct int16x8x4_t {
-  int16x8_t val[4];
-} int16x8x4_t;
-
-typedef struct int32x2x4_t {
-  int32x2_t val[4];
-} int32x2x4_t;
-
-typedef struct int32x4x4_t {
-  int32x4_t val[4];
-} int32x4x4_t;
-
-typedef struct int64x1x4_t {
-  int64x1_t val[4];
-} int64x1x4_t;
-
-typedef struct int64x2x4_t {
-  int64x2_t val[4];
-} int64x2x4_t;
-
-typedef struct uint8x8x4_t {
-  uint8x8_t val[4];
-} uint8x8x4_t;
-
-typedef struct uint8x16x4_t {
-  uint8x16_t val[4];
-} uint8x16x4_t;
-
-typedef struct uint16x4x4_t {
-  uint16x4_t val[4];
-} uint16x4x4_t;
-
-typedef struct uint16x8x4_t {
-  uint16x8_t val[4];
-} uint16x8x4_t;
-
-typedef struct uint32x2x4_t {
-  uint32x2_t val[4];
-} uint32x2x4_t;
-
-typedef struct uint32x4x4_t {
-  uint32x4_t val[4];
-} uint32x4x4_t;
-
-typedef struct uint64x1x4_t {
-  uint64x1_t val[4];
-} uint64x1x4_t;
-
-typedef struct uint64x2x4_t {
-  uint64x2_t val[4];
-} uint64x2x4_t;
-
-typedef struct float16x4x4_t {
-  float16x4_t val[4];
-} float16x4x4_t;
-
-typedef struct float16x8x4_t {
-  float16x8_t val[4];
-} float16x8x4_t;
-
-typedef struct float32x2x4_t {
-  float32x2_t val[4];
-} float32x2x4_t;
-
-typedef struct float32x4x4_t {
-  float32x4_t val[4];
-} float32x4x4_t;
-
-#ifdef __aarch64__
-typedef struct float64x1x4_t {
-  float64x1_t val[4];
-} float64x1x4_t;
-
-typedef struct float64x2x4_t {
-  float64x2_t val[4];
-} float64x2x4_t;
-
-#endif
 typedef struct poly8x8x4_t {
   poly8x8_t val[4];
 } poly8x8x4_t;
@@ -423,33 +124,6 @@ typedef struct poly64x1x4_t {
 typedef struct poly64x2x4_t {
   poly64x2_t val[4];
 } poly64x2x4_t;
-
-typedef __attribute__((neon_vector_type(4))) bfloat16_t bfloat16x4_t;
-typedef __attribute__((neon_vector_type(8))) bfloat16_t bfloat16x8_t;
-
-typedef struct bfloat16x4x2_t {
-  bfloat16x4_t val[2];
-} bfloat16x4x2_t;
-
-typedef struct bfloat16x8x2_t {
-  bfloat16x8_t val[2];
-} bfloat16x8x2_t;
-
-typedef struct bfloat16x4x3_t {
-  bfloat16x4_t val[3];
-} bfloat16x4x3_t;
-
-typedef struct bfloat16x8x3_t {
-  bfloat16x8_t val[3];
-} bfloat16x8x3_t;
-
-typedef struct bfloat16x4x4_t {
-  bfloat16x4_t val[4];
-} bfloat16x4x4_t;
-
-typedef struct bfloat16x8x4_t {
-  bfloat16x8_t val[4];
-} bfloat16x8x4_t;
 
 #define __ai static __inline__ __attribute__((__always_inline__, __nodebug__))
 
@@ -66601,6 +66275,27 @@ __ai __attribute__((target("v8.5a"))) float32x2_t vrnd32x_f32(float32x2_t __p0) 
 #endif
 
 #ifdef __LITTLE_ENDIAN__
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd32xq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  __ret = (float64x2_t) __builtin_neon_vrnd32xq_f64((int8x16_t)__p0, 42);
+  return __ret;
+}
+#else
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd32xq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  float64x2_t __rev0;  __rev0 = __builtin_shufflevector(__p0, __p0, 1, 0);
+  __ret = (float64x2_t) __builtin_neon_vrnd32xq_f64((int8x16_t)__rev0, 42);
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0);
+  return __ret;
+}
+#endif
+
+__ai __attribute__((target("v8.5a"))) float64x1_t vrnd32x_f64(float64x1_t __p0) {
+  float64x1_t __ret;
+  __ret = (float64x1_t) __builtin_neon_vrnd32x_f64((int8x8_t)__p0, 10);
+  return __ret;
+}
+#ifdef __LITTLE_ENDIAN__
 __ai __attribute__((target("v8.5a"))) float32x4_t vrnd32zq_f32(float32x4_t __p0) {
   float32x4_t __ret;
   __ret = (float32x4_t) __builtin_neon_vrnd32zq_f32((int8x16_t)__p0, 41);
@@ -66632,6 +66327,27 @@ __ai __attribute__((target("v8.5a"))) float32x2_t vrnd32z_f32(float32x2_t __p0) 
 }
 #endif
 
+#ifdef __LITTLE_ENDIAN__
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd32zq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  __ret = (float64x2_t) __builtin_neon_vrnd32zq_f64((int8x16_t)__p0, 42);
+  return __ret;
+}
+#else
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd32zq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  float64x2_t __rev0;  __rev0 = __builtin_shufflevector(__p0, __p0, 1, 0);
+  __ret = (float64x2_t) __builtin_neon_vrnd32zq_f64((int8x16_t)__rev0, 42);
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0);
+  return __ret;
+}
+#endif
+
+__ai __attribute__((target("v8.5a"))) float64x1_t vrnd32z_f64(float64x1_t __p0) {
+  float64x1_t __ret;
+  __ret = (float64x1_t) __builtin_neon_vrnd32z_f64((int8x8_t)__p0, 10);
+  return __ret;
+}
 #ifdef __LITTLE_ENDIAN__
 __ai __attribute__((target("v8.5a"))) float32x4_t vrnd64xq_f32(float32x4_t __p0) {
   float32x4_t __ret;
@@ -66665,6 +66381,27 @@ __ai __attribute__((target("v8.5a"))) float32x2_t vrnd64x_f32(float32x2_t __p0) 
 #endif
 
 #ifdef __LITTLE_ENDIAN__
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd64xq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  __ret = (float64x2_t) __builtin_neon_vrnd64xq_f64((int8x16_t)__p0, 42);
+  return __ret;
+}
+#else
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd64xq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  float64x2_t __rev0;  __rev0 = __builtin_shufflevector(__p0, __p0, 1, 0);
+  __ret = (float64x2_t) __builtin_neon_vrnd64xq_f64((int8x16_t)__rev0, 42);
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0);
+  return __ret;
+}
+#endif
+
+__ai __attribute__((target("v8.5a"))) float64x1_t vrnd64x_f64(float64x1_t __p0) {
+  float64x1_t __ret;
+  __ret = (float64x1_t) __builtin_neon_vrnd64x_f64((int8x8_t)__p0, 10);
+  return __ret;
+}
+#ifdef __LITTLE_ENDIAN__
 __ai __attribute__((target("v8.5a"))) float32x4_t vrnd64zq_f32(float32x4_t __p0) {
   float32x4_t __ret;
   __ret = (float32x4_t) __builtin_neon_vrnd64zq_f32((int8x16_t)__p0, 41);
@@ -66696,6 +66433,27 @@ __ai __attribute__((target("v8.5a"))) float32x2_t vrnd64z_f32(float32x2_t __p0) 
 }
 #endif
 
+#ifdef __LITTLE_ENDIAN__
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd64zq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  __ret = (float64x2_t) __builtin_neon_vrnd64zq_f64((int8x16_t)__p0, 42);
+  return __ret;
+}
+#else
+__ai __attribute__((target("v8.5a"))) float64x2_t vrnd64zq_f64(float64x2_t __p0) {
+  float64x2_t __ret;
+  float64x2_t __rev0;  __rev0 = __builtin_shufflevector(__p0, __p0, 1, 0);
+  __ret = (float64x2_t) __builtin_neon_vrnd64zq_f64((int8x16_t)__rev0, 42);
+  __ret = __builtin_shufflevector(__ret, __ret, 1, 0);
+  return __ret;
+}
+#endif
+
+__ai __attribute__((target("v8.5a"))) float64x1_t vrnd64z_f64(float64x1_t __p0) {
+  float64x1_t __ret;
+  __ret = (float64x1_t) __builtin_neon_vrnd64z_f64((int8x8_t)__p0, 10);
+  return __ret;
+}
 #endif
 #if defined(__aarch64__) && defined(__ARM_FEATURE_DIRECTED_ROUNDING)
 #ifdef __LITTLE_ENDIAN__

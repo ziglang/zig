@@ -14,7 +14,9 @@ fn add(a: i8, b: i8) i8 {
 
 // The export specifier makes a function externally visible in the generated
 // object file, and makes it use the C ABI.
-export fn sub(a: i8, b: i8) i8 { return a - b; }
+export fn sub(a: i8, b: i8) i8 {
+    return a - b;
+}
 
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
@@ -39,13 +41,15 @@ fn _start() callconv(.Naked) noreturn {
 
 // The inline calling convention forces a function to be inlined at all call sites.
 // If the function cannot be inlined, it is a compile-time error.
-fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
+inline fn shiftLeftOne(a: u32) u32 {
     return a << 1;
 }
 
 // The pub specifier allows the function to be visible when importing.
 // Another file can use @import and call sub2
-pub fn sub2(a: i8, b: i8) i8 { return a - b; }
+pub fn sub2(a: i8, b: i8) i8 {
+    return a - b;
+}
 
 // Function pointers are prefixed with `*const `.
 const Call2Op = *const fn (a: i8, b: i8) i8;

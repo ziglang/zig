@@ -164,6 +164,9 @@
         .dependencyFromBuildZig = .{
             .path = "dependencyFromBuildZig",
         },
+        .run_output_paths = .{
+            .path = "run_output_paths",
+        },
     },
     .paths = .{
         "build.zig",

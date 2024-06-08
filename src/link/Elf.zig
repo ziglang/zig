@@ -1064,7 +1064,7 @@ pub fn markDirty(self: *Elf, shdr_index: u32) void {
     }
 }
 
-pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
         return self.linkWithLLD(arena, prog_node);
@@ -1072,7 +1072,7 @@ pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.F
     try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1085,8 +1085,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         if (use_lld) return;
     }
 
-    var sub_prog_node = prog_node.start("ELF Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
     const target = comp.root_mod.resolved_target.result;
@@ -2147,7 +2146,7 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
-fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2169,9 +2168,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const output_mode = comp.config.output_mode;
@@ -5100,9 +5097,9 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
         .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
-        .aarch64_be => return "aarch64_be_linux",
+        .aarch64_be => return "aarch64linuxb",
         .arm, .thumb => return "armelf_linux_eabi",
-        .armeb, .thumbeb => return "armebelf_linux_eabi",
+        .armeb, .thumbeb => return "armelfb_linux_eabi",
         .powerpc => return "elf32ppclinux",
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
@@ -6409,6 +6406,8 @@ const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 // TODO: add comptime check we don't clobber any reloc for any ISA
 pub const R_ZIG_GOT32: u32 = 0xff00;
 pub const R_ZIG_GOTPCREL: u32 = 0xff01;
+pub const R_ZIG_GOT_HI20: u32 = 0xff02;
+pub const R_ZIG_GOT_LO12: u32 = 0xff03;
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {

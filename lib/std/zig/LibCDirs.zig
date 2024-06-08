@@ -222,7 +222,7 @@ pub fn detectFromBuilding(
 fn libCGenericName(target: std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
-        .macos, .ios, .tvos, .watchos => return "darwin",
+        .macos, .ios, .tvos, .watchos, .visionos => return "darwin",
         else => {},
     }
     switch (target.abi) {
@@ -242,6 +242,7 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .musleabihf,
         .muslx32,
         .none,
+        .ohos,
         => return "musl",
         .code16,
         .eabi,

@@ -1,7 +1,7 @@
 const std = @import("std");
 const expect = std.testing.expect;
 
-const Point = struct {x: i32, y: i32};
+const Point = struct { x: i32, y: i32 };
 
 test "anonymous struct literal" {
     const pt: Point = .{

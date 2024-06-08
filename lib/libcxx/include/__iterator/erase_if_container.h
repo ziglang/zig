@@ -22,9 +22,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Container, class _Predicate>
-_LIBCPP_HIDE_FROM_ABI
-typename _Container::size_type
-__libcpp_erase_if_container(_Container& __c, _Predicate& __pred) {
+_LIBCPP_HIDE_FROM_ABI typename _Container::size_type __libcpp_erase_if_container(_Container& __c, _Predicate& __pred) {
   typename _Container::size_type __old_size = __c.size();
 
   const typename _Container::iterator __last = __c.end();
