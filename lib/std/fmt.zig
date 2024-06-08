@@ -1570,7 +1570,8 @@ test parseInt {
     try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
-fn parseIntWithSign(
+/// Like `parseIntWithGenericCharacter`, but with a sign argument.
+pub fn parseIntWithSign(
     comptime Result: type,
     comptime Character: type,
     buf: []const Character,

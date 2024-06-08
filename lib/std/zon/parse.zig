@@ -2338,15 +2338,12 @@ fn applySignToInt(self: @This(), comptime T: type, node: NodeIndex, int: anytype
         switch (@typeInfo(T)) {
             .Int => |int_type| switch (int_type.signedness) {
                 .signed => {
-                    const Positive = @Type(.{ .Int = .{
-                        .bits = int_type.bits + 1,
-                        .signedness = .signed,
-                    } });
-                    if (int > std.math.maxInt(T) + 1) {
-                        return self.failCannotRepresent(T, node);
+                    const In = @TypeOf(int);
+                    if (std.math.maxInt(In) > std.math.maxInt(T) and int == @as(In, std.math.maxInt(T)) + 1) {
+                        return std.math.minInt(T);
                     }
-                    const positive: Positive = @intCast(int);
-                    return @as(T, @intCast(-positive));
+
+                    return -(std.math.cast(T, int) orelse return self.failCannotRepresent(T, node));
                 },
                 .unsigned => return self.failCannotRepresent(T, node),
             },
@@ -2371,7 +2368,7 @@ fn parseBigNumber(
 ) error{Type}!T {
     switch (@typeInfo(T)) {
         .Int => return self.parseBigInt(T, node, base),
-        // TODO: passing in f128 to work around possible float parsing bug
+        // XXX: passing in f128 to work around possible float parsing bug
         .Float => {
             const result = @as(T, @floatCast(try self.parseFloat(f128, node)));
             if (std.math.isNegativeZero(result)) {
@@ -2387,23 +2384,16 @@ fn parseBigInt(self: @This(), comptime T: type, node: NodeIndex, base: Base) err
     const num_lit_node = self.numLitNode(node);
     const main_tokens = self.ast.nodes.items(.main_token);
     const num_lit_token = main_tokens[num_lit_node];
-    const bytes = self.ast.tokenSlice(num_lit_token);
-    const prefix_offset = @as(u8, 2) * @intFromBool(base != .decimal);
-    var result: T = 0;
-    for (bytes[prefix_offset..]) |char| {
-        if (char == '_') continue;
-        const d = std.fmt.charToDigit(char, @intFromEnum(base)) catch unreachable; // Already validated
-        result = std.math.mul(T, result, @as(T, @intCast(@intFromEnum(base)))) catch
-            return self.failCannotRepresent(T, node);
-        if (self.isNegative(node)) {
-            result = std.math.sub(T, result, @as(T, @intCast(d))) catch
-                return self.failCannotRepresent(T, node);
-        } else {
-            result = std.math.add(T, result, @as(T, @intCast(d))) catch
-                return self.failCannotRepresent(T, node);
-        }
-    }
-    return result;
+    const prefix_offset: usize = if (base == .decimal) 0 else 2;
+    const bytes = self.ast.tokenSlice(num_lit_token)[prefix_offset..];
+    const result = if (self.isNegative(node))
+        std.fmt.parseIntWithSign(T, u8, bytes, @intFromEnum(base), .neg)
+    else
+        std.fmt.parseIntWithSign(T, u8, bytes, @intFromEnum(base), .pos);
+    return result catch |err| switch (err) {
+        error.InvalidCharacter => unreachable,
+        error.Overflow => return self.failCannotRepresent(T, node),
+    };
 }
 
 fn parseFloat(
