@@ -87,6 +87,51 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
+        /// Add self by a number rotated by the imaginary unit.
+        pub fn iadd(self: Self, other: anytype) Self {
+            return if (Self == @TypeOf(other)) .{
+                .re = self.re - other.im,
+                .im = self.im + other.re,
+            } else .{
+                .re = self.re,
+                .im = self.im + other,
+            };
+        }
+
+        /// Subtract self by a number rotated by the imaginary unit.
+        pub fn isub(self: Self, other: anytype) Self {
+            return if (Self == @TypeOf(other)) .{
+                .re = self.re + other.im,
+                .im = self.im - other.re,
+            } else .{
+                .re = self.re,
+                .im = self.im - other,
+            };
+        }
+
+        /// Multiply self by a number rotated by the imaginary unit.
+        pub fn imul(self: Self, other: anytype) Self {
+            return if (Self == @TypeOf(other)) .{
+                .re = -(self.im * other.re + self.re * other.im),
+                .im = self.re * other.re - self.im * other.im,
+            } else .{
+                .re = -self.im * other,
+                .im = self.re * other,
+            };
+        }
+
+        /// Divide self by a number rotated by the imaginary unit.
+        pub fn idiv(self: Self, other: anytype) Self {
+            const abs2 = if (Self == @TypeOf(other)) other.re * other.re + other.im * other.im else other;
+            return if (Self == @TypeOf(other)) .{
+                .re = (self.im * other.re - self.re * other.im) / abs2,
+                .im = -(self.re * other.re + self.im * other.im) / abs2,
+            } else .{
+                .re = self.im / other,
+                .im = -self.re / other,
+            };
+        }
+
         /// Returns the complex conjugate of a number.
         pub fn conjugate(self: Self) Self {
             return Self{
@@ -100,14 +145,6 @@ pub fn Complex(comptime T: type) type {
             return Self{
                 .re = -self.re,
                 .im = -self.im,
-            };
-        }
-
-        /// Returns the product of complex number and i=sqrt(-1)
-        pub fn mulbyi(self: Self) Self {
-            return Self{
-                .re = -self.im,
-                .im = self.re,
             };
         }
 
@@ -167,6 +204,44 @@ test "div" {
         math.approxEqAbs(f32, d.im, @as(f32, -29) / 106, epsilon));
 }
 
+test iadd {
+    const a = Complex(f32).init(5, 3);
+    const b = Complex(f32).init(2, 7);
+    const c = a.iadd(b);
+    const d = c.iadd(1);
+    try testing.expect(c.re == -2 and c.im == 5);
+    try testing.expect(d.re == -2 and d.im == 6);
+}
+
+test isub {
+    const a = Complex(f32).init(5, 3);
+    const b = Complex(f32).init(2, 7);
+    const c = a.isub(b);
+    const d = c.isub(1);
+    try testing.expect(c.re == 12 and c.im == 1);
+    try testing.expect(d.re == 12 and d.im == 0);
+}
+
+test imul {
+    const a = Complex(f32).init(5, 3);
+    const b = Complex(f32).init(2, 7);
+    const c = a.imul(b);
+    const d = c.imul(2);
+    try testing.expect(c.re == -41 and c.im == -11);
+    try testing.expect(d.re == 22 and d.im == -82);
+}
+
+test idiv {
+    const a = Complex(f32).init(5, 3);
+    const b = Complex(f32).init(2, 7);
+    const c = a.idiv(b);
+    const d = c.idiv(2);
+    try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, -29) / 53, epsilon) and
+        math.approxEqAbs(f32, c.im, @as(f32, -31) / 53, epsilon));
+    try testing.expect(math.approxEqAbs(f32, d.re, @as(f32, -31) / 106, epsilon) and
+        math.approxEqAbs(f32, d.im, @as(f32, 29) / 106, epsilon));
+}
+
 test "conjugate" {
     const a = Complex(f32).init(5, 3);
     const c = a.conjugate();
@@ -179,13 +254,6 @@ test "neg" {
     const c = a.neg();
 
     try testing.expect(c.re == -5 and c.im == -3);
-}
-
-test "mulbyi" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.mulbyi();
-
-    try testing.expect(c.re == -3 and c.im == 5);
 }
 
 test "reciprocal" {
