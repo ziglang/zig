@@ -204,7 +204,7 @@ test "div" {
         math.approxEqAbs(f32, d.im, @as(f32, -29) / 106, epsilon));
 }
 
-test iadd {
+test "iadd" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.iadd(b);
@@ -213,7 +213,7 @@ test iadd {
     try testing.expect(d.re == -2 and d.im == 6);
 }
 
-test isub {
+test "isub" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.isub(b);
@@ -222,7 +222,7 @@ test isub {
     try testing.expect(d.re == 12 and d.im == 0);
 }
 
-test imul {
+test "imul" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.imul(b);
@@ -231,7 +231,7 @@ test imul {
     try testing.expect(d.re == 22 and d.im == -82);
 }
 
-test idiv {
+test "idiv" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.idiv(b);
