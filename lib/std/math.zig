@@ -4,6 +4,7 @@ const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Int = std.meta.Int;
 
 /// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
@@ -107,7 +108,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the number of representable intervals (gaps) between them is
-/// less or equal than the specified count.
+/// less or equal than the specified unit of least precision (ulp).
 ///
 /// For example, two numbers with three representable values (points)
 /// between them are four intervals (gaps) apart from each other, i.e.
@@ -130,10 +131,9 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 /// ```
 ///
 /// NaN values are never equal to any value, including themselves.
-pub fn approxEqUlp(comptime T: type, x: T, y: T, ulp: comptime_int) bool {
+pub fn approxEqUlp(comptime T: type, x: T, y: T, ulp: Int(.unsigned, @bitSizeOf(T))) bool {
     if (.Float != @typeInfo(T)) @compileError("T must be float.");
     if (f80 == T) @compileError("f80 not implemented.");
-    if (ulp < 0) @compileError("ulp must not be negative.");
     if (ulp == 0) return x == y;
 
     const U = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
