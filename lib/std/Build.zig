@@ -1286,11 +1286,14 @@ pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
 }
 
 pub const StandardOptimizeOptionOptions = struct {
-    preferred_optimize_mode: ?std.builtin.OptimizeMode = null,
+    /// When set, this option causes the standard optimize option to change to a simple boolean flag, `-Drelease`,
+    /// choosing between Debug mode and the mode given here.
+    /// Note that this does not change the default optimization mode.
+    preferred_release_mode: ?std.builtin.OptimizeMode = null,
 };
 
 pub fn standardOptimizeOption(b: *Build, options: StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
-    if (options.preferred_optimize_mode) |mode| {
+    if (options.preferred_release_mode) |mode| {
         if (b.option(bool, "release", "optimize for end users") orelse (b.release_mode != .off)) {
             return mode;
         } else {
