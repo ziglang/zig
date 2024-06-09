@@ -219,21 +219,30 @@ pub fn log(
 /// Simpler main(), exercising fewer language features, so that
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
-    const enable_print = true;
-    const print_all = true;
-    const print_summary = false;
+    // is the backend capable of printing to stderr?
+    const enable_print = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
+        else => false,
+    };
+    // is the backend capable of using std.fmt.format to print a summary at the end?
+    const print_summary = switch (builtin.zig_backend) {
+        else => false,
+    };
 
     var passed: u64 = 0;
     var skipped: u64 = 0;
     var failed: u64 = 0;
-    const stderr = if (enable_print) std.io.getStdErr() else {};
+
+    // we don't want to bring in File and Writer if the backend doesn't support it
+    const stderr = if (comptime enable_print) std.io.getStdErr() else {};
+
     for (builtin.test_functions) |test_fn| {
-        if (enable_print and print_all) {
+        if (enable_print) {
             stderr.writeAll(test_fn.name) catch {};
             stderr.writeAll("... ") catch {};
         }
         test_fn.func() catch |err| {
-            if (enable_print and !print_all) {
+            if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
             }
@@ -247,10 +256,10 @@ pub fn mainSimple() anyerror!void {
             skipped += 1;
             continue;
         };
-        if (enable_print and print_all) stderr.writeAll("PASS\n") catch {};
+        if (enable_print) stderr.writeAll("PASS\n") catch {};
         passed += 1;
     }
-    if (print_summary) {
+    if (enable_print and print_summary) {
         stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
