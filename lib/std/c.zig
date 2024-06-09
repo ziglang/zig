@@ -1,4 +1,5 @@
 const std = @import("std");
+const root = @import("root");
 const builtin = @import("builtin");
 const c = @This();
 const page_size = std.mem.page_size;
@@ -32,7 +33,9 @@ pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
     };
 }
 
-pub usingnamespace switch (native_os) {
+pub usingnamespace if (@hasDecl(root, "os") and @hasDecl(root.os, "c") and @hasDecl(root.os.c, "os"))
+    root.os.c.os
+else switch (native_os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macos, .ios, .tvos, .watchos, .visionos => @import("c/darwin.zig"),
@@ -47,7 +50,9 @@ pub usingnamespace switch (native_os) {
     else => struct {},
 };
 
-pub const pthread_mutex_t = switch (native_os) {
+pub const pthread_mutex_t = if (@hasDecl(root, "os") and @hasDecl(root.os, "c") and @hasDecl(root.os.c, "pthread_mutex_t"))
+    root.os.c.pthread_mutex_t
+else switch (native_os) {
     .linux, .minix => extern struct {
         data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
 
@@ -208,7 +213,9 @@ pub const pthread_rwlock_t = switch (native_os) {
     else => @compileError("target libc does not have pthread_rwlock_t"),
 };
 
-pub const AT = switch (native_os) {
+pub const AT = if (@hasDecl(root, "os") and @hasDecl(root.os, "c") and @hasDecl(root.os.c, "AT"))
+    root.os.c.AT
+else switch (native_os) {
     .linux => linux.AT,
     .windows => struct {
         /// Remove directory instead of unlinking file
@@ -326,7 +333,9 @@ pub const AT = switch (native_os) {
     else => @compileError("target libc does not have AT"),
 };
 
-pub const O = switch (native_os) {
+pub const O = if (@hasDecl(root, "os") and @hasDecl(root.os, "c") and @hasDecl(root.os.c, "O"))
+    root.os.c.O
+else switch (native_os) {
     .linux => linux.O,
     .emscripten => packed struct(u32) {
         ACCMODE: std.posix.ACCMODE = .RDONLY,
