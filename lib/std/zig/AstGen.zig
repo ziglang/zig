@@ -2728,8 +2728,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .union_init,
             .field_type_ref,
             .error_set_decl,
-            .error_set_decl_anon,
-            .error_set_decl_func,
             .enum_from_int,
             .int_from_enum,
             .type_info,
