@@ -2002,6 +2002,7 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
+    termios_p.* =  std.mem.zeroes(termios);
     return syscall3(.ioctl, @as(usize, @bitCast(@as(isize, fd))), T.CGETS, @intFromPtr(termios_p));
 }
 
