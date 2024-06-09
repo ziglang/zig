@@ -1,6 +1,6 @@
 /* Set flags signalling availability of kernel features based on given
    kernel version number.
-   Copyright (C) 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1999-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -46,7 +46,7 @@
 #define __ASSUME_STATFS64	1
 
 /* pselect/ppoll were introduced just after 2.6.16-rc1.  On x86_64 and
-   SH this appeared first in 2.6.19-rc1, on ia64 in 2.6.22-rc1.  */
+   SH this appeared first in 2.6.19-rc1.  */
 #define __ASSUME_PSELECT	1
 
 /* Support for inter-process robust mutexes was added in 2.6.17 (but
@@ -146,8 +146,6 @@
 		      unsigned long tls)
 
    The fourth variant is intended to be used as the default for newer ports,
-   Also IA64 uses the third variant but with __NR_clone2 instead of
-   __NR_clone.
 
    The macros names to define the variant used for the architecture is
    similar to kernel:
@@ -156,7 +154,6 @@
    - __ASSUME_CLONE_BACKWARDS2: for variant 2 (s390).
    - __ASSUME_CLONE_BACKWARDS3: for variant 3 (microblaze).
    - __ASSUME_CLONE_DEFAULT: for variant 4.
-   - __ASSUME_CLONE2: for clone2 with variant 3 (ia64).
    */
 
 #define __ASSUME_CLONE_DEFAULT 1
@@ -250,6 +247,14 @@
 # define __ASSUME_CLONE3 1
 #else
 # define __ASSUME_CLONE3 0
+#endif
+
+/* The fchmodat2 system call was introduced across all architectures
+   in Linux 6.6.  */
+#if __LINUX_KERNEL_VERSION >= 0x060600
+# define __ASSUME_FCHMODAT2 1
+#else
+# define __ASSUME_FCHMODAT2 0
 #endif
 
 #endif /* kernel-features.h */

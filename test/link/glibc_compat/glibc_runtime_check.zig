@@ -91,7 +91,7 @@ fn checkStrlcpy() !void {
 fn checkStrlcpy_v2_38() !void {
     var buf: [99]u8 = undefined;
     const used = c_string.strlcpy(&buf, "strlcpy works!", buf.len);
-    assert(used == 15);
+    assert(used == 14);
 }
 
 // atexit is part of libc_nonshared, so ensure its linked in correctly

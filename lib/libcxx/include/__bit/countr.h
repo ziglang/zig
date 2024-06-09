@@ -23,14 +23,17 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-int __libcpp_ctz(unsigned __x)           _NOEXCEPT { return __builtin_ctz(__x); }
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_ctz(unsigned __x) _NOEXCEPT {
+  return __builtin_ctz(__x);
+}
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-int __libcpp_ctz(unsigned long __x)      _NOEXCEPT { return __builtin_ctzl(__x); }
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_ctz(unsigned long __x) _NOEXCEPT {
+  return __builtin_ctzl(__x);
+}
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-int __libcpp_ctz(unsigned long long __x) _NOEXCEPT { return __builtin_ctzll(__x); }
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR int __libcpp_ctz(unsigned long long __x) _NOEXCEPT {
+  return __builtin_ctzll(__x);
+}
 
 #if _LIBCPP_STD_VER >= 20
 
@@ -46,7 +49,7 @@ _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr int countr_zero(_Tp __t) n
   else if (sizeof(_Tp) <= sizeof(unsigned long long))
     return std::__libcpp_ctz(static_cast<unsigned long long>(__t));
   else {
-    int __ret = 0;
+    int __ret                      = 0;
     const unsigned int __ulldigits = numeric_limits<unsigned long long>::digits;
     while (static_cast<unsigned long long>(__t) == 0uLL) {
       __ret += __ulldigits;

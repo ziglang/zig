@@ -160,6 +160,11 @@ const glibc_targets = [_]LibCTarget{
         .abi = MultiAbi{ .specific = Abi.gnueabi },
     },
     LibCTarget{
+        .name = "riscv32-linux-gnu-rv32imac-ilp32",
+        .arch = MultiArch{ .specific = Arch.riscv32 },
+        .abi = MultiAbi{ .specific = Abi.gnuilp32 },
+    },
+    LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",
         .arch = MultiArch{ .specific = Arch.riscv64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
@@ -195,6 +200,11 @@ const glibc_targets = [_]LibCTarget{
         .arch = MultiArch{ .specific = Arch.m68k },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
+    LibCTarget{
+        .name = "loongarch64-linux-gnu-lp64d",
+        .arch = MultiArch{ .specific = .loongarch64 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
+    },
 };
 
 const musl_targets = [_]LibCTarget{
@@ -211,6 +221,11 @@ const musl_targets = [_]LibCTarget{
     LibCTarget{
         .name = "i386",
         .arch = MultiArch{ .specific = .x86 },
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
+        .name = "loongarch64",
+        .arch = MultiArch{ .specific = .loongarch64 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{
@@ -231,6 +246,11 @@ const musl_targets = [_]LibCTarget{
     LibCTarget{
         .name = "powerpc64",
         .arch = MultiArch.powerpc64,
+        .abi = MultiAbi.musl,
+    },
+    LibCTarget{
+        .name = "riscv32",
+        .arch = MultiArch{ .specific = .riscv32 },
         .abi = MultiAbi.musl,
     },
     LibCTarget{
@@ -467,7 +487,7 @@ pub fn main() !void {
             // worth it to make it generic
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(full_path, best_contents.bytes);
+            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = best_contents.bytes });
             best_contents.is_generic = true;
             while (contents_list.popOrNull()) |contender| {
                 if (contender.hit_count > 1) {
@@ -497,7 +517,7 @@ pub fn main() !void {
             });
             const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
-            try std.fs.cwd().writeFile(full_path, contents.bytes);
+            try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = contents.bytes });
         }
     }
 }

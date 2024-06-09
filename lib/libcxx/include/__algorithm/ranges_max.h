@@ -54,9 +54,10 @@ struct __fn {
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
   _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp
   operator()(initializer_list<_Tp> __il, _Comp __comp = {}, _Proj __proj = {}) const {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__il.begin() != __il.end(), "initializer_list must contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __il.begin() != __il.end(), "initializer_list must contain at least one element");
 
-    auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) { return std::invoke(__comp, __rhs, __lhs); };
+    auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool { return std::invoke(__comp, __rhs, __lhs); };
     return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp_lhs_rhs_swapped, __proj);
   }
 
@@ -69,10 +70,12 @@ struct __fn {
     auto __first = ranges::begin(__r);
     auto __last  = ranges::end(__r);
 
-    _LIBCPP_ASSERT_UNCATEGORIZED(__first != __last, "range must contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__first != __last, "range must contain at least one element");
 
     if constexpr (forward_range<_Rp> && !__is_cheap_to_copy<range_value_t<_Rp>>) {
-      auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) { return std::invoke(__comp, __rhs, __lhs); };
+      auto __comp_lhs_rhs_swapped = [&](auto&& __lhs, auto&& __rhs) -> bool {
+        return std::invoke(__comp, __rhs, __lhs);
+      };
       return *ranges::__min_element_impl(std::move(__first), std::move(__last), __comp_lhs_rhs_swapped, __proj);
     } else {
       range_value_t<_Rp> __result = *__first;

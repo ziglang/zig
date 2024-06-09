@@ -37,18 +37,16 @@ const libcxxabi_files = [_][]const u8{
     "src/stdlib_typeinfo.cpp",
 };
 
-const libcxx_files = [_][]const u8{
+const libcxx_base_files = [_][]const u8{
     "src/algorithm.cpp",
     "src/any.cpp",
-    "src/atomic.cpp",
-    "src/barrier.cpp",
     "src/bind.cpp",
+    "src/call_once.cpp",
     "src/charconv.cpp",
     "src/chrono.cpp",
-    "src/condition_variable.cpp",
-    "src/condition_variable_destructor.cpp",
+    "src/error_category.cpp",
     "src/exception.cpp",
-    "src/experimental/memory_resource.cpp",
+    "src/experimental/keep.cpp",
     "src/filesystem/directory_entry.cpp",
     "src/filesystem/directory_iterator.cpp",
     "src/filesystem/filesystem_clock.cpp",
@@ -58,31 +56,29 @@ const libcxx_files = [_][]const u8{
     //"src/filesystem/int128_builtins.cpp",
     "src/filesystem/operations.cpp",
     "src/filesystem/path.cpp",
+    "src/fstream.cpp",
     "src/functional.cpp",
-    "src/future.cpp",
     "src/hash.cpp",
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
     "src/iostream.cpp",
-    "src/legacy_debug_handler.cpp",
     "src/legacy_pointer_safety.cpp",
     "src/locale.cpp",
     "src/memory.cpp",
     "src/memory_resource.cpp",
-    "src/mutex.cpp",
-    "src/mutex_destructor.cpp",
     "src/new.cpp",
     "src/new_handler.cpp",
     "src/new_helpers.cpp",
     "src/optional.cpp",
+    "src/ostream.cpp",
     "src/print.cpp",
+    //"src/pstl/libdispatch.cpp",
     "src/random.cpp",
     "src/random_shuffle.cpp",
     "src/regex.cpp",
     "src/ryu/d2fixed.cpp",
     "src/ryu/d2s.cpp",
     "src/ryu/f2s.cpp",
-    "src/shared_mutex.cpp",
     "src/stdexcept.cpp",
     "src/string.cpp",
     "src/strstream.cpp",
@@ -91,17 +87,36 @@ const libcxx_files = [_][]const u8{
     "src/support/ibm/xlocale_zos.cpp",
     "src/support/win32/locale_win32.cpp",
     "src/support/win32/support.cpp",
-    "src/support/win32/thread_win32.cpp",
     "src/system_error.cpp",
-    "src/thread.cpp",
     "src/typeinfo.cpp",
+    "src/tz.cpp",
+    "src/tzdb_list.cpp",
     "src/valarray.cpp",
     "src/variant.cpp",
     "src/vector.cpp",
     "src/verbose_abort.cpp",
 };
 
-pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+const libcxx_thread_files = [_][]const u8{
+    "src/atomic.cpp",
+    "src/barrier.cpp",
+    "src/condition_variable.cpp",
+    "src/condition_variable_destructor.cpp",
+    "src/future.cpp",
+    "src/mutex.cpp",
+    "src/mutex_destructor.cpp",
+    "src/shared_mutex.cpp",
+    "src/support/win32/thread_win32.cpp",
+    "src/thread.cpp",
+};
+
+pub const BuildError = error{
+    OutOfMemory,
+    SubCompilationFailed,
+    ZigCompilerNotBuiltWithLLVMExtensions,
+};
+
+pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -142,7 +157,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
 
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -154,9 +169,16 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .link_libc = true,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
-    const root_mod = try Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -182,7 +204,19 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
+
+    const libcxx_files = if (comp.config.any_non_single_threaded)
+        &(libcxx_base_files ++ libcxx_thread_files)
+    else
+        &libcxx_base_files;
 
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
@@ -197,18 +231,13 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
             continue;
-        if (std.mem.startsWith(u8, cxx_src, "src/support/solaris/") and !target.os.tag.isSolarish())
-            continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
-        if (!comp.config.any_non_single_threaded) {
-            if (std.mem.startsWith(u8, cxx_src, "src/support/win32/thread_win32.cpp")) {
-                continue;
-            }
+        if (!comp.config.any_non_single_threaded)
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
-        }
 
         try cflags.append("-DNDEBUG");
+        try cflags.append(hardeningModeFlag(optimize_mode));
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
         try cflags.append("-DLIBCXX_BUILDING_LIBCXXABI");
@@ -281,7 +310,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -304,16 +333,33 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxx,
+            "unable to build libc++: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libcxx, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libcxx,
+                "unable to build libc++: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = try sub_compilation.toCrtFile();
 }
 
-pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -355,7 +401,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const strip = comp.compilerRtStrip();
     const unwind_tables = true;
 
-    const config = try Compilation.Config.resolve(.{
+    const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -368,9 +414,16 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
-    const root_mod = try Module.create(arena, .{
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -397,7 +450,14 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
@@ -449,6 +509,8 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             }
         }
 
+        try cflags.append(hardeningModeFlag(optimize_mode));
+
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
@@ -478,7 +540,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
@@ -501,11 +563,36 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libcxxabi,
+            "unable to build libc++abi: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libcxxabi,
+                "unable to build libc++abi: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+}
+
+pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {
+    return switch (optimize_mode) {
+        .Debug => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG",
+        .ReleaseFast, .ReleaseSmall => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE",
+        .ReleaseSafe => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST",
+    };
 }

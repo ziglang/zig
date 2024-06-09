@@ -435,6 +435,16 @@ const test_targets = blk: {
         //    .use_llvm = true,
         //},
 
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+
         // https://github.com/ziglang/zig/issues/3340
         //.{
         //    .target = .{
@@ -823,12 +833,12 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
         defer dir.close();
-        dir.writeFile("fmt1.zig", unformatted_code) catch @panic("unhandled");
-        dir.writeFile("fmt2.zig", unformatted_code) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt1.zig", .data = unformatted_code }) catch @panic("unhandled");
+        dir.writeFile(.{ .sub_path = "fmt2.zig", .data = unformatted_code }) catch @panic("unhandled");
         dir.makeDir("subdir") catch @panic("unhandled");
         var subdir = dir.openDir("subdir", .{}) catch @panic("unhandled");
         defer subdir.close();
-        subdir.writeFile("fmt3.zig", unformatted_code) catch @panic("unhandled");
+        subdir.writeFile(.{ .sub_path = "fmt3.zig", .data = unformatted_code }) catch @panic("unhandled");
 
         // Test zig fmt affecting only the appropriate files.
         const run1 = b.addSystemCommand(&.{ b.graph.zig_exe, "fmt", "fmt1.zig" });
@@ -974,6 +984,7 @@ const ModuleTestOptions = struct {
     skip_non_native: bool,
     skip_libc: bool,
     max_rss: usize = 0,
+    no_builtin: bool = false,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
@@ -1019,6 +1030,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             test_target.use_llvm == false and mem.eql(u8, options.name, "std"))
             continue;
 
+        if (target.cpu.arch != .x86_64 and
+            test_target.use_llvm == false and mem.eql(u8, options.name, "c-import"))
+            continue;
+
         if (target.cpu.arch == .x86_64 and target.os.tag == .windows and
             test_target.target.cpu_arch == null and test_target.optimize_mode != .Debug and
             mem.eql(u8, options.name, "std"))
@@ -1056,6 +1071,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .pic = test_target.pic,
             .strip = test_target.strip,
         });
+        if (options.no_builtin) these_tests.no_builtin = true;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"

@@ -7071,8 +7071,10 @@ fn switchExprErrUnion(
         .ctx = ri.ctx,
     };
 
-    const payload_is_ref = node_ty == .@"if" and
-        if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk;
+    const payload_is_ref = switch (node_ty) {
+        .@"if" => if_full.payload_token != null and token_tags[if_full.payload_token.?] == .asterisk,
+        .@"catch" => ri.rl == .ref or ri.rl == .ref_coerced_ty,
+    };
 
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
@@ -9459,7 +9461,7 @@ fn builtinCall(
         },
         .wasm_memory_grow => {
             const index_arg = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[0]);
-            const delta_arg = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u32_type } }, params[1]);
+            const delta_arg = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, params[1]);
             const result = try gz.addExtendedPayload(.wasm_memory_grow, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = index_arg,

@@ -1,6 +1,6 @@
 /* `ptrace' debugger support interface.  Linux version,
    not architecture-specific.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -128,6 +128,16 @@ struct __ptrace_rseq_configuration
   __uint32_t signature;
   __uint32_t flags;
   __uint32_t pad;
+};
+
+/* Argument of PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG and
+   PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG.  */
+struct __ptrace_sud_config
+{
+  __uint64_t mode;
+  __uint64_t selector;
+  __uint64_t offset;
+  __uint64_t len;
 };
 
 /* Perform process tracing functions.  REQUEST is one of the values

@@ -14,8 +14,6 @@ pub const Message = struct {
         zig_version,
         /// Body is an ErrorBundle.
         error_bundle,
-        /// Body is a UTF-8 string.
-        progress,
         /// Body is a EmitBinPath.
         emit_bin_path,
         /// Body is a TestMetadata

@@ -53,61 +53,60 @@ int toupper(int c);
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifdef isalnum
-#undef isalnum
+#  undef isalnum
 #endif
 
 #ifdef isalpha
-#undef isalpha
+#  undef isalpha
 #endif
 
 #ifdef isblank
-#undef isblank
+#  undef isblank
 #endif
 
 #ifdef iscntrl
-#undef iscntrl
+#  undef iscntrl
 #endif
 
 #ifdef isdigit
-#undef isdigit
+#  undef isdigit
 #endif
 
 #ifdef isgraph
-#undef isgraph
+#  undef isgraph
 #endif
 
 #ifdef islower
-#undef islower
+#  undef islower
 #endif
 
 #ifdef isprint
-#undef isprint
+#  undef isprint
 #endif
 
 #ifdef ispunct
-#undef ispunct
+#  undef ispunct
 #endif
 
 #ifdef isspace
-#undef isspace
+#  undef isspace
 #endif
 
 #ifdef isupper
-#undef isupper
+#  undef isupper
 #endif
 
 #ifdef isxdigit
-#undef isxdigit
+#  undef isxdigit
 #endif
 
 #ifdef tolower
-#undef tolower
+#  undef tolower
 #endif
 
 #ifdef toupper
-#undef toupper
+#  undef toupper
 #endif
-
 
 using ::isalnum _LIBCPP_USING_IF_EXISTS;
 using ::isalpha _LIBCPP_USING_IF_EXISTS;

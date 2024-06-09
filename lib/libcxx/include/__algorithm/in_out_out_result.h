@@ -18,6 +18,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
@@ -30,18 +33,16 @@ struct in_out_out_result {
   _LIBCPP_NO_UNIQUE_ADDRESS _OutIter2 out2;
 
   template <class _InIter2, class _OutIter3, class _OutIter4>
-    requires convertible_to<const _InIter1&, _InIter2>
-          && convertible_to<const _OutIter1&, _OutIter3> && convertible_to<const _OutIter2&, _OutIter4>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  operator in_out_out_result<_InIter2, _OutIter3, _OutIter4>() const& {
+    requires convertible_to<const _InIter1&, _InIter2> && convertible_to<const _OutIter1&, _OutIter3> &&
+             convertible_to<const _OutIter2&, _OutIter4>
+  _LIBCPP_HIDE_FROM_ABI constexpr operator in_out_out_result<_InIter2, _OutIter3, _OutIter4>() const& {
     return {in, out1, out2};
   }
 
   template <class _InIter2, class _OutIter3, class _OutIter4>
-    requires convertible_to<_InIter1, _InIter2>
-          && convertible_to<_OutIter1, _OutIter3> && convertible_to<_OutIter2, _OutIter4>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  operator in_out_out_result<_InIter2, _OutIter3, _OutIter4>() && {
+    requires convertible_to<_InIter1, _InIter2> && convertible_to<_OutIter1, _OutIter3> &&
+             convertible_to<_OutIter2, _OutIter4>
+  _LIBCPP_HIDE_FROM_ABI constexpr operator in_out_out_result<_InIter2, _OutIter3, _OutIter4>() && {
     return {std::move(in), std::move(out1), std::move(out2)};
   }
 };
@@ -50,5 +51,7 @@ struct in_out_out_result {
 #endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_IN_OUT_OUT_RESULT_H

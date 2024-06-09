@@ -5,10 +5,7 @@ test "try to pass a runtime type" {
     foo(false);
 }
 fn foo(condition: bool) void {
-    const result = max(
-        if (condition) f32 else u64,
-        1234,
-        5678);
+    const result = max(if (condition) f32 else u64, 1234, 5678);
     _ = result;
 }
 

@@ -1,7 +1,7 @@
 const expect = @import("std").testing.expect;
 
 test "inline for loop" {
-    const nums = [_]i32{2, 4, 6};
+    const nums = [_]i32{ 2, 4, 6 };
     var sum: usize = 0;
     inline for (nums) |i| {
         const T = switch (i) {

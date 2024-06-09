@@ -178,7 +178,7 @@ test "Dir.readLink" {
         fn impl(ctx: *TestContext) !void {
             // Create some targets
             const file_target_path = try ctx.transformPath("file.txt");
-            try ctx.dir.writeFile(file_target_path, "nonsense");
+            try ctx.dir.writeFile(.{ .sub_path = file_target_path, .data = "nonsense" });
             const dir_target_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(dir_target_path);
 
@@ -262,7 +262,7 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                         &io,
                         null,
                         windows.FILE_ATTRIBUTE_NORMAL,
-                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                        windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
                         windows.FILE_OPEN,
                         // FILE_OPEN_REPARSE_POINT is the important thing here
                         windows.FILE_OPEN_REPARSE_POINT | windows.FILE_DIRECTORY_FILE | windows.FILE_SYNCHRONOUS_IO_NONALERT | windows.FILE_OPEN_FOR_BACKUP_INTENT,
@@ -325,7 +325,7 @@ test "accessAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -344,7 +344,7 @@ test "openDirAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -398,7 +398,7 @@ test "readLinkAbsolute" {
     defer tmp.cleanup();
 
     // Create some targets
-    try tmp.dir.writeFile("file.txt", "nonsense");
+    try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
     try tmp.dir.makeDir("subdir");
 
     // Get base abs path
@@ -407,7 +407,7 @@ test "readLinkAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -620,7 +620,7 @@ test "Dir.realpath smoke test" {
             try testing.expectError(error.FileNotFound, ctx.dir.realpath(test_dir_path, &buf));
 
             // Now create the file and dir
-            try ctx.dir.writeFile(test_file_path, "");
+            try ctx.dir.writeFile(.{ .sub_path = test_file_path, .data = "" });
             try ctx.dir.makeDir(test_dir_path);
 
             const base_path = try ctx.transformPath(".");
@@ -695,7 +695,7 @@ test "Dir.statFile" {
 
             try testing.expectError(error.FileNotFound, ctx.dir.statFile(test_file_name));
 
-            try ctx.dir.writeFile(test_file_name, "");
+            try ctx.dir.writeFile(.{ .sub_path = test_file_name, .data = "" });
 
             const stat = try ctx.dir.statFile(test_file_name);
             try testing.expectEqual(File.Kind.file, stat.kind);
@@ -803,7 +803,7 @@ test "deleteDir" {
 
             // deleting a non-empty directory
             try ctx.dir.makeDir(test_dir_path);
-            try ctx.dir.writeFile(test_file_path, "");
+            try ctx.dir.writeFile(.{ .sub_path = test_file_path, .data = "" });
             try testing.expectError(error.DirNotEmpty, ctx.dir.deleteDir(test_dir_path));
 
             // deleting an empty directory
@@ -990,7 +990,7 @@ test "renameAbsolute" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp_dir.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1071,7 +1071,7 @@ test "deleteTree on a symlink" {
     defer tmp.cleanup();
 
     // Symlink to a file
-    try tmp.dir.writeFile("file", "");
+    try tmp.dir.writeFile(.{ .sub_path = "file", .data = "" });
     try setupSymlink(tmp.dir, "file", "filelink", .{});
 
     try tmp.dir.deleteTree("filelink");
@@ -1094,8 +1094,14 @@ test "makePath, put some files in it, deleteTree" {
             const dir_path = try ctx.transformPath("os_test_tmp");
 
             try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
-            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
-            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
+            try ctx.dir.writeFile(.{
+                .sub_path = try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }),
+                .data = "nonsense",
+            });
+            try ctx.dir.writeFile(.{
+                .sub_path = try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }),
+                .data = "blah",
+            });
 
             try ctx.dir.deleteTree(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -1110,8 +1116,14 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
             const dir_path = try ctx.transformPath("os_test_tmp");
 
             try ctx.dir.makePath(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c" }));
-            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }), "nonsense");
-            try ctx.dir.writeFile(try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }), "blah");
+            try ctx.dir.writeFile(.{
+                .sub_path = try fs.path.join(allocator, &.{ "os_test_tmp", "b", "c", "file.txt" }),
+                .data = "nonsense",
+            });
+            try ctx.dir.writeFile(.{
+                .sub_path = try fs.path.join(allocator, &.{ "os_test_tmp", "b", "file2.txt" }),
+                .data = "blah",
+            });
 
             try ctx.dir.deleteTreeMinStackSize(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.openDir(dir_path, .{}));
@@ -1134,7 +1146,7 @@ test "makePath but sub_path contains pre-existing file" {
     defer tmp.cleanup();
 
     try tmp.dir.makeDir("foo");
-    try tmp.dir.writeFile("foo/bar", "");
+    try tmp.dir.writeFile(.{ .sub_path = "foo/bar", .data = "" });
 
     try testing.expectError(error.NotDir, tmp.dir.makePath("foo/bar/baz"));
 }
@@ -1149,7 +1161,8 @@ test "makepath existing directories" {
     defer tmp.cleanup();
 
     try tmp.dir.makeDir("A");
-    const tmpA = try tmp.dir.openDir("A", .{});
+    var tmpA = try tmp.dir.openDir("A", .{});
+    defer tmpA.close();
     try tmpA.makeDir("B");
 
     const testPath = "A" ++ fs.path.sep_str ++ "B" ++ fs.path.sep_str ++ "C";
@@ -1227,7 +1240,7 @@ fn testFilenameLimits(iterable_dir: Dir, maxed_filename: []const u8) !void {
         var maxed_dir = try iterable_dir.makeOpenPath(maxed_filename, .{});
         defer maxed_dir.close();
 
-        try maxed_dir.writeFile(maxed_filename, "");
+        try maxed_dir.writeFile(.{ .sub_path = maxed_filename, .data = "" });
 
         var walker = try iterable_dir.walk(testing.allocator);
         defer walker.deinit();
@@ -1357,7 +1370,7 @@ test "access file" {
             try ctx.dir.makePath(dir_path);
             try testing.expectError(error.FileNotFound, ctx.dir.access(file_path, .{}));
 
-            try ctx.dir.writeFile(file_path, "");
+            try ctx.dir.writeFile(.{ .sub_path = file_path, .data = "" });
             try ctx.dir.access(file_path, .{});
             try ctx.dir.deleteTree(dir_path);
         }
@@ -1463,7 +1476,7 @@ test "copyFile" {
             const dest_file = try ctx.transformPath("tmp_test_copy_file2.txt");
             const dest_file2 = try ctx.transformPath("tmp_test_copy_file3.txt");
 
-            try ctx.dir.writeFile(src_file, data);
+            try ctx.dir.writeFile(.{ .sub_path = src_file, .data = data });
             defer ctx.dir.deleteFile(src_file) catch {};
 
             try ctx.dir.copyFile(src_file, ctx.dir, dest_file, .{});
@@ -1740,7 +1753,7 @@ test "'.' and '..' in fs.Dir functions" {
             renamed_file.close();
             try ctx.dir.deleteFile(rename_path);
 
-            try ctx.dir.writeFile(update_path, "something");
+            try ctx.dir.writeFile(.{ .sub_path = update_path, .data = "something" });
             const prev_status = try ctx.dir.updateFile(file_path, ctx.dir, update_path, .{});
             try testing.expectEqual(fs.Dir.PrevStatus.stale, prev_status);
 
@@ -1760,7 +1773,7 @@ test "'.' and '..' in absolute functions" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -2009,11 +2022,7 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, ctx.dir.deleteTree(invalid_path));
             try testing.expectError(expected_err, ctx.dir.deleteTreeMinStackSize(invalid_path));
 
-            try testing.expectError(expected_err, ctx.dir.writeFile(invalid_path, ""));
-            try testing.expectError(expected_err, ctx.dir.writeFile2(.{
-                .sub_path = invalid_path,
-                .data = "",
-            }));
+            try testing.expectError(expected_err, ctx.dir.writeFile(.{ .sub_path = invalid_path, .data = "" }));
 
             try testing.expectError(expected_err, ctx.dir.access(invalid_path, .{}));
             try testing.expectError(expected_err, ctx.dir.accessZ(invalid_path, .{}));

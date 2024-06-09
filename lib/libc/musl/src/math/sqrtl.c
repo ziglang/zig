@@ -205,7 +205,7 @@ long double sqrtl(long double x)
 	top = (top + 0x3fff) >> 1;
 
 	/* r ~ 1/sqrt(m) */
-	static const uint64_t three = 0xc0000000;
+	const uint64_t three = 0xc0000000;
 	uint64_t r, s, d, u, i;
 	i = (ix.hi >> 42) % 128;
 	r = (uint32_t)__rsqrt_tab[i] << 16;
@@ -227,7 +227,7 @@ long double sqrtl(long double x)
 	r = mul64(u, r) << 1;
 	/* |r sqrt(m) - 1| < 0x1.c001p-59, switch to 128bit */
 
-	static const u128 threel = {.hi=three<<32, .lo=0};
+	const u128 threel = {.hi=three<<32, .lo=0};
 	u128 rl, sl, dl, ul;
 	rl.hi = r;
 	rl.lo = 0;

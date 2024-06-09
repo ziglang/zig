@@ -21,8 +21,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // This function should never be called directly from the code -- it should only be called through
 // the _LIBCPP_VERBOSE_ABORT macro.
-_LIBCPP_NORETURN _LIBCPP_AVAILABILITY_VERBOSE_ABORT _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2)
-void __libcpp_verbose_abort(const char *__format, ...);
+_LIBCPP_NORETURN _LIBCPP_AVAILABILITY_VERBOSE_ABORT _LIBCPP_OVERRIDABLE_FUNC_VIS
+    _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2) void __libcpp_verbose_abort(const char* __format, ...);
 
 // _LIBCPP_VERBOSE_ABORT(format, args...)
 //
@@ -38,14 +38,7 @@ void __libcpp_verbose_abort(const char *__format, ...);
 // make sure that the program terminates but without taking any complex dependencies in this header.
 #if !defined(_LIBCPP_VERBOSE_ABORT)
 
-// Support _LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED until LLVM 18, but tell people
-// to move to customizing _LIBCPP_VERBOSE_ABORT instead.
-#  if defined(_LIBCPP_AVAILABILITY_HAS_NO_VERBOSE_ABORT) && defined(_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED)
-#    undef _LIBCPP_AVAILABILITY_HAS_NO_VERBOSE_ABORT
-#    warning _LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED is deprecated, please customize _LIBCPP_VERBOSE_ABORT instead
-#  endif
-
-#  if defined(_LIBCPP_AVAILABILITY_HAS_NO_VERBOSE_ABORT)
+#  if !_LIBCPP_AVAILABILITY_HAS_VERBOSE_ABORT
 // The decltype is there to suppress -Wunused warnings in this configuration.
 void __use(const char*, ...);
 #    define _LIBCPP_VERBOSE_ABORT(...) (decltype(::std::__use(__VA_ARGS__))(), __builtin_abort())

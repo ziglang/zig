@@ -25,15 +25,15 @@ pub fn main() anyerror!void {
     const preamble_len = buf.items.len;
 
     try buf.appendSlice(" %*");
-    try tmp.dir.writeFile("args1.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
-    try tmp.dir.writeFile("args2.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
-    try tmp.dir.writeFile("args3.bat", buf.items);
+    try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     // Test cases are from https://github.com/rust-lang/rust/blob/master/tests/ui/std/windows-bat-args.rs
@@ -109,7 +109,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
 
     const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
-    const result = try std.ChildProcess.run(.{
+    const result = try std.process.Child.run(.{
         .allocator = allocator,
         .env_map = env,
         .argv = argv.items,

@@ -77,19 +77,28 @@ const PdbOrDwarf = union(enum) {
     }
 };
 
-var stderr_mutex = std.Thread.Mutex{};
+/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+pub fn lockStdErr() void {
+    std.Progress.lockStdErr();
+}
+
+pub fn unlockStdErr() void {
+    std.Progress.unlockStdErr();
+}
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
 }
 
 pub fn getStderrMutex() *std.Thread.Mutex {
-    return &stderr_mutex;
+    @compileError("deprecated. call std.debug.lockStdErr() and std.debug.unlockStdErr() instead which will integrate properly with std.Progress");
 }
 
 /// TODO multithreaded awareness
@@ -107,8 +116,8 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dump_hex(bytes: []const u8) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     dump_hex_fallible(bytes) catch {};
 }
 
@@ -228,8 +237,8 @@ pub fn relocateContext(context: *ThreadContext) void {
     };
 }
 
-pub const have_getcontext = @hasDecl(posix.system, "getcontext") and
-    native_os != .openbsd and native_os != .haiku and
+pub const have_getcontext = native_os != .openbsd and native_os != .haiku and
+    !builtin.target.isAndroid() and
     (native_os != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
@@ -706,7 +715,7 @@ pub const StackIterator = struct {
         const unwind_state = &self.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
         switch (native_os) {
-            .macos, .ios, .watchos, .tvos => {
+            .macos, .ios, .watchos, .tvos, .visionos => {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
@@ -1150,7 +1159,7 @@ pub fn readElfDebugInfo(
         };
 
         const mapped_mem = try mapWholeFile(elf_file);
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.InvalidDebugInfo;
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
@@ -1517,14 +1526,14 @@ test printLineFromFileAnyOs {
     var test_dir = std.testing.tmpDir(.{});
     defer test_dir.cleanup();
     // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
-    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
     // Cases
     {
         const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+        try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
@@ -1535,11 +1544,14 @@ test printLineFromFileAnyOs {
     {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
         defer allocator.free(path);
-        try test_dir.dir.writeFile("three_lines.zig",
+        try test_dir.dir.writeFile(.{
+            .sub_path = "three_lines.zig",
+            .data =
             \\1
             \\2
             \\3
-        );
+            ,
+        });
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("1\n", output.items);
@@ -2129,7 +2141,7 @@ pub const DebugInfo = struct {
 };
 
 pub const ModuleDebugInfo = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => struct {
+    .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
         mapped_memory: []align(mem.page_size) const u8,
@@ -2747,12 +2759,18 @@ pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
 
 pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime is_enabled: bool) type {
     return struct {
-        addrs: [actual_size][stack_frame_count]usize = undefined,
-        notes: [actual_size][]const u8 = undefined,
-        index: Index = 0,
+        addrs: [actual_size][stack_frame_count]usize,
+        notes: [actual_size][]const u8,
+        index: Index,
 
         const actual_size = if (enabled) size else 0;
         const Index = if (enabled) usize else u0;
+
+        pub const init: @This() = .{
+            .addrs = undefined,
+            .notes = undefined,
+            .index = 0,
+        };
 
         pub const enabled = is_enabled;
 

@@ -1,7 +1,7 @@
 pub const BuildOptions = struct {
     has_macos_sdk: bool,
     has_ios_sdk: bool,
-    has_symlinks_windows: bool,
+    has_symlinks: bool,
 };
 
 pub const Options = struct {

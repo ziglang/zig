@@ -604,7 +604,7 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn flush(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     assert(!use_lld);
@@ -663,7 +663,7 @@ fn atomCount(self: *Plan9) usize {
     return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count + anon_atom_count;
 }
 
-pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -677,8 +677,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
     log.debug("flushModule", .{});

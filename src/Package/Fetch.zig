@@ -35,7 +35,7 @@ name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
-prog_node: *std.Progress.Node,
+prog_node: std.Progress.Node,
 job_queue: *JobQueue,
 /// If true, don't add an error for a missing hash. This flag is not passed
 /// down to recursive dependencies. It's intended to be used only be the CLI.
@@ -44,6 +44,8 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+/// If true and URL points to a Git repository, will use the latest commit.
+use_latest_commit: bool,
 
 // Above this are fields provided as inputs to `run`.
 // Below this are fields populated by `run`.
@@ -59,6 +61,10 @@ actual_hash: Manifest.Digest,
 has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
+/// If `use_latest_commit` was true, this will be set to the commit that was used.
+/// If the resource pointed to by the location is not a Git-repository, this
+/// will be left unchanged.
+latest_commit: ?git.Oid,
 
 // This field is used by the CLI only, untouched by this file.
 
@@ -699,6 +705,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .use_latest_commit = false,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
@@ -707,13 +714,13 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .actual_hash = undefined,
                 .has_build_zig = false,
                 .oom_flag = false,
+                .latest_commit = null,
 
                 .module = null,
             };
         }
 
-        // job_queue mutex is locked so this is OK.
-        f.prog_node.unprotected_estimated_total_items += new_fetch_index;
+        f.prog_node.increaseEstimatedTotalItems(new_fetch_index);
 
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
@@ -722,14 +729,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
     const thread_pool = f.job_queue.thread_pool;
 
     for (new_fetches, prog_names) |*new_fetch, prog_name| {
-        f.job_queue.wait_group.start();
-        thread_pool.spawn(workerRun, .{ new_fetch, prog_name }) catch |err| switch (err) {
-            error.OutOfMemory => {
-                new_fetch.oom_flag = true;
-                f.job_queue.wait_group.finish();
-                continue;
-            },
-        };
+        thread_pool.spawnWg(&f.job_queue.wait_group, workerRun, .{ new_fetch, prog_name });
     }
 }
 
@@ -750,11 +750,8 @@ pub fn relativePathDigest(
 }
 
 pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
-    defer f.job_queue.wait_group.finish();
-
-    var prog_node = f.prog_node.start(prog_name, 0);
+    const prog_node = f.prog_node.start(prog_name, 0);
     defer prog_node.end();
-    prog_node.activate();
 
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
@@ -840,6 +837,7 @@ const FileType = enum {
     @"tar.xz",
     @"tar.zst",
     git_pack,
+    zip,
 
     fn fromPath(file_path: []const u8) ?FileType {
         if (ascii.endsWithIgnoreCase(file_path, ".tar")) return .tar;
@@ -849,6 +847,7 @@ const FileType = enum {
         if (ascii.endsWithIgnoreCase(file_path, ".tar.xz")) return .@"tar.xz";
         if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
+        if (ascii.endsWithIgnoreCase(file_path, ".zip")) return .zip;
         return null;
     }
 
@@ -1001,7 +1000,9 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             }
             return f.fail(f.location_tok, try eb.printString("ref not found: {s}", .{want_ref}));
         };
-        if (uri.fragment == null) {
+        if (f.use_latest_commit) {
+            f.latest_commit = want_oid;
+        } else if (uri.fragment == null) {
             const notes_len = 1;
             try eb.addRootErrorMessage(.{
                 .msg = try eb.addString("url field is missing an explicit ref"),
@@ -1076,6 +1077,9 @@ fn unpackResource(
 
             if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
+
+            if (ascii.eqlIgnoreCase(mime_type, "application/zip"))
+                break :ft .zip;
 
             if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
                 !ascii.eqlIgnoreCase(mime_type, "application/x-compressed"))
@@ -1157,6 +1161,7 @@ fn unpackResource(
                 .{@errorName(e)},
             )),
         },
+        .zip => return try unzip(f, tmp_directory.handle, resource.reader()),
     }
 }
 
@@ -1190,6 +1195,98 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
     return res;
 }
 
+fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
+    // We write the entire contents to a file first because zip files
+    // must be processed back to front and they could be too large to
+    // load into memory.
+
+    const cache_root = f.job_queue.global_cache;
+
+    // TODO: the downside of this solution is if we get a failure/crash/oom/power out
+    //       during this process, we leave behind a zip file that would be
+    //       difficult to know if/when it can be cleaned up.
+    //       Might be worth it to use a mechanism that enables other processes
+    //       to see if the owning process of a file is still alive (on linux this
+    //       can be done with file locks).
+    //       Coupled with this mechansism, we could also use slots (i.e. zig-cache/tmp/0,
+    //       zig-cache/tmp/1, etc) which would mean that subsequent runs would
+    //       automatically clean up old dead files.
+    //       This could all be done with a simple TmpFile abstraction.
+    const prefix = "tmp/";
+    const suffix = ".zip";
+
+    const random_bytes_count = 20;
+    const random_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);
+    var zip_path: [prefix.len + random_path_len + suffix.len]u8 = undefined;
+    @memcpy(zip_path[0..prefix.len], prefix);
+    @memcpy(zip_path[prefix.len + random_path_len ..], suffix);
+    {
+        var random_bytes: [random_bytes_count]u8 = undefined;
+        std.crypto.random.bytes(&random_bytes);
+        _ = std.fs.base64_encoder.encode(
+            zip_path[prefix.len..][0..random_path_len],
+            &random_bytes,
+        );
+    }
+
+    defer cache_root.handle.deleteFile(&zip_path) catch {};
+
+    const eb = &f.error_bundle;
+
+    {
+        var zip_file = cache_root.handle.createFile(
+            &zip_path,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to create tmp zip file: {s}",
+            .{@errorName(err)},
+        ));
+        defer zip_file.close();
+        var buf: [std.mem.page_size]u8 = undefined;
+        while (true) {
+            const len = reader.readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "read zip stream failed: {s}",
+                .{@errorName(err)},
+            ));
+            if (len == 0) break;
+            zip_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "write temporary zip file failed: {s}",
+                .{@errorName(err)},
+            ));
+        }
+    }
+
+    var diagnostics: std.zip.Diagnostics = .{ .allocator = f.arena.allocator() };
+    // no need to deinit since we are using an arena allocator
+
+    {
+        var zip_file = cache_root.handle.openFile(
+            &zip_path,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to open temporary zip file: {s}",
+            .{@errorName(err)},
+        ));
+        defer zip_file.close();
+
+        std.zip.extract(out_dir, zip_file.seekableStream(), .{
+            .allow_backslashes = true,
+            .diagnostics = &diagnostics,
+        }) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "zip extract failed: {s}",
+            .{@errorName(err)},
+        ));
+    }
+
+    cache_root.handle.deleteFile(&zip_path) catch |err| return f.fail(f.location_tok, try eb.printString(
+        "delete temporary zip failed: {s}",
+        .{@errorName(err)},
+    ));
+
+    const res: UnpackResult = .{ .root_dir = diagnostics.root_dir };
+    return res;
+}
+
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!UnpackResult {
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -1212,9 +1309,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
         {
-            var index_prog_node = f.prog_node.start("Index pack", 0);
+            const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            index_prog_node.activate();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
             try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
@@ -1222,9 +1318,8 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         }
 
         {
-            var checkout_prog_node = f.prog_node.start("Checkout", 0);
+            const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
@@ -1379,10 +1474,7 @@ fn computeHash(
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                wait_group.start();
-                try thread_pool.spawn(workerDeleteFile, .{
-                    root_dir, deleted_file, &wait_group,
-                });
+                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
                 try deleted_files.append(deleted_file);
                 continue;
             }
@@ -1409,10 +1501,7 @@ fn computeHash(
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
-            wait_group.start();
-            try thread_pool.spawn(workerHashFile, .{
-                root_dir, hashed_file, &wait_group,
-            });
+            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
         }
     }
@@ -1504,13 +1593,11 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     try bw.flush();
 }
 
-fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {
     hashed_file.failure = hashFileFallible(dir, hashed_file);
 }
 
-fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
     deleted_file.failure = deleteFileFallible(dir, deleted_file);
 }
 
@@ -1895,6 +1982,72 @@ const UnpackResult = struct {
     }
 };
 
+test "zip" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_files = [_]std.zip.testutil.File{
+        .{ .name = "foo", .content = "this is just foo\n", .compression = .store },
+        .{ .name = "bar", .content = "another file\n", .compression = .deflate },
+    };
+    {
+        var zip_file = try tmp.dir.createFile("test.zip", .{});
+        defer zip_file.close();
+        var bw = std.io.bufferedWriter(zip_file.writer());
+        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
+        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
+        try bw.flush();
+    }
+
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    defer gpa.free(zip_path);
+
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    defer fb.deinit();
+
+    try fetch.run();
+
+    var out = try fb.packageDir();
+    defer out.close();
+
+    try std.zip.testutil.expectFiles(&test_files, out, .{});
+}
+
+test "zip with one root folder" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const test_files = [_]std.zip.testutil.File{
+        .{ .name = "the_root_folder/foo.zig", .content = "// this is foo.zig\n", .compression = .store },
+        .{ .name = "the_root_folder/README.md", .content = "# The foo.zig README\n", .compression = .store },
+    };
+    {
+        var zip_file = try tmp.dir.createFile("test.zip", .{});
+        defer zip_file.close();
+        var bw = std.io.bufferedWriter(zip_file.writer());
+        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
+        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
+        try bw.flush();
+    }
+
+    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
+    defer gpa.free(zip_path);
+
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    defer fb.deinit();
+
+    try fetch.run();
+
+    var out = try fb.packageDir();
+    defer out.close();
+
+    try std.zip.testutil.expectFiles(&test_files, out, .{ .strip_prefix = "the_root_folder/" });
+}
+
 test "tarball with duplicate paths" {
     // This tarball has duplicate path 'dir1/file1' to simulate case sensitve
     // file system on any file sytstem.
@@ -1916,7 +2069,7 @@ test "tarball with duplicate paths" {
 
     const tarball_name = "duplicate_paths.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, expect to fail
@@ -1948,7 +2101,7 @@ test "tarball with excluded duplicate paths" {
 
     const tarball_name = "duplicate_paths_excluded.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -1992,7 +2145,7 @@ test "tarball without root folder" {
 
     const tarball_name = "no_root.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
@@ -2023,7 +2176,7 @@ test "set executable bit based on file content" {
 
     const tarball_name = "executables.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
-    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    const tarball_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // $ tar -tvf executables.tar.gz

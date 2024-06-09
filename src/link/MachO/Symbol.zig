@@ -14,8 +14,8 @@ file: File.Index = 0,
 /// Use `getAtom` to get the pointer to the atom.
 atom: Atom.Index = 0,
 
-/// Assigned output section index for this atom.
-out_n_sect: u16 = 0,
+/// Assigned output section index for this symbol.
+out_n_sect: u8 = 0,
 
 /// Index of the source nlist this symbol references.
 /// Use `getNlist` to pull the nlist from the relevant file.

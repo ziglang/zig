@@ -13,10 +13,6 @@ test {
     _ = TrailerFlags;
 }
 
-pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
-
-pub const isTag = @compileError("deprecated; use 'tagged_value == @field(E, tag_name)' directly");
-
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // Using StaticStringMap here is more performant, but it will start to take too
@@ -1204,6 +1200,8 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
+            if (info.layout == .@"packed") return @sizeOf(T) * 8 == @bitSizeOf(T);
+
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
@@ -1248,6 +1246,19 @@ test hasUniqueRepresentation {
     const TestStruct5 = struct { a: TestStruct4 };
 
     try testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestStruct6 = packed struct(u8) {
+        @"0": bool,
+        @"1": bool,
+        @"2": bool,
+        @"3": bool,
+        @"4": bool,
+        @"5": bool,
+        @"6": bool,
+        @"7": bool,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct6));
 
     const TestUnion1 = packed union {
         a: u32,

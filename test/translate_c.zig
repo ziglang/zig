@@ -74,24 +74,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn main() c_int;
     });
 
-    cases.add("field access is grouped if necessary",
-        \\unsigned long foo(unsigned long x) {
-        \\    return ((union{unsigned long _x}){x})._x;
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo(arg_x: c_ulong) c_ulong {
-        \\    var x = arg_x;
-        \\    _ = &x;
-        \\    const union_unnamed_1 = extern union {
-        \\        _x: c_ulong,
-        \\    };
-        \\    _ = &union_unnamed_1;
-        \\    return (union_unnamed_1{
-        \\        ._x = x,
-        \\    })._x;
-        \\}
-    });
-
     cases.add("unnamed child types of typedef receive typedef's name",
         \\typedef enum {
         \\    FooA,
@@ -146,78 +128,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var a: c_int = undefined;
         \\    _ = &a;
         \\    if (a != 0) a = 2 else _ = bar();
-        \\}
-    });
-
-    cases.add("struct in struct init to zero",
-        \\struct Foo {
-        \\    int a;
-        \\    struct Bar {
-        \\        int a;
-        \\    } b;
-        \\} a = {};
-        \\#define PTR void *
-    , &[_][]const u8{
-        \\pub const struct_Bar_1 = extern struct {
-        \\    a: c_int = @import("std").mem.zeroes(c_int),
-        \\};
-        \\pub const struct_Foo = extern struct {
-        \\    a: c_int = @import("std").mem.zeroes(c_int),
-        \\    b: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
-        \\};
-        \\pub export var a: struct_Foo = struct_Foo{
-        \\    .a = 0,
-        \\    .b = @import("std").mem.zeroes(struct_Bar_1),
-        \\};
-        ,
-        \\pub const PTR = ?*anyopaque;
-    });
-
-    cases.add("scoped record",
-        \\void foo() {
-        \\	struct Foo {
-        \\		int A;
-        \\		int B;
-        \\		int C;
-        \\	};
-        \\	struct Foo a = {0};
-        \\	{
-        \\		struct Foo {
-        \\			int A;
-        \\			int B;
-        \\			int C;
-        \\		};
-        \\		struct Foo a = {0};
-        \\	}
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {
-        \\    const struct_Foo = extern struct {
-        \\        A: c_int = @import("std").mem.zeroes(c_int),
-        \\        B: c_int = @import("std").mem.zeroes(c_int),
-        \\        C: c_int = @import("std").mem.zeroes(c_int),
-        \\    };
-        \\    _ = &struct_Foo;
-        \\    var a: struct_Foo = struct_Foo{
-        \\        .A = @as(c_int, 0),
-        \\        .B = 0,
-        \\        .C = 0,
-        \\    };
-        \\    _ = &a;
-        \\    {
-        \\        const struct_Foo_1 = extern struct {
-        \\            A: c_int = @import("std").mem.zeroes(c_int),
-        \\            B: c_int = @import("std").mem.zeroes(c_int),
-        \\            C: c_int = @import("std").mem.zeroes(c_int),
-        \\        };
-        \\        _ = &struct_Foo_1;
-        \\        var a_2: struct_Foo_1 = struct_Foo_1{
-        \\            .A = @as(c_int, 0),
-        \\            .B = 0,
-        \\            .C = 0,
-        \\        };
-        \\        _ = &a_2;
-        \\    }
         \\}
     });
 
@@ -313,7 +223,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                             | (*((unsigned char *)(p) + 1) << 8)  \
         \\                             | (*((unsigned char *)(p) + 2) << 16))
     , &[_][]const u8{
-        \\pub const FOO = (foo + @as(c_int, 2)).*;
+        \\pub inline fn FOO() @TypeOf((foo + @as(c_int, 2)).*) {
+        \\    return (foo + @as(c_int, 2)).*;
+        \\}
         ,
         \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @intFromBool(@as(c_int, 8) == @as(c_int, 9));
         ,
@@ -466,16 +378,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const BAR = (@as(c_int, 1) != 0) and (@as(c_int, 2) > @as(c_int, 4));
     });
 
-    cases.add("struct with aligned fields",
-        \\struct foo {
-        \\    __attribute__((aligned(1))) short bar;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_foo = extern struct {
-        \\    bar: c_short align(1) = @import("std").mem.zeroes(c_short),
-        \\};
-    });
-
     cases.add("struct with flexible array",
         \\struct foo { int x; int y[]; };
         \\struct bar { int x; int y[0]; };
@@ -552,7 +454,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
-        \\pub const FOO = -BAR;
+        \\pub inline fn FOO() @TypeOf(-BAR) {
+        \\    return -BAR;
+        \\}
     });
 
     cases.add("struct with atomic field",
@@ -659,28 +563,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = &x;
         \\    x.*.unnamed_0.unnamed_0.y = @as(c_int, @bitCast(@as(c_uint, x.*.unnamed_0.x)));
         \\}
-    });
-
-    cases.add("union initializer",
-        \\union { int x; char c[4]; }
-        \\  ua = {1},
-        \\  ub = {.c={'a','b','b','a'}};
-    , &[_][]const u8{
-        \\const union_unnamed_1 = extern union {
-        \\    x: c_int,
-        \\    c: [4]u8,
-        \\};
-        \\pub export var ua: union_unnamed_1 = union_unnamed_1{
-        \\    .x = @as(c_int, 1),
-        \\};
-        \\pub export var ub: union_unnamed_1 = union_unnamed_1{
-        \\    .c = [4]u8{
-        \\        'a',
-        \\        'b',
-        \\        'b',
-        \\        'a',
-        \\    },
-        \\};
     });
 
     cases.add("struct initializer - simple",
@@ -992,21 +874,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("pointer to struct demoted to opaque due to bit fields",
-        \\struct Foo {
-        \\    unsigned int: 1;
-        \\};
-        \\struct Bar {
-        \\    struct Foo *foo;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub const struct_Bar = extern struct {
-        \\    foo: ?*struct_Foo = @import("std").mem.zeroes(?*struct_Foo),
-        \\};
-    });
-
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
@@ -1020,45 +887,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const FLASH_SIZE = @as(c_ulong, 0x200000);
         ,
         \\pub const FLASH_BANK_SIZE = FLASH_SIZE >> @as(c_int, 1);
-    });
-
-    cases.add("double define struct",
-        \\typedef struct Bar Bar;
-        \\typedef struct Foo Foo;
-        \\
-        \\struct Foo {
-        \\    Foo *a;
-        \\};
-        \\
-        \\struct Bar {
-        \\    Foo *a;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
-        \\};
-        ,
-        \\pub const Foo = struct_Foo;
-        ,
-        \\pub const struct_Bar = extern struct {
-        \\    a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
-        \\};
-        ,
-        \\pub const Bar = struct_Bar;
-    });
-
-    cases.add("simple struct",
-        \\struct Foo {
-        \\    int x;
-        \\    char *y;
-        \\};
-    , &[_][]const u8{
-        \\const struct_Foo = extern struct {
-        \\    x: c_int = @import("std").mem.zeroes(c_int),
-        \\    y: [*c]u8 = @import("std").mem.zeroes([*c]u8),
-        \\};
-        ,
-        \\pub const Foo = struct_Foo;
     });
 
     cases.add("self referential struct with function pointer",
@@ -1099,42 +927,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const THING2 = THING1;
     });
 
-    cases.add("circular struct definitions",
-        \\struct Bar;
-        \\
-        \\struct Foo {
-        \\    struct Bar *next;
-        \\};
-        \\
-        \\struct Bar {
-        \\    struct Foo *next;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Bar = extern struct {
-        \\    next: [*c]struct_Foo = @import("std").mem.zeroes([*c]struct_Foo),
-        \\};
-        ,
-        \\pub const struct_Foo = extern struct {
-        \\    next: [*c]struct_Bar = @import("std").mem.zeroes([*c]struct_Bar),
-        \\};
-    });
-
     cases.add("#define string",
         \\#define  foo  "a string"
     , &[_][]const u8{
         \\pub const foo = "a string";
-    });
-
-    cases.add("zig keywords in C code",
-        \\struct comptime {
-        \\    int defer;
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_comptime = extern struct {
-        \\    @"defer": c_int = @import("std").mem.zeroes(c_int),
-        \\};
-        ,
-        \\pub const @"comptime" = struct_comptime;
     });
 
     cases.add("macro with parens around negative number",
@@ -1391,88 +1187,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() [*c]c_int {
         \\    return null;
         \\}
-    });
-
-    cases.add("simple union",
-        \\union Foo {
-        \\    int x;
-        \\    double y;
-        \\};
-    , &[_][]const u8{
-        \\pub const union_Foo = extern union {
-        \\    x: c_int,
-        \\    y: f64,
-        \\};
-        ,
-        \\pub const Foo = union_Foo;
-    });
-
-    cases.add("packed union - simple",
-        \\union Foo {
-        \\  char x;
-        \\  double y;
-        \\} __attribute__((packed));
-    , &[_][]const u8{
-        \\pub const union_Foo = extern union {
-        \\    x: u8 align(1),
-        \\    y: f64 align(1),
-        \\};
-        ,
-        \\pub const Foo = union_Foo;
-    });
-
-    cases.add("packed union - nested unpacked",
-        \\union Foo{
-        \\  char x;
-        \\  double y;
-        \\  struct {
-        \\      char a;
-        \\      int b;
-        \\  } z;
-        \\} __attribute__((packed));
-    , &[_][]const u8{
-        // NOTE: The nested struct is *not* packed/aligned,
-        // even though the parent struct is
-        // this is consistent with GCC docs
-        \\const struct_unnamed_1 = extern struct {
-        \\    a: u8 = @import("std").mem.zeroes(u8),
-        \\    b: c_int = @import("std").mem.zeroes(c_int),
-        \\};
-        ,
-        \\pub const union_Foo = extern union {
-        \\    x: u8 align(1),
-        \\    y: f64 align(1),
-        \\    z: struct_unnamed_1 align(1),
-        \\};
-        ,
-        \\pub const Foo = union_Foo;
-    });
-
-    cases.add("packed union - nested packed",
-        \\union Foo{
-        \\  char x;
-        \\  double y;
-        \\  struct {
-        \\      char a;
-        \\      int b;
-        \\  } __attribute__((packed)) z;
-        \\} __attribute__((packed));
-    , &[_][]const u8{
-        // in order for the nested struct to be packed, it must
-        // have an independent packed declaration on
-        // the nested type (see GCC docs for details)
-        \\const struct_unnamed_1 = extern struct {
-        \\    a: u8 align(1) = @import("std").mem.zeroes(u8),
-        \\    b: c_int align(1) = @import("std").mem.zeroes(c_int),
-        \\};
-        ,
-        \\pub const union_Foo = extern union {
-        \\    x: u8 align(1),
-        \\    y: f64 align(1),
-        \\    z: struct_unnamed_1 align(1),
-        \\};
-        ,
-        \\pub const Foo = union_Foo;
     });
 
     cases.add("string literal",
@@ -2395,27 +2109,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    }
         \\}
     });
-
-    if (builtin.os.tag != .windows) {
-        // When clang uses the <arch>-windows-none triple it behaves as MSVC and
-        // interprets the inner `struct Bar` as an anonymous structure
-        cases.add("type referenced struct",
-            \\struct Foo {
-            \\    struct Bar{
-            \\        int b;
-            \\    };
-            \\    struct Bar c;
-            \\};
-        , &[_][]const u8{
-            \\pub const struct_Bar_1 = extern struct {
-            \\    b: c_int = @import("std").mem.zeroes(c_int),
-            \\};
-            \\pub const struct_Foo = extern struct {
-            \\    c: struct_Bar_1 = @import("std").mem.zeroes(struct_Bar_1),
-            \\};
-        });
-    }
-
     cases.add("undefined array global",
         \\int array[100] = {};
     , &[_][]const u8{
@@ -2634,32 +2327,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Foo = enum_Foo;
     });
 
-    cases.add("qualified struct and enum",
-        \\struct Foo {
-        \\    int x;
-        \\    int y;
-        \\};
-        \\enum Bar {
-        \\    BarA,
-        \\    BarB,
-        \\};
-        \\void func(struct Foo *a, enum Bar **b);
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    x: c_int = @import("std").mem.zeroes(c_int),
-        \\    y: c_int = @import("std").mem.zeroes(c_int),
-        \\};
-        \\pub const BarA: c_int = 0;
-        \\pub const BarB: c_int = 1;
-        \\pub const enum_Bar =
-        ++ " " ++ default_enum_type ++
-            \\;
-            \\pub extern fn func(a: [*c]struct_Foo, b: [*c][*c]enum_Bar) void;
-        ,
-        \\pub const Foo = struct_Foo;
-        \\pub const Bar = enum_Bar;
-    });
-
     cases.add("bitwise binary operators, simpler parens",
         \\int max(int a, int b) {
         \\    return (a & b) ^ (a | b);
@@ -2790,9 +2457,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = c.*.b;
         \\}
         ,
-        \\pub const DOT = a.b;
+        \\pub inline fn ARROW() @TypeOf(a.*.b) {
+        \\    return a.*.b;
+        \\}
         ,
-        \\pub const ARROW = a.*.b;
+        \\pub inline fn DOT() @TypeOf(a.b) {
+        \\    return a.b;
+        \\}
     });
 
     cases.add("array access",
@@ -2809,7 +2480,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[@as(c_uint, @intCast(index))];
         \\}
         ,
-        \\pub const ACCESS = array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\pub inline fn ACCESS() @TypeOf(array[@as(usize, @intCast(@as(c_int, 2)))]) {
+        \\    return array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\}
     });
 
     cases.add("cast signed array index to unsigned",
@@ -3467,7 +3140,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
-        \\pub const FOO = if (a) b else c;
+        \\pub inline fn FOO() @TypeOf(if (a) b else c) {
+        \\    return if (a) b else c;
+        \\}
     });
 
     cases.add("do while as expr",
@@ -3756,24 +3431,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         });
     }
 
-    cases.add("unnamed fields have predictable names",
-        \\struct a {
-        \\    struct {};
-        \\};
-        \\struct b {
-        \\    struct {};
-        \\};
-    , &[_][]const u8{
-        \\const struct_unnamed_1 = extern struct {};
-        \\pub const struct_a = extern struct {
-        \\    unnamed_0: struct_unnamed_1 = @import("std").mem.zeroes(struct_unnamed_1),
-        \\};
-        \\const struct_unnamed_2 = extern struct {};
-        \\pub const struct_b = extern struct {
-        \\    unnamed_0: struct_unnamed_2 = @import("std").mem.zeroes(struct_unnamed_2),
-        \\};
-    });
-
     cases.add("integer literal promotion",
         \\#define GUARANTEED_TO_FIT_1 1024
         \\#define GUARANTEED_TO_FIT_2 10241024L
@@ -3979,7 +3636,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO _
         \\int _ = 42;
     , &[_][]const u8{
-        \\pub const FOO = @"_";
+        \\pub inline fn FOO() @TypeOf(@"_") {
+        \\    return @"_";
+        \\}
         ,
         \\pub export var @"_": c_int = 42;
     });
@@ -4281,21 +3940,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO(x) struct x
     , &[_][]const u8{
         \\pub const FOO = @compileError("unable to translate macro: untranslatable usage of arg `x`");
-    });
-
-    cases.add("global struct whose default name conflicts with global is mangled",
-        \\struct foo {
-        \\    int x;
-        \\};
-        \\const char *struct_foo = "hello world";
-    , &[_][]const u8{
-        \\pub const struct_foo_1 = extern struct {
-        \\    x: c_int = @import("std").mem.zeroes(c_int),
-        \\};
-        ,
-        \\pub const foo = struct_foo_1;
-        ,
-        \\pub export var struct_foo: [*c]const u8 = "hello world";
     });
 
     cases.add("unsupport declare statement at the last of a compound statement which belongs to a statement expr",

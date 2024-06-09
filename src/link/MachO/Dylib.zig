@@ -671,7 +671,7 @@ pub const TargetMatcher = struct {
         try self.target_strings.append(allocator, apple_string);
 
         switch (platform) {
-            .IOSSIMULATOR, .TVOSSIMULATOR, .WATCHOSSIMULATOR => {
+            .IOSSIMULATOR, .TVOSSIMULATOR, .WATCHOSSIMULATOR, .VISIONOSSIMULATOR => {
                 // For Apple simulator targets, linking gets tricky as we need to link against the simulator
                 // hosts dylibs too.
                 const host_target = try targetToAppleString(allocator, cpu_arch, .MACOS);
@@ -714,9 +714,11 @@ pub const TargetMatcher = struct {
             .IOS => "ios",
             .TVOS => "tvos",
             .WATCHOS => "watchos",
+            .VISIONOS => "xros",
             .IOSSIMULATOR => "ios-simulator",
             .TVOSSIMULATOR => "tvos-simulator",
             .WATCHOSSIMULATOR => "watchos-simulator",
+            .VISIONOSSIMULATOR => "xros-simulator",
             .BRIDGEOS => "bridgeos",
             .MACCATALYST => "maccatalyst",
             .DRIVERKIT => "driverkit",

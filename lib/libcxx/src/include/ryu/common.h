@@ -52,7 +52,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // Function precondition: __v is not a 10-digit number.
   // (f2s: 9 digits are sufficient for round-tripping.)
   // (d2fixed: We print 9-digit blocks.)
-  _LIBCPP_ASSERT_UNCATEGORIZED(__v < 1000000000, "");
+  _LIBCPP_ASSERT_INTERNAL(__v < 1000000000, "");
   if (__v >= 100000000) { return 9; }
   if (__v >= 10000000) { return 8; }
   if (__v >= 1000000) { return 7; }
@@ -69,24 +69,24 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // This approximation works up to the point that the multiplication overflows at __e = 3529.
   // If the multiplication were done in 64 bits, it would fail at 5^4004 which is just greater
   // than 2^9297.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e >= 0, "");
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e <= 3528, "");
+  _LIBCPP_ASSERT_INTERNAL(__e >= 0, "");
+  _LIBCPP_ASSERT_INTERNAL(__e <= 3528, "");
   return static_cast<int32_t>(((static_cast<uint32_t>(__e) * 1217359) >> 19) + 1);
 }
 
 // Returns floor(log_10(2^__e)).
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI  inline uint32_t __log10Pow2(const int32_t __e) {
   // The first value this approximation fails for is 2^1651 which is just greater than 10^297.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e >= 0, "");
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e <= 1650, "");
+  _LIBCPP_ASSERT_INTERNAL(__e >= 0, "");
+  _LIBCPP_ASSERT_INTERNAL(__e <= 1650, "");
   return (static_cast<uint32_t>(__e) * 78913) >> 18;
 }
 
 // Returns floor(log_10(5^__e)).
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI inline uint32_t __log10Pow5(const int32_t __e) {
   // The first value this approximation fails for is 5^2621 which is just greater than 10^1832.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e >= 0, "");
-  _LIBCPP_ASSERT_UNCATEGORIZED(__e <= 2620, "");
+  _LIBCPP_ASSERT_INTERNAL(__e >= 0, "");
+  _LIBCPP_ASSERT_INTERNAL(__e <= 2620, "");
   return (static_cast<uint32_t>(__e) * 732923) >> 20;
 }
 

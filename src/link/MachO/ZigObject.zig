@@ -314,6 +314,20 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
     }
 }
 
+pub fn resolveLiterals(self: *ZigObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+    _ = self;
+    _ = lp;
+    _ = macho_file;
+    // TODO
+}
+
+pub fn dedupLiterals(self: *ZigObject, lp: MachO.LiteralPool, macho_file: *MachO) void {
+    _ = self;
+    _ = lp;
+    _ = macho_file;
+    // TODO
+}
+
 /// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
 /// We need this so that we can write to an archive.
 /// TODO implement writing ZigObject data directly to a buffer instead.

@@ -1,87 +1,97 @@
+//! Secure Hashing Algorithm 2 (SHA2)
+//!
+//! Published by the National Institue of Standards and Technology (NIST) [1] [2].
+//!
+//! Truncation mitigates length-extension attacks but increases vulnerability to collision
+//! attacks. Collision attacks remain impractical for all types defined here.
+//!
+//! T: original hash function, whose output is simply truncated.
+//!    A truncated output is just the first bytes of a longer output.
+//! _: hash function with context separation.
+//!    Different lengths produce completely different outputs.
+//!
+//! [1] https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+//! [2] https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-208.pdf
+
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const htest = @import("test.zig");
 
-/////////////////////
-// Sha224 + Sha256
+pub const Sha224 = Sha2x32(iv224, 224);
+pub const Sha256 = Sha2x32(iv256, 256);
+pub const Sha384 = Sha2x64(iv384, 384);
+pub const Sha512 = Sha2x64(iv512, 512);
 
-const RoundParam256 = struct {
-    a: usize,
-    b: usize,
-    c: usize,
-    d: usize,
-    e: usize,
-    f: usize,
-    g: usize,
-    h: usize,
-    i: usize,
+/// SHA-256 truncated to leftmost 192 bits.
+pub const Sha256T192 = Sha2x32(iv256, 192);
+
+/// SHA-512 truncated to leftmost 224 bits.
+pub const Sha512T224 = Sha2x64(iv512, 224);
+/// SHA-512 truncated to leftmost 256 bits.
+pub const Sha512T256 = Sha2x64(iv512, 256);
+
+/// SHA-512 with a different initialization vector truncated to leftmost 224 bits.
+pub const Sha512_224 = Sha2x64(truncatedSha512Iv(224), 224);
+/// SHA-512 with a different initialization vector truncated to leftmost 256 bits.
+pub const Sha512_256 = Sha2x64(truncatedSha512Iv(256), 256);
+
+/// Low 32 bits of iv384.
+const iv224 = Iv32{
+    0xC1059ED8,
+    0x367CD507,
+    0x3070DD17,
+    0xF70E5939,
+    0xFFC00B31,
+    0x68581511,
+    0x64F98FA7,
+    0xBEFA4FA4,
+};
+/// First thirty-two bits of the fractional parts of the square
+/// roots of the first eight prime numbers.
+const iv256 = Iv32{
+    0x6A09E667,
+    0xBB67AE85,
+    0x3C6EF372,
+    0xA54FF53A,
+    0x510E527F,
+    0x9B05688C,
+    0x1F83D9AB,
+    0x5BE0CD19,
 };
 
-fn roundParam256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize) RoundParam256 {
-    return RoundParam256{
-        .a = a,
-        .b = b,
-        .c = c,
-        .d = d,
-        .e = e,
-        .f = f,
-        .g = g,
-        .h = h,
-        .i = i,
-    };
-}
-
-const Sha2Params32 = struct {
-    iv0: u32,
-    iv1: u32,
-    iv2: u32,
-    iv3: u32,
-    iv4: u32,
-    iv5: u32,
-    iv6: u32,
-    iv7: u32,
-    digest_bits: usize,
+/// First sixty-four bits of the fractional parts of the square
+/// roots of the ninth through sixteenth prime numbers.
+const iv384 = Iv64{
+    0xCBBB9D5DC1059ED8,
+    0x629A292A367CD507,
+    0x9159015A3070DD17,
+    0x152FECD8F70E5939,
+    0x67332667FFC00B31,
+    0x8EB44A8768581511,
+    0xDB0C2E0D64F98FA7,
+    0x47B5481DBEFA4FA4,
+};
+/// First sixty-four bits of the fractional parts of the square
+/// roots of the first eight prime numbers.
+const iv512 = Iv64{
+    0x6A09E667F3BCC908,
+    0xBB67AE8584CAA73B,
+    0x3C6EF372FE94F82B,
+    0xA54FF53A5F1D36F1,
+    0x510E527FADE682D1,
+    0x9B05688C2B3E6C1F,
+    0x1F83D9ABFB41BD6B,
+    0x5BE0CD19137E2179,
 };
 
-const Sha224Params = Sha2Params32{
-    .iv0 = 0xC1059ED8,
-    .iv1 = 0x367CD507,
-    .iv2 = 0x3070DD17,
-    .iv3 = 0xF70E5939,
-    .iv4 = 0xFFC00B31,
-    .iv5 = 0x68581511,
-    .iv6 = 0x64F98FA7,
-    .iv7 = 0xBEFA4FA4,
-    .digest_bits = 224,
-};
-
-const Sha256Params = Sha2Params32{
-    .iv0 = 0x6A09E667,
-    .iv1 = 0xBB67AE85,
-    .iv2 = 0x3C6EF372,
-    .iv3 = 0xA54FF53A,
-    .iv4 = 0x510E527F,
-    .iv5 = 0x9B05688C,
-    .iv6 = 0x1F83D9AB,
-    .iv7 = 0x5BE0CD19,
-    .digest_bits = 256,
-};
-
-const v4u32 = @Vector(4, u32);
-
-/// SHA-224
-pub const Sha224 = Sha2x32(Sha224Params);
-
-/// SHA-256
-pub const Sha256 = Sha2x32(Sha256Params);
-
-fn Sha2x32(comptime params: Sha2Params32) type {
+const Iv32 = [8]u32;
+fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
     return struct {
         const Self = @This();
         pub const block_length = 64;
-        pub const digest_length = params.digest_bits / 8;
+        pub const digest_length = digest_bits / 8;
         pub const Options = struct {};
 
         s: [8]u32 align(16),
@@ -92,18 +102,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
         pub fn init(options: Options) Self {
             _ = options;
-            return Self{
-                .s = [_]u32{
-                    params.iv0,
-                    params.iv1,
-                    params.iv2,
-                    params.iv3,
-                    params.iv4,
-                    params.iv5,
-                    params.iv6,
-                    params.iv7,
-                },
-            };
+            return Self{ .s = iv };
         }
 
         pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
@@ -167,8 +166,8 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
             d.round(&d.buf);
 
-            // May truncate for possible 224 output
-            const rr = d.s[0 .. params.digest_bits / 32];
+            // May truncate for possible 224 or 192 output
+            const rr = d.s[0 .. digest_length / 4];
 
             for (rr, 0..) |s, j| {
                 mem.writeInt(u32, out[4 * j ..][0..4], s, .big);
@@ -199,11 +198,12 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             }
 
             if (!@inComptime()) {
+                const V4u32 = @Vector(4, u32);
                 switch (builtin.cpu.arch) {
                     .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
-                        var x: v4u32 = d.s[0..4].*;
-                        var y: v4u32 = d.s[4..8].*;
-                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
+                        var x: V4u32 = d.s[0..4].*;
+                        var y: V4u32 = d.s[4..8].*;
+                        const s_v = @as(*[16]V4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -211,7 +211,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                                 s_v[k] = asm (
                                     \\sha256su0.4s %[w0_3], %[w4_7]
                                     \\sha256su1.4s %[w0_3], %[w8_11], %[w12_15]
-                                    : [w0_3] "=w" (-> v4u32),
+                                    : [w0_3] "=w" (-> V4u32),
                                     : [_] "0" (s_v[k - 4]),
                                       [w4_7] "w" (s_v[k - 3]),
                                       [w8_11] "w" (s_v[k - 2]),
@@ -219,7 +219,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                                 );
                             }
 
-                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            const w: V4u32 = s_v[k] +% @as(V4u32, W[4 * k ..][0..4].*);
                             asm volatile (
                                 \\mov.4s v0, %[x]
                                 \\sha256h.4s %[x], %[y], %[w]
@@ -233,15 +233,15 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                             );
                         }
 
-                        d.s[0..4].* = x +% @as(v4u32, d.s[0..4].*);
-                        d.s[4..8].* = y +% @as(v4u32, d.s[4..8].*);
+                        d.s[0..4].* = x +% @as(V4u32, d.s[0..4].*);
+                        d.s[4..8].* = y +% @as(V4u32, d.s[4..8].*);
                         return;
                     },
                     // C backend doesn't currently support passing vectors to inline asm.
                     .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sha, .avx2 })) {
-                        var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
-                        var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
-                        const s_v = @as(*[16]v4u32, @ptrCast(&s));
+                        var x: V4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
+                        var y: V4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
+                        const s_v = @as(*[16]V4u32, @ptrCast(&s));
 
                         comptime var k: u8 = 0;
                         inline while (k < 16) : (k += 1) {
@@ -253,7 +253,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                                     \\ paddd %[tmp], %[result]
                                     \\ sha256msg2 %[w12_15], %[result]
                                     : [tmp] "=&x" (tmp),
-                                      [result] "=&x" (-> v4u32),
+                                      [result] "=&x" (-> V4u32),
                                     : [_] "0" (tmp),
                                       [w4_7] "x" (s_v[k + 1]),
                                       [w8_11] "x" (s_v[k + 2]),
@@ -261,19 +261,19 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                                 );
                             }
 
-                            const w: v4u32 = s_v[k] +% @as(v4u32, W[4 * k ..][0..4].*);
+                            const w: V4u32 = s_v[k] +% @as(V4u32, W[4 * k ..][0..4].*);
                             y = asm ("sha256rnds2 %[x], %[y]"
-                                : [y] "=x" (-> v4u32),
+                                : [y] "=x" (-> V4u32),
                                 : [_] "0" (y),
                                   [x] "x" (x),
                                   [_] "{xmm0}" (w),
                             );
 
                             x = asm ("sha256rnds2 %[y], %[x]"
-                                : [x] "=x" (-> v4u32),
+                                : [x] "=x" (-> V4u32),
                                 : [_] "0" (x),
                                   [y] "x" (y),
-                                  [_] "{xmm0}" (@as(v4u32, @bitCast(@as(u128, @bitCast(w)) >> 64))),
+                                  [_] "{xmm0}" (@as(V4u32, @bitCast(@as(u128, @bitCast(w)) >> 64))),
                             );
                         }
 
@@ -296,16 +296,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 s[i] = s[i - 16] +% s[i - 7] +% (math.rotr(u32, s[i - 15], @as(u32, 7)) ^ math.rotr(u32, s[i - 15], @as(u32, 18)) ^ (s[i - 15] >> 3)) +% (math.rotr(u32, s[i - 2], @as(u32, 17)) ^ math.rotr(u32, s[i - 2], @as(u32, 19)) ^ (s[i - 2] >> 10));
             }
 
-            var v: [8]u32 = [_]u32{
-                d.s[0],
-                d.s[1],
-                d.s[2],
-                d.s[3],
-                d.s[4],
-                d.s[5],
-                d.s[6],
-                d.s[7],
-            };
+            var v: [8]u32 = d.s;
 
             const round0 = comptime [_]RoundParam256{
                 roundParam256(0, 1, 2, 3, 4, 5, 6, 7, 0),
@@ -381,14 +372,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 v[r.h] = v[r.h] +% (math.rotr(u32, v[r.a], @as(u32, 2)) ^ math.rotr(u32, v[r.a], @as(u32, 13)) ^ math.rotr(u32, v[r.a], @as(u32, 22))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
-            d.s[0] +%= v[0];
-            d.s[1] +%= v[1];
-            d.s[2] +%= v[2];
-            d.s[3] +%= v[3];
-            d.s[4] +%= v[4];
-            d.s[5] +%= v[5];
-            d.s[6] +%= v[6];
-            d.s[7] +%= v[7];
+            for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
 
         pub const Error = error{};
@@ -405,7 +389,33 @@ fn Sha2x32(comptime params: Sha2Params32) type {
     };
 }
 
-test "sha224 single" {
+const RoundParam256 = struct {
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    e: usize,
+    f: usize,
+    g: usize,
+    h: usize,
+    i: usize,
+};
+
+fn roundParam256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize) RoundParam256 {
+    return RoundParam256{
+        .a = a,
+        .b = b,
+        .c = c,
+        .d = d,
+        .e = e,
+        .f = f,
+        .g = g,
+        .h = h,
+        .i = i,
+    };
+}
+
+test Sha224 {
     try htest.assertEqualHash(Sha224, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", "");
     try htest.assertEqualHash(Sha224, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", "abc");
     try htest.assertEqualHash(Sha224, "c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
@@ -431,10 +441,16 @@ test "sha224 streaming" {
     try htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 }
 
-test "sha256 single" {
+test Sha256 {
     try htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
     try htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
     try htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+}
+
+test Sha256T192 {
+    try htest.assertEqualHash(Sha256T192, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934c", "");
+    try htest.assertEqualHash(Sha256T192, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9c", "abc");
+    try htest.assertEqualHash(Sha256T192, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha256 streaming" {
@@ -466,132 +482,15 @@ test "sha256 aligned final" {
     h.final(out[0..]);
 }
 
-/////////////////////
-// Sha384 + Sha512
-
-const RoundParam512 = struct {
-    a: usize,
-    b: usize,
-    c: usize,
-    d: usize,
-    e: usize,
-    f: usize,
-    g: usize,
-    h: usize,
-    i: usize,
-    k: u64,
-};
-
-fn roundParam512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u64) RoundParam512 {
-    return RoundParam512{
-        .a = a,
-        .b = b,
-        .c = c,
-        .d = d,
-        .e = e,
-        .f = f,
-        .g = g,
-        .h = h,
-        .i = i,
-        .k = k,
-    };
-}
-
-const Sha2Params64 = struct {
-    iv0: u64,
-    iv1: u64,
-    iv2: u64,
-    iv3: u64,
-    iv4: u64,
-    iv5: u64,
-    iv6: u64,
-    iv7: u64,
-    digest_bits: usize,
-};
-
-const Sha384Params = Sha2Params64{
-    .iv0 = 0xCBBB9D5DC1059ED8,
-    .iv1 = 0x629A292A367CD507,
-    .iv2 = 0x9159015A3070DD17,
-    .iv3 = 0x152FECD8F70E5939,
-    .iv4 = 0x67332667FFC00B31,
-    .iv5 = 0x8EB44A8768581511,
-    .iv6 = 0xDB0C2E0D64F98FA7,
-    .iv7 = 0x47B5481DBEFA4FA4,
-    .digest_bits = 384,
-};
-
-const Sha512Params = Sha2Params64{
-    .iv0 = 0x6A09E667F3BCC908,
-    .iv1 = 0xBB67AE8584CAA73B,
-    .iv2 = 0x3C6EF372FE94F82B,
-    .iv3 = 0xA54FF53A5F1D36F1,
-    .iv4 = 0x510E527FADE682D1,
-    .iv5 = 0x9B05688C2B3E6C1F,
-    .iv6 = 0x1F83D9ABFB41BD6B,
-    .iv7 = 0x5BE0CD19137E2179,
-    .digest_bits = 512,
-};
-
-const Sha512224Params = Sha2Params64{
-    .iv0 = 0x8C3D37C819544DA2,
-    .iv1 = 0x73E1996689DCD4D6,
-    .iv2 = 0x1DFAB7AE32FF9C82,
-    .iv3 = 0x679DD514582F9FCF,
-    .iv4 = 0x0F6D2B697BD44DA8,
-    .iv5 = 0x77E36F7304C48942,
-    .iv6 = 0x3F9D85A86A1D36C8,
-    .iv7 = 0x1112E6AD91D692A1,
-    .digest_bits = 224,
-};
-
-const Sha512256Params = Sha2Params64{
-    .iv0 = 0x22312194FC2BF72C,
-    .iv1 = 0x9F555FA3C84C64C2,
-    .iv2 = 0x2393B86B6F53B151,
-    .iv3 = 0x963877195940EABD,
-    .iv4 = 0x96283EE2A88EFFE3,
-    .iv5 = 0xBE5E1E2553863992,
-    .iv6 = 0x2B0199FC2C85B8AA,
-    .iv7 = 0x0EB72DDC81C52CA2,
-    .digest_bits = 256,
-};
-
-const Sha512T256Params = Sha2Params64{
-    .iv0 = 0x6A09E667F3BCC908,
-    .iv1 = 0xBB67AE8584CAA73B,
-    .iv2 = 0x3C6EF372FE94F82B,
-    .iv3 = 0xA54FF53A5F1D36F1,
-    .iv4 = 0x510E527FADE682D1,
-    .iv5 = 0x9B05688C2B3E6C1F,
-    .iv6 = 0x1F83D9ABFB41BD6B,
-    .iv7 = 0x5BE0CD19137E2179,
-    .digest_bits = 256,
-};
-
-/// SHA-384
-pub const Sha384 = Sha2x64(Sha384Params);
-
-/// SHA-512
-pub const Sha512 = Sha2x64(Sha512Params);
-
-/// SHA-512/224
-pub const Sha512224 = Sha2x64(Sha512224Params);
-
-/// SHA-512/256
-pub const Sha512256 = Sha2x64(Sha512256Params);
-
-/// Truncated SHA-512
-pub const Sha512T256 = Sha2x64(Sha512T256Params);
-
-fn Sha2x64(comptime params: Sha2Params64) type {
+const Iv64 = [8]u64;
+fn Sha2x64(comptime iv: Iv64, digest_bits: comptime_int) type {
     return struct {
         const Self = @This();
         pub const block_length = 128;
-        pub const digest_length = params.digest_bits / 8;
+        pub const digest_length = std.math.divCeil(comptime_int, digest_bits, 8) catch unreachable;
         pub const Options = struct {};
 
-        s: [8]u64,
+        s: Iv64,
         // Streaming Cache
         buf: [128]u8 = undefined,
         buf_len: u8 = 0,
@@ -599,18 +498,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
         pub fn init(options: Options) Self {
             _ = options;
-            return Self{
-                .s = [_]u64{
-                    params.iv0,
-                    params.iv1,
-                    params.iv2,
-                    params.iv3,
-                    params.iv4,
-                    params.iv5,
-                    params.iv6,
-                    params.iv7,
-                },
-            };
+            return Self{ .s = iv };
         }
 
         pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
@@ -675,18 +563,19 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             d.round(d.buf[0..]);
 
             // May truncate for possible 384 output
-            const rr = d.s[0 .. params.digest_bits / 64];
+            const rr = d.s[0 .. digest_length / 8];
 
             for (rr, 0..) |s, j| {
                 mem.writeInt(u64, out[8 * j ..][0..8], s, .big);
             }
 
-            const bytes_left = params.digest_bits / 8 % 8;
+            if (digest_bits % 8 != 0) @compileError("impl doesn't support non-byte digest_len");
+            const bytes_left = digest_bits / 8 % 8;
             if (bytes_left > 0) {
-                const rest = d.s[(params.digest_bits / 64)];
+                const rest = d.s[(digest_bits / 64)];
                 var buf: [8]u8 = undefined;
                 std.mem.writeInt(u64, &buf, rest, .big);
-                @memcpy(out[params.digest_bits / 64 * 8 ..], buf[0..bytes_left]);
+                @memcpy(out[digest_bits / 64 * 8 ..], buf[0..bytes_left]);
             }
         }
 
@@ -709,16 +598,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
                     (math.rotr(u64, s[i - 2], @as(u64, 19)) ^ math.rotr(u64, s[i - 2], @as(u64, 61)) ^ (s[i - 2] >> 6));
             }
 
-            var v: [8]u64 = [_]u64{
-                d.s[0],
-                d.s[1],
-                d.s[2],
-                d.s[3],
-                d.s[4],
-                d.s[5],
-                d.s[6],
-                d.s[7],
-            };
+            var v: [8]u64 = d.s;
 
             const round0 = comptime [_]RoundParam512{
                 roundParam512(0, 1, 2, 3, 4, 5, 6, 7, 0, 0x428A2F98D728AE22),
@@ -810,19 +690,94 @@ fn Sha2x64(comptime params: Sha2Params64) type {
                 v[r.h] = v[r.h] +% (math.rotr(u64, v[r.a], @as(u64, 28)) ^ math.rotr(u64, v[r.a], @as(u64, 34)) ^ math.rotr(u64, v[r.a], @as(u64, 39))) +% ((v[r.a] & (v[r.b] | v[r.c])) | (v[r.b] & v[r.c]));
             }
 
-            d.s[0] +%= v[0];
-            d.s[1] +%= v[1];
-            d.s[2] +%= v[2];
-            d.s[3] +%= v[3];
-            d.s[4] +%= v[4];
-            d.s[5] +%= v[5];
-            d.s[6] +%= v[6];
-            d.s[7] +%= v[7];
+            for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
     };
 }
 
-test "sha384 single" {
+const RoundParam512 = struct {
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    e: usize,
+    f: usize,
+    g: usize,
+    h: usize,
+    i: usize,
+    k: u64,
+};
+
+fn roundParam512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u64) RoundParam512 {
+    return RoundParam512{
+        .a = a,
+        .b = b,
+        .c = c,
+        .d = d,
+        .e = e,
+        .f = f,
+        .g = g,
+        .h = h,
+        .i = i,
+        .k = k,
+    };
+}
+
+/// Compute the IV for a truncated version of SHA512 per FIPS 180 Section 5.3.6
+fn truncatedSha512Iv(digest_len: comptime_int) Iv64 {
+    const assert = std.debug.assert;
+    comptime assert(digest_len > 1);
+    comptime assert(digest_len <= 512);
+    comptime assert(digest_len != 384); // NIST specially defines this (see `iv384`)
+
+    comptime var gen_params = iv512;
+    inline for (&gen_params) |*iv| {
+        iv.* ^= 0xa5a5a5a5a5a5a5a5;
+    }
+    const GenHash = Sha2x64(gen_params, 512);
+
+    var params: [@sizeOf(Iv64)]u8 = undefined;
+    const algo_str = std.fmt.comptimePrint("SHA-512/{d}", .{digest_len});
+    GenHash.hash(algo_str, &params, .{});
+
+    return Iv64{
+        std.mem.readInt(u64, params[0..8], .big),
+        std.mem.readInt(u64, params[8..16], .big),
+        std.mem.readInt(u64, params[16..24], .big),
+        std.mem.readInt(u64, params[24..32], .big),
+        std.mem.readInt(u64, params[32..40], .big),
+        std.mem.readInt(u64, params[40..48], .big),
+        std.mem.readInt(u64, params[48..56], .big),
+        std.mem.readInt(u64, params[56..64], .big),
+    };
+}
+
+test truncatedSha512Iv {
+    // Section 5.3.6.1
+    try std.testing.expectEqual(Iv64{
+        0x8C3D37C819544DA2,
+        0x73E1996689DCD4D6,
+        0x1DFAB7AE32FF9C82,
+        0x679DD514582F9FCF,
+        0x0F6D2B697BD44DA8,
+        0x77E36F7304C48942,
+        0x3F9D85A86A1D36C8,
+        0x1112E6AD91D692A1,
+    }, truncatedSha512Iv(224));
+    // Section 5.3.6.2
+    try std.testing.expectEqual(Iv64{
+        0x22312194FC2BF72C,
+        0x9F555FA3C84C64C2,
+        0x2393B86B6F53B151,
+        0x963877195940EABD,
+        0x96283EE2A88EFFE3,
+        0xBE5E1E2553863992,
+        0x2B0199FC2C85B8AA,
+        0x0EB72DDC81C52CA2,
+    }, truncatedSha512Iv(256));
+}
+
+test Sha384 {
     const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
     try htest.assertEqualHash(Sha384, h1, "");
 
@@ -856,7 +811,7 @@ test "sha384 streaming" {
     try htest.assertEqual(h2, out[0..]);
 }
 
-test "sha512 single" {
+test Sha512 {
     const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
     try htest.assertEqualHash(Sha512, h1, "");
 
@@ -899,24 +854,24 @@ test "sha512 aligned final" {
     h.final(out[0..]);
 }
 
-test "sha512-224 single" {
+test Sha512_224 {
     const h1 = "6ed0dd02806fa89e25de060c19d3ac86cabb87d6a0ddd05c333b84f4";
-    try htest.assertEqualHash(Sha512224, h1, "");
+    try htest.assertEqualHash(Sha512_224, h1, "");
 
     const h2 = "4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa";
-    try htest.assertEqualHash(Sha512224, h2, "abc");
+    try htest.assertEqualHash(Sha512_224, h2, "abc");
 
     const h3 = "23fec5bb94d60b23308192640b0c453335d664734fe40e7268674af9";
-    try htest.assertEqualHash(Sha512224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha512_224, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
-test "sha512-256 single" {
+test Sha512_256 {
     const h1 = "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a";
-    try htest.assertEqualHash(Sha512256, h1, "");
+    try htest.assertEqualHash(Sha512_256, h1, "");
 
     const h2 = "53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23";
-    try htest.assertEqualHash(Sha512256, h2, "abc");
+    try htest.assertEqualHash(Sha512_256, h2, "abc");
 
     const h3 = "3928e184fb8690f840da3988121d31be65cb9d3ef83ee6146feac861e19b563a";
-    try htest.assertEqualHash(Sha512256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha512_256, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }

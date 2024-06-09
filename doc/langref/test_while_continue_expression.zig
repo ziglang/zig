@@ -9,7 +9,10 @@ test "while loop continue expression" {
 test "while loop continue expression, more complicated" {
     var i: usize = 1;
     var j: usize = 1;
-    while (i * j < 2000) : ({ i *= 2; j *= 3; }) {
+    while (i * j < 2000) : ({
+        i *= 2;
+        j *= 3;
+    }) {
         const my_ij = i * j;
         try expect(my_ij < 2000);
     }
