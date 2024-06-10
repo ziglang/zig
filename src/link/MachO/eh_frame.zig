@@ -21,10 +21,10 @@ pub const Cie = struct {
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
 
-        _ = try leb.readULEB128(u64, reader); // code alignment factor
-        _ = try leb.readULEB128(u64, reader); // data alignment factor
-        _ = try leb.readULEB128(u64, reader); // return address register
-        _ = try leb.readULEB128(u64, reader); // augmentation data length
+        _ = try leb.readUleb128(u64, reader); // code alignment factor
+        _ = try leb.readUleb128(u64, reader); // data alignment factor
+        _ = try leb.readUleb128(u64, reader); // return address register
+        _ = try leb.readUleb128(u64, reader); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
@@ -185,7 +185,7 @@ pub const Fde = struct {
             var stream = std.io.fixedBufferStream(data[24..]);
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
-            _ = try leb.readULEB128(u64, reader); // augmentation length
+            _ = try leb.readUleb128(u64, reader); // augmentation length
             fde.lsda_ptr_offset = @intCast(creader.bytes_read + 24);
             const lsda_ptr = switch (lsda_size) {
                 .p32 => try reader.readInt(i32, .little),
