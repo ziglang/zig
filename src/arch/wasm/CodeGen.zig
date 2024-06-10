@@ -7374,7 +7374,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     var writer = body_list.writer();
 
     // The locals of the function body (always 0)
-    try leb.writeULEB128(writer, @as(u32, 0));
+    try leb.writeUleb128(writer, @as(u32, 0));
 
     // outer block
     try writer.writeByte(std.wasm.opcode(.block));
@@ -7408,7 +7408,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
         // get actual tag value (stored in 2nd parameter);
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
         const tag_value = try func.lowerConstant(tag_val, enum_ty);
@@ -7416,26 +7416,26 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         switch (tag_value) {
             .imm32 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, @as(i32, @bitCast(value)));
+                try leb.writeIleb128(writer, @as(i32, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i32_ne));
             },
             .imm64 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, @as(i64, @bitCast(value)));
+                try leb.writeIleb128(writer, @as(i64, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i64_ne));
             },
             else => unreachable,
         }
         // if they're not equal, break out of current branch
         try writer.writeByte(std.wasm.opcode(.br_if));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
 
         // store the address of the tagname in the pointer field of the slice
         // get the address twice so we can also store the length.
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
 
         // get address of tagname and emit a relocation to it
         if (func.arch() == .wasm32) {
@@ -7450,15 +7450,15 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 0));
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, @intCast(tag_name_len)));
+            try leb.writeUleb128(writer, @as(u32, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 4));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 4));
         } else {
             const encoded_alignment = @ctz(@as(u32, 8));
             try writer.writeByte(std.wasm.opcode(.i64_const));
@@ -7471,20 +7471,20 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 0));
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i64_const));
-            try leb.writeULEB128(writer, @as(u64, @intCast(tag_name_len)));
+            try leb.writeUleb128(writer, @as(u64, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 8));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 8));
         }
 
         // break outside blocks
         try writer.writeByte(std.wasm.opcode(.br));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         // end the block for this case
         try writer.writeByte(std.wasm.opcode(.end));

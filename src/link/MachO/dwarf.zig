@@ -26,7 +26,7 @@ pub const InfoReader = struct {
             .dwarf64 => 12,
         } + cuh_length;
         while (p.pos < end_pos) {
-            const di_code = try p.readULEB128(u64);
+            const di_code = try p.readUleb128(u64);
             if (di_code == 0) return error.Eof;
             if (di_code == code) return;
 
@@ -92,14 +92,14 @@ pub const InfoReader = struct {
             dwarf.FORM.block1 => try p.readByte(),
             dwarf.FORM.block2 => try p.readInt(u16),
             dwarf.FORM.block4 => try p.readInt(u32),
-            dwarf.FORM.block => try p.readULEB128(u64),
+            dwarf.FORM.block => try p.readUleb128(u64),
             else => unreachable,
         };
         return p.readNBytes(len);
     }
 
     pub fn readExprLoc(p: *InfoReader) ![]const u8 {
-        const len: u64 = try p.readULEB128(u64);
+        const len: u64 = try p.readUleb128(u64);
         return p.readNBytes(len);
     }
 
@@ -109,8 +109,8 @@ pub const InfoReader = struct {
             dwarf.FORM.data2, dwarf.FORM.ref2 => try p.readInt(u16),
             dwarf.FORM.data4, dwarf.FORM.ref4 => try p.readInt(u32),
             dwarf.FORM.data8, dwarf.FORM.ref8, dwarf.FORM.ref_sig8 => try p.readInt(u64),
-            dwarf.FORM.udata, dwarf.FORM.ref_udata => try p.readULEB128(u64),
-            dwarf.FORM.sdata => @bitCast(try p.readILEB128(i64)),
+            dwarf.FORM.udata, dwarf.FORM.ref_udata => try p.readUleb128(u64),
+            dwarf.FORM.sdata => @bitCast(try p.readIleb128(i64)),
             else => return error.UnhandledConstantForm,
         };
     }
@@ -160,18 +160,18 @@ pub const InfoReader = struct {
         };
     }
 
-    pub fn readULEB128(p: *InfoReader, comptime Type: type) !Type {
+    pub fn readUleb128(p: *InfoReader, comptime Type: type) !Type {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readULEB128(Type, creader.reader());
+        const value: Type = try leb.readUleb128(Type, creader.reader());
         p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
 
-    pub fn readILEB128(p: *InfoReader, comptime Type: type) !Type {
+    pub fn readIleb128(p: *InfoReader, comptime Type: type) !Type {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readILEB128(Type, creader.reader());
+        const value: Type = try leb.readIleb128(Type, creader.reader());
         p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
@@ -191,10 +191,10 @@ pub const AbbrevReader = struct {
 
     pub fn readDecl(p: *AbbrevReader) !?AbbrevDecl {
         const pos = p.pos;
-        const code = try p.readULEB128(Code);
+        const code = try p.readUleb128(Code);
         if (code == 0) return null;
 
-        const tag = try p.readULEB128(Tag);
+        const tag = try p.readUleb128(Tag);
         const has_children = (try p.readByte()) > 0;
         return .{
             .code = code,
@@ -207,8 +207,8 @@ pub const AbbrevReader = struct {
 
     pub fn readAttr(p: *AbbrevReader) !?AbbrevAttr {
         const pos = p.pos;
-        const at = try p.readULEB128(At);
-        const form = try p.readULEB128(Form);
+        const at = try p.readUleb128(At);
+        const form = try p.readUleb128(Form);
         return if (at == 0 and form == 0) null else .{
             .at = at,
             .form = form,
@@ -223,10 +223,10 @@ pub const AbbrevReader = struct {
         return p.bytes[p.pos];
     }
 
-    pub fn readULEB128(p: *AbbrevReader, comptime Type: type) !Type {
+    pub fn readUleb128(p: *AbbrevReader, comptime Type: type) !Type {
         var stream = std.io.fixedBufferStream(p.bytes[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readULEB128(Type, creader.reader());
+        const value: Type = try leb.readUleb128(Type, creader.reader());
         p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
