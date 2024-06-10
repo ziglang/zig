@@ -413,8 +413,8 @@ pub const Decl = struct {
     pub fn zirBodies(decl: Decl, zcu: *Zcu) Zir.Inst.Declaration.Bodies {
         const zir = decl.getFileScope(zcu).zir;
         const zir_index = decl.zir_decl_index.unwrap().?.resolve(&zcu.intern_pool);
-        const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
-        const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+        const declaration = zir.instructions.items(.data)[@intFromEnum(zir_index)].declaration;
+        const extra = zir.extraData(Zir.Inst.Declaration, declaration.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
     }
 
@@ -4255,12 +4255,11 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     const zir = namespace.file_scope.zir;
     const ip = &zcu.intern_pool;
 
-    const pl_node = zir.instructions.items(.data)[@intFromEnum(decl_inst)].pl_node;
-    const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
+    const inst_data = zir.instructions.items(.data)[@intFromEnum(decl_inst)].declaration;
+    const extra = zir.extraData(Zir.Inst.Declaration, inst_data.payload_index);
     const declaration = extra.data;
 
     const line = iter.parent_decl.src_line + declaration.line_offset;
-    const decl_node = iter.parent_decl.relativeToNodeIndex(pl_node.src_node);
 
     // Every Decl needs a name.
     const decl_name: InternPool.NullTerminatedString, const kind: Decl.Kind, const is_named_test: bool = switch (declaration.name) {
@@ -4348,14 +4347,14 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const was_exported = decl.is_exported;
         assert(decl.kind == kind); // ZIR tracking should preserve this
         decl.name = decl_name;
-        decl.src_node = decl_node;
+        decl.src_node = inst_data.src_node;
         decl.src_line = line;
         decl.is_pub = declaration.flags.is_pub;
         decl.is_exported = declaration.flags.is_export;
         break :decl_index .{ was_exported, decl_index };
     } else decl_index: {
         // Create and set up a new Decl.
-        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
+        const new_decl_index = try zcu.allocateNewDecl(namespace_index, inst_data.src_node);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;

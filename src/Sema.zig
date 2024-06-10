@@ -2835,7 +2835,7 @@ fn zirStructDecl(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        extra.data.src_node,
         Value.fromInterned(wip_ty.index),
         small.name_strategy,
         "struct",
@@ -2872,7 +2872,7 @@ fn zirStructDecl(
 fn createAnonymousDeclTypeNamed(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
+    src_node: std.zig.Ast.Node.Index,
     val: Value,
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
@@ -2883,31 +2883,17 @@ fn createAnonymousDeclTypeNamed(
     const gpa = sema.gpa;
     const namespace = block.namespace;
     const src_decl = zcu.declPtr(block.src_decl);
-    const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
     const new_decl_index = try zcu.allocateNewDecl(namespace, src_node);
     errdefer zcu.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
-        .anon => {
-            // It would be neat to have "struct:line:column" but this name has
-            // to survive incremental updates, where it may have been shifted down
-            // or up to a different line, but unchanged, and thus not unnecessarily
-            // semantically analyzed.
-            // This name is also used as the key in the parent namespace so it cannot be
-            // renamed.
-
-            const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
-                src_decl.name.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
-            }, .no_embedded_nulls) catch unreachable;
-            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
-            return new_decl_index;
-        },
+        .anon => {}, // handled after switch
         .parent => {
             const name = zcu.declPtr(block.src_decl).name;
             try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
-        .func => {
+        .func => func_strat: {
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip));
             const zir_tags = sema.code.instructions.items(.tag);
 
@@ -2927,7 +2913,7 @@ fn createAnonymousDeclTypeNamed(
                     // function and the name doesn't matter since it will later
                     // result in a compile error.
                     const arg_val = sema.resolveConstValue(block, .unneeded, arg, undefined) catch
-                        return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
+                        break :func_strat; // fall through to anon strat
 
                     if (arg_i != 0) try writer.writeByte(',');
 
@@ -2969,9 +2955,24 @@ fn createAnonymousDeclTypeNamed(
                 },
                 else => {},
             };
-            return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
+            // fall through to anon strat
         },
     }
+
+    // anon strat handling.
+
+    // It would be neat to have "struct:line:column" but this name has
+    // to survive incremental updates, where it may have been shifted down
+    // or up to a different line, but unchanged, and thus not unnecessarily
+    // semantically analyzed.
+    // This name is also used as the key in the parent namespace so it cannot be
+    // renamed.
+
+    const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
+        src_decl.name.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
+    }, .no_embedded_nulls) catch unreachable;
+    try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+    return new_decl_index;
 }
 
 fn zirEnumDecl(
@@ -2991,7 +2992,6 @@ fn zirEnumDecl(
     var extra_index: usize = extra.end;
 
     const src = extra.data.src();
-    const tag_ty_src: LazySrcLoc = .{ .node_offset_container_tag = src.node_offset.x };
 
     const tag_type_ref = if (small.has_tag_type) blk: {
         const tag_type_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
@@ -3071,7 +3071,7 @@ fn zirEnumDecl(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        extra.data.src_node,
         Value.fromInterned(wip_ty.index),
         small.name_strategy,
         "enum",
@@ -3140,14 +3140,17 @@ fn zirEnumDecl(
         };
         defer enum_block.instructions.deinit(sema.gpa);
 
+        // This source location applies in the context of `enum_block`.
+        const tag_ty_src: LazySrcLoc = .{ .node_offset_container_tag = 0 };
+
         if (body.len != 0) {
             _ = try sema.analyzeInlineBody(&enum_block, body, inst);
         }
 
         if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
+            const ty = try sema.resolveType(&enum_block, tag_ty_src, tag_type_ref);
             if (ty.zigTypeTag(mod) != .Int and ty.zigTypeTag(mod) != .ComptimeInt) {
-                return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
+                return sema.fail(&enum_block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
             }
             break :ty ty;
         } else if (fields_len == 0) {
@@ -3342,7 +3345,7 @@ fn zirUnionDecl(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        extra.data.src_node,
         Value.fromInterned(wip_ty.index),
         small.name_strategy,
         "union",
@@ -3430,7 +3433,7 @@ fn zirOpaqueDecl(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        extra.data.src_node,
         Value.fromInterned(wip_ty.index),
         small.name_strategy,
         "opaque",
@@ -21658,7 +21661,7 @@ fn zirReify(
 
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(
                 block,
-                src,
+                mod.declPtr(block.src_decl).relativeToNodeIndex(src.node_offset.x),
                 Value.fromInterned(wip_ty.index),
                 name_strategy,
                 "opaque",
@@ -21858,7 +21861,7 @@ fn reifyEnum(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        mod.declPtr(block.src_decl).relativeToNodeIndex(src.node_offset.x),
         Value.fromInterned(wip_ty.index),
         name_strategy,
         "enum",
@@ -22005,7 +22008,7 @@ fn reifyUnion(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        mod.declPtr(block.src_decl).relativeToNodeIndex(src.node_offset.x),
         Value.fromInterned(wip_ty.index),
         name_strategy,
         "union",
@@ -22264,7 +22267,7 @@ fn reifyStruct(
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
-        src,
+        mod.declPtr(block.src_decl).relativeToNodeIndex(src.node_offset.x),
         Value.fromInterned(wip_ty.index),
         name_strategy,
         "struct",

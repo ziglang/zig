@@ -287,7 +287,7 @@ pub const Inst = struct {
         /// namespace type, e.g. within a `struct_decl` instruction. It represents a
         /// single source declaration (`const`/`var`/`fn`), containing the name,
         /// attributes, type, and value of the declaration.
-        /// Uses the `pl_node` union field. Payload is `Declaration`.
+        /// Uses the `declaration` union field. Payload is `Declaration`.
         declaration,
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
@@ -1596,7 +1596,7 @@ pub const Inst = struct {
                 .block = .pl_node,
                 .block_comptime = .pl_node,
                 .block_inline = .pl_node,
-                .declaration = .pl_node,
+                .declaration = .declaration,
                 .suspend_block = .pl_node,
                 .bool_not = .un_node,
                 .bool_br_and = .pl_node,
@@ -2370,6 +2370,16 @@ pub const Inst = struct {
             /// The index being accessed.
             idx: u32,
         },
+        declaration: struct {
+            /// This node provides a new absolute baseline node for all instructions within this struct.
+            src_node: Ast.Node.Index,
+            /// index into extra to a `Declaration` payload.
+            payload_index: u32,
+
+            pub fn src(self: @This()) LazySrcLoc {
+                return .{ .node_abs = self.src_node };
+            }
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2408,6 +2418,7 @@ pub const Inst = struct {
             defer_err_code,
             save_err_ret_index,
             elem_val_imm,
+            declaration,
         };
     };
 
@@ -3018,10 +3029,11 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
-        src_node: i32,
+        /// This node provides a new absolute baseline node for all instructions within this struct.
+        src_node: Ast.Node.Index,
 
         pub fn src(self: StructDecl) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
+            return .{ .node_abs = self.src_node };
         }
 
         pub const Small = packed struct {
@@ -3150,10 +3162,11 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
-        src_node: i32,
+        /// This node provides a new absolute baseline node for all instructions within this struct.
+        src_node: Ast.Node.Index,
 
         pub fn src(self: EnumDecl) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
+            return .{ .node_abs = self.src_node };
         }
 
         pub const Small = packed struct {
@@ -3198,10 +3211,11 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
-        src_node: i32,
+        /// This node provides a new absolute baseline node for all instructions within this struct.
+        src_node: Ast.Node.Index,
 
         pub fn src(self: UnionDecl) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
+            return .{ .node_abs = self.src_node };
         }
 
         pub const Small = packed struct {
@@ -3230,10 +3244,11 @@ pub const Inst = struct {
     /// 2. capture: Capture, // for every captures_len
     /// 3. decl: Index, // for every decls_len; points to a `declaration` instruction
     pub const OpaqueDecl = struct {
-        src_node: i32,
+        /// This node provides a new absolute baseline node for all instructions within this struct.
+        src_node: Ast.Node.Index,
 
         pub fn src(self: OpaqueDecl) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
+            return .{ .node_abs = self.src_node };
         }
 
         pub const Small = packed struct {
@@ -4046,7 +4061,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
 
 pub fn getDeclaration(zir: Zir, inst: Zir.Inst.Index) struct { Inst.Declaration, u32 } {
     assert(zir.instructions.items(.tag)[@intFromEnum(inst)] == .declaration);
-    const pl_node = zir.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const pl_node = zir.instructions.items(.data)[@intFromEnum(inst)].declaration;
     const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
     return .{
         extra.data,

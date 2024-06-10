@@ -4011,7 +4011,7 @@ fn fnDecl(
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, fn_proto.ast.proto_node);
+    const decl_inst = try gz.makeDeclaration(fn_proto.ast.proto_node);
     astgen.advanceSourceCursorToNode(decl_node);
 
     var decl_gz: GenZir = .{
@@ -4393,7 +4393,7 @@ fn globalVarDecl(
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     // We do this at the beginning so that the instruction index marks the range start
     // of the top level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
 
     const name_token = var_decl.ast.mut_token + 1;
     astgen.advanceSourceCursorToNode(node);
@@ -4555,7 +4555,7 @@ fn comptimeDecl(
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
 
@@ -4607,7 +4607,7 @@ fn usingnamespaceDecl(
     };
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
 
@@ -4651,7 +4651,7 @@ fn testDecl(
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
 
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
@@ -13072,6 +13072,21 @@ const GenZir = struct {
     }
 
     /// Note that this returns a `Zir.Inst.Index` not a ref.
+    /// Does *not* append the block instruction to the scope.
+    /// Leaves the `payload_index` field undefined. Use `setDeclaration` to finalize.
+    fn makeDeclaration(gz: *GenZir, node: Ast.Node.Index) !Zir.Inst.Index {
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .declaration,
+            .data = .{ .declaration = .{
+                .src_node = node,
+                .payload_index = undefined,
+            } },
+        });
+        return new_index;
+    }
+
+    /// Note that this returns a `Zir.Inst.Index` not a ref.
     /// Leaves the `payload_index` field undefined.
     fn addCondBr(gz: *GenZir, tag: Zir.Inst.Tag, node: Ast.Node.Index) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
@@ -13117,7 +13132,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_node = args.src_node,
         });
 
         if (args.captures_len != 0) {
@@ -13177,7 +13192,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_node = args.src_node,
         });
 
         if (args.tag_type != .none) {
@@ -13238,7 +13253,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_node = args.src_node,
         });
 
         if (args.tag_type != .none) {
@@ -13285,9 +13300,7 @@ const GenZir = struct {
         assert(args.src_node != 0);
 
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len + 2);
-        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
-            .src_node = gz.nodeIndexToRelative(args.src_node),
-        });
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{ .src_node = args.src_node });
 
         if (args.captures_len != 0) {
             astgen.extra.appendAssumeCapacity(args.captures_len);
@@ -13897,7 +13910,7 @@ fn setDeclaration(
             .has_align_linksection_addrspace = align_len != 0 or linksection_len != 0 or addrspace_len != 0,
         },
     };
-    astgen.instructions.items(.data)[@intFromEnum(decl_inst)].pl_node.payload_index = try astgen.addExtra(extra);
+    astgen.instructions.items(.data)[@intFromEnum(decl_inst)].declaration.payload_index = try astgen.addExtra(extra);
     if (extra.flags.has_doc_comment) {
         try astgen.extra.append(gpa, @intFromEnum(true_doc_comment));
     }
