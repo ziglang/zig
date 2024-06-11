@@ -24,7 +24,6 @@ pub const ParseOptions = struct {
     free_on_error: bool = true,
 };
 
-// TODO: print type/field names escaped/with @ if necessary?
 /// Information about the success or failure of a parse.
 pub const ParseStatus = union(enum) {
     /// The parse succeeded.
@@ -105,6 +104,11 @@ pub fn parseFromSlice(
     /// Options for the parser.
     comptime options: ParseOptions,
 ) error{ OutOfMemory, Type, Syntax }!T {
+    if (@inComptime()) {
+        // Happens if given e.g. @typeOf(null), the default error we get is hard
+        // to understand.
+        @compileError("Runtime parser cannot run at comptime.");
+    }
     var ast = try std.zig.Ast.parse(gpa, source, .zon);
     defer ast.deinit(gpa);
     if (ast.errors.len != 0) return error.Syntax;
@@ -383,7 +387,6 @@ fn parseExpr(self: *@This(), comptime T: type, comptime options: ParseOptions, n
         .Union => return self.parseUnion(T, options, node),
         .Optional => return self.parseOptional(T, options, node),
         .Void => return self.parseVoid(node),
-        .Null => return self.parseNull(node),
 
         else => @compileError(@typeName(T) ++ ": cannot parse this type"),
     }
@@ -432,55 +435,6 @@ test "std.zon void" {
         }, location);
     }
 }
-
-// TODO: ...
-// fn parseNull(self: @This(), node: NodeIndex) error{Type}!void {
-//     const tags = self.ast.nodes.items(.tag);
-//     const main_tokens = self.ast.nodes.items(.main_token);
-//     const token = main_tokens[node];
-//     switch (tags[node]) {
-//         .identifier => {
-//             const bytes = self.ast.tokenSlice(token);
-//             if (std.mem.eql(u8, bytes, "null")) {
-//                 return true;
-//             }
-//         },
-//         else => {},
-//     }
-//     return self.failExpectedType(void, node);
-// }
-
-// TODO: see https://github.com/MasonRemaley/WIP-ZON/issues/3
-// test "std.zon null" {
-//     const gpa = std.testing.allocator;
-
-//     const Null = @TypeOf(null);
-//     const parsed: @TypeOf(null) = try parseFromSlice(Null, gpa, "null", .{});
-//     _ = parsed;
-
-//     // Freeing null is a noop, but it should compile!
-//     const free: @TypeOf(null) = try parseFromSlice(void, gpa, "null", .{});
-//     defer parseFree(gpa, free);
-
-//     // Other type
-//     {
-//         var ast = try std.zig.Ast.parse(gpa, "123", .zon);
-//         defer ast.deinit(gpa);
-//         var status: ParseStatus = .success;
-//         try std.testing.expectError(error.Type, parseFromAst(@TypeOf(null), gpa, &ast, &status, .{}));
-//         try std.testing.expectEqualStrings(@typeName(@TypeOf(null)), status.expected_type.type_name);
-//         const node = status.expected_type.node;
-//         const main_tokens = ast.nodes.items(.main_token);
-//         const token = main_tokens[node];
-//         const location = ast.tokenLocation(0, token);
-//         try std.testing.expectEqual(Ast.Location{
-//             .line = 0,
-//             .column = 0,
-//             .line_start = 0,
-//             .line_end = 3,
-//         }, location);
-//     }
-// }
 
 fn parseOptional(self: *@This(), comptime T: type, comptime options: ParseOptions, node: NodeIndex) error{ OutOfMemory, Type }!T {
     const Optional = @typeInfo(T).Optional;
@@ -690,7 +644,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 22,
@@ -711,7 +664,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 3,
@@ -732,7 +684,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 2,
@@ -752,7 +703,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why 1?
             .column = 1,
             .line_start = 0,
             .line_end = 2,
@@ -772,7 +722,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why 1?
             .column = 1,
             .line_start = 0,
             .line_end = 7,
@@ -793,7 +742,6 @@ test "std.zon unions" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 2,
@@ -1044,7 +992,6 @@ test "std.zon structs" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why not zero?
             .column = 1,
             .line_start = 0,
             .line_end = 9,
@@ -1230,7 +1177,6 @@ test "std.zon tuples" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 17,
@@ -1251,7 +1197,6 @@ test "std.zon tuples" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: why column 1?
             .column = 1,
             .line_start = 0,
             .line_end = 6,
@@ -1994,16 +1939,14 @@ fn parseEnumLiteral(self: @This(), comptime T: type, node: NodeIndex) error{Type
 
             // Get the tag if it exists
             const main_tokens = self.ast.nodes.items(.main_token);
-            const data = self.ast.nodes.items(.data);
             const token = main_tokens[node];
             {
                 const bytes = self.parseIdent(token) catch |err| switch (err) {
                     error.IdentTooLong => return self.failCannotRepresent(T, token),
                     else => |e| return e,
                 };
-                const dot_node = data[node].lhs;
                 return enum_tags.get(bytes) orelse
-                    self.failCannotRepresent(T, dot_node);
+                    self.failCannotRepresent(T, token);
             }
         },
         else => return self.failExpectedType(T, node),
@@ -2068,7 +2011,7 @@ test "std.zon enum literals" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            .column = 0,
+            .column = 1,
             .line_start = 0,
             .line_end = 4,
         }, location);
@@ -2087,7 +2030,6 @@ test "std.zon enum literals" {
         const location = ast.tokenLocation(0, token);
         try std.testing.expectEqual(Ast.Location{
             .line = 0,
-            // TODO: 1 but above case is 0?
             .column = 1,
             .line_start = 0,
             .line_end = 13,
