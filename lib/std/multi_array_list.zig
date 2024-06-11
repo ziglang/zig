@@ -316,12 +316,7 @@ pub fn MultiArrayList(comptime T: type) type {
             if (self.capacity >= new_capacity)
                 return self.addManyAtAssumeCapacity(index, count);
 
-            // Avoid copying allocated by resizing in place.
             const old_memory = self.allocatedBytes();
-            if (allocator.resize(old_memory, capacityInBytes(new_capacity))) {
-                self.capacity = new_capacity;
-                return self.addManyAtAssumeCapacity(index, count);
-            }
 
             // Make a new allocation, avoiding `ensureTotalCapacity` in order
             // to avoid extra memory copies.
