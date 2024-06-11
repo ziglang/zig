@@ -97,7 +97,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, args);
+        callFn(func, args);
         wait_group.finish();
         return;
     }
@@ -112,7 +112,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
         fn runFn(runnable: *Runnable, _: ?usize) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
-            @call(.auto, func, closure.arguments);
+            callFn(func, closure.arguments);
             closure.wait_group.finish();
 
             // The thread pool's allocator is protected by the mutex.
@@ -129,7 +129,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
 
         const closure = pool.allocator.create(Closure) catch {
             pool.mutex.unlock();
-            @call(.auto, func, args);
+            callFn(func, args);
             wait_group.finish();
             return;
         };
@@ -160,7 +160,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, .{0} ++ args);
+        callFn(func, .{0} ++ args);
         wait_group.finish();
         return;
     }
@@ -175,7 +175,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
         fn runFn(runnable: *Runnable, id: ?usize) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
-            @call(.auto, func, .{id.?} ++ closure.arguments);
+            callFn(func, .{id.?} ++ closure.arguments);
             closure.wait_group.finish();
 
             // The thread pool's allocator is protected by the mutex.
@@ -193,7 +193,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
         const closure = pool.allocator.create(Closure) catch {
             const id: ?usize = pool.ids.getIndex(std.Thread.getCurrentId());
             pool.mutex.unlock();
-            @call(.auto, func, .{id.?} ++ args);
+            callFn(func, .{id.?} ++ args);
             wait_group.finish();
             return;
         };
@@ -213,7 +213,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
 
 pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     if (builtin.single_threaded) {
-        @call(.auto, func, args);
+        callFn(func, args);
         return;
     }
 
@@ -226,7 +226,7 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
         fn runFn(runnable: *Runnable, _: ?usize) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
-            @call(.auto, func, closure.arguments);
+            callFn(func, closure.arguments);
 
             // The thread pool's allocator is protected by the mutex.
             const mutex = &closure.pool.mutex;
@@ -320,4 +320,29 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
 
 pub fn getIdCount(pool: *Pool) usize {
     return @intCast(1 + pool.threads.len);
+}
+
+inline fn callFn(comptime f: anytype, args: anytype) void {
+    const bad_fn_ret = "expected return type of runFn to be 'void', or '!void'";
+
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .void => {
+            @call(.auto, f, args);
+        },
+        .error_union => |info| {
+            if (info.payload != void) {
+                @compileError(bad_fn_ret);
+            }
+
+            @call(.auto, f, args) catch |err| {
+                std.debug.print("error: {s}\n", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+            };
+        },
+        else => {
+            @compileError(bad_fn_ret);
+        },
+    }
 }
