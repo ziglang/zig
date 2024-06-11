@@ -510,7 +510,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
                 // All entries that end in '/' are directories
                 if (filename[filename.len - 1] == '/') {
-                    try dest.makeDir(filename_buf[0..self.filename_len]);
+                    try dest.makePath(filename_buf[0..self.filename_len]);
                     return std.hash.Crc32.hash(&.{});
                 }
 
