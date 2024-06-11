@@ -1048,7 +1048,6 @@ fn checkComptimeVarStore(
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const LazySrcLoc = std.zig.LazySrcLoc;
 
 const InternPool = @import("../InternPool.zig");
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
@@ -1057,3 +1056,5 @@ const Block = Sema.Block;
 const MutableValue = @import("../mutable_value.zig").MutableValue;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
+const Zcu = @import("../Module.zig");
+const LazySrcLoc = Zcu.LazySrcLoc;

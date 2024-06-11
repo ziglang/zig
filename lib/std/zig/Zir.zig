@@ -20,7 +20,6 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Ast = std.zig.Ast;
 
 const Zir = @This();
-const LazySrcLoc = std.zig.LazySrcLoc;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// In order to store references to strings in fewer bytes, we copy all
@@ -2221,10 +2220,6 @@ pub const Inst = struct {
             src_node: i32,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         /// Used for unary operators, with a token source location.
         un_tok: struct {
@@ -2232,10 +2227,6 @@ pub const Inst = struct {
             src_tok: Ast.TokenIndex,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
-            }
         },
         pl_node: struct {
             /// Offset from Decl AST node index.
@@ -2244,10 +2235,6 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         pl_tok: struct {
             /// Offset from Decl AST token index.
@@ -2255,10 +2242,6 @@ pub const Inst = struct {
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
-            }
         },
         bin: Bin,
         /// For strings which may contain null bytes.
@@ -2280,10 +2263,6 @@ pub const Inst = struct {
 
             pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
-            }
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .token_offset = self.src_tok };
             }
         },
         /// Offset from Decl AST token index.
@@ -2313,19 +2292,11 @@ pub const Inst = struct {
             src_node: i32,
             signedness: std.builtin.Signedness,
             bit_count: u16,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
             src_node: i32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         @"break": struct {
             operand: Ref,
@@ -2339,10 +2310,6 @@ pub const Inst = struct {
             src_node: i32,
             /// The meaning of this operand depends on the corresponding `Tag`.
             inst: Index,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return LazySrcLoc.nodeOffset(self.src_node);
-            }
         },
         str_op: struct {
             /// Offset into `string_bytes`. Null-terminated.
@@ -2375,10 +2342,6 @@ pub const Inst = struct {
             src_node: Ast.Node.Index,
             /// index into extra to a `Declaration` payload.
             payload_index: u32,
-
-            pub fn src(self: @This()) LazySrcLoc {
-                return .{ .node_abs = self.src_node };
-            }
         },
 
         // Make sure we don't accidentally add a field to make this union
@@ -3032,10 +2995,6 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub fn src(self: StructDecl) LazySrcLoc {
-            return .{ .node_abs = self.src_node };
-        }
-
         pub const Small = packed struct {
             has_captures_len: bool,
             has_fields_len: bool,
@@ -3165,10 +3124,6 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub fn src(self: EnumDecl) LazySrcLoc {
-            return .{ .node_abs = self.src_node };
-        }
-
         pub const Small = packed struct {
             has_tag_type: bool,
             has_captures_len: bool,
@@ -3214,10 +3169,6 @@ pub const Inst = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
-        pub fn src(self: UnionDecl) LazySrcLoc {
-            return .{ .node_abs = self.src_node };
-        }
-
         pub const Small = packed struct {
             has_tag_type: bool,
             has_captures_len: bool,
@@ -3246,10 +3197,6 @@ pub const Inst = struct {
     pub const OpaqueDecl = struct {
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
-
-        pub fn src(self: OpaqueDecl) LazySrcLoc {
-            return .{ .node_abs = self.src_node };
-        }
 
         pub const Small = packed struct {
             has_captures_len: bool,
@@ -3367,10 +3314,6 @@ pub const Inst = struct {
         parent_ptr_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
-
-        pub fn src(self: FieldParentPtr) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
-        }
     };
 
     pub const Shuffle = struct {
@@ -3520,10 +3463,6 @@ pub const Inst = struct {
         block: Ref,
         /// If `.none`, restore unconditionally.
         operand: Ref,
-
-        pub fn src(self: RestoreErrRetIndex) LazySrcLoc {
-            return LazySrcLoc.nodeOffset(self.src_node);
-        }
     };
 };
 

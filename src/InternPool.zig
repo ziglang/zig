@@ -391,8 +391,27 @@ pub const RuntimeIndex = enum(u32) {
 
 pub const ComptimeAllocIndex = enum(u32) { _ };
 
-pub const DeclIndex = std.zig.DeclIndex;
-pub const OptionalDeclIndex = std.zig.OptionalDeclIndex;
+pub const DeclIndex = enum(u32) {
+    _,
+
+    pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+pub const OptionalDeclIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn init(oi: ?DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(oi orelse return .none));
+    }
+
+    pub fn unwrap(oi: OptionalDeclIndex) ?DeclIndex {
+        if (oi == .none) return null;
+        return @enumFromInt(@intFromEnum(oi));
+    }
+};
 
 pub const NamespaceIndex = enum(u32) {
     _,
