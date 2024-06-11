@@ -734,7 +734,7 @@ const Serialized = struct {
     const Buffer = struct {
         parents: [node_storage_buffer_len]Node.Parent,
         storage: [node_storage_buffer_len]Node.Storage,
-        map: [node_storage_buffer_len]Node.Index,
+        map: [node_storage_buffer_len]Node.OptionalIndex,
 
         parents_copy: [node_storage_buffer_len]Node.Parent,
         storage_copy: [node_storage_buffer_len]Node.Storage,
@@ -753,9 +753,11 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
     // without atomics.
     const end_index = @atomicLoad(u32, &global_progress.node_end_index, .monotonic);
-    const node_parents = global_progress.node_parents[0..end_index];
-    const node_storage = global_progress.node_storage[0..end_index];
-    for (node_parents, node_storage, 0..) |*parent_ptr, *storage_ptr, i| {
+    for (
+        global_progress.node_parents[0..end_index],
+        global_progress.node_storage[0..end_index],
+        serialized_buffer.map[0..end_index],
+    ) |*parent_ptr, *storage_ptr, *map| {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
@@ -766,12 +768,19 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
             if (begin_parent == end_parent) {
                 any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
                 serialized_buffer.parents[serialized_len] = begin_parent;
-                serialized_buffer.map[i] = @enumFromInt(serialized_len);
+                map.* = @enumFromInt(serialized_len);
                 serialized_len += 1;
                 break;
             }
 
             begin_parent = end_parent;
+        } else {
+            // A node may be freed during the execution of this loop, causing
+            // there to be a parent reference to a nonexistent node. Without
+            // this assignment, this would lead to the map entry containing
+            // stale data. By assigning none, the child node with the bad
+            // parent pointer will be harmlessly omitted from the tree.
+            map.* = .none;
         }
     }
 
