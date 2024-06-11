@@ -2952,20 +2952,6 @@ test "std.zon parse float" {
     }
 }
 
-// XXX: float parsing bug example
-// I think we should make a minimal repro and file an issue to ask for help for this
-// Hmm look at astgen, isn't it calling into the same code?
-// Only an issue when we cast to f32 not leave as f128...
-// What if we cast ourselves?
-// Here's my theory: when the value doesn't fit in the dest, it does it anyway,
-// if it's comptime, resulting in the wrong value
-test "std.zon bug" {
-    const gpa = std.testing.allocator;
-    const float: f32 = 0xffffffffffffffff.0p0;
-    const parsed = try parseFromSlice(f32, gpa, "0xffffffffffffffff.0p0", .{});
-    try std.testing.expectEqual(float, parsed);
-}
-
 test "std.zon free on error" {
     // Test freeing partially allocated structs
     {

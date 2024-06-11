@@ -4111,7 +4111,6 @@ const LowerZon = struct {
             .{buf.items},
         );
 
-        // XXX: test this, make sure I got it right...
         // Check for invalid bytes
         const token_starts = tree.tokens.items(.start);
         const token_tags = tree.tokens.items(.tag);
