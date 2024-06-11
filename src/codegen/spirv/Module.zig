@@ -155,6 +155,9 @@ cache: struct {
     void_type: ?IdRef = null,
     int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
     float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .{},
+    // This cache is required so that @Vector(X, u1) in direct representation has the
+    // same ID as @Vector(X, bool) in indirect representation.
+    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .{},
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
@@ -194,6 +197,7 @@ pub fn deinit(self: *Module) void {
 
     self.cache.int_types.deinit(self.gpa);
     self.cache.float_types.deinit(self.gpa);
+    self.cache.vector_types.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -474,13 +478,17 @@ pub fn floatType(self: *Module, bits: u16) !IdRef {
 }
 
 pub fn vectorType(self: *Module, len: u32, child_id: IdRef) !IdRef {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
-        .id_result = result_id,
-        .component_type = child_id,
-        .component_count = len,
-    });
-    return result_id;
+    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_id, len });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
+            .id_result = result_id,
+            .component_type = child_id,
+            .component_count = len,
+        });
+    }
+    return entry.value_ptr.*;
 }
 
 pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {
