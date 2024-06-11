@@ -4406,11 +4406,10 @@ const LowerZon = struct {
                     .storage = .{ .elems = values },
                 }});
             },
-            .block_two => if (data[node].lhs == 0 or data[node].rhs == 0) {
+            .block_two => if (data[node].lhs == 0 and data[node].rhs == 0) {
                 return .void_value;
             } else {
-                // XXX: why is this unreachable? but we may actually wanna just get rid of void anyway.
-                unreachable;
+                return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
             },
             .address_of => {
                 const child_node = data[node].lhs;
@@ -4429,7 +4428,6 @@ const LowerZon = struct {
                         }});
                         return self.mod.intern_pool.get(gpa, .{ .ptr = .{
                             .ty = ty,
-                            // XXX: is anon decl correct? (see other use  of this too below)
                             .base_addr = .{ .anon_decl = .{ .orig_ty = ty, .val = value } },
                             .byte_offset = 0,
                         }});
