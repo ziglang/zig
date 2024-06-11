@@ -125,6 +125,9 @@ test "std.zon parseFromSlice syntax error" {
 /// deserialized into `T`. If `status` is not null, more information about the success/failure of the
 /// parse will be stored in it.
 pub fn parseFromAst(comptime T: type, gpa: Allocator, ast: *const Ast, status: ?*ParseStatus, comptime options: ParseOptions) error{ OutOfMemory, Type }!T {
+    if (status) |s| {
+        s.* = .success;
+    }
     assert(ast.errors.len == 0);
     const data = ast.nodes.items(.data);
     const root = data[0].lhs;
@@ -804,7 +807,6 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
         // If we fail to parse this field, free all fields before it
         errdefer if (options.free_on_error and field_infos.len > 0) {
             for (field_nodes[0..initialized]) |initialized_field_node| {
-                // TODO: is this the correct way to get the field name? (used in a few places)
                 const name_runtime = self.parseIdent(self.ast.firstToken(initialized_field_node) - 2) catch unreachable;
                 switch (field_indices.get(name_runtime) orelse continue) {
                     inline 0...(field_infos.len - 1) => |name_index| {
@@ -816,7 +818,6 @@ fn parseStruct(self: *@This(), comptime T: type, comptime options: ParseOptions,
             }
         };
 
-        // TODO: is this the correct way to get the field name? (used in a few places)
         const name_token = self.ast.firstToken(field_node) - 2;
         const i = b: {
             const name = self.parseIdent(name_token) catch |err| switch (err) {
@@ -2074,11 +2075,9 @@ test "std.zon enum literals" {
 
 fn fail(self: @This(), status: ParseStatus) error{Type} {
     @setCold(true);
-    // TODO: prevent or is this fine?
     assert(status != .success);
-    // TODO: ...commented out cause of dup error handling
-    // assert(self.err == null);
     if (self.status) |s| {
+        assert(s.* == .success);
         s.* = status;
     }
     return error.Type;
@@ -2218,7 +2217,6 @@ test "std.zon parse bool" {
     }
 }
 
-// TODO: could set unused lhs/rhs to undefined?
 fn parseNumber(
     self: @This(),
     comptime T: type,
