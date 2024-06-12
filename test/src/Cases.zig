@@ -674,7 +674,6 @@ pub fn lowerToBuildSteps(
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
         for (update.files.items) |file| {
-            // std.debug.print("file: {s}\n", .{file.path});
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
