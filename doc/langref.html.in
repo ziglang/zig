@@ -728,12 +728,12 @@
         </tr>
         <tr>
             <th scope="row"><code>\u{NNNNNN}</code></th>
-          <td>hexadecimal Unicode code point UTF-8 encoded (1 or more digits)</td>
+          <td>hexadecimal Unicode scalar value UTF-8 encoded (1 or more digits)</td>
         </tr>
         </tbody>
       </table>
       </div>
-      <p>Note that the maximum valid Unicode point is {#syntax#}0x10ffff{#endsyntax#}.</p>
+      <p>Note that the maximum valid Unicode scalar value is {#syntax#}0x10ffff{#endsyntax#}.</p>
       {#header_close#}
       {#header_open|Multiline String Literals#}
       <p>

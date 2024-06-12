@@ -11306,7 +11306,7 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             return astgen.failOff(
                 token,
                 offset + @as(u32, @intCast(bad_index)),
-                "unicode escape does not correspond to a valid codepoint",
+                "unicode escape does not correspond to a valid unicode scalar value",
                 .{},
             );
         },
