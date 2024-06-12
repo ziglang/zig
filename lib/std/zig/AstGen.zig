@@ -8619,7 +8619,7 @@ pub fn failWithNumberError(
     err: std.zig.number_literal.Error,
     token: Ast.TokenIndex,
     bytes: []const u8,
-) (Allocator.Error || error { AnalysisFail }) {
+) (Allocator.Error || error{AnalysisFail}) {
     const is_float = std.mem.indexOfScalar(u8, bytes, '.') != null;
     switch (err) {
         .leading_zero => if (is_float) {

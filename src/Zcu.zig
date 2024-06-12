@@ -769,7 +769,7 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
-    /// Whether the file is Zig or ZON.
+    /// Whether the file is Zig or ZON. This filed is always populated.
     mode: Ast.Mode,
 
     /// A single reference to a file.
@@ -4022,23 +4022,23 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
 }
 
 const LowerZon = struct {
-    mod: *Module,
+    mod: *Zcu,
     file: *File,
 
     pub fn fail(
         self: *LowerZon,
-        loc: LazySrcLoc,
+        loc: LazySrcLoc.Offset,
         comptime format: []const u8,
         args: anytype,
-    ) (Allocator.Error || error { AnalysisFail }) {
+    ) (Allocator.Error || error{AnalysisFail}) {
         @setCold(true);
 
         const src_loc = .{
             .file_scope = self.file,
-            .parent_decl_node = 0,
+            .base_node = 0,
             .lazy = loc,
         };
-        const err_msg = try Module.ErrorMsg.create(self.mod.gpa, src_loc, format, args);
+        const err_msg = try Zcu.ErrorMsg.create(self.mod.gpa, src_loc, format, args);
         try self.mod.failed_files.putNoClobber(self.mod.gpa, self.file, err_msg);
         return error.AnalysisFail;
     }
@@ -4049,7 +4049,7 @@ const LowerZon = struct {
         byte_abs: u32,
         comptime format: []const u8,
         args: anytype,
-    ) (Allocator.Error || error { AnalysisFail }) {
+    ) (Allocator.Error || error{AnalysisFail}) {
         return self.fail(.{ .byte_abs = byte_abs }, format, args);
     }
 
@@ -4100,11 +4100,11 @@ const LowerZon = struct {
         // Create the main error
         buf.clearRetainingCapacity();
         try tree.renderError(parse_err, buf.writer(gpa));
-        const err_msg = try Module.ErrorMsg.create(
+        const err_msg = try Zcu.ErrorMsg.create(
             gpa,
             .{
                 .file_scope = self.file,
-                .parent_decl_node = 0,
+                .base_node = 0,
                 .lazy = .{ .token_abs = parse_err.token + @intFromBool(parse_err.token_is_prev) },
             },
             "{s}",
@@ -4120,12 +4120,12 @@ const LowerZon = struct {
             try self.mod.errNoteNonLazy(
                 .{
                     .file_scope = self.file,
-                    .parent_decl_node = 0,
+                    .base_node = 0,
                     .lazy = .{ .byte_abs = byte_abs },
                 },
                 err_msg,
                 "invalid byte: '{'}'",
-                .{ std.zig.fmtEscapes(tree.source[byte_abs..][0..1]) },
+                .{std.zig.fmtEscapes(tree.source[byte_abs..][0..1])},
             );
         }
 
@@ -4138,7 +4138,7 @@ const LowerZon = struct {
             try self.mod.errNoteNonLazy(
                 .{
                     .file_scope = self.file,
-                    .parent_decl_node = 0,
+                    .base_node = 0,
                     .lazy = .{ .token_abs = note.token + @intFromBool(note.token_is_prev) },
                 },
                 err_msg,
@@ -4169,13 +4169,13 @@ const LowerZon = struct {
         if (bytes[0] == '@' and bytes[1] == '"') {
             const gpa = self.mod.gpa;
 
-            const raw_string = bytes[1 .. bytes.len];
+            const raw_string = bytes[1..bytes.len];
             var parsed = std.ArrayListUnmanaged(u8){};
             defer parsed.deinit(gpa);
 
             switch (try std.zig.string_literal.parseWrite(parsed.writer(gpa), raw_string)) {
                 .success => {
-                    if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {                
+                    if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {
                         return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
                     }
                     return .{
@@ -4193,7 +4193,7 @@ const LowerZon = struct {
                         raw_string,
                         offset,
                     );
-                }
+                },
             }
         }
 
@@ -4243,7 +4243,7 @@ const LowerZon = struct {
                         } }),
                     };
                 }
-                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ litIdent.bytes });
+                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{litIdent.bytes});
             },
             .number_literal, .char_literal => return self.number(node, null),
             .negation => return self.number(data[node].lhs, node),
@@ -4269,7 +4269,7 @@ const LowerZon = struct {
                             raw_string,
                             offset,
                         );
-                    }
+                    },
                 }
 
                 const array_ty = try self.mod.arrayType(.{
@@ -4298,18 +4298,14 @@ const LowerZon = struct {
             .multiline_string_literal => {
                 var bytes = std.ArrayListUnmanaged(u8){};
                 defer bytes.deinit(gpa);
-                
+
                 var parser = std.zig.string_literal.multilineParser(bytes.writer(gpa));
                 var tok_i = data[node].lhs;
                 while (tok_i <= data[node].rhs) : (tok_i += 1) {
                     try parser.line(self.file.tree.tokenSlice(tok_i));
                 }
 
-                const array_ty = try self.mod.arrayType(.{
-                    .len = bytes.items.len,
-                    .sentinel = .zero_u8,
-                    .child = .u8_type
-                });
+                const array_ty = try self.mod.arrayType(.{ .len = bytes.items.len, .sentinel = .zero_u8, .child = .u8_type });
                 const val = try self.mod.intern(.{ .aggregate = .{
                     .ty = array_ty.toIntern(),
                     .storage = .{
@@ -4330,14 +4326,7 @@ const LowerZon = struct {
                     .byte_offset = 0,
                 } });
             },
-            .struct_init_one,
-            .struct_init_one_comma,
-            .struct_init_dot_two,
-            .struct_init_dot_two_comma,
-            .struct_init_dot,
-            .struct_init_dot_comma,
-            .struct_init,
-            .struct_init_comma => {
+            .struct_init_one, .struct_init_one_comma, .struct_init_dot_two, .struct_init_dot_two_comma, .struct_init_dot, .struct_init_dot_comma, .struct_init, .struct_init_comma => {
                 var buf: [2]Ast.Node.Index = undefined;
                 const struct_init = self.file.tree.fullStructInit(&buf, node).?;
                 if (struct_init.ast.type_expr != 0) {
@@ -4373,16 +4362,17 @@ const LowerZon = struct {
                 return self.mod.intern_pool.get(gpa, .{ .aggregate = .{
                     .ty = struct_type,
                     .storage = .{ .elems = values },
-                }});
+                } });
             },
             .array_init_one,
             .array_init_one_comma,
             .array_init_dot_two,
             .array_init_dot_two_comma,
             .array_init_dot,
-            .array_init_dot_comma ,
+            .array_init_dot_comma,
             .array_init,
-            .array_init_comma => {
+            .array_init_comma,
+            => {
                 var buf: [2]Ast.Node.Index = undefined;
                 const array_init = self.file.tree.fullArrayInit(&buf, node).?;
                 if (array_init.ast.type_expr != 0) {
@@ -4404,7 +4394,7 @@ const LowerZon = struct {
                 return self.mod.intern_pool.get(gpa, .{ .aggregate = .{
                     .ty = tuple_type,
                     .storage = .{ .elems = values },
-                }});
+                } });
             },
             .block_two => if (data[node].lhs == 0 and data[node].rhs == 0) {
                 return .void_value;
@@ -4414,24 +4404,16 @@ const LowerZon = struct {
             .address_of => {
                 const child_node = data[node].lhs;
                 switch (tags[child_node]) {
-                    .array_init_one,
-                    .array_init_one_comma,
-                    .array_init_dot_two,
-                    .array_init_dot_two_comma,
-                    .array_init_dot,
-                    .array_init_dot_comma ,
-                    .array_init,
-                    .array_init_comma => {
+                    .array_init_one, .array_init_one_comma, .array_init_dot_two, .array_init_dot_two_comma, .array_init_dot, .array_init_dot_comma, .array_init, .array_init_comma => {
                         const value = try self.expr(child_node);
                         const ty = try self.mod.intern_pool.get(gpa, .{ .ptr_type = .{
                             .child = self.mod.intern_pool.typeOf(value),
-                        }});
+                        } });
                         return self.mod.intern_pool.get(gpa, .{ .ptr = .{
                             .ty = ty,
                             .base_addr = .{ .anon_decl = .{ .orig_ty = ty, .val = value } },
                             .byte_offset = 0,
-                        }});
-
+                        } });
                     },
                     .struct_init_one,
                     .struct_init_one_comma,
@@ -4448,18 +4430,18 @@ const LowerZon = struct {
                             const value = .empty_struct;
                             const ty = try self.mod.intern_pool.get(gpa, .{ .ptr_type = .{
                                 .child = self.mod.intern_pool.typeOf(value),
-                            }});
+                            } });
                             return self.mod.intern_pool.get(gpa, .{ .ptr = .{
                                 .ty = ty,
                                 .base_addr = .{ .anon_decl = .{ .orig_ty = ty, .val = value } },
                                 .byte_offset = 0,
-                            }});
+                            } });
                         }
                     },
-                    else => {}
+                    else => {},
                 }
             },
-            else => {}
+            else => {},
         }
 
         return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
@@ -4496,7 +4478,7 @@ const LowerZon = struct {
                 return self.mod.intern_pool.get(gpa, .{ .int = .{
                     .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
                     .storage = .{ .i64 = if (is_negative == null) char else -@as(i64, char) },
-                }});
+                } });
             },
             .number_literal => {
                 const token = main_tokens[node];
@@ -4515,17 +4497,17 @@ const LowerZon = struct {
                                 return self.mod.intern_pool.get(gpa, .{ .int = .{
                                     .ty = .comptime_int_type,
                                     .storage = .{ .big_int = result.toConst() },
-                                }});
+                                } });
                             };
                             return self.mod.intern_pool.get(gpa, .{ .int = .{
                                 .ty = .comptime_int_type,
                                 .storage = .{ .i64 = signed },
-                            }});
+                            } });
                         } else {
                             return self.mod.intern_pool.get(gpa, .{ .int = .{
                                 .ty = .comptime_int_type,
                                 .storage = .{ .u64 = unsigned },
-                            }});
+                            } });
                         }
                     },
                     .big_int => |base| {
@@ -4546,7 +4528,7 @@ const LowerZon = struct {
                         return self.mod.intern_pool.get(gpa, .{ .int = .{
                             .ty = try self.mod.intern(.{ .simple_type = .comptime_int }),
                             .storage = .{ .big_int = big_int.toConst() },
-                        }});
+                        } });
                     },
                     .float => {
                         const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch unreachable; // Already validated
@@ -4580,21 +4562,20 @@ const LowerZon = struct {
                             .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
                             .storage = .{ .f128 = std.math.nan(f128) },
                         } }),
-                        .inf => try self.mod.intern(.{ .float = .{
-                            .ty = try self.mod.intern(.{ .simple_type = .comptime_float }),
-                            .storage = .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) } },
+                        .inf => try self.mod.intern(.{
+                            .float = .{ .ty = try self.mod.intern(.{ .simple_type = .comptime_float }), .storage = .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) } },
                         }),
                     };
                 }
-                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{ bytes });
+                return self.fail(.{ .node_abs = node }, "use of unknown identifier '{s}'", .{bytes});
             },
             else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
         }
     }
 };
 
-pub fn semaZon(mod: *Module, file: *File) !Air.Inst.Ref {
-    var lower_zon = LowerZon{
+pub fn semaZon(mod: *Zcu, file: *File) !Air.Inst.Ref {
+    var lower_zon: LowerZon = .{
         .mod = mod,
         .file = file,
     };

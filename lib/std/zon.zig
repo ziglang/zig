@@ -79,7 +79,7 @@ pub const parseFromAst = @import("zon/parse.zig").parseFromAst;
 pub const parseFromAstNoAlloc = @import("zon/parse.zig").parseFromAstNoAlloc;
 pub const parseFromAstNode = @import("zon/parse.zig").parseFromAstNode;
 pub const parseFromAstNodeNoAlloc = @import("zon/parse.zig").parseFromAstNodeNoAlloc;
-pub const paseFree = @import("zon/parse.zig").parseFree;
+pub const parseFree = @import("zon/parse.zig").parseFree;
 
 pub const StringifierOptions = @import("zon/stringify.zig").StringifierOptions;
 pub const StringifyValueOptions = @import("zon/stringify.zig").StringifyValueOptions;

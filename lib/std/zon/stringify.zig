@@ -178,7 +178,7 @@ test "typeIsRecursive" {
     }));
 }
 
-fn checkValueDepth(val: anytype, depth: usize) error { MaxDepth }!void {
+fn checkValueDepth(val: anytype, depth: usize) error{MaxDepth}!void {
     if (depth == 0) return error.MaxDepth;
     const child_depth = depth - 1;
 
@@ -232,16 +232,16 @@ test "checkValueDepth" {
         x: u32,
         y: struct { x: u32 },
     };
-    try expectValueDepthEquals(2, Union{.x = 1});
-    try expectValueDepthEquals(3, Union{.y = .{.x = 1 }});
+    try expectValueDepthEquals(2, Union{ .x = 1 });
+    try expectValueDepthEquals(3, Union{ .y = .{ .x = 1 } });
 
     const Recurse = struct { r: ?*const @This() };
-    try expectValueDepthEquals(2, Recurse { .r = null });
-    try expectValueDepthEquals(5, Recurse { .r = &Recurse { .r = null } });
-    try expectValueDepthEquals(8, Recurse { .r = &Recurse { .r = &Recurse { .r = null }} });
+    try expectValueDepthEquals(2, Recurse{ .r = null });
+    try expectValueDepthEquals(5, Recurse{ .r = &Recurse{ .r = null } });
+    try expectValueDepthEquals(8, Recurse{ .r = &Recurse{ .r = &Recurse{ .r = null } } });
 
-    try expectValueDepthEquals(2, @as([]const u8, &.{1, 2, 3}));
-    try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{1, 2, 3}}));
+    try expectValueDepthEquals(2, @as([]const u8, &.{ 1, 2, 3 }));
+    try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{ 1, 2, 3 }}));
 }
 
 /// Lower level control over stringification, you can create a new instance with `stringifier`.
@@ -281,7 +281,7 @@ pub fn Stringifier(comptime Writer: type) type {
     return struct {
         const Self = @This();
 
-        pub const MaxDepthError = error { MaxDepth } || Writer.Error;
+        pub const MaxDepthError = error{MaxDepth} || Writer.Error;
 
         options: StringifierOptions,
         indent_level: u8,
@@ -374,10 +374,10 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else {
                     // Decide which fields to emit
                     const fields, const skipped = if (options.emit_default_optional_fields) b: {
-                        break :b .{ StructInfo.fields.len, [1]bool{false} ** StructInfo.fields.len};
+                        break :b .{ StructInfo.fields.len, [1]bool{false} ** StructInfo.fields.len };
                     } else b: {
                         var fields = StructInfo.fields.len;
-                        var skipped = [1]bool {false} ** StructInfo.fields.len;
+                        var skipped = [1]bool{false} ** StructInfo.fields.len;
                         inline for (StructInfo.fields, &skipped) |field_info, *skip| {
                             if (field_info.default_value) |default_field_value_opaque| {
                                 const field_value = @field(val, field_info.name);
@@ -523,7 +523,7 @@ pub fn Stringifier(comptime Writer: type) type {
         ///
         /// Returns `error.InnerCarriageReturn` if `val` contains a CR not followed by a newline,
         /// since multiline strings cannot represent CR without a following newline.
-        pub fn multilineString(self: *Self, val: []const u8, options: MultilineStringOptions) (Writer.Error || error { InnerCarriageReturn })!void {
+        pub fn multilineString(self: *Self, val: []const u8, options: MultilineStringOptions) (Writer.Error || error{InnerCarriageReturn})!void {
             // Make sure the string does not contain any carriage returns not followed by a newline
             var i: usize = 0;
             while (i < val.len) : (i += 1) {
@@ -626,7 +626,7 @@ pub fn Stringifier(comptime Writer: type) type {
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
             pub fn fieldMaxDepth(self: *Tuple, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
-                try self.container.fieldMaxDepth(null, val, options,  depth);
+                try self.container.fieldMaxDepth(null, val, options, depth);
             }
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
@@ -1424,41 +1424,41 @@ test "stringify multiline strings" {
     const writer = buf.writer();
     var serializer = stringifier(writer, .{});
 
-    inline for (.{true, false}) |whitespace| {
+    inline for (.{ true, false }) |whitespace| {
         serializer.options.whitespace = whitespace;
 
         {
-            try serializer.multilineString("", .{.top_level = true});
+            try serializer.multilineString("", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try serializer.multilineString("abc⚡", .{.top_level = true});
+            try serializer.multilineString("abc⚡", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\abc⚡", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try serializer.multilineString("abc⚡\ndef", .{.top_level = true});
+            try serializer.multilineString("abc⚡\ndef", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try serializer.multilineString("abc⚡\r\ndef", .{.top_level = true});
+            try serializer.multilineString("abc⚡\r\ndef", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try serializer.multilineString("\nabc⚡", .{.top_level = true});
+            try serializer.multilineString("\nabc⚡", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try serializer.multilineString("\r\nabc⚡", .{.top_level = true});
+            try serializer.multilineString("\r\nabc⚡", .{ .top_level = true });
             try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
             buf.clearRetainingCapacity();
         }
@@ -1474,16 +1474,16 @@ test "stringify multiline strings" {
         }
 
         {
-            const str: []const u8 = &.{'a', '\r', 'c'};
+            const str: []const u8 = &.{ 'a', '\r', 'c' };
             try serializer.string(str);
             try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
             buf.clearRetainingCapacity();
         }
 
         {
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c'}), .{}));
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\n'}), .{}));
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{'a', '\r', 'c', '\r', '\n'}), .{}));
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c' }), .{}));
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\n' }), .{}));
+            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\r', '\n' }), .{}));
             try std.testing.expectEqualStrings("", buf.items);
             buf.clearRetainingCapacity();
         }
@@ -1534,7 +1534,8 @@ test "stringify skip default fields" {
         \\        'd',
         \\    },
         \\}
-        , Struct{
+    ,
+        Struct{
             .y = 3,
             .z = 4,
             .inner1 = .{
@@ -1558,7 +1559,8 @@ test "stringify skip default fields" {
         \\    'b',
         \\    'd',
         \\} }
-        , Struct{
+    ,
+        Struct{
             .y = 3,
             .z = 4,
             .inner1 = .{
@@ -1589,7 +1591,8 @@ test "stringify skip default fields" {
         \\        'd',
         \\    },
         \\}
-        , Struct{
+    ,
+        Struct{
             .y = 3,
             .z = 4,
             .inner1 = .{
@@ -1614,13 +1617,15 @@ test "stringify skip default fields" {
     };
     try expectStringifyEqual(
         \\.{}
-        , DefaultStrings { .foo = "abc" },
-        .{.emit_default_optional_fields = false},
+    ,
+        DefaultStrings{ .foo = "abc" },
+        .{ .emit_default_optional_fields = false },
     );
     try expectStringifyEqual(
         \\.{ .foo = "abcd" }
-        , DefaultStrings { .foo = "abcd" },
-        .{.emit_default_optional_fields = false},
+    ,
+        DefaultStrings{ .foo = "abcd" },
+        .{ .emit_default_optional_fields = false },
     );
 }
 
@@ -1646,7 +1651,7 @@ test "depth limits" {
 
     // Max depth passing on recursive type
     {
-        const maybe_recurse = Recurse { .r = &.{} };
+        const maybe_recurse = Recurse{ .r = &.{} };
         try stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2);
         try std.testing.expectEqualStrings(".{ .r = &.{} }", buf.items);
         buf.clearRetainingCapacity();
@@ -1654,7 +1659,7 @@ test "depth limits" {
 
     // Unchecked passing on recursive type
     {
-        const maybe_recurse = Recurse { .r = &.{} };
+        const maybe_recurse = Recurse{ .r = &.{} };
         try stringifyArbitraryDepth(maybe_recurse, .{}, buf.writer());
         try std.testing.expectEqualStrings(".{ .r = &.{} }", buf.items);
         buf.clearRetainingCapacity();
@@ -1662,8 +1667,8 @@ test "depth limits" {
 
     // Max depth failing on recursive type due to depth
     {
-        var maybe_recurse = Recurse { .r = &.{} };
-        maybe_recurse.r = &.{ .{ .r = &.{} } };
+        var maybe_recurse = Recurse{ .r = &.{} };
+        maybe_recurse.r = &.{.{ .r = &.{} }};
         try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2));
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
@@ -1671,7 +1676,7 @@ test "depth limits" {
 
     // Same but for a slice
     {
-        var temp: [1]Recurse = .{ .{ .r = &.{} } };
+        var temp: [1]Recurse = .{.{ .r = &.{} }};
         const maybe_recurse: []const Recurse = &temp;
 
         try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2));
@@ -1691,7 +1696,7 @@ test "depth limits" {
 
     // A slice succeeding
     {
-        var temp: [1]Recurse = .{ .{ .r = &.{} } };
+        var temp: [1]Recurse = .{.{ .r = &.{} }};
         const maybe_recurse: []const Recurse = &temp;
 
         try stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 3);
@@ -1711,7 +1716,7 @@ test "depth limits" {
 
     // Max depth failing on recursive type due to recursion
     {
-        var temp: [1]Recurse = .{ .{ .r = &.{} } };
+        var temp: [1]Recurse = .{.{ .r = &.{} }};
         temp[0].r = &temp;
         const maybe_recurse: []const Recurse = &temp;
 
@@ -1788,7 +1793,8 @@ test "stringify primitives" {
         \\    .g = -inf,
         \\    .h = nan,
         \\}
-        , .{
+    ,
+        .{
             .a = @as(f128, 1.5), // Make sure explicit f128s work
             .b = 1.0 / 3.0,
             .c = std.math.pi,
@@ -1809,7 +1815,8 @@ test "stringify primitives" {
         \\    .d = -680564733841876926926749214863536422912,
         \\    .e = 0,
         \\}
-        , .{
+    ,
+        .{
             .a = 18446744073709551616,
             .b = -18446744073709551616,
             .c = 680564733841876926926749214863536422912,
@@ -1827,7 +1834,8 @@ test "stringify primitives" {
         \\    .d = {},
         \\    .e = null,
         \\}
-        , .{
+    ,
+        .{
             .a = true,
             .b = false,
             .c = .foo,
@@ -1839,15 +1847,15 @@ test "stringify primitives" {
 
     const Struct = struct { x: f32, y: f32 };
     try expectStringifyEqual(
-        ".{ .a = .{ .x = 1, .y = 2 }, .b = null }"
-        , .{
+        ".{ .a = .{ .x = 1, .y = 2 }, .b = null }",
+        .{
             .a = @as(?Struct, .{ .x = 1, .y = 2 }),
             .b = @as(?Struct, null),
         },
         .{},
     );
 
-    const E = enum (u8) {
+    const E = enum(u8) {
         foo,
         bar,
     };
