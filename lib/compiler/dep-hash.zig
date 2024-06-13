@@ -62,6 +62,13 @@ pub fn main() !void {
         }
     }
 
+    if (build_root_path) |build_root| {
+        if (!std.fs.path.isAbsolute(build_root)) {
+            const cwd = try std.process.getCwdAlloc(arena);
+            build_root_path = try std.fs.path.resolve(arena, &.{ cwd, build_root });
+        }
+    }
+
     var build_root = try std.zig.findBuildRoot(arena, .{
         .cwd_path = build_root_path,
         .hint = build_root_path == null,
