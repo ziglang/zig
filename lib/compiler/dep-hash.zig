@@ -1,5 +1,5 @@
 const usage_dep_hash =
-    \\Usage: zig dep-hash [--list] [dep-name]
+    \\Usage: zig dep-hash [--list] [dep-name] [subdep...]
     \\
     \\   List the hashes of packages in the build.zig.zon manifest.
     \\
@@ -20,9 +20,9 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(arena);
     const color: std.zig.Color = .auto;
     var list = false;
-    var package_opt: ?[]const u8 = null;
     var build_root_path: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var dep_chain = std.ArrayList([]const u8).init(arena);
 
     assert(args.len > 0);
 
@@ -48,10 +48,8 @@ pub fn main() !void {
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
-            } else if (package_opt != null) {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
             } else {
-                package_opt = arg;
+                try dep_chain.append(arg);
             }
         }
     }
@@ -91,20 +89,22 @@ pub fn main() !void {
         ast.deinit(arena);
     }
 
-    if (package_opt) |package| {
+    var dep_name = std.ArrayList(u8).init(arena);
+    defer dep_name.deinit();
+
+    if (dep_chain.items.len > 0) {
+        const package = dep_chain.items[0];
         if (package.len == 0) {
             fatal("package name must not be empty", .{});
         }
         const dep: std.zig.Manifest.Dependency = dep: {
-            var iter = std.mem.tokenizeScalar(u8, package, '.');
-
-            var dep = manifest.dependencies.get(iter.next().?) orelse {
+            var dep = manifest.dependencies.get(package) orelse {
                 fatal("there is no dependency named '{s}' in the manifest", .{package});
             };
 
-            var dep_name = iter.buffer[0 .. iter.index - 1];
+            try dep_name.appendSlice(package);
 
-            while (iter.next()) |p| {
+            for (dep_chain.items[1..]) |p| {
                 if (dep.hash) |hash| {
                     const sub_manifest, _ = try loadManifest(
                         arena,
@@ -114,15 +114,18 @@ pub fn main() !void {
                     );
 
                     dep = sub_manifest.dependencies.get(p) orelse {
-                        fatal("{s} has no dependency named '{s}' in its manifest", .{ dep_name, package });
+                        fatal("{s} has no dependency named '{s}' in its manifest", .{
+                            dep_name.items, p,
+                        });
                     };
-                    dep_name = iter.buffer[0 .. iter.index - 1];
+                    try dep_name.append('.');
+                    try dep_name.appendSlice(p);
                 } else switch (dep.location) {
                     .url => fatal("the hash for {s} is missing from the manifest", .{
-                        dep_name,
+                        dep_name.items,
                     }),
                     .path => |path| fatal("{s} is a local dependency located at {s}", .{
-                        dep_name, path,
+                        dep_name.items, path,
                     }),
                 }
             }
@@ -145,14 +148,9 @@ pub fn main() !void {
                     sub_ast.deinit(arena);
                 }
 
-                const prefix = prefix: {
-                    const buffer = try arena.alloc(u8, package.len + 1);
-                    @memcpy(buffer[0..package.len], package);
-                    buffer[buffer.len - 1] = '.';
-                    break :prefix buffer;
-                };
+                try dep_name.append('.');
 
-                try listDepHashes(prefix, sub_manifest);
+                try listDepHashes(dep_name, sub_manifest);
             } else {
                 try stdout.print("{s}\n", .{hash});
             }
@@ -178,20 +176,33 @@ fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
         return;
     }
 
+    var longest_name: usize = 0;
     var deps = manifest.dependencies.iterator();
+
+    while (deps.next()) |entry| {
+        longest_name = @max(longest_name, entry.key_ptr.len);
+    }
+
+    deps.reset();
     while (deps.next()) |entry| {
         const stdout = std.io.getStdOut().writer();
         const name = entry.key_ptr.*;
         if (entry.value_ptr.hash) |hash| {
-            try stdout.print("{s}{s}    {s}\n", .{ parent_prefix, name, hash });
+            try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+            try stdout.writeByteNTimes(' ', longest_name - name.len);
+            try stdout.print("{s}\n", .{hash});
         } else {
             switch (entry.value_ptr.location) {
-                .url => try stdout.print("{s}{s}    {s}\n", .{
-                    parent_prefix, name, "(missing)",
-                }),
-                .path => |p| try stdout.print("{s}{s}    {s} (local)\n", .{
-                    parent_prefix, name, p,
-                }),
+                .url => {
+                    try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+                    try stdout.writeByteNTimes(' ', longest_name - name.len);
+                    try stdout.writeAll("(missing)");
+                },
+                .path => |p| {
+                    try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+                    try stdout.writeByteNTimes(' ', longest_name - name.len);
+                    try stdout.print("{s} (local)\n", .{p});
+                },
             }
         }
     }
