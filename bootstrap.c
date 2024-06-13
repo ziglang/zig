@@ -142,7 +142,6 @@ int main(int argc, char **argv) {
             "pub const force_gpa = false;\n"
             "pub const only_c = false;\n"
             "pub const only_core_functionality = true;\n"
-            "pub const only_dep_hash = false;\n"
         , zig_version);
         if (written < 100)
             panic("unable to write to config.zig file");
