@@ -521,6 +521,8 @@ fn windowsApiUpdateThreadRun() void {
 /// Allows the caller to freely write to stderr until `unlockStdErr` is called.
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
+///
+/// The lock is recursive; the same thread may hold the lock multiple times.
 pub fn lockStdErr() void {
     stderr_mutex.lock();
     clearWrittenWithEscapeCodes() catch {};
@@ -1378,4 +1380,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     else => false,
 };
 
-var stderr_mutex: std.Thread.Mutex = .{};
+/// The primary motivation for recursive mutex here is so that a panic while
+/// stderr mutex is held still dumps the stack trace and other debug
+/// information.
+var stderr_mutex = std.Thread.Mutex.Recursive.init;
