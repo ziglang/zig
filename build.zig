@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) !void {
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
         .root_source_file = b.path("test/src/Cases.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
     });
@@ -541,7 +541,7 @@ pub fn build(b: *std.Build) !void {
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
     const update_mingw_exe = b.addExecutable(.{
         .name = "update_mingw",
-        .target = b.host,
+        .target = b.graph.host,
         .root_source_file = b.path("tools/update_mingw.zig"),
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
@@ -1259,7 +1259,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     const doctest_exe = b.addExecutable(.{
         .name = "doctest",
         .root_source_file = b.path("tools/doctest.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = .Debug,
     });
 
@@ -1297,7 +1297,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
         .root_source_file = b.path("tools/docgen.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = .Debug,
     });
 
