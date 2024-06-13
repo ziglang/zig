@@ -658,7 +658,7 @@ pub fn addStackTraceTests(
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
         .root_source_file = b.path("test/src/check-stack-trace.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = .Debug,
     });
 

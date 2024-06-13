@@ -56,7 +56,7 @@ fn addExpect(
         .name = "test",
         .root_source_file = write_src.files.items[0].getPath(),
         .optimize = optimize_mode,
-        .target = b.host,
+        .target = b.graph.host,
         .error_tracing = mode_config.error_tracing,
     });
 
