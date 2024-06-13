@@ -384,8 +384,7 @@ test "sort fuzz testing" {
     const test_case_count = 10;
 
     inline for (sort_funcs) |sortFn| {
-        var i: usize = 0;
-        while (i < test_case_count) : (i += 1) {
+        for (0..test_case_count) |_| {
             const array_size = random.intRangeLessThan(usize, 0, 1000);
             const array = try testing.allocator.alloc(i32, array_size);
             defer testing.allocator.free(array);
