@@ -8,7 +8,7 @@ const Target = std.Target;
 const target = @import("target.zig");
 const assert = std.debug.assert;
 const glibc = @import("glibc.zig");
-const introspect = @import("introspect.zig");
+const introspect = std.zig.introspect;
 const fatal = @import("main.zig").fatal;
 
 pub fn cmdTargets(
