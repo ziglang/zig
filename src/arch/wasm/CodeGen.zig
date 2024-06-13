@@ -1953,6 +1953,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .prefetch => func.airPrefetch(inst),
         .popcount => func.airPopcount(inst),
         .byte_swap => func.airByteSwap(inst),
+        .bit_reverse => func.airBitReverse(inst),
 
         .slice => func.airSlice(inst),
         .slice_len => func.airSliceLen(inst),
@@ -2000,7 +2001,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .mul_sat,
         .assembly,
-        .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
 
@@ -5819,6 +5819,99 @@ fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = try func.allocLocal(result_ty);
     try func.addLabel(.local_set, result.local.value);
     func.finishAir(inst, result, &.{ty_op.operand});
+}
+
+fn airBitReverse(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.comp.module.?;
+    const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+
+    const operand = try func.resolveInst(ty_op.operand);
+    const ty = func.typeOf(ty_op.operand);
+
+    if (ty.zigTypeTag(mod) == .Vector) {
+        return func.fail("TODO: Implement @bitReverse for vectors", .{});
+    }
+
+    const int_info = ty.intInfo(mod);
+    const bits = int_info.bits;
+    const wasm_bits = toWasmBits(bits) orelse {
+        return func.fail("TODO: Implement @bitReverse for integers with bitsize '{d}'", .{bits});
+    };
+
+    switch (wasm_bits) {
+        32 => {
+            const intrin_ret = try func.callIntrinsic(
+                "__bitreversesi2",
+                &.{.u32_type},
+                Type.u32,
+                &.{operand},
+            );
+            const reversed = if (bits == 32)
+                intrin_ret
+            else
+                try func.binOp(intrin_ret, .{ .imm32 = 32 - bits }, Type.u32, .shr);
+            const result = try reversed.toLocal(func, ty);
+            func.finishAir(inst, result, &.{ty_op.operand});
+        },
+        64 => {
+            const intrin_ret = try func.callIntrinsic(
+                "__bitreversedi2",
+                &.{.u64_type},
+                Type.u64,
+                &.{operand},
+            );
+            const reversed = if (bits == 64)
+                intrin_ret
+            else
+                try func.binOp(intrin_ret, .{ .imm64 = 64 - bits }, Type.u64, .shr);
+            const result = try reversed.toLocal(func, ty);
+            func.finishAir(inst, result, &.{ty_op.operand});
+        },
+        128 => {
+            const result = try func.allocStack(ty);
+
+            try func.emitWValue(result);
+            const first_half = try func.load(operand, Type.u64, 8);
+            const intrin_ret_first = try func.callIntrinsic(
+                "__bitreversedi2",
+                &.{.u64_type},
+                Type.u64,
+                &.{first_half},
+            );
+            try func.emitWValue(intrin_ret_first);
+            if (bits < 128) {
+                try func.emitWValue(.{ .imm64 = 128 - bits });
+                try func.addTag(.i64_shr_u);
+            }
+            try func.emitWValue(result);
+            const second_half = try func.load(operand, Type.u64, 0);
+            const intrin_ret_second = try func.callIntrinsic(
+                "__bitreversedi2",
+                &.{.u64_type},
+                Type.u64,
+                &.{second_half},
+            );
+            try func.emitWValue(intrin_ret_second);
+            if (bits == 128) {
+                try func.store(.stack, .stack, Type.u64, result.offset() + 8);
+                try func.store(.stack, .stack, Type.u64, result.offset());
+            } else {
+                var tmp = try func.allocLocal(Type.u64);
+                defer tmp.free(func);
+                try func.addLabel(.local_tee, tmp.local.value);
+                try func.emitWValue(.{ .imm64 = 128 - bits });
+                try func.addTag(.i64_shr_u);
+                try func.store(.stack, .stack, Type.u64, result.offset() + 8);
+                try func.addLabel(.local_get, tmp.local.value);
+                try func.emitWValue(.{ .imm64 = bits - 64 });
+                try func.addTag(.i64_shl);
+                try func.addTag(.i64_or);
+                try func.store(.stack, .stack, Type.u64, result.offset());
+            }
+            func.finishAir(inst, result, &.{ty_op.operand});
+        },
+        else => unreachable,
+    }
 }
 
 fn airErrorName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
