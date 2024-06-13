@@ -98,37 +98,9 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
-/// TODO remove the allocator requirement from this API
-/// TODO move to Dir
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (cwd().symLink(existing_path, new_path, .{})) {
-        return;
-    } else |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err, // TODO zig should know this set does not include PathAlreadyExists
-    }
-
-    const dirname = path.dirname(new_path) orelse ".";
-
-    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
-    defer allocator.free(tmp_path);
-    @memcpy(tmp_path[0..dirname.len], dirname);
-    tmp_path[dirname.len] = path.sep;
-    while (true) {
-        crypto.random.bytes(rand_buf[0..]);
-        _ = base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
-
-        if (cwd().symLink(existing_path, tmp_path, .{})) {
-            return cwd().rename(tmp_path, new_path);
-        } else |err| switch (err) {
-            error.PathAlreadyExists => continue,
-            else => return err, // TODO zig should know this set does not include PathAlreadyExists
-        }
-    }
+/// Deprecated. Use `cwd().atomicSymLink()` instead.
+pub fn atomicSymLink(_: Allocator, existing_path: []const u8, new_path: []const u8) !void {
+    try cwd().atomicSymLink(existing_path, new_path, .{});
 }
 
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`

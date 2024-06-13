@@ -1803,19 +1803,18 @@ pub fn doAtomicSymLinks(
     filename_name_only: []const u8,
 ) !void {
     const b = step.owner;
-    const arena = b.allocator;
     const out_dir = fs.path.dirname(output_path) orelse ".";
     const out_basename = fs.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = b.pathJoin(&.{ out_dir, filename_major_only });
-    fs.atomicSymLink(arena, out_basename, major_only_path) catch |err| {
+    fs.cwd().atomicSymLink(out_basename, major_only_path, .{}) catch |err| {
         return step.fail("unable to symlink {s} -> {s}: {s}", .{
             major_only_path, out_basename, @errorName(err),
         });
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = b.pathJoin(&.{ out_dir, filename_name_only });
-    fs.atomicSymLink(arena, filename_major_only, name_only_path) catch |err| {
+    fs.cwd().atomicSymLink(filename_major_only, name_only_path, .{}) catch |err| {
         return step.fail("Unable to symlink {s} -> {s}: {s}", .{
             name_only_path, filename_major_only, @errorName(err),
         });
