@@ -12,7 +12,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
-    .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
+    .{ .arch = .aarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },

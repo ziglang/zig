@@ -886,7 +886,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .kind = .@"test",
         .root_module = .{
             .root_source_file = options.root_source_file,
-            .target = options.target orelse b.host,
+            .target = options.target orelse b.graph.host,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -972,10 +972,24 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
-    run_step.addArtifactArg(exe);
+    if (exe.kind == .@"test") {
+        if (exe.exec_cmd_args) |exec_cmd_args| {
+            for (exec_cmd_args) |cmd_arg| {
+                if (cmd_arg) |arg| {
+                    run_step.addArg(arg);
+                } else {
+                    run_step.addArtifactArg(exe);
+                }
+            }
+        } else {
+            run_step.addArtifactArg(exe);
+        }
 
-    if (exe.kind == .@"test" and exe.test_server_mode) {
-        run_step.enableTestRunnerMode();
+        if (exe.test_server_mode) {
+            run_step.enableTestRunnerMode();
+        }
+    } else {
+        run_step.addArtifactArg(exe);
     }
 
     return run_step;
@@ -1711,7 +1725,7 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = b.host.result.exeFileExt();
+    const exe_extension = b.graph.host.result.exeFileExt();
     for (b.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
