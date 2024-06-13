@@ -3,13 +3,12 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const os = std.os;
 const fs = std.fs;
-const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
 /// Returns the sub_path that worked, or `null` if none did.
 /// The path of the returned Directory is relative to `base`.
 /// The handle of the returned Directory is open.
-fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
+fn testZigInstallPrefix(base_dir: fs.Dir) ?std.Build.Cache.Directory {
     const test_index_file = "std" ++ fs.path.sep_str ++ "std.zig";
 
     zig_dir: {
@@ -21,7 +20,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
             break :zig_dir;
         };
         file.close();
-        return Compilation.Directory{ .handle = test_zig_dir, .path = lib_zig };
+        return std.Build.Cache.Directory{ .handle = test_zig_dir, .path = lib_zig };
     }
 
     // Try lib/std/std.zig
@@ -31,7 +30,7 @@ fn testZigInstallPrefix(base_dir: fs.Dir) ?Compilation.Directory {
         return null;
     };
     file.close();
-    return Compilation.Directory{ .handle = test_zig_dir, .path = "lib" };
+    return std.Build.Cache.Directory{ .handle = test_zig_dir, .path = "lib" };
 }
 
 /// This is a small wrapper around selfExePathAlloc that adds support for WASI
@@ -45,7 +44,7 @@ pub fn findZigExePath(allocator: mem.Allocator) ![]u8 {
 }
 
 /// Both the directory handle and the path are newly allocated resources which the caller now owns.
-pub fn findZigLibDir(gpa: mem.Allocator) !Compilation.Directory {
+pub fn findZigLibDir(gpa: mem.Allocator) !std.Build.Cache.Directory {
     const self_exe_path = try findZigExePath(gpa);
     defer gpa.free(self_exe_path);
 
@@ -61,7 +60,7 @@ pub fn findZigLibDirFromSelfExe(
     FileNotFound,
     CurrentWorkingDirectoryUnlinked,
     Unexpected,
-}!Compilation.Directory {
+}!std.Build.Cache.Directory {
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
     while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {
@@ -71,7 +70,7 @@ pub fn findZigLibDirFromSelfExe(
         const sub_directory = testZigInstallPrefix(base_dir) orelse continue;
         const p = try fs.path.join(allocator, &[_][]const u8{ dirname, sub_directory.path.? });
         defer allocator.free(p);
-        return Compilation.Directory{
+        return std.Build.Cache.Directory{
             .handle = sub_directory.handle,
             .path = try resolvePath(allocator, p),
         };
