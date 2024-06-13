@@ -1758,10 +1758,11 @@ pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u
     return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
 }
 
-/// Use with `Dir.symLink` and `symLinkAbsolute` to specify whether the symlink
-/// will point to a file or a directory. This value is ignored on all hosts
-/// except Windows where creating symlinks to different resource types, requires
-/// different flags. By default, `symLinkAbsolute` is assumed to point to a file.
+/// Use with `Dir.symLink`, `Dir.atomicSymLink`, and `symLinkAbsolute` to
+/// specify whether the symlink will point to a file or a directory. This value
+/// is ignored on all hosts except Windows where creating symlinks to different
+/// resource types, requires different flags. By default, `symLinkAbsolute` is
+/// assumed to point to a file.
 pub const SymLinkFlags = struct {
     is_directory: bool = false,
 };
@@ -1845,6 +1846,50 @@ pub fn symLinkW(
     flags: SymLinkFlags,
 ) !void {
     return windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+}
+
+/// Same as `symLink`, except tries to create the symbolic link until it
+/// succeeds or encounters an error other than `error.PathAlreadyExists`.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+pub fn atomicSymLink(
+    dir: Dir,
+    target_path: []const u8,
+    sym_link_path: []const u8,
+    flags: SymLinkFlags,
+) !void {
+    if (dir.symLink(target_path, sym_link_path, flags)) {
+        return;
+    } else |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => |e| return e,
+    }
+
+    const dirname = path.dirname(sym_link_path) orelse ".";
+
+    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
+
+    const temp_path_len = dirname.len + 1 + base64_encoder.calcSize(rand_buf.len);
+    var temp_path_buf: [fs.max_path_bytes]u8 = undefined;
+
+    if (temp_path_len > temp_path_buf.len) return error.NameTooLong;
+    @memcpy(temp_path_buf[0..dirname.len], dirname);
+    temp_path_buf[dirname.len] = path.sep;
+
+    const temp_path = temp_path_buf[0..temp_path_len];
+
+    while (true) {
+        crypto.random.bytes(rand_buf[0..]);
+        _ = base64_encoder.encode(temp_path[dirname.len + 1 ..], rand_buf[0..]);
+
+        if (dir.symLink(target_path, temp_path, flags)) {
+            return dir.rename(temp_path, sym_link_path);
+        } else |err| switch (err) {
+            error.PathAlreadyExists => continue,
+            else => |e| return e,
+        }
+    }
 }
 
 pub const ReadLinkError = posix.ReadLinkError;
@@ -2695,8 +2740,11 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const File = std.fs.File;
 const AtomicFile = std.fs.AtomicFile;
+const base64_encoder = fs.base64_encoder;
+const crypto = std.crypto;
 const posix = std.posix;
 const mem = std.mem;
+const path = fs.path;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
