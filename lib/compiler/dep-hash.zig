@@ -1,5 +1,5 @@
 const usage_dep_hash =
-    \\Usage: zig dep-hash [--list] [dep-name]
+    \\Usage: zig dep-hash [--list] [dep-name] [subdep...]
     \\
     \\   List the hashes of packages in the build.zig.zon manifest.
     \\
@@ -24,6 +24,7 @@ pub fn main() !void {
     var package_opt: ?[]const u8 = null;
     var build_root_path: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var subdeps = std.ArrayList([]const u8).init(arena);
 
     assert(args.len > 0);
 
@@ -50,7 +51,7 @@ pub fn main() !void {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
             } else if (package_opt != null) {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
+                try subdeps.append(arg);
             } else {
                 package_opt = arg;
             }
@@ -91,19 +92,20 @@ pub fn main() !void {
             fatal("package name must not be empty", .{});
         }
         const dep: std.zig.Manifest.Dependency = dep: {
-            var iter = std.mem.tokenizeScalar(u8, package, '.');
-
-            var dep = manifest.dependencies.get(iter.next().?) orelse {
+            var dep = manifest.dependencies.get(package) orelse {
                 fatal("there is no dependency named '{s}' in the manifest\n", .{package});
             };
 
-            var dep_name = iter.buffer[0 .. iter.index - 1];
+            var dep_name = std.ArrayList(u8).init(gpa);
+            defer dep_name.deinit();
 
-            while (iter.next()) |p| {
+            try dep_name.appendSlice(package);
+
+            for (subdeps.items) |p| {
                 if (dep.hash) |hash| {
                     var package_dir = global_cache_package_directory.openDir(hash, .{}) catch |e| switch (e) {
                         error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
-                            dep_name, hash,
+                            dep_name.items, hash,
                         }),
                         else => |err| return err,
                     };
@@ -116,15 +118,18 @@ pub fn main() !void {
                     });
 
                     dep = sub_manifest.dependencies.get(p) orelse {
-                        fatal("{s} has no dependency named '{s}' in its manifest", .{ dep_name, package });
+                        fatal("{s} has no dependency named '{s}' in its manifest", .{
+                            dep_name.items, package,
+                        });
                     };
-                    dep_name = iter.buffer[0 .. iter.index - 1];
+                    try dep_name.append('.');
+                    try dep_name.appendSlice(p);
                 } else switch (dep.location) {
                     .url => fatal("the hash for {s} is missing from the manifest.\n", .{
-                        dep_name,
+                        dep_name.items,
                     }),
                     .path => |path| fatal("{s} is a local dependency located at {s}\n", .{
-                        dep_name, path,
+                        dep_name.items, path,
                     }),
                 }
             }
@@ -158,9 +163,22 @@ pub fn main() !void {
                 }
 
                 const prefix = prefix: {
-                    const buffer = try arena.alloc(u8, package.len + 1);
+                    var prefix_len: usize = package.len + 1;
+                    for (subdeps.items) |subdep| {
+                        prefix_len += subdep.len + 1;
+                    }
+
+                    const buffer = try arena.alloc(u8, prefix_len);
+
                     @memcpy(buffer[0..package.len], package);
-                    buffer[buffer.len - 1] = '.';
+                    buffer[package.len] = '.';
+
+                    var i: usize = package.len + 1;
+                    for (subdeps.items) |subdep| {
+                        @memcpy(buffer[i..][0..subdep.len], subdep);
+                        buffer[i + subdep.len] = '.';
+                        i += subdep.len + 1;
+                    }
                     break :prefix buffer;
                 };
 
