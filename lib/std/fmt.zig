@@ -84,13 +84,14 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
+    const err_ctx = ", in: \"" ++ fmt ++ "\"";
     if (args_type_info != .Struct) {
-        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
+        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType) ++ err_ctx);
     }
 
     const fields_info = args_type_info.Struct.fields;
     if (fields_info.len > max_format_args) {
-        @compileError("32 arguments max are supported per format call");
+        @compileError("32 arguments max are supported per format call" ++ err_ctx);
     }
 
     @setEvalBranchQuota(2000000);
@@ -129,7 +130,7 @@ pub fn format(
         if (i >= fmt.len) break;
 
         if (fmt[i] == '}') {
-            @compileError("missing opening {");
+            @compileError("missing opening {" ++ err_ctx);
         }
 
         // Get past the {
@@ -142,7 +143,7 @@ pub fn format(
         const fmt_end = i;
 
         if (i >= fmt.len) {
-            @compileError("missing closing }");
+            @compileError("missing closing }" ++ err_ctx);
         }
 
         // Get past the }
@@ -154,7 +155,7 @@ pub fn format(
             .none => null,
             .number => |pos| pos,
             .named => |arg_name| meta.fieldIndex(ArgsType, arg_name) orelse
-                @compileError("no argument with name '" ++ arg_name ++ "'"),
+                @compileError("no argument with name '" ++ arg_name ++ "'" ++ err_ctx),
         };
 
         const width = switch (placeholder.width) {
@@ -162,8 +163,8 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("no argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                    @compileError("no argument with name '" ++ arg_name ++ "'" ++ err_ctx);
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too fe ++ err_ctxw arguments");
                 break :blk @field(args, arg_name);
             },
         };
@@ -173,18 +174,18 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("no argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                    @compileError("no argument with name '" ++ arg_name ++ "'" ++ err_ctx);
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too fe ++ err_ctxw arguments");
                 break :blk @field(args, arg_name);
             },
         };
 
         const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
-            @compileError("too few arguments");
+            @compileError("too few arguments" ++ err_ctx);
 
         comptime switch (checkSpecifier(fields_info[arg_to_print].type, placeholder.specifier_arg)) {
             .ok => {},
-            .err => |err_msg| @compileError(err_msg ++ ", in: \"" ++ fmt ++ "\""),
+            .err => |err_msg| @compileError(err_msg ++ err_ctx),
         };
         try formatType(
             @field(args, fields_info[arg_to_print].name),
@@ -204,8 +205,8 @@ pub fn format(
         const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
-            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
-            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
+            1 => @compileError("unused argument" ++ err_ctx),
+            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments" ++ err_ctx),
         }
     }
 }
@@ -485,7 +486,7 @@ pub fn formatType(
     const T = @TypeOf(value);
     const actual_fmt = comptime switch (checkSpecifier(T, fmt)) {
         .ok => |actual| actual,
-        .err => |err_msg| @compileError(err_msg),
+        .err => |err_msg| @compileError(err_msg ++ ". Invalid specifier '" ++ fmt ++ "' for " ++ @typeName(T)),
     };
 
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
@@ -670,111 +671,118 @@ pub fn formatType(
 /// Returns either:
 /// * the input specifier, eventually stripped of the leading `?` or `!`
 /// * an error if the specifier doesn't match the given type
-fn checkSpecifier(T: type, comptime fmt: []const u8) union(enum) { ok: []const u8, err: []const u8 } {
+pub fn checkSpecifier(T: type, comptime spec: []const u8) union(enum) { ok: []const u8, err: []const u8 } {
     comptime {
-        if (std.mem.eql(u8, fmt, ANY)) {
+        if (std.mem.eql(u8, spec, ANY)) {
             return .{ .ok = defaultSpec(T) };
         }
-        if (std.mem.eql(u8, fmt, "*")) {
-            return .{ .ok = fmt };
+        if (std.mem.eql(u8, spec, "*")) {
+            return switch (@typeInfo(T)) {
+                .Pointer => .{ .ok = spec },
+                else => .{ .err = "cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier" },
+            };
         }
-        const remaining_fmt = if (fmt.len == 0) fmt else stripOptionalOrErrorUnionSpec(fmt);
-        const actual_fmt = if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
-            .Optional, .ErrorUnion => fmt,
-            else => remaining_fmt,
-        } else fmt;
+        const ok = .{ .ok = spec };
 
-        const ok = .{ .ok = actual_fmt };
-
-        const invalid_fmt_err = .{ .err = "invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(T) ++ "'" };
+        const invalid_fmt_err = .{ .err = "invalid format string '" ++ spec ++ "' for type '" ++ @typeName(T) ++ "'" };
 
         return switch (@typeInfo(T)) {
             // Simple types without spec.
-            .Void, .Bool, .ErrorSet, .Type, .EnumLiteral, .Null => if (actual_fmt.len == 0) ok else invalid_fmt_err,
+            .Void, .Bool, .ErrorSet, .Type, .EnumLiteral, .Null => if (spec.len == 0) ok else invalid_fmt_err,
             // Struct and union use `any` for their fields
-            .Struct, .Union => if (actual_fmt.len == 0) ok else invalid_fmt_err,
-            .ComptimeInt, .Int => if (actual_fmt.len > 1)
+            .Struct, .Union => if (spec.len == 0) ok else invalid_fmt_err,
+            .ComptimeInt, .Int => if (spec.len > 1)
                 invalid_fmt_err
-            else if (actual_fmt.len == 0)
+            else if (spec.len == 0)
                 ok
-            else switch (actual_fmt[0]) {
+            else switch (spec[0]) {
                 'd', 'b', 'x', 'X', 'o' => ok,
                 'u' => switch (@typeInfo(T)) {
                     // this may be wrong if the actual value is bigger than required, but this will be checked a second time in `formatIntValue`.
                     .ComptimeInt => ok,
                     .Int => |int_info| if (int_info.bits <= 21) ok else .{ .err = "cannot print integer that is larger than 21 bits as an UTF-8 sequence" },
+                    else => unreachable,
                 },
                 'c' => switch (@typeInfo(T)) {
                     // this may be wrong if the actual value is bigger than required, but this will be checked a second time in `formatIntValue`.
                     .ComptimeInt => ok,
                     .Int => |int_info| if (int_info.bits <= 8) ok else .{ .err = "cannot print integer that is larger than 8 bits as an ASCII character" },
+                    else => unreachable,
                 },
                 else => invalid_fmt_err,
             },
-            .ComptimeFloat, .Float => if (actual_fmt.len > 1)
+            .ComptimeFloat, .Float => if (spec.len > 1)
                 invalid_fmt_err
-            else if (actual_fmt.len == 0)
+            else if (spec.len == 0)
                 ok
-            else switch (actual_fmt[0]) {
+            else switch (spec[0]) {
                 'e', 'd', 'x' => ok,
                 else => invalid_fmt_err,
             },
             .Optional => |info| {
-                if (actual_fmt.len == 0 or actual_fmt[0] != '?') {
+                if (spec.len == 0 or spec[0] != '?') {
                     return .{ .err = "cannot format optional without a specifier (i.e. {?} or {any})" };
                 }
-                return checkSpecifier(info.child, remaining_fmt);
+                const remaining_spec = stripOptionalOrErrorUnionSpec(spec);
+                return switch (checkSpecifier(info.child, remaining_spec)) {
+                    .ok => .{ .ok = remaining_spec },
+                    .err => |err_msg| .{ .err = err_msg },
+                };
             },
             .ErrorUnion => |info| {
-                if (actual_fmt.len == 0 or actual_fmt[0] != '!')
+                if (spec.len == 0 or spec[0] != '!')
                     return .{ .err = "cannot format error union without a specifier (i.e. {!} or {any})" };
-                return checkSpecifier(info.child, remaining_fmt);
+                const remaining_spec = stripOptionalOrErrorUnionSpec(spec);
+                return switch (checkSpecifier(info.child, remaining_spec)) {
+                    .ok => .{ .ok = remaining_spec },
+                    .err => |err_msg| .{ .err = err_msg },
+                };
             },
             .Enum => |enumInfo| {
                 // If exhaustive we don't need formatting spec
                 if (enumInfo.is_exhaustive) {
-                    return if (actual_fmt.len == 0) ok else invalid_fmt_err;
+                    return if (spec.len == 0) ok else invalid_fmt_err;
                 } else {
                     // Otherwise we might need to format an integer with the spec.
-                    return checkSpecifier(enumInfo.tag_type, actual_fmt);
+                    return checkSpecifier(enumInfo.tag_type, spec);
                 }
             },
             .Pointer => |ptr_info| switch (ptr_info.size) {
                 .One => switch (@typeInfo(ptr_info.child)) {
-                    .Array, .Enum, .Union, .Struct => checkSpecifier(ptr_info.child, actual_fmt),
+                    .Array, .Enum, .Union, .Struct => checkSpecifier(ptr_info.child, spec),
                     else => ok,
                 },
                 .Many, .C => {
-                    if (actual_fmt.len == 0)
+                    if (spec.len == 0)
                         return .{ .err = "cannot format pointer without a specifier (i.e. {s} or {*})" };
-                    if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                    if (spec[0] == 's' and ptr_info.child == u8) {
                         return ok;
                     }
                     if (ptr_info.sentinel) |_| {
-                        return checkSpecifier(ptr_info.child, actual_fmt);
+                        return checkSpecifier(ptr_info.child, spec);
                     }
                     return invalid_fmt_err;
                 },
                 .Slice => {
-                    if (actual_fmt.len == 0)
+                    if (spec.len == 0)
                         return .{ .err = "cannot format slice without a specifier (i.e. {s} or {any})" };
-                    if (actual_fmt[0] == 's' and ptr_info.child == u8) return ok;
-                    return switch (checkSpecifier(ptr_info.child, actual_fmt)) {
+                    if (spec[0] == 's' and ptr_info.child == u8) return ok;
+                    return switch (checkSpecifier(ptr_info.child, spec)) {
                         .err => |err_msg| .{ .err = err_msg },
                         .ok => ok,
                     };
                 },
             },
             .Array => |info| {
-                if (actual_fmt.len == 0)
+                if (spec.len == 0)
                     return .{ .err = "cannot format array without a specifier (i.e. {s} or {any})" };
-                if (actual_fmt[0] == 's' and info.child == u8) return ok;
-                return switch (checkSpecifier(info.child, actual_fmt)) {
+                if (spec[0] == 's' and info.child == u8) return ok;
+                return switch (checkSpecifier(info.child, spec)) {
                     .err => |err_msg| .{ .err = err_msg },
                     .ok => ok,
                 };
             },
-            .Vector => |info| checkSpecifier(info.child, actual_fmt),
+            .Vector => |info| checkSpecifier(info.child, spec),
             .Fn => .{ .err = "unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type" },
             else => .{ .err = "unable to format type '" ++ @typeName(T) ++ "'" },
         };
