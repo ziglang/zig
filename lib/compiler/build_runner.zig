@@ -733,7 +733,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(b.renderOptions(ttyconf));
             }
         }
 
@@ -1407,14 +1407,6 @@ fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
         .auto => std.io.tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
-    };
-}
-
-fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
     };
 }
 

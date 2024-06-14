@@ -2854,6 +2854,14 @@ pub fn systemIntegrationOption(
     }
 }
 
+pub fn renderOptions(b: Build, ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
+    return .{
+        .ttyconf = ttyconf,
+        .include_source_line = true,
+        .include_reference_trace = (b.reference_trace orelse 0) > 0,
+    };
+}
+
 test {
     _ = Cache;
     _ = Step;
