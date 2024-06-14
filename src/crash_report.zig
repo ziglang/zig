@@ -81,7 +81,7 @@ fn dumpStatusReport() !void {
     const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(mod, block.src_decl, stderr);
+    try writeFilePath(file, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
@@ -105,7 +105,7 @@ fn dumpStatusReport() !void {
         fba.reset();
         try stderr.writeAll("  in ");
         const cur_block_file, const cur_block_src_base_node = Module.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
-        try writeFullyQualifiedDeclWithFile(mod, curr.block.src_decl, stderr);
+        try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
@@ -138,13 +138,6 @@ fn writeFilePath(file: *Module.File, writer: anytype) !void {
         try writer.writeAll(std.fs.path.sep_str);
     }
     try writer.writeAll(file.sub_file_path);
-}
-
-fn writeFullyQualifiedDeclWithFile(mod: *Module, decl_index: InternPool.DeclIndex, writer: anytype) !void {
-    const decl = mod.declPtr(decl_index);
-    try writeFilePath(decl.getFileScope(mod), writer);
-    try writer.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(mod, writer);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {

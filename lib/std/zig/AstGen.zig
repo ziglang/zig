@@ -13132,6 +13132,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_line = astgen.source_line,
             .src_node = args.src_node,
         });
 
@@ -13192,6 +13193,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_line = astgen.source_line,
             .src_node = args.src_node,
         });
 
@@ -13253,6 +13255,7 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_line = astgen.source_line,
             .src_node = args.src_node,
         });
 
@@ -13300,7 +13303,10 @@ const GenZir = struct {
         assert(args.src_node != 0);
 
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len + 2);
-        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{ .src_node = args.src_node });
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
+            .src_line = astgen.source_line,
+            .src_node = args.src_node,
+        });
 
         if (args.captures_len != 0) {
             astgen.extra.appendAssumeCapacity(args.captures_len);

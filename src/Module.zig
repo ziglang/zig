@@ -88,6 +88,9 @@ export_owners: std.AutoArrayHashMapUnmanaged(Decl.Index, ArrayListUnmanaged(*Exp
 /// an update is requested, as well as to cache `@import` results.
 /// Keys are fully resolved file paths. This table owns the keys and values.
 import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
+/// This acts as a map from `path_digest` to the corresponding `File`.
+/// The value is omitted, as keys are ordered identically to `import_table`.
+path_digest_map: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, void) = .{},
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
 /// modified on the file system when an update is requested, as well as to cache
@@ -735,8 +738,7 @@ pub const File = struct {
     /// List of references to this file, used for multi-package errors.
     references: std.ArrayListUnmanaged(Reference) = .{},
     /// The hash of the path to this file, used to store `InternPool.TrackedInst`.
-    /// undefined until `zir_loaded == true`.
-    path_digest: Cache.BinDigest = undefined,
+    path_digest: Cache.BinDigest,
 
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
@@ -2357,10 +2359,10 @@ pub const LazySrcLoc = struct {
             const info = base_node_inst.resolveFull(&zcu.intern_pool);
             break :inst .{ info.path_digest, info.inst };
         };
-        // TODO: avoid iterating all files for this!
-        const file = for (zcu.import_table.values()) |file| {
-            if (std.mem.eql(u8, &file.path_digest, &want_path_digest)) break file;
-        } else unreachable;
+        const file = file: {
+            const index = zcu.path_digest_map.getIndex(want_path_digest).?;
+            break :file zcu.import_table.values()[index];
+        };
         assert(file.zir_loaded);
 
         const zir = file.zir;
@@ -2432,6 +2434,7 @@ pub fn deinit(zcu: *Zcu) void {
         value.destroy(zcu);
     }
     zcu.import_table.deinit(gpa);
+    zcu.path_digest_map.deinit(gpa);
 
     for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
         gpa.free(path);
@@ -2596,26 +2599,12 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const stat = try source_file.stat();
 
     const want_local_cache = file.mod == mod.main_mod;
-    const bin_digest = hash: {
-        var path_hash: Cache.HashHelper = .{};
-        path_hash.addBytes(build_options.version);
-        path_hash.add(builtin.zig_backend);
-        if (!want_local_cache) {
-            path_hash.addOptionalBytes(file.mod.root.root_dir.path);
-            path_hash.addBytes(file.mod.root.sub_path);
-        }
-        path_hash.addBytes(file.sub_file_path);
-        var bin: Cache.BinDigest = undefined;
-        path_hash.hasher.final(&bin);
-        break :hash bin;
-    };
-    file.path_digest = bin_digest;
     const hex_digest = hex: {
         var hex: Cache.HexDigest = undefined;
         _ = std.fmt.bufPrint(
             &hex,
             "{s}",
-            .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            .{std.fmt.fmtSliceHexLower(&file.path_digest)},
         ) catch unreachable;
         break :hex hex;
     };
@@ -4122,12 +4111,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     var block_scope: Sema.Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = decl.src_namespace,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = decl.zir_decl_index.unwrap().?,
+        .type_name_ctx = decl.name,
     };
     defer block_scope.instructions.deinit(gpa);
 
@@ -4355,6 +4344,7 @@ pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
         keep_resolved_path = true; // It's now owned by import_table.
         gop.value_ptr.* = builtin_file;
         try builtin_file.addReference(zcu.*, .{ .root = mod });
+        try zcu.path_digest_map.put(gpa, builtin_file.path_digest, {});
         return .{
             .file = builtin_file,
             .is_new = false,
@@ -4382,8 +4372,23 @@ pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
         .status = .never_loaded,
         .mod = mod,
         .root_decl = .none,
+        .path_digest = digest: {
+            const want_local_cache = mod == zcu.main_mod;
+            var path_hash: Cache.HashHelper = .{};
+            path_hash.addBytes(build_options.version);
+            path_hash.add(builtin.zig_backend);
+            if (!want_local_cache) {
+                path_hash.addOptionalBytes(mod.root.root_dir.path);
+                path_hash.addBytes(mod.root.sub_path);
+            }
+            path_hash.addBytes(sub_file_path);
+            var bin: Cache.BinDigest = undefined;
+            path_hash.hasher.final(&bin);
+            break :digest bin;
+        },
     };
     try new_file.addReference(zcu.*, .{ .root = mod });
+    try zcu.path_digest_map.put(gpa, new_file.path_digest, {});
     return ImportFileResult{
         .file = new_file,
         .is_new = true,
@@ -4392,23 +4397,23 @@ pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
 }
 
 pub fn importFile(
-    mod: *Module,
+    zcu: *Zcu,
     cur_file: *File,
     import_string: []const u8,
 ) !ImportFileResult {
     if (std.mem.eql(u8, import_string, "std")) {
-        return mod.importPkg(mod.std_mod);
+        return zcu.importPkg(zcu.std_mod);
     }
     if (std.mem.eql(u8, import_string, "root")) {
-        return mod.importPkg(mod.root_mod);
+        return zcu.importPkg(zcu.root_mod);
     }
     if (cur_file.mod.deps.get(import_string)) |pkg| {
-        return mod.importPkg(pkg);
+        return zcu.importPkg(pkg);
     }
     if (!mem.endsWith(u8, import_string, ".zig")) {
         return error.ModuleNotFound;
     }
-    const gpa = mod.gpa;
+    const gpa = zcu.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
     // an import refers to the same as another, despite different relative paths
@@ -4424,8 +4429,8 @@ pub fn importFile(
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
-    const gop = try mod.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = mod.import_table.pop();
+    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = zcu.import_table.pop();
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
@@ -4470,7 +4475,22 @@ pub fn importFile(
         .status = .never_loaded,
         .mod = cur_file.mod,
         .root_decl = .none,
+        .path_digest = digest: {
+            const want_local_cache = cur_file.mod == zcu.main_mod;
+            var path_hash: Cache.HashHelper = .{};
+            path_hash.addBytes(build_options.version);
+            path_hash.add(builtin.zig_backend);
+            if (!want_local_cache) {
+                path_hash.addOptionalBytes(cur_file.mod.root.root_dir.path);
+                path_hash.addBytes(cur_file.mod.root.sub_path);
+            }
+            path_hash.addBytes(sub_file_path);
+            var bin: Cache.BinDigest = undefined;
+            path_hash.hasher.final(&bin);
+            break :digest bin;
+        },
     };
+    try zcu.path_digest_map.put(gpa, new_file.path_digest, {});
     return ImportFileResult{
         .file = new_file,
         .is_new = true,
@@ -5039,7 +5059,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     var inner_block: Sema.Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = decl.src_namespace,
         .instructions = .{},
         .inlining = null,
@@ -5052,6 +5071,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             const orig_decl = mod.declPtr(owner_info.owner_decl);
             break :inst orig_decl.zir_decl_index.unwrap().?;
         },
+        .type_name_ctx = decl.name,
     };
     defer inner_block.instructions.deinit(gpa);
 

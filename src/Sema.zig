@@ -16,9 +16,7 @@ air_instructions: std.MultiArrayList(Air.Inst) = .{},
 air_extra: std.ArrayListUnmanaged(u32) = .{},
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
-/// When analyzing an inline function call, owner_decl is the Decl of the caller
-/// and `src_decl` of `Block` is the `Decl` of the callee.
-/// This `Decl` owns the arena memory of this `Sema`.
+/// When analyzing an inline function call, owner_decl is the Decl of the caller.
 owner_decl: *Decl,
 owner_decl_index: InternPool.DeclIndex,
 /// For an inline or comptime function call, this will be the root parent function
@@ -342,7 +340,6 @@ pub const Block = struct {
     /// Shared among all child blocks.
     sema: *Sema,
     /// The namespace to use for lookups from this source block
-    /// When analyzing fields, this is different from src_decl.src_namespace.
     namespace: InternPool.NamespaceIndex,
     /// The AIR instructions generated for this block.
     instructions: std.ArrayListUnmanaged(Air.Inst.Index),
@@ -360,10 +357,6 @@ pub const Block = struct {
     /// If runtime_index is not 0 then one of these is guaranteed to be non null.
     runtime_cond: ?LazySrcLoc = null,
     runtime_loop: ?LazySrcLoc = null,
-    /// This Decl is the Decl according to the Zig source code corresponding to this Block.
-    /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
-    /// for the one that will be the same for all Block instances.
-    src_decl: InternPool.DeclIndex,
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
     /// Stores to comptime variables are only allowed when var.runtime_index <= runtime_index.
     runtime_index: Value.RuntimeIndex = .zero,
@@ -395,6 +388,12 @@ pub const Block = struct {
     /// Relative source locations encountered while traversing this block should be
     /// treated as relative to the AST node of this ZIR instruction.
     src_base_inst: InternPool.TrackedInst.Index,
+
+    /// The name of the current "context" for naming namespace types.
+    /// The interpretation of this depends on the name strategy in ZIR, but the name
+    /// is always incorporated into the type name somehow.
+    /// See `Sema.createAnonymousDeclTypeNamed`.
+    type_name_ctx: InternPool.NullTerminatedString,
 
     /// Create a `LazySrcLoc` based on an `Offset` from the code being analyzed in this block.
     /// Specifically, the given `Offset` is treated as relative to `block.src_base_inst`.
@@ -516,7 +515,6 @@ pub const Block = struct {
         return .{
             .parent = parent,
             .sema = parent.sema,
-            .src_decl = parent.src_decl,
             .namespace = parent.namespace,
             .instructions = .{},
             .label = null,
@@ -533,6 +531,7 @@ pub const Block = struct {
             .error_return_trace_index = parent.error_return_trace_index,
             .need_debug_scope = parent.need_debug_scope,
             .src_base_inst = parent.src_base_inst,
+            .type_name_ctx = parent.type_name_ctx,
         };
     }
 
@@ -993,9 +992,11 @@ fn analyzeBodyInner(
     while (true) {
         crash_info.setBodyIndex(i);
         const inst = body[i];
-        std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{
-            mod.namespacePtr(mod.declPtr(block.src_decl).src_namespace).file_scope.sub_file_path, inst,
-        });
+        std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
+            const path_digest = block.src_base_inst.resolveFull(&mod.intern_pool).path_digest;
+            const index = mod.path_digest_map.getIndex(path_digest).?;
+            break :sub_file_path mod.import_table.values()[index].sub_file_path;
+        }, inst });
         const air_inst: Air.Inst.Ref = switch (tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
@@ -2821,6 +2822,7 @@ fn zirStructDecl(
         small.name_strategy,
         "struct",
         inst,
+        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2857,20 +2859,19 @@ fn createAnonymousDeclTypeNamed(
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
+    src_line: u32,
 ) !InternPool.DeclIndex {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
     const namespace = block.namespace;
-    const src_decl = zcu.declPtr(block.src_decl);
     const new_decl_index = try zcu.allocateNewDecl(namespace);
     errdefer zcu.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
         .anon => {}, // handled after switch
         .parent => {
-            const name = zcu.declPtr(block.src_decl).name;
-            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            try zcu.initNewAnonDecl(new_decl_index, src_line, val, block.type_name_ctx);
             return new_decl_index;
         },
         .func => func_strat: {
@@ -2881,7 +2882,7 @@ fn createAnonymousDeclTypeNamed(
             defer buf.deinit();
 
             const writer = buf.writer();
-            try writer.print("{}(", .{zcu.declPtr(block.src_decl).name.fmt(ip)});
+            try writer.print("{}(", .{block.type_name_ctx.fmt(ip)});
 
             var arg_i: usize = 0;
             for (fn_info.param_body) |zir_inst| switch (zir_tags[@intFromEnum(zir_inst)]) {
@@ -2915,7 +2916,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try ip.getOrPutString(gpa, buf.items, .no_embedded_nulls);
-            try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+            try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2927,9 +2928,9 @@ fn createAnonymousDeclTypeNamed(
                     if (zir_data[i].str_op.operand != ref) continue;
 
                     const name = try ip.getOrPutStringFmt(gpa, "{}.{s}", .{
-                        src_decl.name.fmt(ip), zir_data[i].str_op.getStr(sema.code),
+                        block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+                    try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
                     return new_decl_index;
                 },
                 else => {},
@@ -2948,9 +2949,9 @@ fn createAnonymousDeclTypeNamed(
     // renamed.
 
     const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
-        src_decl.name.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
+        block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
     }, .no_embedded_nulls) catch unreachable;
-    try zcu.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
+    try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
     return new_decl_index;
 }
 
@@ -3056,6 +3057,7 @@ fn zirEnumDecl(
         small.name_strategy,
         "enum",
         inst,
+        extra.data.src_line,
     );
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -3112,12 +3114,12 @@ fn zirEnumDecl(
         var enum_block: Block = .{
             .parent = null,
             .sema = sema,
-            .src_decl = new_decl_index,
             .namespace = new_namespace_index.unwrap() orelse block.namespace,
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
             .src_base_inst = tracked_inst,
+            .type_name_ctx = new_decl.name,
         };
         defer enum_block.instructions.deinit(sema.gpa);
 
@@ -3323,6 +3325,7 @@ fn zirUnionDecl(
         small.name_strategy,
         "union",
         inst,
+        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -3411,6 +3414,7 @@ fn zirOpaqueDecl(
         small.name_strategy,
         "opaque",
         inst,
+        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -5942,7 +5946,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     var child_block: Block = .{
         .parent = parent_block,
         .sema = sema,
-        .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
         .instructions = .{},
         .inlining = parent_block.inlining,
@@ -5953,6 +5956,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
         .src_base_inst = parent_block.src_base_inst,
+        .type_name_ctx = parent_block.type_name_ctx,
     };
     defer child_block.instructions.deinit(gpa);
 
@@ -6063,7 +6067,6 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
     var child_block: Block = .{
         .parent = parent_block,
         .sema = sema,
-        .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
         .instructions = .{},
         .label = &label,
@@ -6079,6 +6082,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
         .runtime_index = parent_block.runtime_index,
         .error_return_trace_index = parent_block.error_return_trace_index,
         .src_base_inst = parent_block.src_base_inst,
+        .type_name_ctx = parent_block.type_name_ctx,
     };
 
     defer child_block.instructions.deinit(gpa);
@@ -6726,7 +6730,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .no_embedded_nulls,
     );
     const decl_index = try sema.lookupIdentifier(block, src, decl_name);
-    try sema.addReferencedBy(block, src, decl_index);
+    try sema.addReferencedBy(src, decl_index);
     return sema.analyzeDeclRef(decl_index);
 }
 
@@ -7695,7 +7699,6 @@ fn analyzeCall(
         var child_block: Block = .{
             .parent = null,
             .sema = sema,
-            .src_decl = module_fn.owner_decl,
             .namespace = fn_owner_decl.src_namespace,
             .instructions = .{},
             .label = null,
@@ -7708,6 +7711,7 @@ fn analyzeCall(
             .runtime_loop = block.runtime_loop,
             .runtime_index = block.runtime_index,
             .src_base_inst = fn_owner_decl.zir_decl_index.unwrap().?,
+            .type_name_ctx = fn_owner_decl.name,
         };
 
         const merges = &child_block.inlining.?.merges;
@@ -8217,12 +8221,12 @@ fn instantiateGenericCall(
     var child_block: Block = .{
         .parent = null,
         .sema = &child_sema,
-        .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = fn_owner_decl.zir_decl_index.unwrap().?,
+        .type_name_ctx = fn_owner_decl.name,
     };
     defer child_block.instructions.deinit(gpa);
 
@@ -8366,7 +8370,7 @@ fn instantiateGenericCall(
     const callee = mod.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
 
-    try sema.addReferencedBy(block, call_src, callee.owner_decl);
+    try sema.addReferencedBy(call_src, callee.owner_decl);
 
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = Type.fromInterned(callee.ty);
@@ -9346,7 +9350,7 @@ fn zirFunc(
     // If this instruction has a body it means it's the type of the `owner_decl`
     // otherwise it's a function type without a `callconv` attribute and should
     // never be `.C`.
-    const cc: std.builtin.CallingConvention = if (has_body and mod.declPtr(block.src_decl).is_exported)
+    const cc: std.builtin.CallingConvention = if (has_body and mod.declPtr(sema.owner_decl_index).is_exported)
         .C
     else
         .Unspecified;
@@ -11595,7 +11599,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     var child_block: Block = .{
         .parent = block,
         .sema = sema,
-        .src_decl = block.src_decl,
         .namespace = block.namespace,
         .instructions = .{},
         .label = &label,
@@ -11610,6 +11613,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .error_return_trace_index = block.error_return_trace_index,
         .want_safety = block.want_safety,
         .src_base_inst = block.src_base_inst,
+        .type_name_ctx = block.type_name_ctx,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -12327,7 +12331,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     var child_block: Block = .{
         .parent = block,
         .sema = sema,
-        .src_decl = block.src_decl,
         .namespace = block.namespace,
         .instructions = .{},
         .label = &label,
@@ -12342,6 +12345,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .want_safety = block.want_safety,
         .error_return_trace_index = block.error_return_trace_index,
         .src_base_inst = block.src_base_inst,
+        .type_name_ctx = block.type_name_ctx,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -18843,7 +18847,6 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     var child_block: Block = .{
         .parent = block,
         .sema = sema,
-        .src_decl = block.src_decl,
         .namespace = block.namespace,
         .instructions = .{},
         .inlining = block.inlining,
@@ -18852,6 +18855,7 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .want_safety = false,
         .error_return_trace_index = block.error_return_trace_index,
         .src_base_inst = block.src_base_inst,
+        .type_name_ctx = block.type_name_ctx,
     };
     defer child_block.instructions.deinit(sema.gpa);
 
@@ -18922,7 +18926,6 @@ fn zirTypeofPeer(
     var child_block: Block = .{
         .parent = block,
         .sema = sema,
-        .src_decl = block.src_decl,
         .namespace = block.namespace,
         .instructions = .{},
         .inlining = block.inlining,
@@ -18932,6 +18935,7 @@ fn zirTypeofPeer(
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
         .src_base_inst = block.src_base_inst,
+        .type_name_ctx = block.type_name_ctx,
     };
     defer child_block.instructions.deinit(sema.gpa);
     // Ignore the result, we only care about the instructions in `args`.
@@ -19398,13 +19402,13 @@ fn ensurePostHoc(sema: *Sema, block: *Block, dest_block: Zir.Inst.Index) !*Label
         .block = .{
             .parent = block,
             .sema = sema,
-            .src_decl = block.src_decl,
             .namespace = block.namespace,
             .instructions = .{},
             .label = &labeled_block.label,
             .inlining = block.inlining,
             .is_comptime = block.is_comptime,
             .src_base_inst = block.src_base_inst,
+            .type_name_ctx = block.type_name_ctx,
         },
     };
     sema.post_hoc_blocks.putAssumeCapacityNoClobber(new_block_inst, labeled_block);
@@ -21201,7 +21205,7 @@ fn zirReify(
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
     const name_strategy: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const extra = sema.code.extraData(Zir.Inst.Reify, extended.operand).data;
     const src = block.nodeOffset(extra.node);
     const type_info_ty = try sema.getBuiltinType("Type");
     const uncasted_operand = try sema.resolveInst(extra.operand);
@@ -21521,7 +21525,7 @@ fn zirReify(
                 .needed_comptime_reason = "struct fields must be comptime-known",
             });
 
-            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_arr, name_strategy, is_tuple_val.toBool());
+            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_arr, name_strategy, is_tuple_val.toBool(), extra.src_line);
         },
         .Enum => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21550,7 +21554,7 @@ fn zirReify(
                 .needed_comptime_reason = "enum fields must be comptime-known",
             });
 
-            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_arr, name_strategy);
+            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_arr, name_strategy, extra.src_line);
         },
         .Opaque => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21581,6 +21585,7 @@ fn zirReify(
                 name_strategy,
                 "opaque",
                 inst,
+                extra.src_line,
             );
             mod.declPtr(new_decl_index).owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -21617,7 +21622,7 @@ fn zirReify(
                 .needed_comptime_reason = "union fields must be comptime-known",
             });
 
-            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy);
+            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy, extra.src_line);
         },
         .Fn => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21719,6 +21724,7 @@ fn reifyEnum(
     is_exhaustive: bool,
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
+    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -21780,6 +21786,7 @@ fn reifyEnum(
         name_strategy,
         "enum",
         inst,
+        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -21843,6 +21850,7 @@ fn reifyUnion(
     opt_tag_type_val: Value,
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
+    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -21926,6 +21934,7 @@ fn reifyUnion(
         name_strategy,
         "union",
         inst,
+        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -22021,7 +22030,7 @@ fn reifyUnion(
             }
         }
 
-        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), mod.declPtr(new_decl_index));
+        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), mod.declPtr(new_decl_index), src_line);
         break :tag_ty .{ enum_tag_ty, false };
     };
     errdefer if (!has_explicit_tag) ip.remove(enum_tag_ty); // remove generated tag type on error
@@ -22082,6 +22091,7 @@ fn reifyStruct(
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
     is_tuple: bool,
+    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -22182,6 +22192,7 @@ fn reifyStruct(
         name_strategy,
         "struct",
         inst,
+        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -26903,12 +26914,12 @@ fn addSafetyCheck(
     var fail_block: Block = .{
         .parent = parent_block,
         .sema = sema,
-        .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
         .src_base_inst = parent_block.src_base_inst,
+        .type_name_ctx = parent_block.type_name_ctx,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -27012,12 +27023,12 @@ fn panicUnwrapError(
     var fail_block: Block = .{
         .parent = parent_block,
         .sema = sema,
-        .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
         .src_base_inst = parent_block.src_base_inst,
+        .type_name_ctx = parent_block.type_name_ctx,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -27129,12 +27140,12 @@ fn safetyCheckFormatted(
     var fail_block: Block = .{
         .parent = parent_block,
         .sema = sema,
-        .src_decl = parent_block.src_decl,
         .namespace = parent_block.namespace,
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
         .src_base_inst = parent_block.src_base_inst,
+        .type_name_ctx = parent_block.type_name_ctx,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -27682,7 +27693,7 @@ fn fieldCallBind(
         const decl_idx = (try sema.namespaceLookup(block, src, namespace, field_name)) orelse
             break :found_decl null;
 
-        try sema.addReferencedBy(block, src, decl_idx);
+        try sema.addReferencedBy(src, decl_idx);
         const decl_val = try sema.analyzeDeclVal(block, src, decl_idx);
         const decl_type = sema.typeOf(decl_val);
         if (mod.typeToFunc(decl_type)) |func_type| f: {
@@ -27838,7 +27849,7 @@ fn namespaceLookupRef(
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, opt_namespace, decl_name)) orelse return null;
-    try sema.addReferencedBy(block, src, decl);
+    try sema.addReferencedBy(src, decl);
     return try sema.analyzeDeclRef(decl);
 }
 
@@ -31757,7 +31768,7 @@ fn analyzeDeclVal(
     src: LazySrcLoc,
     decl_index: InternPool.DeclIndex,
 ) CompileError!Air.Inst.Ref {
-    try sema.addReferencedBy(block, src, decl_index);
+    try sema.addReferencedBy(src, decl_index);
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
@@ -31773,13 +31784,14 @@ fn analyzeDeclVal(
 
 fn addReferencedBy(
     sema: *Sema,
-    block: *Block,
     src: LazySrcLoc,
     decl_index: InternPool.DeclIndex,
 ) !void {
     if (sema.mod.comp.reference_trace == 0) return;
     try sema.mod.reference_table.put(sema.gpa, decl_index, .{
-        .referencer = block.src_decl,
+        // TODO: this can make the reference trace suboptimal. This will be fixed
+        // once the reference table is reworked for incremental compilation.
+        .referencer = sema.owner_decl_index,
         .src = src,
     });
 }
@@ -35181,12 +35193,12 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
     var block: Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = struct_type.namespace.unwrap() orelse decl.src_namespace,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = struct_type.zir_index.unwrap().?,
+        .type_name_ctx = decl.name,
     };
     defer assert(block.instructions.items.len == 0);
 
@@ -36036,12 +36048,12 @@ fn semaStructFields(
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = namespace_index,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = struct_type.zir_index.unwrap().?,
+        .type_name_ctx = decl.name,
     };
     defer assert(block_scope.instructions.items.len == 0);
 
@@ -36247,12 +36259,12 @@ fn semaStructFieldInits(
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = namespace_index,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = struct_type.zir_index.unwrap().?,
+        .type_name_ctx = decl.name,
     };
     defer assert(block_scope.instructions.items.len == 0);
 
@@ -36359,7 +36371,8 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
-    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len;
+    const extra = zir.extraData(Zir.Inst.UnionDecl, extended.operand);
+    var extra_index: usize = extra.end;
 
     const tag_type_ref: Zir.Inst.Ref = if (small.has_tag_type) blk: {
         const ty_ref: Zir.Inst.Ref = @enumFromInt(zir.extra[extra_index]);
@@ -36421,12 +36434,12 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
-        .src_decl = decl_index,
         .namespace = union_type.namespace.unwrap().?,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
         .src_base_inst = union_type.zir_index,
+        .type_name_ctx = decl.name,
     };
     defer assert(block_scope.instructions.items.len == 0);
 
@@ -36711,10 +36724,10 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
     } else if (enum_field_vals.count() > 0) {
-        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), mod.declPtr(union_type.decl));
+        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), mod.declPtr(union_type.decl), extra.data.src_line);
         union_type.tagTypePtr(ip).* = enum_ty;
     } else {
-        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl));
+        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl), extra.data.src_line);
         union_type.tagTypePtr(ip).* = enum_ty;
     }
 }
@@ -36732,12 +36745,12 @@ fn generateUnionTagTypeNumbered(
     enum_field_names: []const InternPool.NullTerminatedString,
     enum_field_vals: []const InternPool.Index,
     union_owner_decl: *Module.Decl,
+    src_line: u32,
 ) !InternPool.Index {
     const mod = sema.mod;
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
 
-    const src_decl = mod.declPtr(block.src_decl);
     const new_decl_index = try mod.allocateNewDecl(block.namespace);
     errdefer mod.destroyDecl(new_decl_index);
     const fqn = try union_owner_decl.fullyQualifiedName(mod);
@@ -36749,7 +36762,7 @@ fn generateUnionTagTypeNumbered(
     );
     try mod.initNewAnonDecl(
         new_decl_index,
-        src_decl.src_line,
+        src_line,
         Value.@"unreachable",
         name,
     );
@@ -36782,6 +36795,7 @@ fn generateUnionTagTypeSimple(
     block: *Block,
     enum_field_names: []const InternPool.NullTerminatedString,
     union_owner_decl: *Module.Decl,
+    src_line: u32,
 ) !InternPool.Index {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
@@ -36789,7 +36803,6 @@ fn generateUnionTagTypeSimple(
 
     const new_decl_index = new_decl_index: {
         const fqn = try union_owner_decl.fullyQualifiedName(mod);
-        const src_decl = mod.declPtr(block.src_decl);
         const new_decl_index = try mod.allocateNewDecl(block.namespace);
         errdefer mod.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(
@@ -36800,7 +36813,7 @@ fn generateUnionTagTypeSimple(
         );
         try mod.initNewAnonDecl(
             new_decl_index,
-            src_decl.src_line,
+            src_line,
             Value.@"unreachable",
             name,
         );
@@ -36835,7 +36848,6 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
     var block: Block = .{
         .parent = null,
         .sema = sema,
-        .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
         .instructions = .{},
         .inlining = null,
@@ -36853,6 +36865,7 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
                 else => unreachable,
             }
         },
+        .type_name_ctx = sema.owner_decl.name,
     };
     defer block.instructions.deinit(sema.gpa);
 
@@ -36898,7 +36911,6 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
     var block: Block = .{
         .parent = null,
         .sema = sema,
-        .src_decl = sema.owner_decl_index,
         .namespace = sema.owner_decl.src_namespace,
         .instructions = .{},
         .inlining = null,
@@ -36916,6 +36928,7 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
                 else => unreachable,
             }
         },
+        .type_name_ctx = sema.owner_decl.name,
     };
     defer block.instructions.deinit(sema.gpa);
 

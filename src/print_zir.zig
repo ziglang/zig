@@ -569,7 +569,6 @@ const Writer = struct {
             .wasm_memory_size,
             .int_from_error,
             .error_from_int,
-            .reify,
             .c_va_copy,
             .c_va_end,
             .work_item_id,
@@ -577,6 +576,14 @@ const Writer = struct {
             .work_group_id,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+                try self.writeInstRef(stream, inst_data.operand);
+                try stream.writeAll(")) ");
+                try self.writeSrcNode(stream, inst_data.node);
+            },
+
+            .reify => {
+                const inst_data = self.code.extraData(Zir.Inst.Reify, extended.operand).data;
+                try stream.print("{d}, ", .{inst_data.src_line});
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
                 try self.writeSrcNode(stream, inst_data.node);

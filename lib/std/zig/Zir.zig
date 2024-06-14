@@ -1981,7 +1981,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         error_from_int,
         /// Implement builtin `@Type`.
-        /// `operand` is payload index to `UnNode`.
+        /// `operand` is payload index to `Reify`.
         /// `small` contains `NameStrategy`.
         reify,
         /// Implements the `@asyncCall` builtin.
@@ -2834,6 +2834,12 @@ pub const Inst = struct {
         index: u32,
     };
 
+    pub const Reify = struct {
+        node: i32,
+        operand: Ref,
+        src_line: u32,
+    };
+
     pub const SwitchBlockErrUnion = struct {
         operand: Ref,
         bits: Bits,
@@ -2992,6 +2998,7 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_line: u32,
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
@@ -3121,6 +3128,7 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_line: u32,
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
@@ -3166,6 +3174,7 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_line: u32,
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
@@ -3195,6 +3204,7 @@ pub const Inst = struct {
     /// 2. capture: Capture, // for every captures_len
     /// 3. decl: Index, // for every decls_len; points to a `declaration` instruction
     pub const OpaqueDecl = struct {
+        src_line: u32,
         /// This node provides a new absolute baseline node for all instructions within this struct.
         src_node: Ast.Node.Index,
 
