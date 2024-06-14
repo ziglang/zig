@@ -671,22 +671,33 @@ pub fn formatType(
 /// Returns either:
 /// * the input specifier, eventually stripped of the leading `?` or `!`
 /// * an error if the specifier doesn't match the given type
-pub fn checkSpecifier(T: type, comptime spec: []const u8) union(enum) { ok: []const u8, err: []const u8 } {
+pub fn checkSpecifier(T: type, comptime fmt: []const u8) union(enum) { ok: []const u8, err: []const u8 } {
     comptime {
-        const ok = .{ .ok = spec };
         if (std.meta.hasMethod(T, "format")) {
             // We don't know what are valid specifier for custom formatting,
             // accept everything.
-            return ok;
+            return .{ .ok = fmt };
         }
-        if (std.mem.eql(u8, spec, ANY)) {
+        if (std.mem.eql(u8, fmt, ANY)) {
             return .{ .ok = defaultSpec(T) };
         }
+        // TODO: I don't like that, because it allows extra '?' for non-optional type.
+        const spec = if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
+            .Optional, .ErrorUnion => fmt,
+            else => stripOptionalOrErrorUnionSpec(fmt),
+        } else fmt;
+        const ok = .{ .ok = spec };
         if (std.mem.eql(u8, spec, "*")) {
-            return switch (@typeInfo(T)) {
-                .Pointer => .{ .ok = spec },
-                else => .{ .err = "cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier" },
-            };
+            switch (@typeInfo(T)) {
+                .Pointer => return .{ .ok = spec },
+                .Optional => |info| {
+                    if (@typeInfo(info.child) == .Pointer) {
+                        return .{ .ok = spec };
+                    }
+                },
+                else => {},
+            }
+            return .{ .err = "cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier" };
         }
 
         const invalid_fmt_err = .{ .err = "invalid format string '" ++ spec ++ "' for type '" ++ @typeName(T) ++ "'" };
