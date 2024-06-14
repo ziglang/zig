@@ -107,8 +107,17 @@ intern_pool: InternPool = .{},
 /// a Decl can have a failed_decls entry but have analysis status of success.
 failed_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per owner Decl.
-/// The value is the AST node index offset from the Decl.
-compile_log_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, i32) = .{},
+/// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
+compile_log_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, extern struct {
+    base_node_inst: InternPool.TrackedInst.Index,
+    node_offset: i32,
+    pub fn src(self: @This()) LazySrcLoc {
+        return .{
+            .base_node_inst = self.base_node_inst,
+            .offset = LazySrcLoc.Offset.nodeOffset(self.node_offset),
+        };
+    }
+}) = .{},
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
@@ -257,9 +266,6 @@ pub const Export = struct {
     src: LazySrcLoc,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: Decl.Index,
-    /// The Decl containing the export statement.  Inline function calls
-    /// may cause this to be different from the owner_decl.
-    src_decl: Decl.Index,
     exported: Exported,
     status: enum {
         in_progress,
@@ -278,12 +284,7 @@ pub const Export = struct {
     };
 
     pub fn getSrcLoc(exp: Export, mod: *Module) SrcLoc {
-        const src_decl = mod.declPtr(exp.src_decl);
-        return .{
-            .file_scope = src_decl.getFileScope(mod),
-            .parent_decl_node = src_decl.src_node,
-            .lazy = exp.src,
-        };
+        return exp.src.upgrade(mod);
     }
 };
 
@@ -343,9 +344,6 @@ pub const Decl = struct {
     /// there is no parent.
     src_namespace: Namespace.Index,
 
-    /// The AST node index of this declaration.
-    /// Must be recomputed when the corresponding source file is modified.
-    src_node: Ast.Node.Index,
     /// Line number corresponding to `src_node`. Stored separately so that source files
     /// do not need to be loaded into memory in order to compute debug line numbers.
     /// This value is absolute.
@@ -415,26 +413,6 @@ pub const Decl = struct {
         const declaration = zir.instructions.items(.data)[@intFromEnum(zir_index)].declaration;
         const extra = zir.extraData(Zir.Inst.Declaration, declaration.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
-    }
-
-    pub fn relativeToNodeIndex(decl: Decl, offset: i32) Ast.Node.Index {
-        return @bitCast(offset + @as(i32, @bitCast(decl.src_node)));
-    }
-
-    pub fn nodeIndexToRelative(decl: Decl, node_index: Ast.Node.Index) i32 {
-        return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(decl.src_node));
-    }
-
-    pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
-        return decl.nodeOffsetSrcLoc(0, zcu);
-    }
-
-    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, zcu: *Zcu) SrcLoc {
-        return .{
-            .file_scope = decl.getFileScope(zcu),
-            .parent_decl_node = decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(node_offset),
-        };
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
@@ -551,101 +529,6 @@ pub const Decl = struct {
         return decl.typeOf(zcu).abiAlignment(zcu);
     }
 
-    /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
-    pub fn toSrcLoc(decl: *Decl, lazy: LazySrcLoc, mod: *Module) SrcLoc {
-        return switch (lazy) {
-            .unneeded,
-            .entire_file,
-            .byte_abs,
-            .token_abs,
-            .node_abs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = 0,
-                .lazy = lazy,
-            },
-
-            .byte_offset,
-            .token_offset,
-            .node_offset,
-            .node_offset_main_token,
-            .node_offset_initializer,
-            .node_offset_var_decl_ty,
-            .node_offset_var_decl_align,
-            .node_offset_var_decl_section,
-            .node_offset_var_decl_addrspace,
-            .node_offset_var_decl_init,
-            .node_offset_builtin_call_arg0,
-            .node_offset_builtin_call_arg1,
-            .node_offset_builtin_call_arg2,
-            .node_offset_builtin_call_arg3,
-            .node_offset_builtin_call_arg4,
-            .node_offset_builtin_call_arg5,
-            .node_offset_ptrcast_operand,
-            .node_offset_array_access_index,
-            .node_offset_slice_ptr,
-            .node_offset_slice_start,
-            .node_offset_slice_end,
-            .node_offset_slice_sentinel,
-            .node_offset_call_func,
-            .node_offset_field_name,
-            .node_offset_field_name_init,
-            .node_offset_deref_ptr,
-            .node_offset_asm_source,
-            .node_offset_asm_ret_ty,
-            .node_offset_if_cond,
-            .node_offset_bin_op,
-            .node_offset_bin_lhs,
-            .node_offset_bin_rhs,
-            .node_offset_switch_operand,
-            .node_offset_switch_special_prong,
-            .node_offset_switch_range,
-            .node_offset_switch_prong_capture,
-            .node_offset_switch_prong_tag_capture,
-            .node_offset_fn_type_align,
-            .node_offset_fn_type_addrspace,
-            .node_offset_fn_type_section,
-            .node_offset_fn_type_cc,
-            .node_offset_fn_type_ret_ty,
-            .node_offset_param,
-            .token_offset_param,
-            .node_offset_anyframe_type,
-            .node_offset_lib_name,
-            .node_offset_array_type_len,
-            .node_offset_array_type_sentinel,
-            .node_offset_array_type_elem,
-            .node_offset_un_op,
-            .node_offset_ptr_elem,
-            .node_offset_ptr_sentinel,
-            .node_offset_ptr_align,
-            .node_offset_ptr_addrspace,
-            .node_offset_ptr_bitoffset,
-            .node_offset_ptr_hostsize,
-            .node_offset_container_tag,
-            .node_offset_field_default,
-            .node_offset_init_ty,
-            .node_offset_store_ptr,
-            .node_offset_store_operand,
-            .node_offset_return_operand,
-            .for_input,
-            .for_capture_from_input,
-            .array_cat_lhs,
-            .array_cat_rhs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = decl.src_node,
-                .lazy = lazy,
-            },
-            inline .call_arg,
-            .fn_proto_param,
-            => |x| .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = mod.declPtr(x.decl).src_node,
-                .lazy = lazy,
-            },
-        };
-    }
-
     pub fn declPtrType(decl: Decl, zcu: *Zcu) !Type {
         assert(decl.has_tv);
         const decl_ty = decl.typeOf(zcu);
@@ -660,6 +543,23 @@ pub const Decl = struct {
                 .is_const = decl.getOwnedVariable(zcu) == null,
             },
         });
+    }
+
+    /// Returns the source location of this `Decl`.
+    /// Asserts that this `Decl` corresponds to what will in future be a `Nav` (Named
+    /// Addressable Value): a source-level declaration or generic instantiation.
+    pub fn navSrcLoc(decl: Decl, zcu: *Zcu) LazySrcLoc {
+        return .{
+            .base_node_inst = decl.zir_decl_index.unwrap() orelse inst: {
+                // generic instantiation
+                assert(decl.has_tv);
+                assert(decl.owns_tv);
+                const owner = zcu.funcInfo(decl.val.toIntern()).generic_owner;
+                const generic_owner_decl = zcu.declPtr(zcu.funcInfo(owner).owner_decl);
+                break :inst generic_owner_decl.zir_decl_index.unwrap().?;
+            },
+            .offset = LazySrcLoc.Offset.nodeOffset(0),
+        };
     }
 };
 
@@ -1137,18 +1037,17 @@ pub const ErrorMsg = struct {
 /// Canonical reference to a position within a source file.
 pub const SrcLoc = struct {
     file_scope: *File,
-    /// Might be 0 depending on tag of `lazy`.
-    parent_decl_node: Ast.Node.Index,
-    /// Relative to `parent_decl_node`.
-    lazy: LazySrcLoc,
+    base_node: Ast.Node.Index,
+    /// Relative to `base_node`.
+    lazy: LazySrcLoc.Offset,
 
-    pub fn declSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
+    pub fn baseSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
         const tree = src_loc.file_scope.tree;
-        return tree.firstToken(src_loc.parent_decl_node);
+        return tree.firstToken(src_loc.base_node);
     }
 
-    pub fn declRelativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.Node.Index {
-        return @bitCast(offset + @as(i32, @bitCast(src_loc.parent_decl_node)));
+    pub fn relativeToNodeIndex(src_loc: SrcLoc, offset: i32) Ast.Node.Index {
+        return @bitCast(offset + @as(i32, @bitCast(src_loc.base_node)));
     }
 
     pub const Span = Ast.Span;
@@ -1172,14 +1071,14 @@ pub const SrcLoc = struct {
             },
             .byte_offset => |byte_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const tok_index = src_loc.declSrcToken();
+                const tok_index = src_loc.baseSrcToken();
                 const start = tree.tokens.items(.start)[tok_index] + byte_off;
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
             },
             .token_offset => |tok_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const tok_index = src_loc.declSrcToken() + tok_off;
+                const tok_index = src_loc.baseSrcToken() + tok_off;
                 const start = tree.tokens.items(.start)[tok_index];
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
                 return Span{ .start = start, .end = end, .main = start };
@@ -1187,25 +1086,25 @@ pub const SrcLoc = struct {
             .node_offset => |traced_off| {
                 const node_off = traced_off.x;
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const main_token = tree.nodes.items(.main_token)[node];
                 return tree.tokensToSpan(main_token, main_token, main_token);
             },
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 return tree.tokensToSpan(
                     tree.firstToken(node) - 3,
                     tree.lastToken(node),
@@ -1214,7 +1113,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_var_decl_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const full = switch (node_tags[node]) {
                     .global_var_decl,
@@ -1238,41 +1137,51 @@ pub const SrcLoc = struct {
             },
             .node_offset_var_decl_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
                 return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_var_decl_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
                 return tree.nodeToSpan(full.ast.section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
                 return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
                 return tree.nodeToSpan(full.ast.init_node);
             },
-            .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
-            .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
-            .node_offset_builtin_call_arg2 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 2),
-            .node_offset_builtin_call_arg3 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 3),
-            .node_offset_builtin_call_arg4 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 4),
-            .node_offset_builtin_call_arg5 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 5),
+            .node_offset_builtin_call_arg => |builtin_arg| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = src_loc.relativeToNodeIndex(builtin_arg.builtin_call_node);
+                const param = switch (node_tags[node]) {
+                    .builtin_call_two, .builtin_call_two_comma => switch (builtin_arg.arg_index) {
+                        0 => node_datas[node].lhs,
+                        1 => node_datas[node].rhs,
+                        else => unreachable,
+                    },
+                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + builtin_arg.arg_index],
+                    else => unreachable,
+                };
+                return tree.nodeToSpan(param);
+            },
             .node_offset_ptrcast_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const main_tokens = tree.nodes.items(.main_token);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
 
-                var node = src_loc.declRelativeToNodeIndex(node_off);
+                var node = src_loc.relativeToNodeIndex(node_off);
                 while (true) {
                     switch (node_tags[node]) {
                         .builtin_call_two, .builtin_call_two_comma => {},
@@ -1304,7 +1213,7 @@ pub const SrcLoc = struct {
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 return tree.nodeToSpan(node_datas[node].rhs);
             },
             .node_offset_slice_ptr,
@@ -1313,7 +1222,7 @@ pub const SrcLoc = struct {
             .node_offset_slice_sentinel,
             => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullSlice(node).?;
                 const part_node = switch (src_loc.lazy) {
                     .node_offset_slice_ptr => full.ast.sliced,
@@ -1326,7 +1235,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullCall(&buf, node).?;
                 return tree.nodeToSpan(full.ast.fn_expr);
@@ -1335,7 +1244,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const tok_index = switch (node_tags[node]) {
                     .field_access => node_datas[node].rhs,
@@ -1359,7 +1268,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_field_name_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const tok_index = tree.firstToken(node) - 2;
                 const start = tree.tokens.items(.start)[tok_index];
                 const end = start + @as(u32, @intCast(tree.tokenSlice(tok_index).len));
@@ -1367,18 +1276,18 @@ pub const SrcLoc = struct {
             },
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 return tree.nodeToSpan(node);
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullAsm(node).?;
                 return tree.nodeToSpan(full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
@@ -1387,7 +1296,7 @@ pub const SrcLoc = struct {
 
             .node_offset_if_cond => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const src_node = switch (node_tags[node]) {
                     .if_simple,
@@ -1416,7 +1325,7 @@ pub const SrcLoc = struct {
             },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(for_input.for_node_offset);
+                const node = src_loc.relativeToNodeIndex(for_input.for_node_offset);
                 const for_full = tree.fullFor(node).?;
                 const src_node = for_full.ast.inputs[for_input.input_index];
                 return tree.nodeToSpan(src_node);
@@ -1424,7 +1333,7 @@ pub const SrcLoc = struct {
             .for_capture_from_input => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const token_tags = tree.tokens.items(.tag);
-                const input_node = src_loc.declRelativeToNodeIndex(node_off);
+                const input_node = src_loc.relativeToNodeIndex(node_off);
                 // We have to actually linear scan the whole AST to find the for loop
                 // that contains this input.
                 const node_tags = tree.nodes.items(.tag);
@@ -1465,7 +1374,7 @@ pub const SrcLoc = struct {
             },
             .call_arg => |call_arg| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(call_arg.call_node_offset);
+                const node = src_loc.relativeToNodeIndex(call_arg.call_node_offset);
                 var buf: [2]Ast.Node.Index = undefined;
                 const call_full = tree.fullCall(buf[0..1], node) orelse {
                     const node_tags = tree.nodes.items(.tag);
@@ -1501,43 +1410,49 @@ pub const SrcLoc = struct {
                 };
                 return tree.nodeToSpan(call_full.ast.params[call_arg.arg_index]);
             },
-            .fn_proto_param => |fn_proto_param| {
+            .fn_proto_param, .fn_proto_param_type => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(fn_proto_param.fn_proto_node_offset);
+                const node = src_loc.relativeToNodeIndex(fn_proto_param.fn_proto_node_offset);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 var it = full.iterate(tree);
                 var i: usize = 0;
                 while (it.next()) |param| : (i += 1) {
-                    if (i == fn_proto_param.param_index) {
-                        if (param.anytype_ellipsis3) |token| return tree.tokenToSpan(token);
-                        const first_token = param.comptime_noalias orelse
-                            param.name_token orelse
-                            tree.firstToken(param.type_expr);
-                        return tree.tokensToSpan(
-                            first_token,
-                            tree.lastToken(param.type_expr),
-                            first_token,
-                        );
+                    if (i != fn_proto_param.param_index) continue;
+
+                    switch (src_loc.lazy) {
+                        .fn_proto_param_type => if (param.anytype_ellipsis3) |tok| {
+                            return tree.tokenToSpan(tok);
+                        } else {
+                            return tree.nodeToSpan(param.type_expr);
+                        },
+                        .fn_proto_param => if (param.anytype_ellipsis3) |tok| {
+                            const first = param.comptime_noalias orelse param.name_token orelse tok;
+                            return tree.tokensToSpan(first, tok, first);
+                        } else {
+                            const first = param.comptime_noalias orelse param.name_token orelse tree.firstToken(param.type_expr);
+                            return tree.tokensToSpan(first, tree.lastToken(param.type_expr), first);
+                        },
+                        else => unreachable,
                     }
                 }
                 unreachable;
             },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_bin_rhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 return tree.nodeToSpan(node_datas[node].rhs);
             },
             .array_cat_lhs, .array_cat_rhs => |cat| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(cat.array_cat_offset);
+                const node = src_loc.relativeToNodeIndex(cat.array_cat_offset);
                 const node_datas = tree.nodes.items(.data);
                 const arr_node = if (src_loc.lazy == .array_cat_lhs)
                     node_datas[node].lhs
@@ -1565,14 +1480,14 @@ pub const SrcLoc = struct {
 
             .node_offset_switch_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 return tree.nodeToSpan(node_datas[node].lhs);
             },
 
             .node_offset_switch_special_prong => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
+                const switch_node = src_loc.relativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1592,7 +1507,7 @@ pub const SrcLoc = struct {
 
             .node_offset_switch_range => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const switch_node = src_loc.declRelativeToNodeIndex(node_off);
+                const switch_node = src_loc.relativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const main_tokens = tree.nodes.items(.main_token);
@@ -1613,56 +1528,30 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
-            .node_offset_switch_prong_capture,
-            .node_offset_switch_prong_tag_capture,
-            => |node_off| {
-                const tree = try src_loc.file_scope.getTree(gpa);
-                const case_node = src_loc.declRelativeToNodeIndex(node_off);
-                const case = tree.fullSwitchCase(case_node).?;
-                const token_tags = tree.tokens.items(.tag);
-                const start_tok = switch (src_loc.lazy) {
-                    .node_offset_switch_prong_capture => case.payload_token.?,
-                    .node_offset_switch_prong_tag_capture => blk: {
-                        var tok = case.payload_token.?;
-                        if (token_tags[tok] == .asterisk) tok += 1;
-                        tok += 2; // skip over comma
-                        break :blk tok;
-                    },
-                    else => unreachable,
-                };
-                const end_tok = switch (token_tags[start_tok]) {
-                    .asterisk => start_tok + 1,
-                    else => start_tok,
-                };
-                const start = tree.tokens.items(.start)[start_tok];
-                const end_start = tree.tokens.items(.start)[end_tok];
-                const end = end_start + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
-                return Span{ .start = start, .end = end, .main = start };
-            },
             .node_offset_fn_type_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.align_expr);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.addrspace_expr);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.section_expr);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.callconv_expr);
@@ -1670,7 +1559,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
                 return tree.nodeToSpan(full.ast.return_type);
@@ -1678,7 +1567,7 @@ pub const SrcLoc = struct {
             .node_offset_param => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const token_tags = tree.tokens.items(.tag);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
 
                 var first_tok = tree.firstToken(node);
                 while (true) switch (token_tags[first_tok - 1]) {
@@ -1694,7 +1583,7 @@ pub const SrcLoc = struct {
             .token_offset_param => |token_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const token_tags = tree.tokens.items(.tag);
-                const main_token = tree.nodes.items(.main_token)[src_loc.parent_decl_node];
+                const main_token = tree.nodes.items(.main_token)[src_loc.base_node];
                 const tok_index = @as(Ast.TokenIndex, @bitCast(token_off + @as(i32, @bitCast(main_token))));
 
                 var first_tok = tok_index;
@@ -1712,13 +1601,13 @@ pub const SrcLoc = struct {
             .node_offset_anyframe_type => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
                 return tree.nodeToSpan(node_datas[parent_node].rhs);
             },
 
             .node_offset_lib_name => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, parent_node).?;
                 const tok_index = full.lib_name.?;
@@ -1729,21 +1618,21 @@ pub const SrcLoc = struct {
 
             .node_offset_array_type_len => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_array_type_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
                 return tree.nodeToSpan(full.ast.elem_type);
@@ -1751,48 +1640,48 @@ pub const SrcLoc = struct {
             .node_offset_un_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
 
                 return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_ptr_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.child_type);
             },
             .node_offset_ptr_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_ptr_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_ptr_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_ptr_bitoffset => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.bit_range_start);
             },
             .node_offset_ptr_hostsize => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
                 return tree.nodeToSpan(full.ast.bit_range_end);
@@ -1800,7 +1689,7 @@ pub const SrcLoc = struct {
             .node_offset_container_tag => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 switch (node_tags[parent_node]) {
                     .container_decl_arg, .container_decl_arg_trailing => {
@@ -1822,7 +1711,7 @@ pub const SrcLoc = struct {
             .node_offset_field_default => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 const full: Ast.full.ContainerField = switch (node_tags[parent_node]) {
                     .container_field => tree.containerField(parent_node),
@@ -1833,7 +1722,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_init_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+                const parent_node = src_loc.relativeToNodeIndex(node_off);
 
                 var buf: [2]Ast.Node.Index = undefined;
                 const type_expr = if (tree.fullArrayInit(&buf, parent_node)) |array_init|
@@ -1846,7 +1735,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
 
                 switch (node_tags[node]) {
                     .assign => {
@@ -1859,7 +1748,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
 
                 switch (node_tags[node]) {
                     .assign => {
@@ -1870,7 +1759,7 @@ pub const SrcLoc = struct {
             },
             .node_offset_return_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node = src_loc.relativeToNodeIndex(node_off);
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
                 if (node_tags[node] == .@"return" and node_datas[node].lhs != 0) {
@@ -1878,381 +1767,629 @@ pub const SrcLoc = struct {
                 }
                 return tree.nodeToSpan(node);
             },
-        }
-    }
+            .container_field_name,
+            .container_field_value,
+            .container_field_type,
+            .container_field_align,
+            => |field_idx| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.relativeToNodeIndex(0);
+                var buf: [2]Ast.Node.Index = undefined;
+                const container_decl = tree.fullContainerDecl(&buf, node) orelse
+                    return tree.nodeToSpan(node);
 
-    pub fn byteOffsetBuiltinCallArg(
-        src_loc: SrcLoc,
-        gpa: Allocator,
-        node_off: i32,
-        arg_index: u32,
-    ) !Span {
-        const tree = try src_loc.file_scope.getTree(gpa);
-        const node_datas = tree.nodes.items(.data);
-        const node_tags = tree.nodes.items(.tag);
-        const node = src_loc.declRelativeToNodeIndex(node_off);
-        const param = switch (node_tags[node]) {
-            .builtin_call_two, .builtin_call_two_comma => switch (arg_index) {
-                0 => node_datas[node].lhs,
-                1 => node_datas[node].rhs,
-                else => unreachable,
+                var cur_field_idx: usize = 0;
+                for (container_decl.ast.members) |member_node| {
+                    const field = tree.fullContainerField(member_node) orelse continue;
+                    if (cur_field_idx < field_idx) {
+                        cur_field_idx += 1;
+                        continue;
+                    }
+                    const field_component_node = switch (src_loc.lazy) {
+                        .container_field_name => 0,
+                        .container_field_value => field.ast.value_expr,
+                        .container_field_type => field.ast.type_expr,
+                        .container_field_align => field.ast.align_expr,
+                        else => unreachable,
+                    };
+                    if (field_component_node == 0) {
+                        return tree.tokenToSpan(field.ast.main_token);
+                    } else {
+                        return tree.nodeToSpan(field_component_node);
+                    }
+                } else unreachable;
             },
-            .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
-            else => unreachable,
-        };
-        return tree.nodeToSpan(param);
+            .init_elem => |init_elem| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const init_node = src_loc.relativeToNodeIndex(init_elem.init_node_offset);
+                var buf: [2]Ast.Node.Index = undefined;
+                if (tree.fullArrayInit(&buf, init_node)) |full| {
+                    const elem_node = full.ast.elements[init_elem.elem_index];
+                    return tree.nodeToSpan(elem_node);
+                } else if (tree.fullStructInit(&buf, init_node)) |full| {
+                    const field_node = full.ast.fields[init_elem.elem_index];
+                    return tree.tokensToSpan(
+                        tree.firstToken(field_node) - 3,
+                        tree.lastToken(field_node),
+                        tree.nodes.items(.main_token)[field_node] - 2,
+                    );
+                } else unreachable;
+            },
+            .init_field_name,
+            .init_field_linkage,
+            .init_field_section,
+            .init_field_visibility,
+            .init_field_rw,
+            .init_field_locality,
+            .init_field_cache,
+            .init_field_library,
+            .init_field_thread_local,
+            => |builtin_call_node| {
+                const wanted = switch (src_loc.lazy) {
+                    .init_field_name => "name",
+                    .init_field_linkage => "linkage",
+                    .init_field_section => "section",
+                    .init_field_visibility => "visibility",
+                    .init_field_rw => "rw",
+                    .init_field_locality => "locality",
+                    .init_field_cache => "cache",
+                    .init_field_library => "library",
+                    .init_field_thread_local => "thread_local",
+                    else => unreachable,
+                };
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = src_loc.relativeToNodeIndex(builtin_call_node);
+                const arg_node = switch (node_tags[node]) {
+                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].rhs,
+                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + 1],
+                    else => unreachable,
+                };
+                var buf: [2]Ast.Node.Index = undefined;
+                const full = tree.fullStructInit(&buf, arg_node) orelse
+                    return tree.nodeToSpan(arg_node);
+                for (full.ast.fields) |field_node| {
+                    // . IDENTIFIER = field_node
+                    const name_token = tree.firstToken(field_node) - 2;
+                    const name = tree.tokenSlice(name_token);
+                    if (std.mem.eql(u8, name, wanted)) {
+                        return tree.tokensToSpan(
+                            name_token - 1,
+                            tree.lastToken(field_node),
+                            tree.nodes.items(.main_token)[field_node] - 2,
+                        );
+                    }
+                }
+                return tree.nodeToSpan(arg_node);
+            },
+            .switch_case_item,
+            .switch_case_item_range_first,
+            .switch_case_item_range_last,
+            .switch_capture,
+            .switch_tag_capture,
+            => {
+                const switch_node_offset, const want_case_idx = switch (src_loc.lazy) {
+                    .switch_case_item,
+                    .switch_case_item_range_first,
+                    .switch_case_item_range_last,
+                    => |x| .{ x.switch_node_offset, x.case_idx },
+                    .switch_capture,
+                    .switch_tag_capture,
+                    => |x| .{ x.switch_node_offset, x.case_idx },
+                    else => unreachable,
+                };
+
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const main_tokens = tree.nodes.items(.main_token);
+                const switch_node = src_loc.relativeToNodeIndex(switch_node_offset);
+                const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
+                const case_nodes = tree.extra_data[extra.start..extra.end];
+
+                var multi_i: u32 = 0;
+                var scalar_i: u32 = 0;
+                const case = for (case_nodes) |case_node| {
+                    const case = tree.fullSwitchCase(case_node).?;
+                    const is_special = special: {
+                        if (case.ast.values.len == 0) break :special true;
+                        if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .identifier) {
+                            break :special mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_");
+                        }
+                        break :special false;
+                    };
+                    if (is_special) {
+                        if (want_case_idx.isSpecial()) {
+                            break case;
+                        }
+                    }
+
+                    const is_multi = case.ast.values.len != 1 or
+                        node_tags[case.ast.values[0]] == .switch_range;
+
+                    if (!want_case_idx.isSpecial()) switch (want_case_idx.kind) {
+                        .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
+                        .multi => if (is_multi and want_case_idx.index == multi_i) break case,
+                    };
+
+                    if (is_multi) {
+                        multi_i += 1;
+                    } else {
+                        scalar_i += 1;
+                    }
+                } else unreachable;
+
+                const want_item = switch (src_loc.lazy) {
+                    .switch_case_item,
+                    .switch_case_item_range_first,
+                    .switch_case_item_range_last,
+                    => |x| x.item_idx,
+                    .switch_capture, .switch_tag_capture => {
+                        const token_tags = tree.tokens.items(.tag);
+                        const start = switch (src_loc.lazy) {
+                            .switch_capture => case.payload_token.?,
+                            .switch_tag_capture => tok: {
+                                var tok = case.payload_token.?;
+                                if (token_tags[tok] == .asterisk) tok += 1;
+                                tok += 2; // skip over comma
+                                break :tok tok;
+                            },
+                            else => unreachable,
+                        };
+                        const end = switch (token_tags[start]) {
+                            .asterisk => start + 1,
+                            else => start,
+                        };
+                        return tree.tokensToSpan(start, end, start);
+                    },
+                    else => unreachable,
+                };
+
+                switch (want_item.kind) {
+                    .single => {
+                        var item_i: u32 = 0;
+                        for (case.ast.values) |item_node| {
+                            if (node_tags[item_node] == .switch_range) continue;
+                            if (item_i != want_item.index) {
+                                item_i += 1;
+                                continue;
+                            }
+                            return tree.nodeToSpan(item_node);
+                        } else unreachable;
+                    },
+                    .range => {
+                        var range_i: u32 = 0;
+                        for (case.ast.values) |item_node| {
+                            if (node_tags[item_node] != .switch_range) continue;
+                            if (range_i != want_item.index) {
+                                range_i += 1;
+                                continue;
+                            }
+                            return switch (src_loc.lazy) {
+                                .switch_case_item => tree.nodeToSpan(item_node),
+                                .switch_case_item_range_first => tree.nodeToSpan(node_datas[item_node].lhs),
+                                .switch_case_item_range_last => tree.nodeToSpan(node_datas[item_node].rhs),
+                                else => unreachable,
+                            };
+                        } else unreachable;
+                    },
+                }
+            },
+        }
     }
 };
 
-/// Resolving a source location into a byte offset may require doing work
-/// that we would rather not do unless the error actually occurs.
-/// Therefore we need a data structure that contains the information necessary
-/// to lazily produce a `SrcLoc` as required.
-/// Most of the offsets in this data structure are relative to the containing Decl.
-/// This makes the source location resolve properly even when a Decl gets
-/// shifted up or down in the file, as long as the Decl's contents itself
-/// do not change.
-pub const LazySrcLoc = union(enum) {
-    /// When this tag is set, the code that constructed this `LazySrcLoc` is asserting
-    /// that all code paths which would need to resolve the source location are
-    /// unreachable. If you are debugging this tag incorrectly being this value,
-    /// look into using reverse-continue with a memory watchpoint to see where the
-    /// value is being set to this tag.
-    unneeded,
-    /// Means the source location points to an entire file; not any particular
-    /// location within the file. `file_scope` union field will be active.
-    entire_file,
-    /// The source location points to a byte offset within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    byte_abs: u32,
-    /// The source location points to a token within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    token_abs: u32,
-    /// The source location points to an AST node within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    node_abs: u32,
-    /// The source location points to a byte offset within a source file,
-    /// offset from the byte offset of the Decl within the file.
-    /// The Decl is determined contextually.
-    byte_offset: u32,
-    /// This data is the offset into the token list from the Decl token.
-    /// The Decl is determined contextually.
-    token_offset: u32,
-    /// The source location points to an AST node, which is this value offset
-    /// from its containing Decl node AST index.
-    /// The Decl is determined contextually.
-    node_offset: TracedOffset,
-    /// The source location points to the main token of an AST node, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_main_token: i32,
-    /// The source location points to the beginning of a struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_initializer: i32,
-    /// The source location points to a variable declaration type expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a variable declaration AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_ty: i32,
-    /// The source location points to the alignment expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_align: i32,
-    /// The source location points to the linksection expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_section: i32,
-    /// The source location points to the addrspace expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_addrspace: i32,
-    /// The source location points to the initializer of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_init: i32,
-    /// The source location points to the first parameter of a builtin
-    /// function call, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a builtin call AST node. Next, navigate
-    /// to the first parameter.
-    /// The Decl is determined contextually.
-    node_offset_builtin_call_arg0: i32,
-    /// Same as `node_offset_builtin_call_arg0` except arg index 1.
-    node_offset_builtin_call_arg1: i32,
-    node_offset_builtin_call_arg2: i32,
-    node_offset_builtin_call_arg3: i32,
-    node_offset_builtin_call_arg4: i32,
-    node_offset_builtin_call_arg5: i32,
-    /// Like `node_offset_builtin_call_arg0` but recurses through arbitrarily many calls
-    /// to pointer cast builtins.
-    node_offset_ptrcast_operand: i32,
-    /// The source location points to the index expression of an array access
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an array access AST node. Next, navigate
-    /// to the index expression.
-    /// The Decl is determined contextually.
-    node_offset_array_access_index: i32,
-    /// The source location points to the LHS of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_ptr: i32,
-    /// The source location points to start expression of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_start: i32,
-    /// The source location points to the end expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_end: i32,
-    /// The source location points to the sentinel expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_sentinel: i32,
-    /// The source location points to the callee expression of a function
-    /// call expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function call AST node. Next, navigate
-    /// to the callee expression.
-    /// The Decl is determined contextually.
-    node_offset_call_func: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of:
-    ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`)
-    /// The Decl is determined contextually.
-    node_offset_field_name: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of the operand ("b" node)
-    /// of a field initialization expression (`.a = b`)
-    /// The Decl is determined contextually.
-    node_offset_field_name_init: i32,
-    /// The source location points to the pointer of a pointer deref expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a pointer deref AST node. Next, navigate
-    /// to the pointer expression.
-    /// The Decl is determined contextually.
-    node_offset_deref_ptr: i32,
-    /// The source location points to the assembly source code of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the asm template source code.
-    /// The Decl is determined contextually.
-    node_offset_asm_source: i32,
-    /// The source location points to the return type of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the return type expression.
-    /// The Decl is determined contextually.
-    node_offset_asm_ret_ty: i32,
-    /// The source location points to the condition expression of an if
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an if expression AST node. Next, navigate
-    /// to the condition expression.
-    /// The Decl is determined contextually.
-    node_offset_if_cond: i32,
-    /// The source location points to a binary expression, such as `a + b`, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_bin_op: i32,
-    /// The source location points to the LHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the LHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_lhs: i32,
-    /// The source location points to the RHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the RHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_rhs: i32,
-    /// The source location points to the operand of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the operand.
-    /// The Decl is determined contextually.
-    node_offset_switch_operand: i32,
-    /// The source location points to the else/`_` prong of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_special_prong: i32,
-    /// The source location points to all the ranges of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to any of the
-    /// range nodes. The error applies to all of them.
-    /// The Decl is determined contextually.
-    node_offset_switch_range: i32,
-    /// The source location points to the capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_capture: i32,
-    /// The source location points to the tag capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_tag_capture: i32,
-    /// The source location points to the align expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_align: i32,
-    /// The source location points to the addrspace expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_addrspace: i32,
-    /// The source location points to the linksection expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_section: i32,
-    /// The source location points to the calling convention of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_cc: i32,
-    /// The source location points to the return type of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the return type node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_ret_ty: i32,
-    node_offset_param: i32,
-    token_offset_param: i32,
-    /// The source location points to the type expression of an `anyframe->T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_anyframe_type: i32,
-    /// The source location points to the string literal of `extern "foo"`, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function prototype or variable declaration
-    /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
-    /// The Decl is determined contextually.
-    node_offset_lib_name: i32,
-    /// The source location points to the len expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the len expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_len: i32,
-    /// The source location points to the sentinel expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_sentinel: i32,
-    /// The source location points to the elem expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the elem expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_elem: i32,
-    /// The source location points to the operand of an unary expression.
-    /// The Decl is determined contextually.
-    node_offset_un_op: i32,
-    /// The source location points to the elem type of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_elem: i32,
-    /// The source location points to the sentinel of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_sentinel: i32,
-    /// The source location points to the align expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_align: i32,
-    /// The source location points to the addrspace expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_addrspace: i32,
-    /// The source location points to the bit-offset of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_bitoffset: i32,
-    /// The source location points to the host size of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_hostsize: i32,
-    /// The source location points to the tag type of an union or an enum.
-    /// The Decl is determined contextually.
-    node_offset_container_tag: i32,
-    /// The source location points to the default value of a field.
-    /// The Decl is determined contextually.
-    node_offset_field_default: i32,
-    /// The source location points to the type of an array or struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_init_ty: i32,
-    /// The source location points to the LHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_ptr: i32,
-    /// The source location points to the RHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_operand: i32,
-    /// The source location points to the operand of a `return` statement, or
-    /// the `return` itself if there is no explicit operand.
-    /// The Decl is determined contextually.
-    node_offset_return_operand: i32,
-    /// The source location points to a for loop input.
-    /// The Decl is determined contextually.
-    for_input: struct {
-        /// Points to the for loop AST node.
-        for_node_offset: i32,
-        /// Picks one of the inputs from the condition.
-        input_index: u32,
-    },
-    /// The source location points to one of the captures of a for loop, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to one of the input nodes of a for loop.
-    /// Next, navigate to the corresponding capture.
-    /// The Decl is determined contextually.
-    for_capture_from_input: i32,
-    /// The source location points to the argument node of a function call.
-    call_arg: struct {
-        decl: Decl.Index,
-        /// Points to the function call AST node.
-        call_node_offset: i32,
-        /// The index of the argument the source location points to.
-        arg_index: u32,
-    },
-    fn_proto_param: struct {
-        decl: Decl.Index,
-        /// Points to the function prototype AST node.
-        fn_proto_node_offset: i32,
-        /// The index of the parameter the source location points to.
-        param_index: u32,
-    },
-    array_cat_lhs: ArrayCat,
-    array_cat_rhs: ArrayCat,
+pub const LazySrcLoc = struct {
+    /// This instruction provides the source node locations are resolved relative to.
+    /// It is a `declaration`, `struct_decl`, `union_decl`, `enum_decl`, or `opaque_decl`.
+    /// This must be valid even if `relative` is an absolute value, since it is required to
+    /// determine the file which the `LazySrcLoc` refers to.
+    base_node_inst: InternPool.TrackedInst.Index,
+    /// This field determines the source location relative to `base_node_inst`.
+    offset: Offset,
 
-    const ArrayCat = struct {
-        /// Points to the array concat AST node.
-        array_cat_offset: i32,
-        /// The index of the element the source location points to.
-        elem_index: u32,
+    pub const Offset = union(enum) {
+        /// When this tag is set, the code that constructed this `LazySrcLoc` is asserting
+        /// that all code paths which would need to resolve the source location are
+        /// unreachable. If you are debugging this tag incorrectly being this value,
+        /// look into using reverse-continue with a memory watchpoint to see where the
+        /// value is being set to this tag.
+        /// `base_node_inst` is unused.
+        unneeded,
+        /// Means the source location points to an entire file; not any particular
+        /// location within the file. `file_scope` union field will be active.
+        entire_file,
+        /// The source location points to a byte offset within a source file,
+        /// offset from 0. The source file is determined contextually.
+        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
+        byte_abs: u32,
+        /// The source location points to a token within a source file,
+        /// offset from 0. The source file is determined contextually.
+        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
+        token_abs: u32,
+        /// The source location points to an AST node within a source file,
+        /// offset from 0. The source file is determined contextually.
+        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
+        node_abs: u32,
+        /// The source location points to a byte offset within a source file,
+        /// offset from the byte offset of the base node within the file.
+        byte_offset: u32,
+        /// This data is the offset into the token list from the base node's first token.
+        token_offset: u32,
+        /// The source location points to an AST node, which is this value offset
+        /// from its containing base node AST index.
+        node_offset: TracedOffset,
+        /// The source location points to the main token of an AST node, found
+        /// by taking this AST node index offset from the containing base node.
+        node_offset_main_token: i32,
+        /// The source location points to the beginning of a struct initializer.
+        node_offset_initializer: i32,
+        /// The source location points to a variable declaration type expression,
+        /// found by taking this AST node index offset from the containing
+        /// base node, which points to a variable declaration AST node. Next, navigate
+        /// to the type expression.
+        node_offset_var_decl_ty: i32,
+        /// The source location points to the alignment expression of a var decl.
+        node_offset_var_decl_align: i32,
+        /// The source location points to the linksection expression of a var decl.
+        node_offset_var_decl_section: i32,
+        /// The source location points to the addrspace expression of a var decl.
+        node_offset_var_decl_addrspace: i32,
+        /// The source location points to the initializer of a var decl.
+        node_offset_var_decl_init: i32,
+        /// The source location points to the given argument of a builtin function call.
+        /// `builtin_call_node` points to the builtin call.
+        /// `arg_index` is the index of the argument which hte source location refers to.
+        node_offset_builtin_call_arg: struct {
+            builtin_call_node: i32,
+            arg_index: u32,
+        },
+        /// Like `node_offset_builtin_call_arg` but recurses through arbitrarily many calls
+        /// to pointer cast builtins (taking the first argument of the most nested).
+        node_offset_ptrcast_operand: i32,
+        /// The source location points to the index expression of an array access
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to an array access AST node. Next, navigate
+        /// to the index expression.
+        node_offset_array_access_index: i32,
+        /// The source location points to the LHS of a slice expression
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a slice AST node. Next, navigate
+        /// to the sentinel expression.
+        node_offset_slice_ptr: i32,
+        /// The source location points to start expression of a slice expression
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a slice AST node. Next, navigate
+        /// to the sentinel expression.
+        node_offset_slice_start: i32,
+        /// The source location points to the end expression of a slice
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a slice AST node. Next, navigate
+        /// to the sentinel expression.
+        node_offset_slice_end: i32,
+        /// The source location points to the sentinel expression of a slice
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a slice AST node. Next, navigate
+        /// to the sentinel expression.
+        node_offset_slice_sentinel: i32,
+        /// The source location points to the callee expression of a function
+        /// call expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function call AST node. Next, navigate
+        /// to the callee expression.
+        node_offset_call_func: i32,
+        /// The payload is offset from the containing base node.
+        /// The source location points to the field name of:
+        ///  * a field access expression (`a.b`), or
+        ///  * the callee of a method call (`a.b()`)
+        node_offset_field_name: i32,
+        /// The payload is offset from the containing base node.
+        /// The source location points to the field name of the operand ("b" node)
+        /// of a field initialization expression (`.a = b`)
+        node_offset_field_name_init: i32,
+        /// The source location points to the pointer of a pointer deref expression,
+        /// found by taking this AST node index offset from the containing
+        /// base node, which points to a pointer deref AST node. Next, navigate
+        /// to the pointer expression.
+        node_offset_deref_ptr: i32,
+        /// The source location points to the assembly source code of an inline assembly
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to inline assembly AST node. Next, navigate
+        /// to the asm template source code.
+        node_offset_asm_source: i32,
+        /// The source location points to the return type of an inline assembly
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to inline assembly AST node. Next, navigate
+        /// to the return type expression.
+        node_offset_asm_ret_ty: i32,
+        /// The source location points to the condition expression of an if
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to an if expression AST node. Next, navigate
+        /// to the condition expression.
+        node_offset_if_cond: i32,
+        /// The source location points to a binary expression, such as `a + b`, found
+        /// by taking this AST node index offset from the containing base node.
+        node_offset_bin_op: i32,
+        /// The source location points to the LHS of a binary expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a binary expression AST node. Next, navigate to the LHS.
+        node_offset_bin_lhs: i32,
+        /// The source location points to the RHS of a binary expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a binary expression AST node. Next, navigate to the RHS.
+        node_offset_bin_rhs: i32,
+        /// The source location points to the operand of a switch expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a switch expression AST node. Next, navigate to the operand.
+        node_offset_switch_operand: i32,
+        /// The source location points to the else/`_` prong of a switch expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
+        node_offset_switch_special_prong: i32,
+        /// The source location points to all the ranges of a switch expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a switch expression AST node. Next, navigate to any of the
+        /// range nodes. The error applies to all of them.
+        node_offset_switch_range: i32,
+        /// The source location points to the align expr of a function type
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function type AST node. Next, navigate to
+        /// the calling convention node.
+        node_offset_fn_type_align: i32,
+        /// The source location points to the addrspace expr of a function type
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function type AST node. Next, navigate to
+        /// the calling convention node.
+        node_offset_fn_type_addrspace: i32,
+        /// The source location points to the linksection expr of a function type
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function type AST node. Next, navigate to
+        /// the calling convention node.
+        node_offset_fn_type_section: i32,
+        /// The source location points to the calling convention of a function type
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function type AST node. Next, navigate to
+        /// the calling convention node.
+        node_offset_fn_type_cc: i32,
+        /// The source location points to the return type of a function type
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a function type AST node. Next, navigate to
+        /// the return type node.
+        node_offset_fn_type_ret_ty: i32,
+        node_offset_param: i32,
+        token_offset_param: i32,
+        /// The source location points to the type expression of an `anyframe->T`
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to a `anyframe->T` expression AST node. Next, navigate
+        /// to the type expression.
+        node_offset_anyframe_type: i32,
+        /// The source location points to the string literal of `extern "foo"`, found
+        /// by taking this AST node index offset from the containing
+        /// base node, which points to a function prototype or variable declaration
+        /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
+        node_offset_lib_name: i32,
+        /// The source location points to the len expression of an `[N:S]T`
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to an `[N:S]T` expression AST node. Next, navigate
+        /// to the len expression.
+        node_offset_array_type_len: i32,
+        /// The source location points to the sentinel expression of an `[N:S]T`
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to an `[N:S]T` expression AST node. Next, navigate
+        /// to the sentinel expression.
+        node_offset_array_type_sentinel: i32,
+        /// The source location points to the elem expression of an `[N:S]T`
+        /// expression, found by taking this AST node index offset from the containing
+        /// base node, which points to an `[N:S]T` expression AST node. Next, navigate
+        /// to the elem expression.
+        node_offset_array_type_elem: i32,
+        /// The source location points to the operand of an unary expression.
+        node_offset_un_op: i32,
+        /// The source location points to the elem type of a pointer.
+        node_offset_ptr_elem: i32,
+        /// The source location points to the sentinel of a pointer.
+        node_offset_ptr_sentinel: i32,
+        /// The source location points to the align expr of a pointer.
+        node_offset_ptr_align: i32,
+        /// The source location points to the addrspace expr of a pointer.
+        node_offset_ptr_addrspace: i32,
+        /// The source location points to the bit-offset of a pointer.
+        node_offset_ptr_bitoffset: i32,
+        /// The source location points to the host size of a pointer.
+        node_offset_ptr_hostsize: i32,
+        /// The source location points to the tag type of an union or an enum.
+        node_offset_container_tag: i32,
+        /// The source location points to the default value of a field.
+        node_offset_field_default: i32,
+        /// The source location points to the type of an array or struct initializer.
+        node_offset_init_ty: i32,
+        /// The source location points to the LHS of an assignment.
+        node_offset_store_ptr: i32,
+        /// The source location points to the RHS of an assignment.
+        node_offset_store_operand: i32,
+        /// The source location points to the operand of a `return` statement, or
+        /// the `return` itself if there is no explicit operand.
+        node_offset_return_operand: i32,
+        /// The source location points to a for loop input.
+        for_input: struct {
+            /// Points to the for loop AST node.
+            for_node_offset: i32,
+            /// Picks one of the inputs from the condition.
+            input_index: u32,
+        },
+        /// The source location points to one of the captures of a for loop, found
+        /// by taking this AST node index offset from the containing
+        /// base node, which points to one of the input nodes of a for loop.
+        /// Next, navigate to the corresponding capture.
+        for_capture_from_input: i32,
+        /// The source location points to the argument node of a function call.
+        call_arg: struct {
+            /// Points to the function call AST node.
+            call_node_offset: i32,
+            /// The index of the argument the source location points to.
+            arg_index: u32,
+        },
+        fn_proto_param: FnProtoParam,
+        fn_proto_param_type: FnProtoParam,
+        array_cat_lhs: ArrayCat,
+        array_cat_rhs: ArrayCat,
+        /// The source location points to the name of the field at the given index
+        /// of the container type declaration at the base node.
+        container_field_name: u32,
+        /// Like `continer_field_name`, but points at the field's default value.
+        container_field_value: u32,
+        /// Like `continer_field_name`, but points at the field's type.
+        container_field_type: u32,
+        /// Like `continer_field_name`, but points at the field's alignment.
+        container_field_align: u32,
+        /// The source location points to the given element/field of a struct or
+        /// array initialization expression.
+        init_elem: struct {
+            /// Points to the AST node of the initialization expression.
+            init_node_offset: i32,
+            /// The index of the field/element the source location points to.
+            elem_index: u32,
+        },
+        // The following source locations are like `init_elem`, but refer to a
+        // field with a specific name. If such a field is not given, the entire
+        // initialization expression is used instead.
+        // The `i32` points to the AST node of a builtin call, whose *second*
+        // argument is the init expression.
+        init_field_name: i32,
+        init_field_linkage: i32,
+        init_field_section: i32,
+        init_field_visibility: i32,
+        init_field_rw: i32,
+        init_field_locality: i32,
+        init_field_cache: i32,
+        init_field_library: i32,
+        init_field_thread_local: i32,
+        /// The source location points to the value of an item in a specific
+        /// case of a `switch`.
+        switch_case_item: SwitchItem,
+        /// The source location points to the "first" value of a range item in
+        /// a specific case of a `switch`.
+        switch_case_item_range_first: SwitchItem,
+        /// The source location points to the "last" value of a range item in
+        /// a specific case of a `switch`.
+        switch_case_item_range_last: SwitchItem,
+        /// The source location points to the main capture of a specific case of
+        /// a `switch`.
+        switch_capture: SwitchCapture,
+        /// The source location points to the "tag" capture (second capture) of
+        /// a specific case of a `switch`.
+        switch_tag_capture: SwitchCapture,
+
+        pub const FnProtoParam = struct {
+            /// The offset of the function prototype AST node.
+            fn_proto_node_offset: i32,
+            /// The index of the parameter the source location points to.
+            param_index: u32,
+        };
+
+        pub const SwitchItem = struct {
+            /// The offset of the switch AST node.
+            switch_node_offset: i32,
+            /// The index of the case to point to within this switch.
+            case_idx: SwitchCaseIndex,
+            /// The index of the item to point to within this case.
+            item_idx: SwitchItemIndex,
+        };
+
+        pub const SwitchCapture = struct {
+            /// The offset of the switch AST node.
+            switch_node_offset: i32,
+            /// The index of the case whose capture to point to.
+            case_idx: SwitchCaseIndex,
+        };
+
+        pub const SwitchCaseIndex = packed struct(u32) {
+            kind: enum(u1) { scalar, multi },
+            index: u31,
+
+            pub const special: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
+            pub fn isSpecial(idx: SwitchCaseIndex) bool {
+                return @as(u32, @bitCast(idx)) == @as(u32, @bitCast(special));
+            }
+        };
+
+        pub const SwitchItemIndex = packed struct(u32) {
+            kind: enum(u1) { single, range },
+            index: u31,
+        };
+
+        const ArrayCat = struct {
+            /// Points to the array concat AST node.
+            array_cat_offset: i32,
+            /// The index of the element the source location points to.
+            elem_index: u32,
+        };
+
+        pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
+
+        noinline fn nodeOffsetDebug(node_offset: i32) Offset {
+            var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
+            result.node_offset.trace.addAddr(@returnAddress(), "init");
+            return result;
+        }
+
+        fn nodeOffsetRelease(node_offset: i32) Offset {
+            return .{ .node_offset = .{ .x = node_offset } };
+        }
+
+        /// This wraps a simple integer in debug builds so that later on we can find out
+        /// where in semantic analysis the value got set.
+        pub const TracedOffset = struct {
+            x: i32,
+            trace: std.debug.Trace = std.debug.Trace.init,
+
+            const want_tracing = false;
+        };
     };
 
-    pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
-
-    noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
-        var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
-        result.node_offset.trace.addAddr(@returnAddress(), "init");
-        return result;
-    }
-
-    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
-        return .{ .node_offset = .{ .x = node_offset } };
-    }
-
-    /// This wraps a simple integer in debug builds so that later on we can find out
-    /// where in semantic analysis the value got set.
-    pub const TracedOffset = struct {
-        x: i32,
-        trace: std.debug.Trace = std.debug.Trace.init,
-
-        const want_tracing = false;
+    pub const unneeded: LazySrcLoc = .{
+        .base_node_inst = undefined,
+        .offset = .unneeded,
     };
+
+    pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) struct { *File, Ast.Node.Index } {
+        const want_path_digest, const zir_inst = inst: {
+            const info = base_node_inst.resolveFull(&zcu.intern_pool);
+            break :inst .{ info.path_digest, info.inst };
+        };
+        // TODO: avoid iterating all files for this!
+        const file = for (zcu.import_table.values()) |file| {
+            if (std.mem.eql(u8, &file.path_digest, &want_path_digest)) break file;
+        } else unreachable;
+        assert(file.zir_loaded);
+
+        const zir = file.zir;
+        const inst = zir.instructions.get(@intFromEnum(zir_inst));
+        const base_node: Ast.Node.Index = switch (inst.tag) {
+            .declaration => inst.data.declaration.src_node,
+            .extended => switch (inst.data.extended.opcode) {
+                .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_node,
+                .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
+                .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_node,
+                .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_node,
+                else => unreachable,
+            },
+            else => unreachable,
+        };
+        return .{ file, base_node };
+    }
+
+    /// Resolve the file and AST node of `base_node_inst` to get a resolved `SrcLoc`.
+    /// TODO: it is incorrect to store a `SrcLoc` anywhere due to incremental compilation.
+    /// Probably the type should be removed entirely and this resolution performed on-the-fly when needed.
+    pub fn upgrade(lazy: LazySrcLoc, zcu: *Zcu) SrcLoc {
+        const file, const base_node = resolveBaseNode(lazy.base_node_inst, zcu);
+        return .{
+            .file_scope = file,
+            .base_node = base_node,
+            .lazy = lazy.offset,
+        };
+    }
 };
 
 pub const SemaError = error{ OutOfMemory, AnalysisFail };
@@ -2260,11 +2397,6 @@ pub const CompileError = error{
     OutOfMemory,
     /// When this is returned, the compile error for the failure has already been recorded.
     AnalysisFail,
-    /// Returned when a compile error needed to be reported but a provided LazySrcLoc was set
-    /// to the `unneeded` tag. The source location was, in fact, needed. It is expected that
-    /// somewhere up the call stack, the operation will be retried after doing expensive work
-    /// to compute a source location.
-    NeededSourceLocation,
     /// A Type or Value was needed to be used during semantic analysis, but it was not available
     /// because the function is generic. This is only seen when analyzing the body of a param
     /// instruction.
@@ -3373,7 +3505,6 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 }
                 return error.AnalysisFail;
             },
-            error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             else => |e| {
                 decl.analysis = .sema_failure;
@@ -3381,7 +3512,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 try mod.retryable_failures.append(mod.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
                 mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     mod.gpa,
-                    decl.srcLoc(mod),
+                    decl.navSrcLoc(mod).upgrade(mod),
                     "unable to analyze: {s}",
                     .{@errorName(e)},
                 ));
@@ -3555,7 +3686,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
                     decl_index,
                     try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(zcu),
+                        decl.navSrcLoc(zcu).upgrade(zcu),
                         "invalid liveness: {s}",
                         .{@errorName(err)},
                     ),
@@ -3579,7 +3710,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
                 try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(zcu),
+                    decl.navSrcLoc(zcu).upgrade(zcu),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
@@ -3814,7 +3945,7 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
-    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0);
+    const new_decl_index = try mod.allocateNewDecl(new_namespace_index);
     const new_decl = mod.declPtr(new_decl_index);
     errdefer @panic("TODO error handling");
 
@@ -3961,7 +4092,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -3996,6 +4127,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
+        .src_base_inst = decl.zir_decl_index.unwrap().?,
     };
     defer block_scope.instructions.deinit(gpa);
 
@@ -4005,11 +4137,11 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     // We'll do some other bits with the Sema. Clear the type target index just
     // in case they analyze any type.
     sema.builtin_type_target_index = .none;
-    const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = 0 };
-    const section_src: LazySrcLoc = .{ .node_offset_var_decl_section = 0 };
-    const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
-    const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
-    const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
+    const align_src: LazySrcLoc = block_scope.src(.{ .node_offset_var_decl_align = 0 });
+    const section_src: LazySrcLoc = block_scope.src(.{ .node_offset_var_decl_section = 0 });
+    const address_space_src: LazySrcLoc = block_scope.src(.{ .node_offset_var_decl_addrspace = 0 });
+    const ty_src: LazySrcLoc = block_scope.src(.{ .node_offset_var_decl_ty = 0 });
+    const init_src: LazySrcLoc = block_scope.src(.{ .node_offset_var_decl_init = 0 });
     const decl_val = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
     const decl_ty = decl_val.typeOf(mod);
 
@@ -4143,7 +4275,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     }
 
     if (decl.is_exported) {
-        const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
+        const export_src: LazySrcLoc = block_scope.src(.{ .token_offset = @intFromBool(decl.is_pub) });
         if (is_inline) return sema.fail(&block_scope, export_src, "export of inline function", .{});
         // The scope needs to have the decl in it.
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
@@ -4697,14 +4829,13 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const was_exported = decl.is_exported;
         assert(decl.kind == kind); // ZIR tracking should preserve this
         decl.name = decl_name;
-        decl.src_node = inst_data.src_node;
         decl.src_line = line;
         decl.is_pub = declaration.flags.is_pub;
         decl.is_exported = declaration.flags.is_export;
         break :decl_index .{ was_exported, decl_index };
     } else decl_index: {
         // Create and set up a new Decl.
-        const new_decl_index = try zcu.allocateNewDecl(namespace_index, inst_data.src_node);
+        const new_decl_index = try zcu.allocateNewDecl(namespace_index);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
@@ -4858,7 +4989,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
-    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     // In the case of a generic function instance, this is the type of the
@@ -4913,6 +5044,14 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
+        .src_base_inst = inst: {
+            const owner_info = if (func.generic_owner == .none)
+                func
+            else
+                mod.funcInfo(func.generic_owner);
+            const orig_decl = mod.declPtr(owner_info.owner_decl);
+            break :inst orig_decl.zir_decl_index.unwrap().?;
+        },
     };
     defer inner_block.instructions.deinit(gpa);
 
@@ -4954,7 +5093,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         runtime_param_index += 1;
 
         const opt_opv = sema.typeHasOnePossibleValue(Type.fromInterned(param_ty)) catch |err| switch (err) {
-            error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
@@ -4988,7 +5126,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
 
     sema.analyzeFnBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
-        error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
         else => |e| return e,
@@ -5010,7 +5147,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
             // TODO make these unreachable instead of @panic
-            error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
             error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
             error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
             error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
@@ -5031,8 +5167,10 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // state to success, so that "unable to resolve inferred error set" errors
     // can be emitted here.
     if (sema.fn_ret_ty_ies) |ies| {
-        sema.resolveInferredErrorSetPtr(&inner_block, LazySrcLoc.nodeOffset(0), ies) catch |err| switch (err) {
-            error.NeededSourceLocation => unreachable,
+        sema.resolveInferredErrorSetPtr(&inner_block, .{
+            .base_node_inst = inner_block.src_base_inst,
+            .offset = LazySrcLoc.Offset.nodeOffset(0),
+        }, ies) catch |err| switch (err) {
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
@@ -5056,7 +5194,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
     sema.resolveFnTypes(fn_ty) catch |err| switch (err) {
-        error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
@@ -5073,7 +5210,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // the backends.
     for (sema.types_to_resolve.keys()) |ty| {
         sema.resolveTypeFully(Type.fromInterned(ty)) catch |err| switch (err) {
-            error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
@@ -5101,17 +5237,11 @@ pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
     return mod.intern_pool.destroyNamespace(mod.gpa, index);
 }
 
-pub fn allocateNewDecl(
-    mod: *Module,
-    namespace: Namespace.Index,
-    src_node: Ast.Node.Index,
-) !Decl.Index {
-    const ip = &mod.intern_pool;
-    const gpa = mod.gpa;
-    const decl_index = try ip.createDecl(gpa, .{
+pub fn allocateNewDecl(zcu: *Zcu, namespace: Namespace.Index) !Decl.Index {
+    const gpa = zcu.gpa;
+    const decl_index = try zcu.intern_pool.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = namespace,
-        .src_node = src_node,
         .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
@@ -5126,10 +5256,10 @@ pub fn allocateNewDecl(
         .kind = .anon,
     });
 
-    if (mod.emit_h) |mod_emit_h| {
-        if (@intFromEnum(decl_index) >= mod_emit_h.allocated_emit_h.len) {
-            try mod_emit_h.allocated_emit_h.append(gpa, .{});
-            assert(@intFromEnum(decl_index) == mod_emit_h.allocated_emit_h.len);
+    if (zcu.emit_h) |zcu_emit_h| {
+        if (@intFromEnum(decl_index) >= zcu_emit_h.allocated_emit_h.len) {
+            try zcu_emit_h.allocated_emit_h.append(gpa, .{});
+            assert(@intFromEnum(decl_index) == zcu_emit_h.allocated_emit_h.len);
         }
     }
 
@@ -5221,376 +5351,6 @@ fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
             }
         },
     }
-}
-
-pub const SwitchProngSrc = union(enum) {
-    /// The item for a scalar prong.
-    scalar: u32,
-    /// A given single item for a multi prong.
-    multi: Multi,
-    /// A given range item for a multi prong.
-    range: Multi,
-    /// The item for the special prong.
-    special,
-    /// The main capture for a scalar prong.
-    scalar_capture: u32,
-    /// The main capture for a multi prong.
-    multi_capture: u32,
-    /// The main capture for the special prong.
-    special_capture,
-    /// The tag capture for a scalar prong.
-    scalar_tag_capture: u32,
-    /// The tag capture for a multi prong.
-    multi_tag_capture: u32,
-    /// The tag capture for the special prong.
-    special_tag_capture,
-
-    pub const Multi = struct {
-        prong: u32,
-        item: u32,
-    };
-
-    pub const RangeExpand = enum { none, first, last };
-
-    /// This function is intended to be called only when it is certain that we need
-    /// the LazySrcLoc in order to emit a compile error.
-    pub fn resolve(
-        prong_src: SwitchProngSrc,
-        mod: *Module,
-        decl: *Decl,
-        switch_node_offset: i32,
-        /// Ignored if `prong_src` is not `.range`
-        range_expand: RangeExpand,
-    ) LazySrcLoc {
-        @setCold(true);
-        const gpa = mod.gpa;
-        const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-            // In this case we emit a warning + a less precise source location.
-            log.warn("unable to load {s}: {s}", .{
-                decl.getFileScope(mod).sub_file_path, @errorName(err),
-            });
-            return LazySrcLoc.nodeOffset(0);
-        };
-        const switch_node = decl.relativeToNodeIndex(switch_node_offset);
-        const main_tokens = tree.nodes.items(.main_token);
-        const node_datas = tree.nodes.items(.data);
-        const node_tags = tree.nodes.items(.tag);
-        const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
-        const case_nodes = tree.extra_data[extra.start..extra.end];
-
-        var multi_i: u32 = 0;
-        var scalar_i: u32 = 0;
-        const case_node = for (case_nodes) |case_node| {
-            const case = tree.fullSwitchCase(case_node).?;
-
-            const is_special = special: {
-                if (case.ast.values.len == 0) break :special true;
-                if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .identifier) {
-                    break :special mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_");
-                }
-                break :special false;
-            };
-
-            if (is_special) {
-                switch (prong_src) {
-                    .special, .special_capture, .special_tag_capture => break case_node,
-                    else => continue,
-                }
-            }
-
-            const is_multi = case.ast.values.len != 1 or
-                node_tags[case.ast.values[0]] == .switch_range;
-
-            switch (prong_src) {
-                .scalar,
-                .scalar_capture,
-                .scalar_tag_capture,
-                => |i| if (!is_multi and i == scalar_i) break case_node,
-
-                .multi_capture,
-                .multi_tag_capture,
-                => |i| if (is_multi and i == multi_i) break case_node,
-
-                .multi,
-                .range,
-                => |m| if (is_multi and m.prong == multi_i) break case_node,
-
-                .special,
-                .special_capture,
-                .special_tag_capture,
-                => {},
-            }
-
-            if (is_multi) {
-                multi_i += 1;
-            } else {
-                scalar_i += 1;
-            }
-        } else unreachable;
-
-        const case = tree.fullSwitchCase(case_node).?;
-
-        switch (prong_src) {
-            .scalar, .special => return LazySrcLoc.nodeOffset(
-                decl.nodeIndexToRelative(case.ast.values[0]),
-            ),
-            .multi => |m| {
-                var item_i: u32 = 0;
-                for (case.ast.values) |item_node| {
-                    if (node_tags[item_node] == .switch_range) continue;
-                    if (item_i == m.item) return LazySrcLoc.nodeOffset(
-                        decl.nodeIndexToRelative(item_node),
-                    );
-                    item_i += 1;
-                }
-                unreachable;
-            },
-            .range => |m| {
-                var range_i: u32 = 0;
-                for (case.ast.values) |range| {
-                    if (node_tags[range] != .switch_range) continue;
-                    if (range_i == m.item) switch (range_expand) {
-                        .none => return LazySrcLoc.nodeOffset(
-                            decl.nodeIndexToRelative(range),
-                        ),
-                        .first => return LazySrcLoc.nodeOffset(
-                            decl.nodeIndexToRelative(node_datas[range].lhs),
-                        ),
-                        .last => return LazySrcLoc.nodeOffset(
-                            decl.nodeIndexToRelative(node_datas[range].rhs),
-                        ),
-                    };
-                    range_i += 1;
-                }
-                unreachable;
-            },
-            .scalar_capture, .multi_capture, .special_capture => {
-                return .{ .node_offset_switch_prong_capture = decl.nodeIndexToRelative(case_node) };
-            },
-            .scalar_tag_capture, .multi_tag_capture, .special_tag_capture => {
-                return .{ .node_offset_switch_prong_tag_capture = decl.nodeIndexToRelative(case_node) };
-            },
-        }
-    }
-};
-
-pub const PeerTypeCandidateSrc = union(enum) {
-    /// Do not print out error notes for candidate sources
-    none: void,
-    /// When we want to know the the src of candidate i, look up at
-    /// index i in this slice
-    override: []const ?LazySrcLoc,
-    /// resolvePeerTypes originates from a @TypeOf(...) call
-    typeof_builtin_call_node_offset: i32,
-
-    pub fn resolve(
-        self: PeerTypeCandidateSrc,
-        mod: *Module,
-        decl: *Decl,
-        candidate_i: usize,
-    ) ?LazySrcLoc {
-        @setCold(true);
-        const gpa = mod.gpa;
-
-        switch (self) {
-            .none => {
-                return null;
-            },
-            .override => |candidate_srcs| {
-                if (candidate_i >= candidate_srcs.len)
-                    return null;
-                return candidate_srcs[candidate_i];
-            },
-            .typeof_builtin_call_node_offset => |node_offset| {
-                switch (candidate_i) {
-                    0 => return LazySrcLoc{ .node_offset_builtin_call_arg0 = node_offset },
-                    1 => return LazySrcLoc{ .node_offset_builtin_call_arg1 = node_offset },
-                    2 => return LazySrcLoc{ .node_offset_builtin_call_arg2 = node_offset },
-                    3 => return LazySrcLoc{ .node_offset_builtin_call_arg3 = node_offset },
-                    4 => return LazySrcLoc{ .node_offset_builtin_call_arg4 = node_offset },
-                    5 => return LazySrcLoc{ .node_offset_builtin_call_arg5 = node_offset },
-                    else => {},
-                }
-
-                const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-                    // In this case we emit a warning + a less precise source location.
-                    log.warn("unable to load {s}: {s}", .{
-                        decl.getFileScope(mod).sub_file_path, @errorName(err),
-                    });
-                    return LazySrcLoc.nodeOffset(0);
-                };
-                const node = decl.relativeToNodeIndex(node_offset);
-                const node_datas = tree.nodes.items(.data);
-                const params = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
-
-                return LazySrcLoc{ .node_abs = params[candidate_i] };
-            },
-        }
-    }
-};
-
-const FieldSrcQuery = struct {
-    index: usize,
-    range: enum { name, type, value, alignment } = .name,
-};
-
-fn queryFieldSrc(
-    tree: Ast,
-    query: FieldSrcQuery,
-    file_scope: *File,
-    container_decl: Ast.full.ContainerDecl,
-) SrcLoc {
-    var field_index: usize = 0;
-    for (container_decl.ast.members) |member_node| {
-        const field = tree.fullContainerField(member_node) orelse continue;
-        if (field_index == query.index) {
-            return switch (query.range) {
-                .name => .{
-                    .file_scope = file_scope,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = field.ast.main_token },
-                },
-                .type => .{
-                    .file_scope = file_scope,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .node_abs = field.ast.type_expr },
-                },
-                .value => .{
-                    .file_scope = file_scope,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .node_abs = field.ast.value_expr },
-                },
-                .alignment => .{
-                    .file_scope = file_scope,
-                    .parent_decl_node = 0,
-                    .lazy = .{ .node_abs = field.ast.align_expr },
-                },
-            };
-        }
-        field_index += 1;
-    }
-    unreachable;
-}
-
-pub fn paramSrc(
-    func_node_offset: i32,
-    mod: *Module,
-    decl: *Decl,
-    param_i: usize,
-) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-    const node = decl.relativeToNodeIndex(func_node_offset);
-    var buf: [1]Ast.Node.Index = undefined;
-    const full = tree.fullFnProto(&buf, node).?;
-    var it = full.iterate(tree);
-    var i: usize = 0;
-    while (it.next()) |param| : (i += 1) {
-        if (i == param_i) {
-            if (param.anytype_ellipsis3) |some| {
-                const main_token = tree.nodes.items(.main_token)[decl.src_node];
-                return .{ .token_offset_param = @as(i32, @bitCast(some)) - @as(i32, @bitCast(main_token)) };
-            }
-            return .{ .node_offset_param = decl.nodeIndexToRelative(param.type_expr) };
-        }
-    }
-    unreachable;
-}
-
-pub fn initSrc(
-    mod: *Module,
-    init_node_offset: i32,
-    decl: *Decl,
-    init_index: usize,
-) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-    const node_tags = tree.nodes.items(.tag);
-    const node = decl.relativeToNodeIndex(init_node_offset);
-    var buf: [2]Ast.Node.Index = undefined;
-    switch (node_tags[node]) {
-        .array_init_one,
-        .array_init_one_comma,
-        .array_init_dot_two,
-        .array_init_dot_two_comma,
-        .array_init_dot,
-        .array_init_dot_comma,
-        .array_init,
-        .array_init_comma,
-        => {
-            const full = tree.fullArrayInit(&buf, node).?.ast.elements;
-            return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index]));
-        },
-        .struct_init_one,
-        .struct_init_one_comma,
-        .struct_init_dot_two,
-        .struct_init_dot_two_comma,
-        .struct_init_dot,
-        .struct_init_dot_comma,
-        .struct_init,
-        .struct_init_comma,
-        => {
-            const full = tree.fullStructInit(&buf, node).?.ast.fields;
-            return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) };
-        },
-        else => return LazySrcLoc.nodeOffset(init_node_offset),
-    }
-}
-
-pub fn optionsSrc(mod: *Module, decl: *Decl, base_src: LazySrcLoc, wanted: []const u8) LazySrcLoc {
-    @setCold(true);
-    const gpa = mod.gpa;
-    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope(mod).sub_file_path, @errorName(err),
-        });
-        return LazySrcLoc.nodeOffset(0);
-    };
-
-    const o_i: struct { off: i32, i: u8 } = switch (base_src) {
-        .node_offset_builtin_call_arg0 => |n| .{ .off = n, .i = 0 },
-        .node_offset_builtin_call_arg1 => |n| .{ .off = n, .i = 1 },
-        else => unreachable,
-    };
-
-    const node = decl.relativeToNodeIndex(o_i.off);
-    const node_datas = tree.nodes.items(.data);
-    const node_tags = tree.nodes.items(.tag);
-    const arg_node = switch (node_tags[node]) {
-        .builtin_call_two, .builtin_call_two_comma => switch (o_i.i) {
-            0 => node_datas[node].lhs,
-            1 => node_datas[node].rhs,
-            else => unreachable,
-        },
-        .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + o_i.i],
-        else => unreachable,
-    };
-    var buf: [2]std.zig.Ast.Node.Index = undefined;
-    const init_nodes = if (tree.fullStructInit(&buf, arg_node)) |struct_init| struct_init.ast.fields else return base_src;
-    for (init_nodes) |init_node| {
-        // . IDENTIFIER = init_node
-        const name_token = tree.firstToken(init_node) - 2;
-        const name = tree.tokenSlice(name_token);
-        if (std.mem.eql(u8, name, wanted)) {
-            return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(init_node) };
-        }
-    }
-    return base_src;
 }
 
 /// Called from `Compilation.update`, after everything is done, just before
@@ -5826,7 +5586,7 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
                 try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(zcu),
+                    decl.navSrcLoc(zcu).upgrade(zcu),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
@@ -5857,7 +5617,7 @@ fn reportRetryableFileError(
         mod.gpa,
         .{
             .file_scope = file,
-            .parent_decl_node = 0,
+            .base_node = 0,
             .lazy = .entire_file,
         },
         format,
@@ -6430,27 +6190,6 @@ pub fn iesFuncIndex(mod: *const Module, ies_index: InternPool.Index) InternPool.
 
 pub fn funcInfo(mod: *Module, func_index: InternPool.Index) InternPool.Key.Func {
     return mod.intern_pool.indexToKey(func_index).func;
-}
-
-pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQuery) SrcLoc {
-    @setCold(true);
-    const owner_decl = mod.declPtr(owner_decl_index);
-    const file = owner_decl.getFileScope(mod);
-    const tree = file.getTree(mod.gpa) catch |err| {
-        // In this case we emit a warning + a less precise source location.
-        log.warn("unable to load {s}: {s}", .{
-            file.sub_file_path, @errorName(err),
-        });
-        return owner_decl.srcLoc(mod);
-    };
-    const node = owner_decl.relativeToNodeIndex(0);
-    var buf: [2]Ast.Node.Index = undefined;
-    if (tree.fullContainerDecl(&buf, node)) |container_decl| {
-        return queryFieldSrc(tree.*, query, file, container_decl);
-    } else {
-        // This type was generated using @Type
-        return owner_decl.srcLoc(mod);
-    }
 }
 
 pub fn toEnum(mod: *Module, comptime E: type, val: Value) E {

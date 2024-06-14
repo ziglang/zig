@@ -18,4 +18,3 @@ pub export fn entry() void {
 // target=native
 //
 // :7:28: error: no field named 'c' in enum 'meta.FieldEnum(tmp.MyStruct)'
-// :?:?: note: enum declared here

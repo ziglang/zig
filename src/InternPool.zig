@@ -101,8 +101,11 @@ pub const TrackedInst = extern struct {
     }
     pub const Index = enum(u32) {
         _,
+        pub fn resolveFull(i: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+            return ip.tracked_insts.keys()[@intFromEnum(i)];
+        }
         pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
-            return ip.tracked_insts.keys()[@intFromEnum(i)].inst;
+            return i.resolveFull(ip).inst;
         }
         pub fn toOptional(i: TrackedInst.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -6954,7 +6957,6 @@ fn finishFuncInstance(
     const decl_index = try ip.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
-        .src_node = fn_owner_decl.src_node,
         .src_line = fn_owner_decl.src_line,
         .has_tv = true,
         .owns_tv = true,

@@ -22,7 +22,6 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
-const LazySrcLoc = Zcu.LazySrcLoc;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -2066,7 +2065,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.src_line + 1, // Line
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(mod) * 8,
                     (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
@@ -2236,7 +2235,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.src_line + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -4728,7 +4727,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = dg.decl.srcLoc(mod);
+        const src_loc = dg.decl.navSrcLoc(mod).upgrade(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }

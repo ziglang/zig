@@ -3317,15 +3317,6 @@ pub const Type = struct {
         }
     }
 
-    pub fn declSrcLoc(ty: Type, mod: *Module) Module.SrcLoc {
-        return declSrcLocOrNull(ty, mod).?;
-    }
-
-    pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        const decl = ty.getOwnerDeclOrNull(mod) orelse return null;
-        return mod.declPtr(decl).srcLoc(mod);
-    }
-
     pub fn getOwnerDecl(ty: Type, mod: *Module) InternPool.DeclIndex {
         return ty.getOwnerDeclOrNull(mod) orelse unreachable;
     }
@@ -3339,6 +3330,37 @@ pub const Type = struct {
             .enum_type => ip.loadEnumType(ty.toIntern()).decl,
             else => null,
         };
+    }
+
+    pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Module.LazySrcLoc {
+        const ip = &zcu.intern_pool;
+        return .{
+            .base_node_inst = switch (ip.indexToKey(ty.toIntern())) {
+                .struct_type => |info| switch (info) {
+                    .declared => ip.loadStructType(ty.toIntern()).zir_index.unwrap() orelse return null,
+                    else => return null,
+                },
+                .union_type => |info| switch (info) {
+                    .declared => ip.loadUnionType(ty.toIntern()).zir_index,
+                    else => return null,
+                },
+                .opaque_type => |info| switch (info) {
+                    .declared => ip.loadOpaqueType(ty.toIntern()).zir_index,
+                    else => return null,
+                },
+                .enum_type => |info| switch (info) {
+                    .declared => ip.loadEnumType(ty.toIntern()).zir_index.unwrap().?,
+                    .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index, // must be declared since we can't generate tags when reifying
+                    else => return null,
+                },
+                else => return null,
+            },
+            .offset = Module.LazySrcLoc.Offset.nodeOffset(0),
+        };
+    }
+
+    pub fn srcLoc(ty: Type, zcu: *Zcu) Module.LazySrcLoc {
+        return ty.srcLocOrNull(zcu).?;
     }
 
     pub fn isGenericPoison(ty: Type) bool {

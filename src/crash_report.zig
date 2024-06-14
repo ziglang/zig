@@ -10,6 +10,7 @@ const native_os = builtin.os.tag;
 
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
+const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
 const Decl = Module.Decl;
 
@@ -76,18 +77,19 @@ fn dumpStatusReport() !void {
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
     const mod = anal.sema.mod;
-    const block_src_decl = mod.declPtr(block.src_decl);
+
+    const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(mod, block_src_decl, stderr);
+    try writeFullyQualifiedDeclWithFile(mod, block.src_decl, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
         allocator,
         anal.body,
         anal.body_index,
-        mod.namespacePtr(block.namespace).file_scope,
-        block_src_decl.src_node,
+        file,
+        src_base_node,
         6, // indent
         stderr,
     ) catch |err| switch (err) {
@@ -95,21 +97,21 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(mod.namespacePtr(block.namespace).file_scope, stderr);
+    try writeFilePath(file, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const curr_block_src_decl = mod.declPtr(curr.block.src_decl);
-        try writeFullyQualifiedDeclWithFile(mod, curr_block_src_decl, stderr);
+        const cur_block_file, const cur_block_src_base_node = Module.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
+        try writeFullyQualifiedDeclWithFile(mod, curr.block.src_decl, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            mod.namespacePtr(curr.block.namespace).file_scope,
-            curr_block_src_decl.src_node,
+            cur_block_file,
+            cur_block_src_base_node,
             6, // indent
             stderr,
         ) catch |err| switch (err) {
@@ -138,7 +140,8 @@ fn writeFilePath(file: *Module.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, writer: anytype) !void {
+fn writeFullyQualifiedDeclWithFile(mod: *Module, decl_index: InternPool.DeclIndex, writer: anytype) !void {
+    const decl = mod.declPtr(decl_index);
     try writeFilePath(decl.getFileScope(mod), writer);
     try writer.writeAll(": ");
     try decl.renderFullyQualifiedDebugName(mod, writer);

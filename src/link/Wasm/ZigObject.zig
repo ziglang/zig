@@ -269,7 +269,7 @@ pub fn updateDecl(
 
     const res = try codegen.generateSymbol(
         &wasm_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         val,
         &code_writer,
         .none,
@@ -308,7 +308,7 @@ pub fn updateFunc(
     defer code_writer.deinit();
     const result = try codegen.generateFunction(
         &wasm_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         func_index,
         air,
         liveness,
@@ -484,7 +484,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     });
     defer gpa.free(name);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl.srcLoc(mod))) {
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl.navSrcLoc(mod).upgrade(mod))) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
@@ -867,7 +867,7 @@ pub fn updateExports(
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
             try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
-                decl.srcLoc(mod),
+                decl.navSrcLoc(mod).upgrade(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -900,7 +900,7 @@ pub fn updateExports(
             .link_once => {
                 try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.navSrcLoc(mod).upgrade(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));

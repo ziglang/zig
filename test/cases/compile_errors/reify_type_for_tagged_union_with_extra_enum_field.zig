@@ -31,5 +31,3 @@ export fn entry() void {
 // target=native
 //
 // :13:16: error: enum fields missing in union
-// :1:13: note: field 'arst' missing, declared here
-// :1:13: note: enum declared here

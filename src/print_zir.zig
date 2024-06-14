@@ -48,12 +48,11 @@ pub fn renderAsTextToFile(
             const item = scope_file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const src: LazySrcLoc = .{ .token_abs = item.data.token };
             const import_path = scope_file.zir.nullTerminatedString(item.data.name);
             try stream.print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
-            try writer.writeSrc(stream, src);
+            try writer.writeSrcTokAbs(stream, item.data.token);
             try stream.writeAll("\n");
         }
     }
@@ -188,7 +187,7 @@ const Writer = struct {
     } = .{},
 
     fn relativeToNodeIndex(self: *Writer, offset: i32) Ast.Node.Index {
-        return @as(Ast.Node.Index, @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node))));
+        return @bitCast(offset + @as(i32, @bitCast(self.parent_decl_node)));
     }
 
     fn writeInstToStream(
@@ -578,10 +577,9 @@ const Writer = struct {
             .work_group_id,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-                const src = LazySrcLoc.nodeOffset(inst_data.node);
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
-                try self.writeSrc(stream, src);
+                try self.writeSrcNode(stream, inst_data.node);
             },
 
             .builtin_extern,
@@ -592,12 +590,11 @@ const Writer = struct {
             .c_va_arg,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-                const src = LazySrcLoc.nodeOffset(inst_data.node);
                 try self.writeInstRef(stream, inst_data.lhs);
                 try stream.writeAll(", ");
                 try self.writeInstRef(stream, inst_data.rhs);
                 try stream.writeAll(")) ");
-                try self.writeSrc(stream, src);
+                try self.writeSrcNode(stream, inst_data.node);
             },
 
             .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
@@ -612,9 +609,8 @@ const Writer = struct {
     }
 
     fn writeExtNode(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const src = LazySrcLoc.nodeOffset(@as(i32, @bitCast(extended.operand)));
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, @bitCast(extended.operand));
     }
 
     fn writeArrayInitElemType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -654,7 +650,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.ValidateDestructure, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.operand);
         try stream.print(", {d}) (destructure=", .{extra.expect_len});
-        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.destructure_node));
+        try self.writeSrcNode(stream, extra.destructure_node);
         try stream.writeAll(") ");
         try self.writeSrcNode(stream, inst_data.src_node);
     }
@@ -729,7 +725,7 @@ const Writer = struct {
             try stream.writeAll(")");
         }
         try stream.writeAll(") ");
-        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.data.src_node));
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeInt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -868,7 +864,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.b);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writeMulAdd(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -926,7 +922,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.args);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -1056,7 +1052,6 @@ const Writer = struct {
 
     fn writeCmpxchg(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.Cmpxchg, extended.operand).data;
-        const src = LazySrcLoc.nodeOffset(extra.node);
 
         try self.writeInstRef(stream, extra.ptr);
         try stream.writeAll(", ");
@@ -1068,14 +1063,13 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.failure_order);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writePtrCastFull(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-        const src = LazySrcLoc.nodeOffset(extra.node);
         if (flags.ptr_cast) try stream.writeAll("ptr_cast, ");
         if (flags.align_cast) try stream.writeAll("align_cast, ");
         if (flags.addrspace_cast) try stream.writeAll("addrspace_cast, ");
@@ -1085,19 +1079,18 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writePtrCastNoDest(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-        const src = LazySrcLoc.nodeOffset(extra.node);
         if (flags.const_cast) try stream.writeAll("const_cast, ");
         if (flags.volatile_cast) try stream.writeAll("volatile_cast, ");
         try self.writeInstRef(stream, extra.operand);
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writeAtomicLoad(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -1183,7 +1176,6 @@ const Writer = struct {
 
     fn writeNodeMultiOp(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
-        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const operands = self.code.refSlice(extra.end, extended.small);
 
         for (operands, 0..) |operand, i| {
@@ -1191,7 +1183,7 @@ const Writer = struct {
             try self.writeInstRef(stream, operand);
         }
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeInstNode(
@@ -1212,7 +1204,6 @@ const Writer = struct {
         tmpl_is_expr: bool,
     ) !void {
         const extra = self.code.extraData(Zir.Inst.Asm, extended.operand);
-        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const outputs_len = @as(u5, @truncate(extended.small));
         const inputs_len = @as(u5, @truncate(extended.small >> 5));
         const clobbers_len = @as(u5, @truncate(extended.small >> 10));
@@ -1283,18 +1274,17 @@ const Writer = struct {
             }
         }
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeOverflowArithmetic(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-        const src = LazySrcLoc.nodeOffset(extra.node);
 
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.rhs);
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writeCall(
@@ -2287,9 +2277,8 @@ const Writer = struct {
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const src_node = self.code.instructions.items(.data)[@intFromEnum(inst)].node;
-        const src = LazySrcLoc.nodeOffset(src_node);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, src_node);
     }
 
     fn writeStrTok(
@@ -2507,7 +2496,6 @@ const Writer = struct {
     fn writeAllocExtended(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.AllocExtended, extended.operand);
         const small = @as(Zir.Inst.AllocExtended.Small, @bitCast(extended.small));
-        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
 
         var extra_index: usize = extra.end;
         const type_inst: Zir.Inst.Ref = if (!small.has_type) .none else blk: {
@@ -2525,7 +2513,7 @@ const Writer = struct {
         try self.writeOptionalInstRef(stream, ",ty=", type_inst);
         try self.writeOptionalInstRef(stream, ",align=", align_inst);
         try stream.writeAll(")) ");
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeTypeofPeer(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -2780,9 +2768,8 @@ const Writer = struct {
     }
 
     fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
         try stream.print("{d})) ", .{extended.small});
-        try self.writeSrc(stream, src);
+        try self.writeSrcNode(stream, @bitCast(extended.operand));
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
@@ -2858,30 +2845,44 @@ const Writer = struct {
         try stream.writeAll(name);
     }
 
-    fn writeSrc(self: *Writer, stream: anytype, src: LazySrcLoc) !void {
-        if (self.file.tree_loaded) {
-            const tree = self.file.tree;
-            const src_loc: Module.SrcLoc = .{
-                .file_scope = self.file,
-                .parent_decl_node = self.parent_decl_node,
-                .lazy = src,
-            };
-            const src_span = src_loc.span(self.gpa) catch unreachable;
-            const start = self.line_col_cursor.find(tree.source, src_span.start);
-            const end = self.line_col_cursor.find(tree.source, src_span.end);
-            try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
-                @tagName(src), start.line + 1, start.column + 1,
-                end.line + 1,  end.column + 1,
-            });
-        }
-    }
-
     fn writeSrcNode(self: *Writer, stream: anytype, src_node: i32) !void {
-        return self.writeSrc(stream, LazySrcLoc.nodeOffset(src_node));
+        if (!self.file.tree_loaded) return;
+        const tree = self.file.tree;
+        const abs_node = self.relativeToNodeIndex(src_node);
+        const src_span = tree.nodeToSpan(abs_node);
+        const start = self.line_col_cursor.find(tree.source, src_span.start);
+        const end = self.line_col_cursor.find(tree.source, src_span.end);
+        try stream.print("node_offset:{d}:{d} to :{d}:{d}", .{
+            start.line + 1, start.column + 1,
+            end.line + 1,   end.column + 1,
+        });
     }
 
     fn writeSrcTok(self: *Writer, stream: anytype, src_tok: u32) !void {
-        return self.writeSrc(stream, .{ .token_offset = src_tok });
+        if (!self.file.tree_loaded) return;
+        const tree = self.file.tree;
+        const abs_tok = tree.firstToken(self.parent_decl_node) + src_tok;
+        const span_start = tree.tokens.items(.start)[abs_tok];
+        const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
+        const start = self.line_col_cursor.find(tree.source, span_start);
+        const end = self.line_col_cursor.find(tree.source, span_end);
+        try stream.print("token_offset:{d}:{d} to :{d}:{d}", .{
+            start.line + 1, start.column + 1,
+            end.line + 1,   end.column + 1,
+        });
+    }
+
+    fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: u32) !void {
+        if (!self.file.tree_loaded) return;
+        const tree = self.file.tree;
+        const span_start = tree.tokens.items(.start)[src_tok];
+        const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
+        const start = self.line_col_cursor.find(tree.source, span_start);
+        const end = self.line_col_cursor.find(tree.source, span_end);
+        try stream.print("token_abs:{d}:{d} to :{d}:{d}", .{
+            start.line + 1, start.column + 1,
+            end.line + 1,   end.column + 1,
+        });
     }
 
     fn writeBracedDecl(self: *Writer, stream: anytype, body: []const Zir.Inst.Index) !void {
