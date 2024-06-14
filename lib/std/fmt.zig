@@ -673,6 +673,12 @@ pub fn formatType(
 /// * an error if the specifier doesn't match the given type
 pub fn checkSpecifier(T: type, comptime spec: []const u8) union(enum) { ok: []const u8, err: []const u8 } {
     comptime {
+        const ok = .{ .ok = spec };
+        if (std.meta.hasMethod(T, "format")) {
+            // We don't know what are valid specifier for custom formatting,
+            // accept everything.
+            return ok;
+        }
         if (std.mem.eql(u8, spec, ANY)) {
             return .{ .ok = defaultSpec(T) };
         }
@@ -682,7 +688,6 @@ pub fn checkSpecifier(T: type, comptime spec: []const u8) union(enum) { ok: []co
                 else => .{ .err = "cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier" },
             };
         }
-        const ok = .{ .ok = spec };
 
         const invalid_fmt_err = .{ .err = "invalid format string '" ++ spec ++ "' for type '" ++ @typeName(T) ++ "'" };
 
@@ -733,7 +738,7 @@ pub fn checkSpecifier(T: type, comptime spec: []const u8) union(enum) { ok: []co
                 if (spec.len == 0 or spec[0] != '!')
                     return .{ .err = "cannot format error union without a specifier (i.e. {!} or {any})" };
                 const remaining_spec = stripOptionalOrErrorUnionSpec(spec);
-                return switch (checkSpecifier(info.child, remaining_spec)) {
+                return switch (checkSpecifier(info.payload, remaining_spec)) {
                     .ok => .{ .ok = remaining_spec },
                     .err => |err_msg| .{ .err = err_msg },
                 };
