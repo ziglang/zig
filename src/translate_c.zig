@@ -3824,8 +3824,9 @@ fn transCreateCompoundAssign(
     const lhs_qt = getExprQualType(c, lhs);
     const rhs_qt = getExprQualType(c, rhs);
     const is_signed = cIsSignedInteger(lhs_qt);
+    const is_ptr_arithmetic = qualTypeIsPtr(lhs_qt) and cIsInteger(rhs_qt);
     const is_ptr_op_signed = qualTypeIsPtr(lhs_qt) and cIsSignedInteger(rhs_qt);
-    const requires_cast = !lhs_qt.eq(rhs_qt) and !is_ptr_op_signed;
+    const requires_cast = !lhs_qt.eq(rhs_qt) and !is_ptr_arithmetic;
 
     if (used == .unused) {
         // common case
