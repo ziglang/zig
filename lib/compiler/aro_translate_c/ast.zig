@@ -55,6 +55,8 @@ pub const Node = extern union {
         var_decl,
         /// const name = struct { init }
         static_local_var,
+        /// const ExternLocal_name = struct { init }
+        extern_local_var,
         /// var name = init.*
         mut_str,
         func,
@@ -365,7 +367,7 @@ pub const Node = extern union {
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
-                .var_simple, .pub_var_simple, .static_local_var, .mut_str => Payload.SimpleVarDecl,
+                .var_simple, .pub_var_simple, .static_local_var, .extern_local_var, .mut_str => Payload.SimpleVarDecl,
                 .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
@@ -1241,6 +1243,36 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .static_local_var => {
             const payload = node.castTag(.static_local_var).?.data;
+
+            const const_tok = try c.addToken(.keyword_const, "const");
+            _ = try c.addIdentifier(payload.name);
+            _ = try c.addToken(.equal, "=");
+
+            const kind_tok = try c.addToken(.keyword_struct, "struct");
+            _ = try c.addToken(.l_brace, "{");
+
+            const container_def = try c.addNode(.{
+                .tag = .container_decl_two_trailing,
+                .main_token = kind_tok,
+                .data = .{
+                    .lhs = try renderNode(c, payload.init),
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.r_brace, "}");
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = const_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = container_def,
+                },
+            });
+        },
+        .extern_local_var => {
+            const payload = node.castTag(.extern_local_var).?.data;
 
             const const_tok = try c.addToken(.keyword_const, "const");
             _ = try c.addIdentifier(payload.name);
@@ -2292,7 +2324,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch", .static_local_var, .mut_str => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch", .static_local_var, .extern_local_var, .mut_str => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
             return addSemicolonIfNotBlock(c, payload);
@@ -2388,6 +2420,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shuffle,
         .builtin_extern,
         .static_local_var,
+        .extern_local_var,
         .mut_str,
         .macro_arithmetic,
         => {
