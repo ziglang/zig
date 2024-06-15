@@ -231,10 +231,16 @@ pub const Os = struct {
         win10_vb = 0x0A000008, //aka win10_19h2
         win10_mn = 0x0A000009, //aka win10_20h1
         win10_fe = 0x0A00000A, //aka win10_20h2
+        win10_co = 0x0A00000B, //aka win10_21h1
+        win10_ni = 0x0A00000C, //aka win10_21h2
+        win10_cu = 0x0A00000D, //aka win10_22h2
+        win11_zn = 0x0A00000E, //aka win11_21h2
+        win11_ga = 0x0A00000F, //aka win11_22h2
+        win11_ge = 0x0A000010, //aka win11_23h2
         _,
 
         /// Latest Windows version that the Zig Standard Library is aware of
-        pub const latest = WindowsVersion.win10_fe;
+        pub const latest = WindowsVersion.win11_ge;
 
         /// Compared against build numbers reported by the runtime to distinguish win10 versions,
         /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
@@ -250,6 +256,12 @@ pub const Os = struct {
             18363, //win10_vb aka win10_19h2
             19041, //win10_mn aka win10_20h1
             19042, //win10_fe aka win10_20h2
+            19043, //win10_co aka win10_21h1
+            19044, //win10_ni aka win10_21h2
+            19045, //win10_cu aka win10_22h2
+            22000, //win11_zn aka win11_21h2
+            22621, //win11_ga aka win11_22h2
+            22631, //win11_ge aka win11_23h2
         };
 
         /// Returns whether the first version `ver` is newer (greater) than or equal to the second version `ver`.
