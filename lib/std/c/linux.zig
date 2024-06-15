@@ -51,6 +51,7 @@ pub const Sigaction = linux.Sigaction;
 pub const T = linux.T;
 pub const TCP = linux.TCP;
 pub const TCSA = linux.TCSA;
+pub const TFD = linux.TFD;
 pub const VDSO = linux.VDSO;
 pub const W = linux.W;
 pub const W_OK = linux.W_OK;
@@ -68,6 +69,7 @@ pub const fd_t = linux.fd_t;
 pub const gid_t = linux.gid_t;
 pub const ifreq = linux.ifreq;
 pub const ino_t = linux.ino_t;
+pub const itimerspec = linux.itimerspec;
 pub const mcontext_t = linux.mcontext_t;
 pub const mode_t = linux.mode_t;
 pub const msghdr = linux.msghdr;
@@ -75,6 +77,7 @@ pub const msghdr_const = linux.msghdr_const;
 pub const nfds_t = linux.nfds_t;
 pub const nlink_t = linux.nlink_t;
 pub const off_t = linux.off_t;
+pub const perf_event_attr = linux.perf_event_attr;
 pub const pid_t = linux.pid_t;
 pub const pollfd = linux.pollfd;
 pub const rlim_t = linux.rlim_t;
@@ -344,3 +347,12 @@ pub const dirent64 = struct {
     type: u8,
     name: [256]u8,
 };
+
+pub extern "c" fn timerfd_create(clockid: c_int, flags: c_int) c_int;
+pub extern "c" fn timerfd_settime(
+    fd: c_int,
+    flags: c_int,
+    new_value: *const itimerspec,
+    old_value: ?*itimerspec,
+) c_int;
+pub extern "c" fn timerfd_gettime(fd: c_int, curr_value: *itimerspec) c_int;
