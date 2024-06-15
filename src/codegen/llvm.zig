@@ -1744,7 +1744,7 @@ pub const Object = struct {
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
         } else {
-            const fqn = try self.builder.strtabString((try decl.fullyQualifiedName(zcu)).toSlice(ip));
+            const fqn = try self.builder.strtabString((try decl.fullyQualifiedName(pt)).toSlice(ip));
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
             if (comp.config.dll_export_fns)
@@ -2520,7 +2520,7 @@ pub const Object = struct {
                     const field_offset = ty.structFieldOffset(field_index, pt);
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(gpa, "{d}", .{field_index}, .no_embedded_nulls);
+                        try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
 
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
@@ -2807,17 +2807,18 @@ pub const Object = struct {
     }
 
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
-        const zcu = o.pt.zcu;
+        const pt = o.pt;
+        const zcu = pt.zcu;
 
         const std_mod = zcu.std_mod;
         const std_file_imported = zcu.importPkg(std_mod) catch unreachable;
 
-        const builtin_str = try zcu.intern_pool.getOrPutString(zcu.gpa, "builtin", .no_embedded_nulls);
+        const builtin_str = try zcu.intern_pool.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
         const std_file_root_decl = zcu.fileRootDecl(std_file_imported.file_index);
         const std_namespace = zcu.namespacePtr(zcu.declPtr(std_file_root_decl.unwrap().?).src_namespace);
         const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Zcu.DeclAdapter{ .zcu = zcu }).?;
 
-        const stack_trace_str = try zcu.intern_pool.getOrPutString(zcu.gpa, "StackTrace", .no_embedded_nulls);
+        const stack_trace_str = try zcu.intern_pool.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = zcu.declPtr(builtin_decl).val.toType();
         const builtin_namespace = zcu.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(zcu)).?;
@@ -2865,7 +2866,7 @@ pub const Object = struct {
             try o.builder.strtabString((if (is_extern)
                 decl.name
             else
-                try decl.fullyQualifiedName(zcu)).toSlice(ip)),
+                try decl.fullyQualifiedName(pt)).toSlice(ip)),
             toLlvmAddressSpace(decl.@"addrspace", target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
@@ -3074,7 +3075,8 @@ pub const Object = struct {
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
         errdefer assert(o.decl_map.remove(decl_index));
 
-        const zcu = o.pt.zcu;
+        const pt = o.pt;
+        const zcu = pt.zcu;
         const decl = zcu.declPtr(decl_index);
         const is_extern = decl.isExtern(zcu);
 
@@ -3082,7 +3084,7 @@ pub const Object = struct {
             try o.builder.strtabString((if (is_extern)
                 decl.name
             else
-                try decl.fullyQualifiedName(zcu)).toSlice(&zcu.intern_pool)),
+                try decl.fullyQualifiedName(pt)).toSlice(&zcu.intern_pool)),
             try o.lowerType(decl.typeOf(zcu)),
             toLlvmGlobalAddressSpace(decl.@"addrspace", zcu.getTarget()),
         );
@@ -3310,7 +3312,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    const fqn = try mod.declPtr(struct_type.decl.unwrap().?).fullyQualifiedName(mod);
+                    const fqn = try mod.declPtr(struct_type.decl.unwrap().?).fullyQualifiedName(pt);
 
                     var llvm_field_types = std.ArrayListUnmanaged(Builder.Type){};
                     defer llvm_field_types.deinit(o.gpa);
@@ -3464,7 +3466,7 @@ pub const Object = struct {
                         return enum_tag_ty;
                     }
 
-                    const fqn = try mod.declPtr(union_obj.decl).fullyQualifiedName(mod);
+                    const fqn = try mod.declPtr(union_obj.decl).fullyQualifiedName(pt);
 
                     const aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[layout.most_aligned_field]);
                     const aligned_field_llvm_ty = try o.lowerType(aligned_field_ty);
@@ -3525,7 +3527,7 @@ pub const Object = struct {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
                         const decl = mod.declPtr(ip.loadOpaqueType(t.toIntern()).decl);
-                        const fqn = try decl.fullyQualifiedName(mod);
+                        const fqn = try decl.fullyQualifiedName(pt);
                         gop.value_ptr.* = try o.builder.opaqueType(try o.builder.string(fqn.toSlice(ip)));
                     }
                     return gop.value_ptr.*;
@@ -4585,7 +4587,7 @@ pub const Object = struct {
 
         const usize_ty = try o.lowerType(Type.usize);
         const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(zcu);
+        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(pt);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
@@ -5173,7 +5175,7 @@ pub const FuncGen = struct {
             const line_number = decl.navSrcLine(zcu) + 1;
             self.inlined = self.wip.debug_location;
 
-            const fqn = try decl.fullyQualifiedName(zcu);
+            const fqn = try decl.fullyQualifiedName(pt);
 
             const fn_ty = try pt.funcType(.{
                 .param_types = &.{},
@@ -9707,7 +9709,7 @@ pub const FuncGen = struct {
         if (gop.found_existing) return gop.value_ptr.*;
         errdefer assert(o.named_enum_map.remove(enum_type.decl));
 
-        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(zcu);
+        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(pt);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),

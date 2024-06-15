@@ -756,7 +756,7 @@ fn lowerDeclRef(
         return Result.ok;
     }
 
-    const vaddr = try lf.getDeclVAddr(decl_index, .{
+    const vaddr = try lf.getDeclVAddr(pt, decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
         .addend = @intCast(offset),

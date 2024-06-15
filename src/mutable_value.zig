@@ -71,7 +71,7 @@ pub const MutableValue = union(enum) {
             } }),
             .bytes => |b| try pt.intern(.{ .aggregate = .{
                 .ty = b.ty,
-                .storage = .{ .bytes = try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, b.data, .maybe_embedded_nulls) },
+                .storage = .{ .bytes = try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, pt.tid, b.data, .maybe_embedded_nulls) },
             } }),
             .aggregate => |a| {
                 const elems = try arena.alloc(InternPool.Index, a.elems.len);

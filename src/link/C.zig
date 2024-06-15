@@ -383,11 +383,11 @@ pub fn updateDecl(self: *C, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex)
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateDeclLineNumber(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *C, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
-    _ = zcu;
+    _ = pt;
     _ = decl_index;
 }
 

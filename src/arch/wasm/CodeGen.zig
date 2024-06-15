@@ -2204,14 +2204,14 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const func_val = (try func.air.value(pl_op.operand, pt)) orelse break :blk null;
 
         if (func_val.getFunction(mod)) |function| {
-            _ = try func.bin_file.getOrCreateAtomForDecl(function.owner_decl);
+            _ = try func.bin_file.getOrCreateAtomForDecl(pt, function.owner_decl);
             break :blk function.owner_decl;
         } else if (func_val.getExternFunc(mod)) |extern_func| {
             const ext_decl = mod.declPtr(extern_func.decl);
             const ext_info = mod.typeToFunc(ext_decl.typeOf(mod)).?;
             var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types.get(ip), Type.fromInterned(ext_info.return_type), pt);
             defer func_type.deinit(func.gpa);
-            const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_func.decl);
+            const atom_index = try func.bin_file.getOrCreateAtomForDecl(pt, extern_func.decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
             const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
@@ -2224,7 +2224,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else switch (mod.intern_pool.indexToKey(func_val.ip_index)) {
             .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                 .decl => |decl| {
-                    _ = try func.bin_file.getOrCreateAtomForDecl(decl);
+                    _ = try func.bin_file.getOrCreateAtomForDecl(pt, decl);
                     break :blk decl;
                 },
                 else => {},
@@ -3227,7 +3227,7 @@ fn lowerDeclRefValue(func: *CodeGen, decl_index: InternPool.DeclIndex, offset: u
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    const atom_index = try func.bin_file.getOrCreateAtomForDecl(decl_index);
+    const atom_index = try func.bin_file.getOrCreateAtomForDecl(pt, decl_index);
     const atom = func.bin_file.getAtom(atom_index);
 
     const target_sym_index = @intFromEnum(atom.sym_index);
@@ -7284,7 +7284,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(mod);
+    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(pt);
     const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{fqn.fmt(ip)});
 
     // check if we already generated code for this.

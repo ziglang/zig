@@ -908,7 +908,7 @@ fn updateDeclCode(
     const gpa = elf_file.base.comp.gpa;
     const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
     log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
@@ -1009,7 +1009,7 @@ fn updateTlv(
     const mod = pt.zcu;
     const gpa = mod.gpa;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
     log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
 
@@ -1286,7 +1286,7 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
@@ -1466,19 +1466,19 @@ pub fn updateExports(
 /// Must be called only after a successful call to `updateDecl`.
 pub fn updateDeclLineNumber(
     self: *ZigObject,
-    mod: *Module,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl = pt.zcu.declPtr(decl_index);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
 
     if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(mod, decl_index);
+        try dw.updateDeclLineNumber(pt.zcu, decl_index);
     }
 }
 

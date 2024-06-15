@@ -1176,7 +1176,7 @@ pub fn lowerUnnamedConst(self: *Coff, pt: Zcu.PerThread, val: Value, decl_index:
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(sym_name);
@@ -1427,7 +1427,7 @@ fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
     const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
     log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
     const required_alignment: u32 = @intCast(decl.getAlignment(pt).toByteUnits() orelse 0);
@@ -1855,7 +1855,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     assert(!self.imports_count_dirty);
 }
 
-pub fn getDeclVAddr(self: *Coff, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Coff, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
@@ -1972,9 +1972,9 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     _ = self;
-    _ = module;
+    _ = pt;
     _ = decl_index;
     log.debug("TODO implement updateDeclLineNumber", .{});
 }

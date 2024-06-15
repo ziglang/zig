@@ -253,7 +253,7 @@ pub fn updateDecl(
     }
 
     const gpa = wasm_file.base.comp.gpa;
-    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const atom = wasm_file.getAtomPtr(atom_index);
     atom.clear();
 
@@ -302,7 +302,7 @@ pub fn updateFunc(
     const func = pt.zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = pt.zcu.declPtr(decl_index);
-    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const atom = wasm_file.getAtomPtr(atom_index);
     atom.clear();
 
@@ -346,7 +346,7 @@ fn finishUpdateDecl(
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = try decl.fullyQualifiedName(zcu);
+    const full_name = try decl.fullyQualifiedName(pt);
     sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(ip));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
@@ -424,17 +424,21 @@ fn createDataSegment(
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool.DeclIndex) !Atom.Index {
-    const gpa = wasm_file.base.comp.gpa;
+pub fn getOrCreateAtomForDecl(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    pt: Zcu.PerThread,
+    decl_index: InternPool.DeclIndex,
+) !Atom.Index {
+    const gpa = pt.zcu.gpa;
     const gop = try zig_object.decls_map.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const sym_index = try zig_object.allocateSymbol(gpa);
         gop.value_ptr.* = .{ .atom = try wasm_file.createAtom(sym_index, zig_object.index) };
-        const mod = wasm_file.base.comp.module.?;
-        const decl = mod.declPtr(decl_index);
-        const full_name = try decl.fullyQualifiedName(mod);
+        const decl = pt.zcu.declPtr(decl_index);
+        const full_name = try decl.fullyQualifiedName(pt);
         const sym = zig_object.symbol(sym_index);
-        sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&mod.intern_pool));
+        sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&pt.zcu.intern_pool));
     }
     return gop.value_ptr.atom;
 }
@@ -487,10 +491,10 @@ pub fn lowerUnnamedConst(
     std.debug.assert(val.typeOf(mod).zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
-    const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
+    const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const parent_atom = wasm_file.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = try decl.fullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(pt);
     const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{}_{d}", .{
         fqn.fmt(&mod.intern_pool), local_index,
     });
@@ -775,22 +779,22 @@ pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []c
 pub fn getDeclVAddr(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const target = wasm_file.base.comp.root_mod.resolved_target.result;
-    const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const gpa = pt.zcu.gpa;
+    const decl = pt.zcu.declPtr(decl_index);
 
-    const target_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
+    const target_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const target_symbol_index = @intFromEnum(wasm_file.getAtom(target_atom_index).sym_index);
 
     std.debug.assert(reloc_info.parent_atom_index != 0);
     const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
     const atom = wasm_file.getAtomPtr(atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    if (decl.typeOf(mod).zigTypeTag(mod) == .Fn) {
+    if (decl.typeOf(pt.zcu).zigTypeTag(pt.zcu) == .Fn) {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
         try atom.relocs.append(gpa, .{
             .index = target_symbol_index,
@@ -890,7 +894,7 @@ pub fn updateExports(
         },
     };
     const decl = mod.declPtr(decl_index);
-    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
+    const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const decl_info = zig_object.decls_map.getPtr(decl_index).?;
     const atom = wasm_file.getAtom(atom_index);
     const atom_sym = atom.symbolLoc().getSymbol(wasm_file).*;
@@ -1116,13 +1120,17 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, inde
     return atom_index;
 }
 
-pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Zcu, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(
+    zig_object: *ZigObject,
+    pt: Zcu.PerThread,
+    decl_index: InternPool.DeclIndex,
+) !void {
     if (zig_object.dwarf) |*dw| {
-        const decl = mod.declPtr(decl_index);
-        const decl_name = try decl.fullyQualifiedName(mod);
+        const decl = pt.zcu.declPtr(decl_index);
+        const decl_name = try decl.fullyQualifiedName(pt);
 
-        log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
-        try dw.updateDeclLineNumber(mod, decl_index);
+        log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
+        try dw.updateDeclLineNumber(pt.zcu, decl_index);
     }
 }
 

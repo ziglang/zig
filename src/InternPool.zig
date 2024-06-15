@@ -4539,7 +4539,7 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
     assert(ip.items.len == 0);
 
     // Reserve string index 0 for an empty string.
-    assert((try ip.getOrPutString(gpa, "", .no_embedded_nulls)) == .empty);
+    assert((try ip.getOrPutString(gpa, .main, "", .no_embedded_nulls)) == .empty);
 
     // So that we can use `catch unreachable` below.
     try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
@@ -5986,6 +5986,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 );
                 const string = try ip.getOrPutTrailingString(
                     gpa,
+                    tid,
                     @intCast(len_including_sentinel),
                     .maybe_embedded_nulls,
                 );
@@ -6865,6 +6866,7 @@ pub fn getFuncInstance(
     return finishFuncInstance(
         ip,
         gpa,
+        tid,
         generic_owner,
         func_index,
         func_extra_index,
@@ -6879,7 +6881,7 @@ pub fn getFuncInstance(
 pub fn getFuncInstanceIes(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     arg: GetFuncInstanceKey,
 ) Allocator.Error!Index {
     // Validate input parameters.
@@ -6994,6 +6996,7 @@ pub fn getFuncInstanceIes(
     return finishFuncInstance(
         ip,
         gpa,
+        tid,
         generic_owner,
         func_index,
         func_extra_index,
@@ -7005,6 +7008,7 @@ pub fn getFuncInstanceIes(
 fn finishFuncInstance(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     generic_owner: Index,
     func_index: Index,
     func_extra_index: u32,
@@ -7036,7 +7040,7 @@ fn finishFuncInstance(
 
     // TODO: improve this name
     const decl = ip.declPtr(decl_index);
-    decl.name = try ip.getOrPutStringFmt(gpa, "{}__anon_{d}", .{
+    decl.name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
         fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
     }, .no_embedded_nulls);
 
@@ -8782,18 +8786,20 @@ const EmbeddedNulls = enum {
 pub fn getOrPutString(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     slice: []const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
     try ip.string_bytes.ensureUnusedCapacity(gpa, slice.len + 1);
     ip.string_bytes.appendSliceAssumeCapacity(slice);
     ip.string_bytes.appendAssumeCapacity(0);
-    return ip.getOrPutTrailingString(gpa, slice.len + 1, embedded_nulls);
+    return ip.getOrPutTrailingString(gpa, tid, slice.len + 1, embedded_nulls);
 }
 
 pub fn getOrPutStringFmt(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     comptime format: []const u8,
     args: anytype,
     comptime embedded_nulls: EmbeddedNulls,
@@ -8803,16 +8809,17 @@ pub fn getOrPutStringFmt(
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
     ip.string_bytes.appendAssumeCapacity(0);
-    return ip.getOrPutTrailingString(gpa, len, embedded_nulls);
+    return ip.getOrPutTrailingString(gpa, tid, len, embedded_nulls);
 }
 
 pub fn getOrPutStringOpt(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     slice: ?[]const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.OptionalStringType() {
-    const string = try getOrPutString(ip, gpa, slice orelse return .none, embedded_nulls);
+    const string = try getOrPutString(ip, gpa, tid, slice orelse return .none, embedded_nulls);
     return string.toOptional();
 }
 
@@ -8820,9 +8827,11 @@ pub fn getOrPutStringOpt(
 pub fn getOrPutTrailingString(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     len: usize,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
+    _ = tid;
     const string_bytes = &ip.string_bytes;
     const str_index: u32 = @intCast(string_bytes.items.len - len);
     if (len > 0 and string_bytes.getLast() == 0) {

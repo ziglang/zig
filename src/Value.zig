@@ -67,7 +67,7 @@ pub fn toIpString(val: Value, ty: Type, pt: Zcu.PerThread) !InternPool.NullTermi
             const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(pt));
             const len: usize = @intCast(ty.arrayLen(mod));
             try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
-            return ip.getOrPutTrailingString(mod.gpa, len, .no_embedded_nulls);
+            return ip.getOrPutTrailingString(mod.gpa, pt.tid, len, .no_embedded_nulls);
         },
     }
 }
@@ -118,7 +118,7 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
         const byte: u8 = @intCast(elem_val.toUnsignedInt(pt));
         ip.string_bytes.appendAssumeCapacity(byte);
     }
-    return ip.getOrPutTrailingString(gpa, len, .no_embedded_nulls);
+    return ip.getOrPutTrailingString(gpa, pt.tid, len, .no_embedded_nulls);
 }
 
 pub fn fromInterned(i: InternPool.Index) Value {

@@ -1457,9 +1457,9 @@ pub fn updateDecl(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
     try wasm.zigObjectPtr().?.updateDecl(wasm, pt, decl_index);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Zcu, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
+    try wasm.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1521,10 +1521,11 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !Sy
 /// Returns the given pointer address
 pub fn getDeclVAddr(
     wasm: *Wasm,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, decl_index, reloc_info);
+    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, pt, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(
@@ -4016,8 +4017,8 @@ pub fn getErrorTableSymbol(wasm_file: *Wasm, pt: Zcu.PerThread) !u32 {
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, decl_index: InternPool.DeclIndex) !Atom.Index {
-    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, decl_index);
+pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !Atom.Index {
+    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
 }
 
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,

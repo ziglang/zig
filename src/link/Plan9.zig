@@ -483,7 +483,7 @@ pub fn lowerUnnamedConst(self: *Plan9, pt: Zcu.PerThread, val: Value, decl_index
     }
     const unnamed_consts = gop.value_ptr;
 
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
     const index = unnamed_consts.items.len;
     // name is freed when the unnamed const is freed
@@ -1496,22 +1496,22 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Plan9, mod: *Zcu, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *Plan9, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     _ = self;
-    _ = mod;
+    _ = pt;
     _ = decl_index;
 }
 
 pub fn getDeclVAddr(
     self: *Plan9,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    const mod = self.base.comp.module.?;
-    const ip = &mod.intern_pool;
-    const decl = mod.declPtr(decl_index);
+    const ip = &pt.zcu.intern_pool;
+    const decl = pt.zcu.declPtr(decl_index);
     log.debug("getDeclVAddr for {}", .{decl.name.fmt(ip)});
-    if (decl.isExtern(mod)) {
+    if (decl.isExtern(pt.zcu)) {
         if (decl.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent_atom_index, .{
                 .target = undefined,

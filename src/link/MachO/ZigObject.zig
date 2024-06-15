@@ -810,7 +810,7 @@ fn updateDeclCode(
     const gpa = macho_file.base.comp.gpa;
     const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
     log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
@@ -893,13 +893,12 @@ fn updateTlv(
     sect_index: u8,
     code: []const u8,
 ) !void {
-    const mod = pt.zcu;
-    const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl = pt.zcu.declPtr(decl_index);
+    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
 
-    const decl_name_slice = decl_name.toSlice(&mod.intern_pool);
+    const decl_name_slice = decl_name.toSlice(&pt.zcu.intern_pool);
     const required_alignment = decl.getAlignment(pt);
 
     // 1. Lower TLV initializer
@@ -1100,7 +1099,7 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(mod);
+    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
@@ -1363,9 +1362,9 @@ fn updateLazySymbol(
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *ZigObject, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (self.dwarf) |*dw| {
-        try dw.updateDeclLineNumber(mod, decl_index);
+        try dw.updateDeclLineNumber(pt.zcu, decl_index);
     }
 }
 

@@ -3198,9 +3198,9 @@ pub fn updateDecl(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIn
     return self.getZigObject().?.updateDecl(self, pt, decl_index);
 }
 
-pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
+    return self.getZigObject().?.updateDeclLineNumber(pt, decl_index);
 }
 
 pub fn updateExports(
@@ -3230,7 +3230,7 @@ pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     return self.getZigObject().?.freeDecl(decl_index);
 }
 
-pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *MachO, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
     return self.getZigObject().?.getDeclVAddr(self, decl_index, reloc_info);
 }

@@ -1082,7 +1082,7 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
     defer tracy.end();
 
     const decl = pt.zcu.declPtr(decl_index);
-    const decl_linkage_name = try decl.fullyQualifiedName(pt.zcu);
+    const decl_linkage_name = try decl.fullyQualifiedName(pt);
 
     log.debug("initDeclState {}{*}", .{ decl_linkage_name.fmt(&pt.zcu.intern_pool), decl });
 

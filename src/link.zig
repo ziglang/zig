@@ -424,14 +424,14 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Zcu, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
-        const decl = module.declPtr(decl_index);
+    pub fn updateDeclLineNumber(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
+        const decl = pt.zcu.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
             .spirv, .nvptx => {},
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDeclLineNumber(module, decl_index);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDeclLineNumber(pt, decl_index);
             },
         }
     }
@@ -626,14 +626,14 @@ pub const File = struct {
     /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
     /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
     /// the block/atom.
-    pub fn getDeclVAddr(base: *File, decl_index: InternPool.DeclIndex, reloc_info: RelocInfo) !u64 {
+    pub fn getDeclVAddr(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: RelocInfo) !u64 {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).getDeclVAddr(decl_index, reloc_info);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getDeclVAddr(pt, decl_index, reloc_info);
             },
         }
     }

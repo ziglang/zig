@@ -543,7 +543,7 @@ pub fn deinit(self: *Elf) void {
     self.comdat_group_sections.deinit(gpa);
 }
 
-pub fn getDeclVAddr(self: *Elf, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Elf, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
     return self.zigObjectPtr().?.getDeclVAddr(self, decl_index, reloc_info);
 }
@@ -3021,9 +3021,9 @@ pub fn updateExports(
     return self.zigObjectPtr().?.updateExports(self, pt, exported, export_indices);
 }
 
-pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *Elf, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
+    return self.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
 }
 
 pub fn deleteExport(

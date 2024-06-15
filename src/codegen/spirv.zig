@@ -1753,7 +1753,7 @@ const DeclGen = struct {
                     }
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index}, .no_embedded_nulls);
+                        try ip.getOrPutStringFmt(mod.gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
                     try member_types.append(try self.resolveType(field_ty, .indirect));
                     try member_names.append(field_name.toSlice(ip));
                 }
@@ -3012,7 +3012,7 @@ const DeclGen = struct {
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                const fqn = try decl.fullyQualifiedName(self.pt.zcu);
+                const fqn = try decl.fullyQualifiedName(self.pt);
                 try self.spv.debugName(result_id, fqn.toSlice(ip));
 
                 // Temporarily generate a test kernel declaration if this is a test function.
@@ -3041,7 +3041,7 @@ const DeclGen = struct {
                     .storage_class = final_storage_class,
                 });
 
-                const fqn = try decl.fullyQualifiedName(self.pt.zcu);
+                const fqn = try decl.fullyQualifiedName(self.pt);
                 try self.spv.debugName(result_id, fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
@@ -3086,7 +3086,7 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    const fqn = try decl.fullyQualifiedName(self.pt.zcu);
+                    const fqn = try decl.fullyQualifiedName(self.pt);
                     try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
