@@ -582,7 +582,7 @@ pub fn tmpDir(alloc: std.mem.Allocator, opts: std.fs.Dir.OpenDirOptions) TmpDir 
 
             break :blk tmp_path;
         } else {
-            break :blk alloc.dupe(u8, ".zig-cache" ++ .{std.fs.path.sep} ++ "tmp") catch
+            break :blk std.fs.path.join(alloc, &.{ ".zig-cache", "tmp" }) catch
                 @panic(cache_fail_msg);
         }
     };
