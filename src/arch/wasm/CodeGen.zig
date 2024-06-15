@@ -1727,7 +1727,6 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Bool,
         .ErrorSet,
         .Fn,
-        .Enum,
         .AnyFrame,
         => return false,
 
@@ -1750,6 +1749,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
         },
         .Vector => return determineSimdStoreStrategy(ty, mod) == .unrolled,
         .Int => return ty.intInfo(mod).bits > 64,
+        .Enum => return ty.intInfo(mod).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload(mod);
@@ -2404,7 +2404,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return;
             }
         },
-        .Int, .Float => if (abi_size > 8 and abi_size <= 16) {
+        .Int, .Enum, .Float => if (abi_size > 8 and abi_size <= 16) {
             try func.emitWValue(lhs);
             const lsb = try func.load(rhs, Type.u64, 0);
             try func.store(.{ .stack = {} }, lsb, Type.u64, 0 + lhs.offset());
@@ -3187,12 +3187,10 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
     return @as(WantedT, @intCast(result));
 }
 
-/// This function is intended to assert that `isByRef` returns `false` for `ty`.
-/// However such an assertion fails on the behavior tests currently.
+/// Asserts that `isByRef` returns `false` for `ty`.
 fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
-    // TODO: enable this assertion
-    //assert(!isByRef(ty, mod));
+    assert(!isByRef(ty, mod));
     const ip = &mod.intern_pool;
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
 

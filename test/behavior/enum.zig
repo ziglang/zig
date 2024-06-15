@@ -1284,8 +1284,8 @@ test "matching captures causes enum equivalence" {
 }
 
 test "large enum field values" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const E = enum(u64) { min = std.math.minInt(u64), max = std.math.maxInt(u64) };

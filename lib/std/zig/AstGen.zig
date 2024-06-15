@@ -2728,8 +2728,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .union_init,
             .field_type_ref,
             .error_set_decl,
-            .error_set_decl_anon,
-            .error_set_decl_func,
             .enum_from_int,
             .int_from_enum,
             .type_info,
@@ -11308,7 +11306,7 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
             return astgen.failOff(
                 token,
                 offset + @as(u32, @intCast(bad_index)),
-                "unicode escape does not correspond to a valid codepoint",
+                "unicode escape does not correspond to a valid unicode scalar value",
                 .{},
             );
         },

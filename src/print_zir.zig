@@ -452,9 +452,7 @@ const Writer = struct {
             .try_ptr,
             => try self.writeTry(stream, inst),
 
-            .error_set_decl => try self.writeErrorSetDecl(stream, inst, .parent),
-            .error_set_decl_anon => try self.writeErrorSetDecl(stream, inst, .anon),
-            .error_set_decl_func => try self.writeErrorSetDecl(stream, inst, .func),
+            .error_set_decl => try self.writeErrorSetDecl(stream, inst),
 
             .switch_block,
             .switch_block_ref,
@@ -1968,12 +1966,9 @@ const Writer = struct {
         self: *Writer,
         stream: anytype,
         inst: Zir.Inst.Index,
-        name_strategy: Zir.Inst.NameStrategy,
     ) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
-
-        try stream.print("{s}, ", .{@tagName(name_strategy)});
 
         try stream.writeAll("{\n");
         self.indent += 2;

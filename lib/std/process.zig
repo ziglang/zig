@@ -32,9 +32,9 @@ pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
 /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
-    // The use of MAX_PATH_BYTES here is just a heuristic: most paths will fit
+    // The use of max_path_bytes here is just a heuristic: most paths will fit
     // in stack_buf, avoiding an extra allocation in the common case.
-    var stack_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var stack_buf: [fs.max_path_bytes]u8 = undefined;
     var heap_buf: ?[]u8 = null;
     defer if (heap_buf) |buf| allocator.free(buf);
 
@@ -1618,7 +1618,7 @@ pub const can_execv = switch (native_os) {
     else => true,
 };
 
-/// Tells whether spawning child processes is supported (e.g. via ChildProcess)
+/// Tells whether spawning child processes is supported (e.g. via Child)
 pub const can_spawn = switch (native_os) {
     .wasi, .watchos, .tvos, .visionos => false,
     else => true,

@@ -342,8 +342,8 @@ const Md5Writer = struct {
 };
 
 test "run test cases" {
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
     for (cases) |case| {
         var fsb = std.io.fixedBufferStream(case.data);

@@ -706,7 +706,7 @@ pub fn printString(bytes: []const u8, ty: Type, comp: *const Compilation, w: any
     switch (size) {
         inline .@"1", .@"2" => |sz| {
             const data_slice: []const sz.Type() = @alignCast(std.mem.bytesAsSlice(sz.Type(), without_null));
-            const formatter = if (sz == .@"1") std.zig.fmtEscapes(data_slice) else std.unicode.fmtUtf16le(data_slice);
+            const formatter = if (sz == .@"1") std.zig.fmtEscapes(data_slice) else std.unicode.fmtUtf16Le(data_slice);
             try w.print("\"{}\"", .{formatter});
         },
         .@"4" => {

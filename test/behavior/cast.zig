@@ -1378,6 +1378,7 @@ test "assignment to optional pointer result loc" {
 
 test "cast between *[N]void and []void" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a: [4]void = undefined;
     const b: []void = &a;

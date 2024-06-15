@@ -1212,7 +1212,7 @@ fn unindent(s: []const u8, indent: usize) []const u8 {
 }
 
 fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usize) !void {
-    var it = std.mem.split(u8, s, "\n");
+    var it = std.mem.splitScalar(u8, s, '\n');
     var is_first_line = true;
     while (it.next()) |line| {
         if (is_first_line) {

@@ -397,7 +397,7 @@ fn collectLibDirsAndTriples(
 }
 
 pub fn discover(self: *GCCDetector, tc: *Toolchain) !void {
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
 
     const target = tc.getTarget();
@@ -589,7 +589,7 @@ fn scanLibDirForGCCTriple(
     gcc_dir_exists: bool,
     gcc_cross_dir_exists: bool,
 ) !void {
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
     for (0..2) |i| {
         if (i == 0 and !gcc_dir_exists) continue;
