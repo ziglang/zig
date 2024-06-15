@@ -1397,7 +1397,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .error_limit = error_limit,
                 .llvm_object = null,
             };
-            try zcu.init();
+            try zcu.init(options.thread_pool.getIdCount());
             break :blk zcu;
         } else blk: {
             if (options.emit_h != null) return error.NoZigModuleForCHeader;
@@ -2156,7 +2156,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         if (build_options.enable_debug_extensions and comp.verbose_generic_instances) {
             std.debug.print("generic instances for '{s}:0x{x}':\n", .{
                 comp.root_name,
-                @as(usize, @intFromPtr(zcu)),
+                @intFromPtr(zcu),
             });
             zcu.intern_pool.dumpGenericInstances(gpa);
         }

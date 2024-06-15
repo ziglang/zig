@@ -291,3 +291,7 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
         return;
     }
 }
+
+pub fn getIdCount(pool: *Pool) usize {
+    return 1 + pool.threads.len;
+}

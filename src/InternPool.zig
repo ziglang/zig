@@ -2,9 +2,10 @@
 //! This data structure is self-contained, with the following exceptions:
 //! * Module.Namespace has a pointer to Module.File
 
-/// Maps `Key` to `Index`. `Key` objects are not stored anywhere; they are
-/// constructed lazily.
-map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+local: []Local = &.{},
+shard_shift: std.math.Log2Int(usize) = 0,
+shards: []Shard = &.{},
+
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
 /// On 32-bit systems, this array is ignored and extra is used for everything.
@@ -351,6 +352,115 @@ pub const DepEntry = extern struct {
     };
 };
 
+const Local = struct {
+    aligned: void align(std.atomic.cache_line) = {},
+
+    /// node: Garbage.Node,
+    /// header: List.Header,
+    /// data: [capacity]u32,
+    /// tag: [capacity]Tag,
+    items: List,
+
+    /// node: Garbage.Node,
+    /// header: List.Header,
+    /// extra: [capacity]u32,
+    extra: List,
+
+    garbage: Garbage,
+
+    const List = struct {
+        entries: [*]u32,
+
+        const empty: List = .{
+            .entries = @constCast(&[_]u32{ 0, 0 })[Header.fields_len..].ptr,
+        };
+
+        fn acquire(list: *const List) List {
+            return .{ .entries = @atomicLoad([*]u32, &list.entries, .acquire) };
+        }
+        fn release(list: *List, new_list: List) void {
+            @atomicStore([*]u32, &list.entries, new_list.entries, .release);
+        }
+
+        const Header = extern struct {
+            len: u32,
+            capacity: u32,
+
+            const fields_len = @typeInfo(Header).Struct.fields.len;
+        };
+        fn header(list: List) *Header {
+            return @ptrCast(list.entries - Header.fields_len);
+        }
+    };
+
+    const Garbage = std.SinglyLinkedList(struct { buf_len: usize });
+    const garbage_align = @max(@alignOf(Garbage.Node), @alignOf(u32));
+
+    fn freeGarbage(garbage: *const Garbage.Node, gpa: Allocator) void {
+        gpa.free(@as([*]align(Local.garbage_align) const u8, @ptrCast(garbage))[0..garbage.data.buf_len]);
+    }
+};
+
+const Shard = struct {
+    aligned: void align(std.atomic.cache_line) = {},
+
+    mutate_mutex: std.Thread.Mutex.Recursive,
+
+    /// node: Local.Garbage.Node,
+    /// header: Map.Header,
+    /// entries: [capacity]Map.Entry,
+    map: Map,
+
+    const Map = struct {
+        entries: [*]u32,
+
+        const empty: Map = .{
+            .entries = @constCast(&[_]u32{ 0, 1, @intFromEnum(Index.none), 0 })[Header.fields_len..].ptr,
+        };
+
+        fn acquire(map: *const Map) Map {
+            return .{ .entries = @atomicLoad([*]u32, &map.entries, .acquire) };
+        }
+        fn release(map: *Map, new_map: Map) void {
+            @atomicStore([*]u32, &map.entries, new_map.entries, .release);
+        }
+
+        const Header = extern struct {
+            len: u32,
+            capacity: u32,
+
+            const fields_len: u32 = @typeInfo(Header).Struct.fields.len;
+
+            fn mask(head: *const Header) u32 {
+                assert(std.math.isPowerOfTwo(head.capacity));
+                assert(std.math.isPowerOfTwo(Entry.fields_len));
+                return (head.capacity - 1) * Entry.fields_len;
+            }
+        };
+        fn header(map: Map) *Header {
+            return @ptrCast(map.entries - Header.fields_len);
+        }
+
+        const Entry = extern struct {
+            index: Index,
+            hash: u32,
+
+            const fields_len: u32 = @typeInfo(Entry).Struct.fields.len;
+
+            fn acquire(entry: *const Entry) Index {
+                return @atomicLoad(Index, &entry.index, .acquire);
+            }
+            fn release(entry: *Entry, index: Index) void {
+                @atomicStore(Index, &entry.index, index, .release);
+            }
+        };
+        fn at(map: Map, index: usize) *Entry {
+            assert(index % Entry.fields_len == 0);
+            return @ptrCast(&map.entries[index]);
+        }
+    };
+};
+
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
 const builtin = @import("builtin");
@@ -368,20 +478,6 @@ const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const Zir = std.zig.Zir;
-
-const KeyAdapter = struct {
-    intern_pool: *const InternPool,
-
-    pub fn eql(ctx: @This(), a: Key, b_void: void, b_map_index: usize) bool {
-        _ = b_void;
-        if (ctx.intern_pool.items.items(.tag)[b_map_index] == .removed) return false;
-        return ctx.intern_pool.indexToKey(@enumFromInt(b_map_index)).eql(a, ctx.intern_pool);
-    }
-
-    pub fn hash(ctx: @This(), a: Key) u32 {
-        return a.hash32(ctx.intern_pool);
-    }
-};
 
 /// An index into `maps` which might be `none`.
 pub const OptionalMapIndex = enum(u32) {
@@ -4535,16 +4631,26 @@ pub const MemoizedCall = struct {
     result: Index,
 };
 
-pub fn init(ip: *InternPool, gpa: Allocator) !void {
+pub fn init(ip: *InternPool, gpa: Allocator, total_threads: usize) !void {
+    errdefer ip.deinit(gpa);
     assert(ip.items.len == 0);
+
+    ip.local = try gpa.alloc(Local, total_threads);
+    @memset(ip.local, .{
+        .items = Local.List.empty,
+        .extra = Local.List.empty,
+        .garbage = .{},
+    });
+
+    ip.shard_shift = @intCast(std.math.log2_int_ceil(usize, total_threads));
+    ip.shards = try gpa.alloc(Shard, @as(usize, 1) << ip.shard_shift);
+    @memset(ip.shards, .{
+        .mutate_mutex = std.Thread.Mutex.Recursive.init,
+        .map = Shard.Map.empty,
+    });
 
     // Reserve string index 0 for an empty string.
     assert((try ip.getOrPutString(gpa, .main, "", .no_embedded_nulls)) == .empty);
-
-    // So that we can use `catch unreachable` below.
-    try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
-    try ip.map.ensureUnusedCapacity(gpa, static_keys.len);
-    try ip.extra.ensureUnusedCapacity(gpa, static_keys.len);
 
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
@@ -4574,12 +4680,9 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
         assert(ip.indexToKey(ip.typeOf(cc_inline)).int_type.bits ==
             @typeInfo(@typeInfo(std.builtin.CallingConvention).Enum.tag_type).Int.bits);
     }
-
-    assert(ip.items.len == static_keys.len);
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
-    ip.map.deinit(gpa);
     ip.items.deinit(gpa);
     ip.extra.deinit(gpa);
     ip.limbs.deinit(gpa);
@@ -4610,6 +4713,16 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.free_dep_entries.deinit(gpa);
 
     ip.files.deinit(gpa);
+
+    gpa.free(ip.shards);
+    for (ip.local) |*local| {
+        var next = local.garbage.first;
+        while (next) |cur| {
+            next = cur.next;
+            Local.freeGarbage(cur, gpa);
+        }
+    }
+    gpa.free(ip.local);
 
     ip.* = undefined;
 }
@@ -5239,10 +5352,133 @@ fn indexToKeyBigInt(ip: *const InternPool, limb_index: u32, positive: bool) Key 
     } };
 }
 
+const GetOrPutKey = union(enum) {
+    existing: Index,
+    new: struct {
+        shard: *Shard,
+        map_index: u32,
+    },
+
+    fn set(gop: *GetOrPutKey, index: Index) Index {
+        switch (gop.*) {
+            .existing => unreachable,
+            .new => |info| {
+                info.shard.map.at(info.map_index).release(index);
+                info.shard.map.header().len += 1;
+                info.shard.mutate_mutex.unlock();
+            },
+        }
+        gop.* = .{ .existing = index };
+        return index;
+    }
+
+    fn assign(gop: *GetOrPutKey, new_gop: GetOrPutKey) void {
+        gop.deinit();
+        gop.* = new_gop;
+    }
+
+    fn deinit(gop: *GetOrPutKey) void {
+        switch (gop.*) {
+            .existing => {},
+            .new => |info| info.shard.mutate_mutex.unlock(),
+        }
+        gop.* = undefined;
+    }
+};
+fn getOrPutKey(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    key: Key,
+) Allocator.Error!GetOrPutKey {
+    const full_hash = key.hash64(ip);
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    var map = shard.map.acquire();
+    var map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += Shard.Map.Entry.fields_len) {
+        map_index &= map_mask;
+        const entry = map.at(map_index);
+        const index = entry.acquire();
+        if (index == .none) break;
+        if (entry.hash == hash and ip.indexToKey(index).eql(key, ip))
+            return .{ .existing = index };
+    }
+    shard.mutate_mutex.lock();
+    errdefer shard.mutate_mutex.unlock();
+    if (map.entries != shard.map.entries) {
+        map = shard.map;
+        map_mask = map.header().mask();
+        map_index = hash;
+    }
+    while (true) : (map_index += Shard.Map.Entry.fields_len) {
+        map_index &= map_mask;
+        const entry = map.at(map_index);
+        const index = entry.index;
+        if (index == .none) break;
+        if (entry.hash == hash and ip.indexToKey(index).eql(key, ip)) {
+            defer shard.mutate_mutex.unlock();
+            return .{ .existing = index };
+        }
+    }
+    const map_header = map.header().*;
+    if (map_header.len >= map_header.capacity * 3 / 5) {
+        const new_map_capacity = map_header.capacity * 2;
+        const new_map_buf = try gpa.alignedAlloc(
+            u8,
+            Local.garbage_align,
+            @sizeOf(Local.Garbage.Node) + (Shard.Map.Header.fields_len +
+                new_map_capacity * Shard.Map.Entry.fields_len) * @sizeOf(u32),
+        );
+        const new_node: *Local.Garbage.Node = @ptrCast(new_map_buf.ptr);
+        new_node.* = .{ .data = .{ .buf_len = new_map_buf.len } };
+        ip.local[@intFromEnum(tid)].garbage.prepend(new_node);
+        const new_map_entries = std.mem.bytesAsSlice(
+            u32,
+            new_map_buf[@sizeOf(Local.Garbage.Node)..],
+        )[Shard.Map.Header.fields_len..];
+        const new_map: Shard.Map = .{ .entries = new_map_entries.ptr };
+        new_map.header().* = .{
+            .len = map_header.len,
+            .capacity = new_map_capacity,
+        };
+        @memset(new_map_entries, @intFromEnum(Index.none));
+        const new_map_mask = new_map.header().mask();
+        map_index = 0;
+        while (map_index < map_header.capacity * 2) : (map_index += Shard.Map.Entry.fields_len) {
+            const entry = map.at(map_index);
+            const index = entry.index;
+            if (index == .none) continue;
+            const item_hash = entry.hash;
+            var new_map_index = item_hash;
+            while (true) : (new_map_index += Shard.Map.Entry.fields_len) {
+                new_map_index &= new_map_mask;
+                const new_entry = new_map.at(new_map_index);
+                if (new_entry.index != .none) continue;
+                new_entry.* = .{
+                    .index = index,
+                    .hash = item_hash,
+                };
+                break;
+            }
+        }
+        map = new_map;
+        map_index = hash;
+        while (true) : (map_index += Shard.Map.Entry.fields_len) {
+            map_index &= new_map_mask;
+            if (map.at(map_index).index == .none) break;
+        }
+        shard.map.release(new_map);
+    }
+    map.at(map_index).hash = hash;
+    return .{ .new = .{ .shard = shard, .map_index = map_index } };
+}
+
 pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) Allocator.Error!Index {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
+    var gop = try ip.getOrPutKey(gpa, tid, key);
+    defer gop.deinit();
+    if (gop == .existing) return gop.existing;
     try ip.items.ensureUnusedCapacity(gpa, 1);
     switch (key) {
         .int_type => |int_type| {
@@ -5260,18 +5496,17 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.child);
 
             if (ptr_type.flags.size == .Slice) {
-                _ = ip.map.pop();
                 var new_key = key;
                 new_key.ptr_type.flags.size = .Many;
                 const ptr_type_index = try ip.get(gpa, tid, new_key);
-                assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
+                gop.assign(try ip.getOrPutKey(gpa, tid, key));
 
                 try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
                     .tag = .type_slice,
                     .data = @intFromEnum(ptr_type_index),
                 });
-                return @enumFromInt(ip.items.len - 1);
+                return gop.set(@enumFromInt(ip.items.len - 1));
             }
 
             var ptr_type_adjusted = ptr_type;
@@ -5295,7 +5530,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                             .child = array_type.child,
                         }),
                     });
-                    return @enumFromInt(ip.items.len - 1);
+                    return gop.set(@enumFromInt(ip.items.len - 1));
                 }
             }
 
@@ -5442,11 +5677,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .anon_decl => |anon_decl| if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) item: {
                     if (ptr.ty != anon_decl.orig_ty) {
-                        _ = ip.map.pop();
                         var new_key = key;
                         new_key.ptr.base_addr.anon_decl.orig_ty = ptr.ty;
-                        const new_gop = try ip.map.getOrPutAdapted(gpa, new_key, adapter);
-                        if (new_gop.found_existing) return @enumFromInt(new_gop.index);
+                        gop.assign(try ip.getOrPutKey(gpa, tid, new_key));
+                        if (gop == .existing) return gop.existing;
                     }
                     break :item .{
                         .tag = .ptr_anon_decl,
@@ -5486,7 +5720,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .tag = .ptr_int,
                     .data = try ip.addExtra(gpa, PtrInt.init(ptr.ty, ptr.byte_offset)),
                 },
-                .arr_elem, .field => |base_index| item: {
+                .arr_elem, .field => |base_index| {
                     const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
                     switch (ptr.base_addr) {
                         .arr_elem => assert(base_ptr_type.flags.size == .Many),
@@ -5516,21 +5750,21 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         },
                         else => unreachable,
                     }
-                    _ = ip.map.pop();
                     const index_index = try ip.get(gpa, tid, .{ .int = .{
                         .ty = .usize_type,
                         .storage = .{ .u64 = base_index.index },
                     } });
-                    assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
+                    gop.assign(try ip.getOrPutKey(gpa, tid, key));
                     try ip.items.ensureUnusedCapacity(gpa, 1);
-                    break :item .{
+                    ip.items.appendAssumeCapacity(.{
                         .tag = switch (ptr.base_addr) {
                             .arr_elem => .ptr_elem,
                             .field => .ptr_field,
                             else => unreachable,
                         },
                         .data = try ip.addExtra(gpa, PtrBaseIndex.init(ptr.ty, base_index.base, index_index, ptr.byte_offset)),
-                    };
+                    });
+                    return gop.set(@enumFromInt(ip.items.len - 1));
                 },
             });
         },
@@ -5566,7 +5800,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                             .lazy_ty = lazy_ty,
                         }),
                     });
-                    return @enumFromInt(ip.items.len - 1);
+                    return gop.set(@enumFromInt(ip.items.len - 1));
                 },
             }
             switch (int.ty) {
@@ -5707,7 +5941,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                                 .value = casted,
                             }),
                         });
-                        return @enumFromInt(ip.items.len - 1);
+                        return gop.set(@enumFromInt(ip.items.len - 1));
                     } else |_| {}
 
                     const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
@@ -5722,7 +5956,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                                 .value = casted,
                             }),
                         });
-                        return @enumFromInt(ip.items.len - 1);
+                        return gop.set(@enumFromInt(ip.items.len - 1));
                     }
 
                     var buf: [2]Limb = undefined;
@@ -5881,7 +6115,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .tag = .only_possible_value,
                     .data = @intFromEnum(aggregate.ty),
                 });
-                return @enumFromInt(ip.items.len - 1);
+                return gop.set(@enumFromInt(ip.items.len - 1));
             }
 
             switch (ty_key) {
@@ -5914,7 +6148,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .tag = .only_possible_value,
                         .data = @intFromEnum(aggregate.ty),
                     });
-                    return @enumFromInt(ip.items.len - 1);
+                    return gop.set(@enumFromInt(ip.items.len - 1));
                 },
                 else => {},
             }
@@ -5929,12 +6163,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 }
                 const elem = switch (aggregate.storage) {
                     .bytes => |bytes| elem: {
-                        _ = ip.map.pop();
                         const elem = try ip.get(gpa, tid, .{ .int = .{
                             .ty = .u8_type,
                             .storage = .{ .u64 = bytes.at(0, ip) },
                         } });
-                        assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
+                        gop.assign(try ip.getOrPutKey(gpa, tid, key));
                         try ip.items.ensureUnusedCapacity(gpa, 1);
                         break :elem elem;
                     },
@@ -5953,7 +6186,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .elem_val = elem,
                     }),
                 });
-                return @enumFromInt(ip.items.len - 1);
+                return gop.set(@enumFromInt(ip.items.len - 1));
             }
 
             if (child == .u8_type) bytes: {
@@ -5997,7 +6230,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                         .bytes = string,
                     }),
                 });
-                return @enumFromInt(ip.items.len - 1);
+                return gop.set(@enumFromInt(ip.items.len - 1));
             }
 
             try ip.extra.ensureUnusedCapacity(
@@ -6038,7 +6271,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             ip.extra.appendSliceAssumeCapacity(@ptrCast(memoized_call.arg_values));
         },
     }
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub const UnionTypeInit = struct {
@@ -6076,11 +6309,10 @@ pub const UnionTypeInit = struct {
 pub fn getUnionType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: UnionTypeInit,
 ) Allocator.Error!WipNamespaceType.Result {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .union_type = switch (ini.key) {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .union_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -6089,9 +6321,9 @@ pub fn getUnionType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } }, adapter);
-    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    } });
+    defer gop.deinit();
+    if (gop == .existing) return .{ .existing = gop.existing };
 
     const align_elements_len = if (ini.flags.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
     const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
@@ -6167,7 +6399,7 @@ pub fn getUnionType(
     }
 
     return .{ .wip = .{
-        .index = @enumFromInt(ip.items.len - 1),
+        .index = gop.set(@enumFromInt(ip.items.len - 1)),
         .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "decl").?,
         .namespace_extra_index = if (ini.has_namespace)
             extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?
@@ -6225,11 +6457,10 @@ pub const StructTypeInit = struct {
 pub fn getStructType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: StructTypeInit,
 ) Allocator.Error!WipNamespaceType.Result {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const key: Key = .{ .struct_type = switch (ini.key) {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .struct_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -6238,10 +6469,9 @@ pub fn getStructType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } };
-    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    } });
+    defer gop.deinit();
+    if (gop == .existing) return .{ .existing = gop.existing };
 
     const names_map = try ip.addMap(gpa, ini.fields_len);
     errdefer _ = ip.maps.pop();
@@ -6298,7 +6528,7 @@ pub fn getStructType(
                 ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
             }
             return .{ .wip = .{
-                .index = @enumFromInt(ip.items.len - 1),
+                .index = gop.set(@enumFromInt(ip.items.len - 1)),
                 .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "decl").?,
                 .namespace_extra_index = if (ini.has_namespace)
                     extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?
@@ -6387,7 +6617,7 @@ pub fn getStructType(
     }
     ip.extra.appendNTimesAssumeCapacity(std.math.maxInt(u32), ini.fields_len);
     return .{ .wip = .{
-        .index = @enumFromInt(ip.items.len - 1),
+        .index = gop.set(@enumFromInt(ip.items.len - 1)),
         .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "decl").?,
         .namespace_extra_index = namespace_extra_index,
     } };
@@ -6404,7 +6634,7 @@ pub const AnonStructTypeInit = struct {
 pub fn getAnonStructType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: AnonStructTypeInit,
 ) Allocator.Error!Index {
     assert(ini.types.len == ini.values.len);
@@ -6424,25 +6654,26 @@ pub fn getAnonStructType(
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.types));
     ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.values));
+    errdefer ip.extra.items.len = prev_extra_len;
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const key: Key = .{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .anon_struct_type = if (ini.names.len == 0) extraTypeTupleAnon(ip, extra_index) else k: {
             assert(ini.names.len == ini.types.len);
             ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
             break :k extraTypeStructAnon(ip, extra_index);
         },
-    };
-    const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
+
     ip.items.appendAssumeCapacity(.{
         .tag = if (ini.names.len == 0) .type_tuple_anon else .type_struct_anon,
         .data = extra_index,
     });
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 /// This is equivalent to `Key.FuncType` but adjusted to have a slice for `param_types`.
@@ -6463,7 +6694,7 @@ pub const GetFuncTypeKey = struct {
 pub fn getFuncType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     key: GetFuncTypeKey,
 ) Allocator.Error!Index {
     // Validate input parameters.
@@ -6501,33 +6732,33 @@ pub fn getFuncType(
     if (key.comptime_bits != 0) ip.extra.appendAssumeCapacity(key.comptime_bits);
     if (key.noalias_bits != 0) ip.extra.appendAssumeCapacity(key.noalias_bits);
     ip.extra.appendSliceAssumeCapacity(@ptrCast(key.param_types));
+    errdefer ip.extra.items.len = prev_extra_len;
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func_type = extraFuncType(ip, func_type_extra_index),
-    }, adapter);
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     ip.items.appendAssumeCapacity(.{
         .tag = .type_function,
         .data = func_type_extra_index,
     });
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub fn getExternFunc(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     key: Key.ExternFunc,
 ) Allocator.Error!Index {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .extern_func = key }, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
-    errdefer _ = ip.map.pop();
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .extern_func = key });
+    defer gop.deinit();
+    if (gop == .existing) return gop.existing;
     const prev_extra_len = ip.extra.items.len;
     const extra_index = try ip.addExtra(gpa, @as(Tag.ExternFunc, key));
     errdefer ip.extra.items.len = prev_extra_len;
@@ -6536,7 +6767,7 @@ pub fn getExternFunc(
         .data = extra_index,
     });
     errdefer ip.items.len -= 1;
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub const GetFuncDeclKey = struct {
@@ -6554,7 +6785,7 @@ pub const GetFuncDeclKey = struct {
 pub fn getFuncDecl(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     key: GetFuncDeclKey,
 ) Allocator.Error!Index {
     // The strategy here is to add the function type unconditionally, then to
@@ -6564,7 +6795,6 @@ pub fn getFuncDecl(
 
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncDecl).Struct.fields.len);
     try ip.items.ensureUnusedCapacity(gpa, 1);
-    try ip.map.ensureUnusedCapacity(gpa, 1);
 
     const func_decl_extra_index = ip.addExtraAssumeCapacity(Tag.FuncDecl{
         .analysis = .{
@@ -6583,22 +6813,22 @@ pub fn getFuncDecl(
         .lbrace_column = key.lbrace_column,
         .rbrace_column = key.rbrace_column,
     });
+    errdefer ip.extra.items.len = prev_extra_len;
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func = extraFuncDecl(ip, func_decl_extra_index),
-    }, adapter);
-
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     ip.items.appendAssumeCapacity(.{
         .tag = .func_decl,
         .data = func_decl_extra_index,
     });
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub const GetFuncDeclIesKey = struct {
@@ -6626,7 +6856,7 @@ pub const GetFuncDeclIesKey = struct {
 pub fn getFuncDeclIes(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     key: GetFuncDeclIesKey,
 ) Allocator.Error!Index {
     // Validate input parameters.
@@ -6639,7 +6869,6 @@ pub fn getFuncDeclIes(
     const prev_extra_len = ip.extra.items.len;
     const params_len: u32 = @intCast(key.param_types.len);
 
-    try ip.map.ensureUnusedCapacity(gpa, 4);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncDecl).Struct.fields.len +
         1 + // inferred_error_set
         @typeInfo(Tag.ErrorUnionType).Struct.fields.len +
@@ -6704,40 +6933,51 @@ pub fn getFuncDeclIes(
     if (key.comptime_bits != 0) ip.extra.appendAssumeCapacity(key.comptime_bits);
     if (key.noalias_bits != 0) ip.extra.appendAssumeCapacity(key.noalias_bits);
     ip.extra.appendSliceAssumeCapacity(@ptrCast(key.param_types));
+    errdefer {
+        ip.items.len -= 4;
+        ip.extra.items.len = prev_extra_len;
+    }
 
     ip.items.appendAssumeCapacity(.{
         .tag = .type_function,
         .data = func_type_extra_index,
     });
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func = extraFuncDecl(ip, func_decl_extra_index),
-    }, adapter);
-    if (!gop.found_existing) {
-        assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{ .error_union_type = .{
-            .error_set_type = @enumFromInt(ip.items.len - 2),
-            .payload_type = key.bare_return_type,
-        } }, adapter).found_existing);
-        assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
-            .inferred_error_set_type = @enumFromInt(ip.items.len - 4),
-        }, adapter).found_existing);
-        assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
-            .func_type = extraFuncType(ip, func_type_extra_index),
-        }, adapter).found_existing);
-        return @enumFromInt(ip.items.len - 4);
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
+        // An existing function type was found; undo the additions to our two arrays.
+        ip.items.len -= 4;
+        ip.extra.items.len = prev_extra_len;
+        return gop.existing;
     }
 
-    // An existing function type was found; undo the additions to our two arrays.
-    ip.items.len -= 4;
-    ip.extra.items.len = prev_extra_len;
-    return @enumFromInt(gop.index);
+    var eu_gop = try ip.getOrPutKey(gpa, tid, .{ .error_union_type = .{
+        .error_set_type = @enumFromInt(ip.items.len - 2),
+        .payload_type = key.bare_return_type,
+    } });
+    defer eu_gop.deinit();
+    var ies_gop = try ip.getOrPutKey(gpa, tid, .{
+        .inferred_error_set_type = @enumFromInt(ip.items.len - 4),
+    });
+    defer ies_gop.deinit();
+    var ty_gop = try ip.getOrPutKey(gpa, tid, .{
+        .func_type = extraFuncType(ip, func_type_extra_index),
+    });
+    defer ty_gop.deinit();
+    const index = gop.set(@enumFromInt(ip.items.len - 4));
+    _ = eu_gop.set(@enumFromInt(@intFromEnum(index) + 1));
+    _ = ies_gop.set(@enumFromInt(@intFromEnum(index) + 2));
+    _ = ty_gop.set(@enumFromInt(@intFromEnum(index) + 3));
+    return index;
 }
 
 pub fn getErrorSetType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     names: []const NullTerminatedString,
 ) Allocator.Error!Index {
     assert(std.sort.isSorted(NullTerminatedString, names, {}, NullTerminatedString.indexLessThan));
@@ -6757,16 +6997,15 @@ pub fn getErrorSetType(
         .names_map = predicted_names_map,
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(names));
+    errdefer ip.extra.items.len = prev_extra_len;
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .error_set_type = extraErrorSet(ip, error_set_extra_index),
-    }, adapter);
-    errdefer _ = ip.map.pop();
-
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     try ip.items.append(gpa, .{
@@ -6781,7 +7020,7 @@ pub fn getErrorSetType(
 
     addStringsToMap(ip, names_map, names);
 
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub const GetFuncInstanceKey = struct {
@@ -6845,14 +7084,13 @@ pub fn getFuncInstance(
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(arg.comptime_args));
 
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func = extraFuncInstance(ip, func_extra_index),
-    }, KeyAdapter{ .intern_pool = ip });
-    errdefer _ = ip.map.pop();
-
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     const func_index: Index = @enumFromInt(ip.items.len);
@@ -6863,7 +7101,7 @@ pub fn getFuncInstance(
     });
     errdefer ip.items.len -= 1;
 
-    return finishFuncInstance(
+    return gop.set(try finishFuncInstance(
         ip,
         gpa,
         tid,
@@ -6872,7 +7110,7 @@ pub fn getFuncInstance(
         func_extra_index,
         arg.alignment,
         arg.section,
-    );
+    ));
 }
 
 /// This function exists separately than `getFuncInstance` because it needs to
@@ -6897,7 +7135,6 @@ pub fn getFuncInstanceIes(
     const prev_extra_len = ip.extra.items.len;
     const params_len: u32 = @intCast(arg.param_types.len);
 
-    try ip.map.ensureUnusedCapacity(gpa, 4);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncInstance).Struct.fields.len +
         1 + // inferred_error_set
         arg.comptime_args.len +
@@ -6970,30 +7207,37 @@ pub fn getFuncInstanceIes(
         .tag = .type_function,
         .data = func_type_extra_index,
     });
+    errdefer {
+        ip.items.len -= 4;
+        ip.extra.items.len = prev_extra_len;
+    }
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func = extraFuncInstance(ip, func_extra_index),
-    }, adapter);
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         // Hot path: undo the additions to our two arrays.
         ip.items.len -= 4;
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     // Synchronize the map with items.
-    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{ .error_union_type = .{
+    var eu_gop = try ip.getOrPutKey(gpa, tid, .{ .error_union_type = .{
         .error_set_type = error_set_type,
         .payload_type = arg.bare_return_type,
-    } }, adapter).found_existing);
-    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
+    } });
+    defer eu_gop.deinit();
+    var ies_gop = try ip.getOrPutKey(gpa, tid, .{
         .inferred_error_set_type = func_index,
-    }, adapter).found_existing);
-    assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
+    });
+    defer ies_gop.deinit();
+    var ty_gop = try ip.getOrPutKey(gpa, tid, .{
         .func_type = extraFuncType(ip, func_type_extra_index),
-    }, adapter).found_existing);
-    return finishFuncInstance(
+    });
+    defer ty_gop.deinit();
+    const index = gop.set(try finishFuncInstance(
         ip,
         gpa,
         tid,
@@ -7002,7 +7246,11 @@ pub fn getFuncInstanceIes(
         func_extra_index,
         arg.alignment,
         arg.section,
-    );
+    ));
+    _ = eu_gop.set(@enumFromInt(@intFromEnum(index) + 1));
+    _ = ies_gop.set(@enumFromInt(@intFromEnum(index) + 2));
+    _ = ty_gop.set(@enumFromInt(@intFromEnum(index) + 3));
+    return index;
 }
 
 fn finishFuncInstance(
@@ -7135,11 +7383,10 @@ pub const WipEnumType = struct {
 pub fn getEnumType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: EnumTypeInit,
 ) Allocator.Error!WipEnumType.Result {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .enum_type = switch (ini.key) {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -7148,10 +7395,9 @@ pub fn getEnumType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } }, adapter);
-    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    assert(gop.index == ip.items.len);
-    errdefer _ = ip.map.pop();
+    } });
+    defer gop.deinit();
+    if (gop == .existing) return .{ .existing = gop.existing };
 
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
@@ -7196,7 +7442,7 @@ pub fn getEnumType(
             const names_start = ip.extra.items.len;
             ip.extra.appendNTimesAssumeCapacity(undefined, ini.fields_len);
             return .{ .wip = .{
-                .index = @enumFromInt(gop.index),
+                .index = gop.set(@enumFromInt(ip.items.len - 1)),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .decl_index = extra_index + std.meta.fieldIndex(EnumAuto, "decl").?,
                 .namespace_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumAuto, "namespace").? else null,
@@ -7260,7 +7506,7 @@ pub fn getEnumType(
                 ip.extra.appendNTimesAssumeCapacity(undefined, ini.fields_len);
             }
             return .{ .wip = .{
-                .index = @enumFromInt(gop.index),
+                .index = gop.set(@enumFromInt(ip.items.len - 1)),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .decl_index = extra_index + std.meta.fieldIndex(EnumAuto, "decl").?,
                 .namespace_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumAuto, "namespace").? else null,
@@ -7288,14 +7534,13 @@ const GeneratedTagEnumTypeInit = struct {
 pub fn getGeneratedTagEnumType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: GeneratedTagEnumTypeInit,
 ) Allocator.Error!Index {
     assert(ip.isUnion(ini.owner_union_ty));
     assert(ip.isIntegerType(ini.tag_ty));
     for (ini.values) |val| assert(ip.typeOf(val) == ini.tag_ty);
 
-    try ip.map.ensureUnusedCapacity(gpa, 1);
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
     const names_map = try ip.addMap(gpa, ini.names.len);
@@ -7304,6 +7549,7 @@ pub fn getGeneratedTagEnumType(
 
     const fields_len: u32 = @intCast(ini.names.len);
 
+    const prev_extra_len = ip.extra.items.len;
     switch (ini.tag_mode) {
         .auto => {
             try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
@@ -7360,17 +7606,17 @@ pub fn getGeneratedTagEnumType(
             ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.values));
         },
     }
-    // Same as above
-    errdefer @compileError("error path leaks values_map and extra data");
+    errdefer ip.extra.items.len = prev_extra_len;
+    errdefer switch (ini.tag_mode) {
+        .auto => {},
+        .explicit, .nonexhaustive => _ = if (ini.values.len != 0) ip.maps.pop(),
+    };
 
-    // Capacity for this was ensured earlier
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{ .enum_type = .{
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = .{
         .generated_tag = .{ .union_type = ini.owner_union_ty },
-    } }, adapter);
-    assert(!gop.found_existing);
-    assert(gop.index == ip.items.len - 1);
-    return @enumFromInt(gop.index);
+    } });
+    defer gop.deinit();
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 pub const OpaqueTypeInit = struct {
@@ -7390,11 +7636,10 @@ pub const OpaqueTypeInit = struct {
 pub fn getOpaqueType(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     ini: OpaqueTypeInit,
 ) Allocator.Error!WipNamespaceType.Result {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .opaque_type = switch (ini.key) {
+    var gop = try ip.getOrPutKey(gpa, tid, .{ .opaque_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -7403,9 +7648,9 @@ pub fn getOpaqueType(
             .zir_index = r.zir_index,
             .type_hash = 0,
         } },
-    } }, adapter);
-    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    } });
+    defer gop.deinit();
+    if (gop == .existing) return .{ .existing = gop.existing };
     try ip.items.ensureUnusedCapacity(gpa, 1);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeOpaque).Struct.fields.len + switch (ini.key) {
         .declared => |d| d.captures.len,
@@ -7431,7 +7676,7 @@ pub fn getOpaqueType(
         .reified => {},
     }
     return .{ .wip = .{
-        .index = @enumFromInt(gop.index),
+        .index = gop.set(@enumFromInt(ip.items.len - 1)),
         .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "decl").?,
         .namespace_extra_index = if (ini.has_namespace)
             extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?
@@ -7441,9 +7686,19 @@ pub fn getOpaqueType(
 }
 
 pub fn getIfExists(ip: *const InternPool, key: Key) ?Index {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const index = ip.map.getIndexAdapted(key, adapter) orelse return null;
-    return @enumFromInt(index);
+    const full_hash = key.hash64(ip);
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    const map = shard.map.acquire();
+    const map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += Shard.Map.Entry.fields_len) {
+        map_index &= map_mask;
+        const entry = map.at(map_index);
+        const index = entry.acquire();
+        if (index == .none) return null;
+        if (entry.hash == hash and ip.indexToKey(index).eql(key, ip)) return index;
+    }
 }
 
 pub fn getAssumeExists(ip: *const InternPool, key: Key) Index {
@@ -7506,7 +7761,6 @@ pub fn remove(ip: *InternPool, index: Index) void {
     if (@intFromEnum(index) == ip.items.len - 1) {
         // Happy case - we can just drop the item without affecting any other indices.
         ip.items.len -= 1;
-        _ = ip.map.pop();
     } else {
         // We must preserve the item so that indices following it remain valid.
         // Thus, we will rewrite the tag to `removed`, leaking the item until
@@ -8133,35 +8387,34 @@ fn getCoercedFuncInstance(
 fn getCoercedFunc(
     ip: *InternPool,
     gpa: Allocator,
-    _: Zcu.PerThread.Id,
+    tid: Zcu.PerThread.Id,
     func: Index,
     ty: Index,
 ) Allocator.Error!Index {
     const prev_extra_len = ip.extra.items.len;
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncCoerced).Struct.fields.len);
     try ip.items.ensureUnusedCapacity(gpa, 1);
-    try ip.map.ensureUnusedCapacity(gpa, 1);
 
     const extra_index = ip.addExtraAssumeCapacity(Tag.FuncCoerced{
         .ty = ty,
         .func = func,
     });
+    errdefer ip.extra.items.len = prev_extra_len;
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{
+    var gop = try ip.getOrPutKey(gpa, tid, .{
         .func = extraFuncCoerced(ip, extra_index),
-    }, adapter);
-
-    if (gop.found_existing) {
+    });
+    defer gop.deinit();
+    if (gop == .existing) {
         ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
+        return gop.existing;
     }
 
     ip.items.appendAssumeCapacity(.{
         .tag = .func_coerced,
         .data = extra_index,
     });
-    return @enumFromInt(ip.items.len - 1);
+    return gop.set(@enumFromInt(ip.items.len - 1));
 }
 
 /// Asserts `val` has an integer type.

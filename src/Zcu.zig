@@ -2394,9 +2394,9 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Module) !void {
+pub fn init(mod: *Module, thread_count: usize) !void {
     const gpa = mod.gpa;
-    try mod.intern_pool.init(gpa);
+    try mod.intern_pool.init(gpa, thread_count);
     try mod.global_error_set.put(gpa, .empty, {});
 }
 
