@@ -875,6 +875,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .declaration => unreachable,
         .warning => {
             const payload = node.castTag(.warning).?.data;
+            try c.buf.append('\n');
             try c.buf.appendSlice(payload);
             try c.buf.append('\n');
             return @as(NodeIndex, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'

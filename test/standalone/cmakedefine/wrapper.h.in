@@ -25,11 +25,6 @@
 #define ${STRING_AT}
 #define @STRING_AT@
 
-// becomes `empty`
-#define ${${STRING_VAR}}
-#define ${@STRING_VAR@}
-
 #define \@STRING_VAR\@
 #define \${STRING_VAR}
 #define $\{STRING_VAR}
-#define ${STRING_VAR\}

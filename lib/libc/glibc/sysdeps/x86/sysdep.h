@@ -1,5 +1,5 @@
 /* Assembler macros for x86.
-   Copyright (C) 2017-2023 Free Software Foundation, Inc.
+   Copyright (C) 2017-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -21,33 +21,6 @@
 
 #include <sysdeps/generic/sysdep.h>
 
-/* __CET__ is defined by GCC with Control-Flow Protection values:
-
-enum cf_protection_level
-{
-  CF_NONE = 0,
-  CF_BRANCH = 1 << 0,
-  CF_RETURN = 1 << 1,
-  CF_FULL = CF_BRANCH | CF_RETURN,
-  CF_SET = 1 << 2
-};
-*/
-
-/* Set if CF_BRANCH (IBT) is enabled.  */
-#define X86_FEATURE_1_IBT	(1U << 0)
-/* Set if CF_RETURN (SHSTK) is enabled.  */
-#define X86_FEATURE_1_SHSTK	(1U << 1)
-
-#ifdef __CET__
-# define CET_ENABLED	1
-# define IBT_ENABLED	(__CET__ & X86_FEATURE_1_IBT)
-# define SHSTK_ENABLED	(__CET__ & X86_FEATURE_1_SHSTK)
-#else
-# define CET_ENABLED	0
-# define IBT_ENABLED	0
-# define SHSTK_ENABLED	0
-#endif
-
 /* Offset for fxsave/xsave area used by _dl_runtime_resolve.  Also need
    space to preserve RCX, RDX, RSI, RDI, R8, R9 and RAX.  It must be
    aligned to 16 bytes for fxsave and 64 bytes for xsave.  */
@@ -66,26 +39,9 @@ enum cf_protection_level
 
 /* Syntactic details of assembler.  */
 
-#ifdef _CET_ENDBR
-# define _CET_NOTRACK notrack
-#else
-# define _CET_ENDBR
-# define _CET_NOTRACK
-#endif
-
 /* ELF uses byte-counts for .align, most others use log2 of count of bytes.  */
 #define ALIGNARG(log2) 1<<log2
 #define ASM_SIZE_DIRECTIVE(name) .size name,.-name;
-
-/* Define an entry point visible from C.  */
-#define	ENTRY_P2ALIGN(name, alignment)					      \
-  .globl C_SYMBOL_NAME(name);						      \
-  .type C_SYMBOL_NAME(name),@function;					      \
-  .align ALIGNARG(alignment);						      \
-  C_LABEL(name)								      \
-  cfi_startproc;							      \
-  _CET_ENDBR;								      \
-  CALL_MCOUNT
 
 /* Common entry 16 byte aligns.  */
 #define ENTRY(name) ENTRY_P2ALIGN (name, 4)

@@ -7,20 +7,21 @@ const native_os = builtin.os.tag;
 
 /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
 /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
-/// respecting the `NO_COLOR` and `YES_COLOR` environment variables to override the default.
+/// respecting the `NO_COLOR` and `CLICOLOR_FORCE` environment variables to override the default.
+/// Will attempt to enable ANSI escape code support if necessary/possible.
 pub fn detectConfig(file: File) Config {
     const force_color: ?bool = if (builtin.os.tag == .wasi)
         null // wasi does not support environment variables
     else if (process.hasEnvVarConstant("NO_COLOR"))
         false
-    else if (process.hasEnvVarConstant("YES_COLOR"))
+    else if (process.hasEnvVarConstant("CLICOLOR_FORCE"))
         true
     else
         null;
 
     if (force_color == false) return .no_color;
 
-    if (file.supportsAnsiEscapeCodes()) return .escape_codes;
+    if (file.getOrEnableAnsiEscapeSupport()) return .escape_codes;
 
     if (native_os == .windows and file.isTty()) {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;

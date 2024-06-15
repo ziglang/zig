@@ -37,17 +37,13 @@ const libcxxabi_files = [_][]const u8{
     "src/stdlib_typeinfo.cpp",
 };
 
-const libcxx_files = [_][]const u8{
+const libcxx_base_files = [_][]const u8{
     "src/algorithm.cpp",
     "src/any.cpp",
-    "src/atomic.cpp",
-    "src/barrier.cpp",
     "src/bind.cpp",
     "src/call_once.cpp",
     "src/charconv.cpp",
     "src/chrono.cpp",
-    "src/condition_variable.cpp",
-    "src/condition_variable_destructor.cpp",
     "src/error_category.cpp",
     "src/exception.cpp",
     "src/experimental/keep.cpp",
@@ -62,7 +58,6 @@ const libcxx_files = [_][]const u8{
     "src/filesystem/path.cpp",
     "src/fstream.cpp",
     "src/functional.cpp",
-    "src/future.cpp",
     "src/hash.cpp",
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
@@ -71,8 +66,6 @@ const libcxx_files = [_][]const u8{
     "src/locale.cpp",
     "src/memory.cpp",
     "src/memory_resource.cpp",
-    "src/mutex.cpp",
-    "src/mutex_destructor.cpp",
     "src/new.cpp",
     "src/new_handler.cpp",
     "src/new_helpers.cpp",
@@ -86,7 +79,6 @@ const libcxx_files = [_][]const u8{
     "src/ryu/d2fixed.cpp",
     "src/ryu/d2s.cpp",
     "src/ryu/f2s.cpp",
-    "src/shared_mutex.cpp",
     "src/stdexcept.cpp",
     "src/string.cpp",
     "src/strstream.cpp",
@@ -95,9 +87,7 @@ const libcxx_files = [_][]const u8{
     "src/support/ibm/xlocale_zos.cpp",
     "src/support/win32/locale_win32.cpp",
     "src/support/win32/support.cpp",
-    "src/support/win32/thread_win32.cpp",
     "src/system_error.cpp",
-    "src/thread.cpp",
     "src/typeinfo.cpp",
     "src/tz.cpp",
     "src/tzdb_list.cpp",
@@ -105,6 +95,19 @@ const libcxx_files = [_][]const u8{
     "src/variant.cpp",
     "src/vector.cpp",
     "src/verbose_abort.cpp",
+};
+
+const libcxx_thread_files = [_][]const u8{
+    "src/atomic.cpp",
+    "src/barrier.cpp",
+    "src/condition_variable.cpp",
+    "src/condition_variable_destructor.cpp",
+    "src/future.cpp",
+    "src/mutex.cpp",
+    "src/mutex_destructor.cpp",
+    "src/shared_mutex.cpp",
+    "src/support/win32/thread_win32.cpp",
+    "src/thread.cpp",
 };
 
 pub const BuildError = error{
@@ -210,6 +213,11 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         return error.SubCompilationFailed;
     };
 
+    const libcxx_files = if (comp.config.any_non_single_threaded)
+        &(libcxx_base_files ++ libcxx_thread_files)
+    else
+        &libcxx_base_files;
+
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
@@ -223,16 +231,10 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
             continue;
-        if (std.mem.startsWith(u8, cxx_src, "src/support/solaris/") and !target.os.tag.isSolarish())
-            continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
-        if (!comp.config.any_non_single_threaded) {
-            if (std.mem.startsWith(u8, cxx_src, "src/support/win32/thread_win32.cpp")) {
-                continue;
-            }
+        if (!comp.config.any_non_single_threaded)
             try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
-        }
 
         try cflags.append("-DNDEBUG");
         try cflags.append(hardeningModeFlag(optimize_mode));

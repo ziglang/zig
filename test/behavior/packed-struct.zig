@@ -1306,6 +1306,8 @@ test "2-byte packed struct argument in C calling convention" {
 }
 
 test "packed struct contains optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const foo: packed struct {
         a: ?*@This() = null,
     } = .{};

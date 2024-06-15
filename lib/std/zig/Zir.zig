@@ -372,8 +372,6 @@ pub const Inst = struct {
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
-        error_set_decl_anon,
-        error_set_decl_func,
         /// Declares the beginning of a statement. Used for debug info.
         /// Uses the `dbg_stmt` union field. The line and column are offset
         /// from the parent declaration.
@@ -1078,8 +1076,6 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .error_set_decl,
-                .error_set_decl_anon,
-                .error_set_decl_func,
                 .dbg_stmt,
                 .dbg_var_ptr,
                 .dbg_var_val,
@@ -1385,8 +1381,6 @@ pub const Inst = struct {
                 .cmp_gt,
                 .cmp_neq,
                 .error_set_decl,
-                .error_set_decl_anon,
-                .error_set_decl_func,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1624,8 +1618,6 @@ pub const Inst = struct {
                 .@"try" = .pl_node,
                 .try_ptr = .pl_node,
                 .error_set_decl = .pl_node,
-                .error_set_decl_anon = .pl_node,
-                .error_set_decl_func = .pl_node,
                 .dbg_stmt = .dbg_stmt,
                 .dbg_var_ptr = .str_op,
                 .dbg_var_val = .str_op,

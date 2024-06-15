@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -1155,7 +1155,10 @@ extern int fdatasync (int __fildes);
    user database.  SALT selects the one-way function to use, and
    ensures that no two users' hashes are the same, even if they use
    the same passphrase.  The return value points to static storage
-   which will be overwritten by the next call to crypt.  */
+   which will be overwritten by the next call to crypt.
+
+   This declaration is deprecated; applications should include
+   <crypt.h> instead.  */
 extern char *crypt (const char *__key, const char *__salt)
      __THROW __nonnull ((1, 2));
 #endif

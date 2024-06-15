@@ -214,7 +214,7 @@ pub fn handleLineEnd(allocator: Allocator, post_processed_line_number: usize, ma
 // TODO: Might want to provide diagnostics on invalid line commands instead of just returning
 pub fn handleLineCommand(allocator: Allocator, line_command: []const u8, current_mapping: *CurrentMapping) error{OutOfMemory}!void {
     // TODO: Are there other whitespace characters that should be included?
-    var tokenizer = std.mem.tokenize(u8, line_command, " \t");
+    var tokenizer = std.mem.tokenizeAny(u8, line_command, " \t");
     const line_directive = tokenizer.next() orelse return; // #line
     if (!std.mem.eql(u8, line_directive, "#line")) return;
     const linenum_str = tokenizer.next() orelse return;

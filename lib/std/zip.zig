@@ -583,7 +583,7 @@ pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptio
     const SeekableStream = @TypeOf(seekable_stream);
     var iter = try Iterator(SeekableStream).init(seekable_stream);
 
-    var filename_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
         const crc32 = try entry.extract(seekable_stream, options, &filename_buf, dest);
         if (crc32 != entry.crc32)

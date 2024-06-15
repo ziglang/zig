@@ -41,7 +41,9 @@ typedef struct mcontext_t {
 #define REG_SP 2
 #define REG_TP 4
 #define REG_S0 8
+#define REG_S1 9
 #define REG_A0 10
+#define REG_S2 18
 #endif
 
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)

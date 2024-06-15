@@ -4,7 +4,7 @@ const Cases = @import("src/Cases.zig");
 
 pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     {
-        const case = ctx.obj("multiline error messages", b.host);
+        const case = ctx.obj("multiline error messages", b.graph.host);
 
         case.addError(
             \\comptime {
@@ -39,7 +39,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("isolated carriage return in multiline string literal", b.host);
+        const case = ctx.obj("isolated carriage return in multiline string literal", b.graph.host);
 
         case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
             ":1:19: error: expected ';' after declaration",
@@ -48,7 +48,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("missing semicolon at EOF", b.host);
+        const case = ctx.obj("missing semicolon at EOF", b.graph.host);
         case.addError(
             \\const foo = 1
         , &[_][]const u8{
@@ -57,7 +57,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("argument causes error", b.host);
+        const case = ctx.obj("argument causes error", b.graph.host);
 
         case.addError(
             \\pub export fn entry() void {
@@ -80,7 +80,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("astgen failure in file struct", b.host);
+        const case = ctx.obj("astgen failure in file struct", b.graph.host);
 
         case.addError(
             \\pub export fn entry() void {
@@ -95,7 +95,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("invalid store to comptime field", b.host);
+        const case = ctx.obj("invalid store to comptime field", b.graph.host);
 
         case.addError(
             \\const a = @import("a.zig");
@@ -119,7 +119,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("file in multiple modules", b.host);
+        const case = ctx.obj("file in multiple modules", b.graph.host);
         case.addDepModule("foo", "foo.zig");
 
         case.addError(
@@ -138,7 +138,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("wrong same named struct", b.host);
+        const case = ctx.obj("wrong same named struct", b.graph.host);
 
         case.addError(
             \\const a = @import("a.zig");
@@ -172,7 +172,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("non-printable invalid character", b.host);
+        const case = ctx.obj("non-printable invalid character", b.graph.host);
 
         case.addError("\xff\xfe" ++
             \\export fn foo() bool {
@@ -185,7 +185,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("imported generic method call with invalid param", b.host);
+        const case = ctx.obj("imported generic method call with invalid param", b.graph.host);
 
         case.addError(
             \\pub const import = @import("import.zig");

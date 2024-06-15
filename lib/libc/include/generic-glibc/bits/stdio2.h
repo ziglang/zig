@@ -1,5 +1,5 @@
 /* Checking macros for stdio functions.
-   Copyright (C) 2004-2023 Free Software Foundation, Inc.
+   Copyright (C) 2004-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -73,7 +73,7 @@ __NTH (vsnprintf (char *__restrict __s, size_t __n,
 
 #if __USE_FORTIFY_LEVEL > 1
 # ifdef __va_arg_pack
-__fortify_function int
+__fortify_function __nonnull ((1)) int
 fprintf (FILE *__restrict __stream, const char *__restrict __fmt, ...)
 {
   return __fprintf_chk (__stream, __USE_FORTIFY_LEVEL - 1, __fmt,
@@ -102,7 +102,7 @@ vprintf (const char *__restrict __fmt, __gnuc_va_list __ap)
 #endif
 }
 
-__fortify_function int
+__fortify_function __nonnull ((1)) int
 vfprintf (FILE *__restrict __stream,
 	  const char *__restrict __fmt, __gnuc_va_list __ap)
 {
@@ -191,7 +191,8 @@ gets (char *__str)
 }
 #endif
 
-__fortify_function __wur __fortified_attr_access (__write_only__, 1, 2) char *
+__fortify_function __wur __fortified_attr_access (__write_only__, 1, 2)
+__nonnull ((3)) char *
 fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
   size_t sz = __glibc_objsize (__s);
@@ -202,7 +203,7 @@ fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
   return __fgets_chk (__s, sz, __n, __stream);
 }
 
-__fortify_function __wur size_t
+__fortify_function __wur __nonnull ((4)) size_t
 fread (void *__restrict __ptr, size_t __size, size_t __n,
        FILE *__restrict __stream)
 {
@@ -215,7 +216,8 @@ fread (void *__restrict __ptr, size_t __size, size_t __n,
 }
 
 #ifdef __USE_GNU
-__fortify_function __wur __fortified_attr_access (__write_only__, 1, 2) char *
+__fortify_function __wur __fortified_attr_access (__write_only__, 1, 2)
+__nonnull ((3)) char *
 fgets_unlocked (char *__restrict __s, int __n, FILE *__restrict __stream)
 {
   size_t sz = __glibc_objsize (__s);
@@ -229,7 +231,7 @@ fgets_unlocked (char *__restrict __s, int __n, FILE *__restrict __stream)
 
 #ifdef __USE_MISC
 # undef fread_unlocked
-__fortify_function __wur size_t
+__fortify_function __wur __nonnull ((4)) size_t
 fread_unlocked (void *__restrict __ptr, size_t __size, size_t __n,
 		FILE *__restrict __stream)
 {

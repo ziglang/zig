@@ -31,13 +31,13 @@ test "chdir smoke test" {
     }
 
     // Get current working directory path
-    var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
     const old_cwd = try posix.getcwd(old_cwd_buf[0..]);
 
     {
         // Firstly, changing to itself should have no effect
         try posix.chdir(old_cwd);
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, old_cwd, new_cwd));
     }
@@ -50,7 +50,7 @@ test "chdir smoke test" {
         // Restore cwd because process may have other tests that do not tolerate chdir.
         defer posix.chdir(old_cwd) catch unreachable;
 
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, parent, new_cwd));
     }
@@ -58,7 +58,7 @@ test "chdir smoke test" {
     // Next, change current working directory to a temp directory one level below
     {
         // Create a tmp directory
-        var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var tmp_dir_buf: [fs.max_path_bytes]u8 = undefined;
         const tmp_dir_path = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
@@ -68,11 +68,11 @@ test "chdir smoke test" {
         // Change current working directory to tmp directory
         try posix.chdir("zig-test-tmp");
 
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
 
         // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-        var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var resolved_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const resolved_cwd = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
@@ -230,7 +230,7 @@ test "symlink with relative paths" {
         try posix.symlink("file.txt", "symlinked");
     }
 
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink("symlinked", buffer[0..]);
     try expect(mem.eql(u8, "file.txt", given));
 
@@ -247,7 +247,7 @@ test "readlink on Windows" {
 }
 
 fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink(symlink_path, buffer[0..]);
     try expect(mem.eql(u8, target_path, given));
 }
@@ -385,7 +385,7 @@ test "readlinkat" {
     }
 
     // read the link
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const read_link = try posix.readlinkat(tmp.dir.fd, "link", buffer[0..]);
     try expect(mem.eql(u8, "file.txt", read_link));
 }
@@ -466,7 +466,7 @@ test "getrandom" {
 
 test "getcwd" {
     // at least call it so it gets compiled
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     _ = posix.getcwd(&buf) catch undefined;
 }
 

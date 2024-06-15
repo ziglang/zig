@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
         .name = "main",
         .root_source_file = b.path("main.zig"),
         .optimize = optimize,
-        .target = b.host,
+        .target = b.graph.host,
     });
     _ = obj.getEmittedLlvmIr();
     _ = obj.getEmittedLlvmBc();

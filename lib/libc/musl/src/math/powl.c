@@ -212,25 +212,33 @@ long double powl(long double x, long double y)
 	}
 	if (x == 1.0)
 		return 1.0; /* 1**y = 1, even if y is nan */
-	if (x == -1.0 && !isfinite(y))
-		return 1.0; /* -1**inf = 1 */
 	if (y == 0.0)
 		return 1.0; /* x**0 = 1, even if x is nan */
 	if (y == 1.0)
 		return x;
-	if (y >= LDBL_MAX) {
-		if (x > 1.0 || x < -1.0)
-			return INFINITY;
-		if (x != 0.0)
+	/* if y*log2(x) < log2(LDBL_TRUE_MIN)-1 then x^y uflows to 0
+	   if y*log2(x) > -log2(LDBL_TRUE_MIN)+1 > LDBL_MAX_EXP then x^y oflows
+	   if |x|!=1 then |log2(x)| > |log(x)| > LDBL_EPSILON/2 so
+	   x^y oflows/uflows if |y|*LDBL_EPSILON/2 > -log2(LDBL_TRUE_MIN)+1 */
+	if (fabsl(y) > 2*(-LDBL_MIN_EXP+LDBL_MANT_DIG+1)/LDBL_EPSILON) {
+		/* y is not an odd int */
+		if (x == -1.0)
+			return 1.0;
+		if (y == INFINITY) {
+			if (x > 1.0 || x < -1.0)
+				return INFINITY;
 			return 0.0;
-	}
-	if (y <= -LDBL_MAX) {
-		if (x > 1.0 || x < -1.0)
-			return 0.0;
-		if (x != 0.0 || y == -INFINITY)
+		}
+		if (y == -INFINITY) {
+			if (x > 1.0 || x < -1.0)
+				return 0.0;
 			return INFINITY;
+		}
+		if ((x > 1.0 || x < -1.0) == (y > 0))
+			return huge * huge;
+		return twom10000 * twom10000;
 	}
-	if (x >= LDBL_MAX) {
+	if (x == INFINITY) {
 		if (y > 0.0)
 			return INFINITY;
 		return 0.0;
@@ -253,7 +261,7 @@ long double powl(long double x, long double y)
 			yoddint = 1;
 	}
 
-	if (x <= -LDBL_MAX) {
+	if (x == -INFINITY) {
 		if (y > 0.0) {
 			if (yoddint)
 				return -INFINITY;

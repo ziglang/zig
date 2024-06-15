@@ -846,7 +846,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     arg_i += 1;
                     break :next_arg;
                 };
-                var tokenizer = std.mem.tokenize(u8, value.slice, "=");
+                var tokenizer = std.mem.tokenizeScalar(u8, value.slice, '=');
                 // guaranteed to exist since an empty value.slice would invoke
                 // the 'missing symbol to define' branch above
                 const symbol = tokenizer.next().?;

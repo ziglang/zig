@@ -211,6 +211,8 @@ is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
 
+no_builtin: bool = false,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -1570,6 +1572,10 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 }
             }
         }
+    }
+
+    if (compile.no_builtin) {
+        try zig_args.append("-fno-builtin");
     }
 
     if (b.sysroot) |sysroot| {

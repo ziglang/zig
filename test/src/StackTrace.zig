@@ -56,12 +56,12 @@ fn addExpect(
         .name = "test",
         .root_source_file = write_src.files.items[0].getPath(),
         .optimize = optimize_mode,
-        .target = b.host,
+        .target = b.graph.host,
         .error_tracing = mode_config.error_tracing,
     });
 
     const run = b.addRunArtifact(exe);
-    run.removeEnvironmentVariable("YES_COLOR");
+    run.removeEnvironmentVariable("CLICOLOR_FORCE");
     run.setEnvironmentVariable("NO_COLOR", "1");
     run.expectExitCode(1);
     run.expectStdOutEqual("");

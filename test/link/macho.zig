@@ -83,14 +83,14 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // Tests requiring presence of macOS SDK in system path
         if (build_opts.has_macos_sdk) {
-            macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.host }));
-            macho_step.dependOn(testHeaderpad(b, .{ .target = b.host }));
-            macho_step.dependOn(testLinkDirectlyCppTbd(b, .{ .target = b.host }));
-            macho_step.dependOn(testMergeLiteralsObjc(b, .{ .target = b.host }));
-            macho_step.dependOn(testNeededFramework(b, .{ .target = b.host }));
-            macho_step.dependOn(testObjc(b, .{ .target = b.host }));
-            macho_step.dependOn(testObjcpp(b, .{ .target = b.host }));
-            macho_step.dependOn(testWeakFramework(b, .{ .target = b.host }));
+            macho_step.dependOn(testDeadStripDylibs(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testHeaderpad(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testLinkDirectlyCppTbd(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testMergeLiteralsObjc(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testNeededFramework(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testObjc(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testObjcpp(b, .{ .target = b.graph.host }));
+            macho_step.dependOn(testWeakFramework(b, .{ .target = b.graph.host }));
         }
     }
 

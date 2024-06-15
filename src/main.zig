@@ -994,11 +994,16 @@ fn buildOutputType(
         .native_system_include_paths = &.{},
     };
 
-    // before arg parsing, check for the NO_COLOR environment variable
-    // if it exists, default the color setting to .off
+    // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
+    // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+        .off
+    else if (EnvVar.CLICOLOR_FORCE.isSet())
+        .on
+    else
+        .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -3404,23 +3409,25 @@ fn buildOutputType(
         },
     }
 
-    const root_prog_node = std.Progress.start(.{
-        .disable_printing = (color == .off),
-    });
-    defer root_prog_node.end();
+    {
+        const root_prog_node = std.Progress.start(.{
+            .disable_printing = (color == .off),
+        });
+        defer root_prog_node.end();
 
-    if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null, root_prog_node);
+        if (arg_mode == .translate_c) {
+            return cmdTranslateC(comp, arena, null, root_prog_node);
+        }
+
+        updateModule(comp, color, root_prog_node) catch |err| switch (err) {
+            error.SemanticAnalyzeFail => {
+                assert(listen == .none);
+                saveState(comp, debug_incremental);
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
     }
-
-    updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => {
-            assert(listen == .none);
-            saveState(comp, debug_incremental);
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
     saveState(comp, debug_incremental);
@@ -4228,7 +4235,9 @@ fn runOrTest(
     // the error message and invocation below.
     if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
+        std.debug.lockStdErr();
         const err = process.execve(gpa, argv.items, &env_map);
+        std.debug.unlockStdErr();
         try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
@@ -4244,7 +4253,12 @@ fn runOrTest(
         comp.destroy();
         comp_destroyed.* = true;
 
-        const term = child.spawnAndWait() catch |err| {
+        const term_result = t: {
+            std.debug.lockStdErr();
+            defer std.debug.unlockStdErr();
+            break :t child.spawnAndWait();
+        };
+        const term = term_result catch |err| {
             try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });

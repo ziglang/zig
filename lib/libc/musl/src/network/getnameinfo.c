@@ -162,8 +162,10 @@ int getnameinfo(const struct sockaddr *restrict sa, socklen_t sl,
 			query[3] = 0; /* don't need AD flag */
 			int rlen = __res_send(query, qlen, reply, sizeof reply);
 			buf[0] = 0;
-			if (rlen > 0)
+			if (rlen > 0) {
+				if (rlen > sizeof reply) rlen = sizeof reply;
 				__dns_parse(reply, rlen, dns_parse_callback, buf);
+			}
 		}
 		if (!*buf) {
 			if (flags & NI_NAMEREQD) return EAI_NONAME;

@@ -23,17 +23,13 @@ redraw_event: std.Thread.ResetEvent,
 /// Indicates a request to shut down and reset global state.
 /// Accessed atomically.
 done: bool,
+need_clear: bool,
 
 refresh_rate_ns: u64,
 initial_delay_ns: u64,
 
 rows: u16,
 cols: u16,
-/// Tracks the number of newlines that have been actually written to the terminal.
-written_newline_count: u16,
-/// Tracks the number of newlines that will be written to the terminal if the
-/// draw buffer is sent.
-accumulated_newline_count: u16,
 
 /// Accessed only by the update thread.
 draw_buffer: []u8,
@@ -312,10 +308,9 @@ var global_progress: Progress = .{
     .initial_delay_ns = undefined,
     .rows = 0,
     .cols = 0,
-    .written_newline_count = 0,
-    .accumulated_newline_count = 0,
     .draw_buffer = undefined,
     .done = false,
+    .need_clear = false,
 
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
@@ -382,7 +377,7 @@ pub fn start(options: Options) Node {
             }
             const stderr = std.io.getStdErr();
             global_progress.terminal = stderr;
-            if (stderr.supportsAnsiEscapeCodes()) {
+            if (stderr.getOrEnableAnsiEscapeSupport()) {
                 global_progress.terminal_mode = .ansi_escape_codes;
             } else if (is_windows and stderr.isTty()) {
                 global_progress.terminal_mode = TerminalMode{ .windows_api = .{
@@ -446,10 +441,11 @@ fn updateThreadRun() void {
         if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
         maybeUpdateSize(resize_flag);
 
-        const buffer = computeRedraw(&serialized_buffer);
+        const buffer, _ = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             write(buffer) catch return;
+            global_progress.need_clear = true;
         }
     }
 
@@ -464,10 +460,11 @@ fn updateThreadRun() void {
 
         maybeUpdateSize(resize_flag);
 
-        const buffer = computeRedraw(&serialized_buffer);
+        const buffer, _ = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             write(buffer) catch return;
+            global_progress.need_clear = true;
         }
     }
 }
@@ -488,11 +485,13 @@ fn windowsApiUpdateThreadRun() void {
         if (@atomicLoad(bool, &global_progress.done, .seq_cst)) return;
         maybeUpdateSize(resize_flag);
 
-        const buffer = computeRedraw(&serialized_buffer);
+        const buffer, const nl_n = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             windowsApiWriteMarker();
             write(buffer) catch return;
+            global_progress.need_clear = true;
+            windowsApiMoveToMarker(nl_n) catch return;
         }
     }
 
@@ -507,12 +506,14 @@ fn windowsApiUpdateThreadRun() void {
 
         maybeUpdateSize(resize_flag);
 
-        const buffer = computeRedraw(&serialized_buffer);
+        const buffer, const nl_n = computeRedraw(&serialized_buffer);
         if (stderr_mutex.tryLock()) {
             defer stderr_mutex.unlock();
             clearWrittenWindowsApi() catch return;
             windowsApiWriteMarker();
             write(buffer) catch return;
+            global_progress.need_clear = true;
+            windowsApiMoveToMarker(nl_n) catch return;
         }
     }
 }
@@ -520,6 +521,8 @@ fn windowsApiUpdateThreadRun() void {
 /// Allows the caller to freely write to stderr until `unlockStdErr` is called.
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
+///
+/// The lock is recursive; the same thread may hold the lock multiple times.
 pub fn lockStdErr() void {
     stderr_mutex.lock();
     clearWrittenWithEscapeCodes() catch {};
@@ -645,40 +648,16 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 }
 
 fn clearWrittenWithEscapeCodes() anyerror!void {
-    if (global_progress.written_newline_count == 0) return;
+    if (!global_progress.need_clear) return;
 
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
 
-    buf[i..][0..start_sync.len].* = start_sync.*;
-    i += start_sync.len;
-
-    i = computeClear(buf, i);
-
-    buf[i..][0..finish_sync.len].* = finish_sync.*;
-    i += finish_sync.len;
-
-    global_progress.accumulated_newline_count = 0;
-    try write(buf[0..i]);
-}
-
-fn computeClear(buf: []u8, start_i: usize) usize {
-    var i = start_i;
-
-    const prev_nl_n = global_progress.written_newline_count;
-    if (prev_nl_n > 0) {
-        buf[i] = '\r';
-        i += 1;
-        for (0..prev_nl_n) |_| {
-            buf[i..][0..up_one_line.len].* = up_one_line.*;
-            i += up_one_line.len;
-        }
-    }
-
     buf[i..][0..clear.len].* = clear.*;
     i += clear.len;
 
-    return i;
+    global_progress.need_clear = false;
+    try write(buf[0..i]);
 }
 
 /// U+25BA or ►
@@ -704,38 +683,44 @@ fn clearWrittenWindowsApi() error{Unexpected}!void {
     //   but it must be a valid attribute and it actually needs to apply to the first
     //   character in order to be readable via ReadConsoleOutputAttribute. It doesn't seem
     //   like any of the available attributes are invisible/benign.
-    const prev_nl_n = global_progress.written_newline_count;
-    if (prev_nl_n > 0) {
-        const handle = global_progress.terminal.handle;
-        const screen_area = @as(windows.DWORD, global_progress.cols) * global_progress.rows;
+    if (!global_progress.need_clear) return;
+    const handle = global_progress.terminal.handle;
+    const screen_area = @as(windows.DWORD, global_progress.cols) * global_progress.rows;
 
-        var console_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(handle, &console_info) == 0) {
-            return error.Unexpected;
-        }
-        const cursor_pos = console_info.dwCursorPosition;
-        const expected_y = cursor_pos.Y - @as(i16, @intCast(prev_nl_n));
-        var start_pos = windows.COORD{ .X = 0, .Y = expected_y };
-        while (start_pos.Y >= 0) {
-            var wchar: [1]u16 = undefined;
-            var num_console_chars_read: windows.DWORD = undefined;
-            if (windows.kernel32.ReadConsoleOutputCharacterW(handle, &wchar, wchar.len, start_pos, &num_console_chars_read) == 0) {
-                return error.Unexpected;
-            }
+    var console_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+    if (windows.kernel32.GetConsoleScreenBufferInfo(handle, &console_info) == 0) {
+        return error.Unexpected;
+    }
+    var num_chars_written: windows.DWORD = undefined;
+    if (windows.kernel32.FillConsoleOutputCharacterW(handle, ' ', screen_area, console_info.dwCursorPosition, &num_chars_written) == 0) {
+        return error.Unexpected;
+    }
+}
 
-            if (wchar[0] == windows_api_start_marker) break;
-            start_pos.Y -= 1;
-        } else {
-            // If we couldn't find the marker, then just assume that no lines wrapped
-            start_pos = .{ .X = 0, .Y = expected_y };
-        }
-        var num_chars_written: windows.DWORD = undefined;
-        if (windows.kernel32.FillConsoleOutputCharacterW(handle, ' ', screen_area, start_pos, &num_chars_written) == 0) {
+fn windowsApiMoveToMarker(nl_n: usize) error{Unexpected}!void {
+    const handle = global_progress.terminal.handle;
+    var console_info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+    if (windows.kernel32.GetConsoleScreenBufferInfo(handle, &console_info) == 0) {
+        return error.Unexpected;
+    }
+    const cursor_pos = console_info.dwCursorPosition;
+    const expected_y = cursor_pos.Y - @as(i16, @intCast(nl_n));
+    var start_pos: windows.COORD = .{ .X = 0, .Y = expected_y };
+    while (start_pos.Y >= 0) {
+        var wchar: [1]u16 = undefined;
+        var num_console_chars_read: windows.DWORD = undefined;
+        if (windows.kernel32.ReadConsoleOutputCharacterW(handle, &wchar, wchar.len, start_pos, &num_console_chars_read) == 0) {
             return error.Unexpected;
         }
-        if (windows.kernel32.SetConsoleCursorPosition(handle, start_pos) == 0) {
-            return error.Unexpected;
-        }
+
+        if (wchar[0] == windows_api_start_marker) break;
+        start_pos.Y -= 1;
+    } else {
+        // If we couldn't find the marker, then just assume that no lines wrapped
+        start_pos = .{ .X = 0, .Y = expected_y };
+    }
+    if (windows.kernel32.SetConsoleCursorPosition(handle, start_pos) == 0) {
+        return error.Unexpected;
     }
 }
 
@@ -751,7 +736,7 @@ const Serialized = struct {
     const Buffer = struct {
         parents: [node_storage_buffer_len]Node.Parent,
         storage: [node_storage_buffer_len]Node.Storage,
-        map: [node_storage_buffer_len]Node.Index,
+        map: [node_storage_buffer_len]Node.OptionalIndex,
 
         parents_copy: [node_storage_buffer_len]Node.Parent,
         storage_copy: [node_storage_buffer_len]Node.Storage,
@@ -770,9 +755,11 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
     // Iterate all of the nodes and construct a serializable copy of the state that can be examined
     // without atomics.
     const end_index = @atomicLoad(u32, &global_progress.node_end_index, .monotonic);
-    const node_parents = global_progress.node_parents[0..end_index];
-    const node_storage = global_progress.node_storage[0..end_index];
-    for (node_parents, node_storage, 0..) |*parent_ptr, *storage_ptr, i| {
+    for (
+        global_progress.node_parents[0..end_index],
+        global_progress.node_storage[0..end_index],
+        serialized_buffer.map[0..end_index],
+    ) |*parent_ptr, *storage_ptr, *map| {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
@@ -783,12 +770,19 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
             if (begin_parent == end_parent) {
                 any_ipc = any_ipc or (dest_storage.getIpcFd() != null);
                 serialized_buffer.parents[serialized_len] = begin_parent;
-                serialized_buffer.map[i] = @enumFromInt(serialized_len);
+                map.* = @enumFromInt(serialized_len);
                 serialized_len += 1;
                 break;
             }
 
             begin_parent = end_parent;
+        } else {
+            // A node may be freed during the execution of this loop, causing
+            // there to be a parent reference to a nonexistent node. Without
+            // this assignment, this would lead to the map entry containing
+            // stale data. By assigning none, the child node with the bad
+            // parent pointer will be harmlessly omitted from the tree.
+            map.* = .none;
         }
     }
 
@@ -1052,7 +1046,7 @@ fn useSavedIpcData(
     return start_serialized_len + storage.len;
 }
 
-fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
+fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     const serialized = serialize(serialized_buffer);
 
     // Now we can analyze our copy of the graph without atomics, reconstructing
@@ -1078,8 +1072,10 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
         }
     }
 
-    // The strategy is: keep the cursor at the end, and then with every redraw:
-    // move cursor to beginning of line, move cursor up N lines, erase to end of screen, write
+    // The strategy is, with every redraw:
+    // erase to end of screen, write, move cursor to beginning of line, move cursor up N lines
+    // This keeps the cursor at the beginning so that unlocked stderr writes
+    // don't get eaten by the clear.
 
     var i: usize = 0;
     const buf = global_progress.draw_buffer;
@@ -1091,25 +1087,37 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) []u8 {
 
     switch (global_progress.terminal_mode) {
         .off => unreachable,
-        .ansi_escape_codes => i = computeClear(buf, i),
+        .ansi_escape_codes => {
+            buf[i..][0..clear.len].* = clear.*;
+            i += clear.len;
+        },
         .windows_api => if (!is_windows) unreachable,
     }
 
-    global_progress.accumulated_newline_count = 0;
     const root_node_index: Node.Index = @enumFromInt(0);
-    i = computeNode(buf, i, serialized, children, root_node_index);
+    i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        if (nl_n > 0) {
+            buf[i] = '\r';
+            i += 1;
+            for (0..nl_n) |_| {
+                buf[i..][0..up_one_line.len].* = up_one_line.*;
+                i += up_one_line.len;
+            }
+        }
+
         buf[i..][0..finish_sync.len].* = finish_sync.*;
         i += finish_sync.len;
     }
 
-    return buf[0..i];
+    return .{ buf[0..i], nl_n };
 }
 
 fn computePrefix(
     buf: []u8,
     start_i: usize,
+    nl_n: usize,
     serialized: Serialized,
     children: []const Children,
     node_index: Node.Index,
@@ -1122,36 +1130,45 @@ fn computePrefix(
     {
         return i;
     }
-    i = computePrefix(buf, i, serialized, children, parent_index);
+    i = computePrefix(buf, i, nl_n, serialized, children, parent_index);
     if (children[@intFromEnum(parent_index)].sibling == .none) {
         const prefix = "   ";
-        const upper_bound_len = prefix.len + line_upper_bound_len;
+        const upper_bound_len = prefix.len + lineUpperBoundLen(nl_n);
         if (i + upper_bound_len > buf.len) return buf.len;
         buf[i..][0..prefix.len].* = prefix.*;
         i += prefix.len;
     } else {
-        const upper_bound_len = comptime (TreeSymbol.line.maxByteLen() + line_upper_bound_len);
+        const upper_bound_len = TreeSymbol.line.maxByteLen() + lineUpperBoundLen(nl_n);
         if (i + upper_bound_len > buf.len) return buf.len;
         i = appendTreeSymbol(.line, buf, i);
     }
     return i;
 }
 
-const line_upper_bound_len = @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) +
-    "[4294967296/4294967296] ".len + Node.max_name_len + finish_sync.len;
+fn lineUpperBoundLen(nl_n: usize) usize {
+    // \r\n on Windows, \n otherwise.
+    const nl_len = if (is_windows) 2 else 1;
+    return @max(TreeSymbol.tee.maxByteLen(), TreeSymbol.langle.maxByteLen()) +
+        "[4294967296/4294967296] ".len + Node.max_name_len + nl_len +
+        (1 + (nl_n + 1) * up_one_line.len) +
+        finish_sync.len;
+}
 
 fn computeNode(
     buf: []u8,
     start_i: usize,
+    start_nl_n: usize,
     serialized: Serialized,
     children: []const Children,
     node_index: Node.Index,
-) usize {
+) struct { usize, usize } {
     var i = start_i;
-    i = computePrefix(buf, i, serialized, children, node_index);
+    var nl_n = start_nl_n;
 
-    if (i + line_upper_bound_len > buf.len)
-        return start_i;
+    i = computePrefix(buf, i, nl_n, serialized, children, node_index);
+
+    if (i + lineUpperBoundLen(nl_n) > buf.len)
+        return .{ start_i, start_nl_n };
 
     const storage = &serialized.storage[@intFromEnum(node_index)];
     const estimated_total = storage.estimated_total_count;
@@ -1184,36 +1201,42 @@ fn computeNode(
         }
 
         i = @min(global_progress.cols + start_i, i);
+        if (is_windows) {
+            // \r\n on Windows is necessary for the old console with the
+            // ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN
+            // console modes set to behave properly.
+            buf[i] = '\r';
+            i += 1;
+        }
         buf[i] = '\n';
         i += 1;
-        global_progress.accumulated_newline_count += 1;
+        nl_n += 1;
     }
 
-    if (global_progress.withinRowLimit()) {
+    if (global_progress.withinRowLimit(nl_n)) {
         if (children[@intFromEnum(node_index)].child.unwrap()) |child| {
-            i = computeNode(buf, i, serialized, children, child);
+            i, nl_n = computeNode(buf, i, nl_n, serialized, children, child);
         }
     }
 
-    if (global_progress.withinRowLimit()) {
+    if (global_progress.withinRowLimit(nl_n)) {
         if (children[@intFromEnum(node_index)].sibling.unwrap()) |sibling| {
-            i = computeNode(buf, i, serialized, children, sibling);
+            i, nl_n = computeNode(buf, i, nl_n, serialized, children, sibling);
         }
     }
 
-    return i;
+    return .{ i, nl_n };
 }
 
-fn withinRowLimit(p: *Progress) bool {
+fn withinRowLimit(p: *Progress, nl_n: usize) bool {
     // The +2 here is so that the PS1 is not scrolled off the top of the terminal.
     // one because we keep the cursor on the next line
     // one more to account for the PS1
-    return p.accumulated_newline_count + 2 < p.rows;
+    return nl_n + 2 < p.rows;
 }
 
 fn write(buf: []const u8) anyerror!void {
     try global_progress.terminal.writeAll(buf);
-    global_progress.written_newline_count = global_progress.accumulated_newline_count;
 }
 
 var remaining_write_trash_bytes: usize = 0;
@@ -1357,4 +1380,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     else => false,
 };
 
-var stderr_mutex: std.Thread.Mutex = .{};
+/// The primary motivation for recursive mutex here is so that a panic while
+/// stderr mutex is held still dumps the stack trace and other debug
+/// information.
+var stderr_mutex = std.Thread.Mutex.Recursive.init;

@@ -1038,8 +1038,7 @@ pub fn main() anyerror!void {
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
 
-    var progress = std.Progress{};
-    const root_progress = progress.start("", llvm_targets.len);
+    const root_progress = std.Progress.start(.{ .estimated_total_items = llvm_targets.len });
     defer root_progress.end();
 
     if (builtin.single_threaded) {
@@ -1074,7 +1073,7 @@ const Job = struct {
     llvm_tblgen_exe: []const u8,
     llvm_src_root: []const u8,
     zig_src_dir: std.fs.Dir,
-    root_progress: *std.Progress.Node,
+    root_progress: std.Progress.Node,
     llvm_target: LlvmTarget,
 };
 
@@ -1085,12 +1084,10 @@ fn processOneTarget(job: Job) anyerror!void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var progress_node = job.root_progress.start(llvm_target.zig_name, 3);
-    progress_node.activate();
+    const progress_node = job.root_progress.start(llvm_target.zig_name, 3);
     defer progress_node.end();
 
-    var tblgen_progress = progress_node.start("invoke llvm-tblgen", 0);
-    tblgen_progress.activate();
+    const tblgen_progress = progress_node.start("invoke llvm-tblgen", 0);
 
     const child_args = [_][]const u8{
         job.llvm_tblgen_exe,
@@ -1127,16 +1124,14 @@ fn processOneTarget(job: Job) anyerror!void {
         },
     };
 
-    var json_parse_progress = progress_node.start("parse JSON", 0);
-    json_parse_progress.activate();
+    const json_parse_progress = progress_node.start("parse JSON", 0);
 
     const parsed = try json.parseFromSlice(json.Value, arena, json_text, .{});
     defer parsed.deinit();
     const root_map = &parsed.value.object;
     json_parse_progress.end();
 
-    var render_progress = progress_node.start("render zig code", 0);
-    render_progress.activate();
+    const render_progress = progress_node.start("render zig code", 0);
 
     var features_table = std.StringHashMap(Feature).init(arena);
     var all_features = std.ArrayList(Feature).init(arena);

@@ -1,5 +1,5 @@
 /* System-specific socket constants and types.  Linux version.
-   Copyright (C) 1991-2023 Free Software Foundation, Inc.
+   Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -367,6 +367,10 @@ enum
 #ifdef __USE_GNU
     , SCM_CREDENTIALS = 0x02	/* Credentials passing.  */
 # define SCM_CREDENTIALS SCM_CREDENTIALS
+    , SCM_SECURITY = 0x03	/* Security label.  */
+# define SCM_SECURITY SCM_SECURITY
+    , SCM_PIDFD = 0x04		/* Pidfd.  */
+# define SCM_PIDFD SCM_PIDFD
 #endif
   };
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -231,6 +231,7 @@
 # undef  _ATFILE_SOURCE
 # define _ATFILE_SOURCE	1
 
+/* Zig patch */
 # if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 # undef  _DYNAMIC_STACK_SIZE_SOURCE
 # define _DYNAMIC_STACK_SIZE_SOURCE 1

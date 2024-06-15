@@ -18,6 +18,13 @@ extern "C" {
 #define __NEED_blkcnt_t
 #define __NEED_struct_timespec
 
+#ifdef _GNU_SOURCE
+#define __NEED_int64_t
+#define __NEED_uint64_t
+#define __NEED_uint32_t
+#define __NEED_uint16_t
+#endif
+
 #include <bits/alltypes.h>
 
 #include <bits/stat.h>
@@ -96,6 +103,54 @@ int lchmod(const char *, mode_t);
 #define S_IREAD S_IRUSR
 #define S_IWRITE S_IWUSR
 #define S_IEXEC S_IXUSR
+#endif
+
+#if defined(_GNU_SOURCE)
+#define STATX_TYPE 1U
+#define STATX_MODE 2U
+#define STATX_NLINK 4U
+#define STATX_UID 8U
+#define STATX_GID 0x10U
+#define STATX_ATIME 0x20U
+#define STATX_MTIME 0x40U
+#define STATX_CTIME 0x80U
+#define STATX_INO 0x100U
+#define STATX_SIZE 0x200U
+#define STATX_BLOCKS 0x400U
+#define STATX_BASIC_STATS 0x7ffU
+#define STATX_BTIME 0x800U
+#define STATX_ALL 0xfffU
+
+struct statx_timestamp {
+	int64_t tv_sec;
+	uint32_t tv_nsec, __pad;
+};
+
+struct statx {
+	uint32_t stx_mask;
+	uint32_t stx_blksize;
+	uint64_t stx_attributes;
+	uint32_t stx_nlink;
+	uint32_t stx_uid;
+	uint32_t stx_gid;
+	uint16_t stx_mode;
+	uint16_t __pad0[1];
+	uint64_t stx_ino;
+	uint64_t stx_size;
+	uint64_t stx_blocks;
+	uint64_t stx_attributes_mask;
+	struct statx_timestamp stx_atime;
+	struct statx_timestamp stx_btime;
+	struct statx_timestamp stx_ctime;
+	struct statx_timestamp stx_mtime;
+	uint32_t stx_rdev_major;
+	uint32_t stx_rdev_minor;
+	uint32_t stx_dev_major;
+	uint32_t stx_dev_minor;
+	uint64_t __pad1[14];
+};
+
+int statx(int, const char *__restrict, int, unsigned, struct statx *__restrict);
 #endif
 
 #if defined(_LARGEFILE64_SOURCE)

@@ -223,7 +223,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\                             | (*((unsigned char *)(p) + 1) << 8)  \
         \\                             | (*((unsigned char *)(p) + 2) << 16))
     , &[_][]const u8{
-        \\pub const FOO = (foo + @as(c_int, 2)).*;
+        \\pub inline fn FOO() @TypeOf((foo + @as(c_int, 2)).*) {
+        \\    return (foo + @as(c_int, 2)).*;
+        \\}
         ,
         \\pub const VALUE = ((((@as(c_int, 1) + (@as(c_int, 2) * @as(c_int, 3))) + (@as(c_int, 4) * @as(c_int, 5))) + @as(c_int, 6)) << @as(c_int, 7)) | @intFromBool(@as(c_int, 8) == @as(c_int, 9));
         ,
@@ -452,7 +454,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO -\
         \\BAR
     , &[_][]const u8{
-        \\pub const FOO = -BAR;
+        \\pub inline fn FOO() @TypeOf(-BAR) {
+        \\    return -BAR;
+        \\}
     });
 
     cases.add("struct with atomic field",
@@ -2453,9 +2457,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = c.*.b;
         \\}
         ,
-        \\pub const DOT = a.b;
+        \\pub inline fn ARROW() @TypeOf(a.*.b) {
+        \\    return a.*.b;
+        \\}
         ,
-        \\pub const ARROW = a.*.b;
+        \\pub inline fn DOT() @TypeOf(a.b) {
+        \\    return a.b;
+        \\}
     });
 
     cases.add("array access",
@@ -2472,7 +2480,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return array[@as(c_uint, @intCast(index))];
         \\}
         ,
-        \\pub const ACCESS = array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\pub inline fn ACCESS() @TypeOf(array[@as(usize, @intCast(@as(c_int, 2)))]) {
+        \\    return array[@as(usize, @intCast(@as(c_int, 2)))];
+        \\}
     });
 
     cases.add("cast signed array index to unsigned",
@@ -3130,7 +3140,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
-        \\pub const FOO = if (a) b else c;
+        \\pub inline fn FOO() @TypeOf(if (a) b else c) {
+        \\    return if (a) b else c;
+        \\}
     });
 
     cases.add("do while as expr",
@@ -3624,7 +3636,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define FOO _
         \\int _ = 42;
     , &[_][]const u8{
-        \\pub const FOO = @"_";
+        \\pub inline fn FOO() @TypeOf(@"_") {
+        \\    return @"_";
+        \\}
         ,
         \\pub export var @"_": c_int = 42;
     });

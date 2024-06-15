@@ -1217,10 +1217,13 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
             },
             else => |e| return e,
         };
-        // Don't leak the intermediate file handles
-        errdefer if (result) |*dir| dir.close();
 
         component = it.next() orelse return result.?;
+
+        // Don't leak the intermediate file handles
+        if (result) |*dir| {
+            dir.close();
+        }
     }
 }
 
@@ -1306,7 +1309,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     };
     defer posix.close(fd);
 
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const out_path = try std.os.getFdPath(fd, &buffer);
 
     if (out_path.len > out_buffer.len) {
@@ -1344,7 +1347,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
     const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    var big_out_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
     const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
     if (end_index > out_buffer.len)
         return error.NameTooLong;
@@ -1358,13 +1361,13 @@ pub const RealPathAllocError = RealPathError || Allocator.Error;
 /// Same as `Dir.realpath` except caller must free the returned memory.
 /// See also `Dir.realpath`.
 pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) RealPathAllocError![]u8 {
-    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
+    // Use of max_path_bytes here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.
     // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
     // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
     // paths. musl supports passing NULL but restricts the output to PATH_MAX
     // anyway.
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [fs.max_path_bytes]u8 = undefined;
     return allocator.dupe(u8, try self.realpath(pathname, buf[0..]));
 }
 
@@ -2189,10 +2192,10 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
         var cleanup_dir = true;
         defer if (cleanup_dir) dir.close();
 
-        // Valid use of MAX_PATH_BYTES because dir_name_buf will only
+        // Valid use of max_path_bytes because dir_name_buf will only
         // ever store a single path component that was returned from the
         // filesystem.
-        var dir_name_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var dir_name_buf: [fs.max_path_bytes]u8 = undefined;
         var dir_name: []const u8 = sub_path;
 
         // Here we must avoid recursion, in order to provide O(1) memory guarantee of this function.

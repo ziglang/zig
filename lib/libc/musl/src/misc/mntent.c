@@ -20,6 +20,42 @@ int endmntent(FILE *f)
 	return 1;
 }
 
+static char *unescape_ent(char *beg)
+{
+	char *dest = beg;
+	const char *src = beg;
+	while (*src) {
+		const char *val;
+		unsigned char cval = 0;
+		if (*src != '\\') {
+			*dest++ = *src++;
+			continue;
+		}
+		if (src[1] == '\\') {
+			++src;
+			*dest++ = *src++;
+			continue;
+		}
+		val = src + 1;
+		for (int i = 0; i < 3; ++i) {
+			if (*val >= '0' && *val <= '7') {
+				cval <<= 3;
+				cval += *val++ - '0';
+			} else {
+				break;
+			}
+		}
+		if (cval) {
+			*dest++ = cval;
+			src = val;
+		} else {
+			*dest++ = *src++;
+		}
+	}
+	*dest = 0;
+	return beg;
+}
+
 struct mntent *getmntent_r(FILE *f, struct mntent *mnt, char *linebuf, int buflen)
 {
 	int n[8], use_internal = (linebuf == SENTINEL);
@@ -45,7 +81,7 @@ struct mntent *getmntent_r(FILE *f, struct mntent *mnt, char *linebuf, int bufle
 		len = strlen(linebuf);
 		if (len > INT_MAX) continue;
 		for (i = 0; i < sizeof n / sizeof *n; i++) n[i] = len;
-		sscanf(linebuf, " %n%*s%n %n%*s%n %n%*s%n %n%*s%n %d %d",
+		sscanf(linebuf, " %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %d %d",
 			n, n+1, n+2, n+3, n+4, n+5, n+6, n+7,
 			&mnt->mnt_freq, &mnt->mnt_passno);
 	} while (linebuf[n[0]] == '#' || n[1]==len);
@@ -55,10 +91,10 @@ struct mntent *getmntent_r(FILE *f, struct mntent *mnt, char *linebuf, int bufle
 	linebuf[n[5]] = 0;
 	linebuf[n[7]] = 0;
 
-	mnt->mnt_fsname = linebuf+n[0];
-	mnt->mnt_dir = linebuf+n[2];
-	mnt->mnt_type = linebuf+n[4];
-	mnt->mnt_opts = linebuf+n[6];
+	mnt->mnt_fsname = unescape_ent(linebuf+n[0]);
+	mnt->mnt_dir = unescape_ent(linebuf+n[2]);
+	mnt->mnt_type = unescape_ent(linebuf+n[4]);
+	mnt->mnt_opts = unescape_ent(linebuf+n[6]);
 
 	return mnt;
 }

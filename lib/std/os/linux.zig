@@ -585,7 +585,7 @@ pub fn futex2_waitv(
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: i32,
 ) usize {
-    return syscall6(
+    return syscall5(
         .futex_waitv,
         @intFromPtr(waiters),
         nr_futexes,

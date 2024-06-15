@@ -1,5 +1,5 @@
 /* Socket constants which vary among Linux architectures.  Version for MIPS.
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

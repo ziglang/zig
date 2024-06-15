@@ -1,4 +1,4 @@
-/* Copyright (C) 1994-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1994-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -54,13 +54,6 @@
 #ifndef ENTRY
 #define ENTRY(name) .error ENTRY not defined by sysdeps/mach/MACHINE/sysdep.h
 /* This is not used on all machines.  */
-#endif
-
-/* Set variables ARGC, ARGV, and ENVP for the arguments
-   left on the stack by the microkernel.  */
-#ifndef SNARF_ARGS
-#define SNARF_ARGS(argc, argv, envp)
-#error SNARF_ARGS not defined by sysdeps/mach/MACHINE/sysdep.h
 #endif
 
 /* LOSE can be defined as the `halt' instruction or something

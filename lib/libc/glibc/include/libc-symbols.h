@@ -1,6 +1,6 @@
 /* Support macros for making weak and strong aliases for symbols,
    and for using symbol sets and linker warnings with GNU ld.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -612,8 +612,10 @@ for linking")
 #endif
 
 #if IS_IN (libmvec)
+# define libmvec_hidden_proto(name, attrs...) hidden_proto (name, ##attrs)
 # define libmvec_hidden_def(name) hidden_def (name)
 #else
+# define libmvec_hidden_proto(name, attrs...)
 # define libmvec_hidden_def(name)
 #endif
 

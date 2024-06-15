@@ -285,7 +285,7 @@ pub fn main() !void {
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try graph.env_map.put("YES_COLOR", "1"),
+        .escape_codes => try graph.env_map.put("CLICOLOR_FORCE", "1"),
         .windows_api => {},
     }
 

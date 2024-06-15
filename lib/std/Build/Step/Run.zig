@@ -923,7 +923,7 @@ fn runCommand(
             const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
-            switch (std.zig.system.getExternalExecutor(b.host.result, &other_target, .{
+            switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -996,7 +996,7 @@ fn runCommand(
                 .bad_dl => |foreign_dl| {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_dl = b.host.result.dynamic_linker.get() orelse "(none)";
+                    const host_dl = b.graph.host.result.dynamic_linker.get() orelse "(none)";
 
                     return step.fail(
                         \\the host system is unable to execute binaries from the target
@@ -1008,7 +1008,7 @@ fn runCommand(
                 .bad_os_or_cpu => {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_name = try b.host.result.zigTriple(b.allocator);
+                    const host_name = try b.graph.host.result.zigTriple(b.allocator);
                     const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
@@ -1241,20 +1241,26 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    if (run.stdio != .zig_test and !run.disable_zig_progress) {
+    const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
+
+    if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
         child.progress_node = prog_node;
     }
 
-    try child.spawn();
-    var timer = try std.time.Timer.start();
+    const term, const result, const elapsed_ns = t: {
+        if (inherit) std.debug.lockStdErr();
+        defer if (inherit) std.debug.unlockStdErr();
 
-    const result = if (run.stdio == .zig_test)
-        evalZigTest(run, &child, prog_node)
-    else
-        evalGeneric(run, &child);
+        try child.spawn();
+        var timer = try std.time.Timer.start();
 
-    const term = try child.wait();
-    const elapsed_ns = timer.read();
+        const result = if (run.stdio == .zig_test)
+            evalZigTest(run, &child, prog_node)
+        else
+            evalGeneric(run, &child);
+
+        break :t .{ try child.wait(), result, timer.read() };
+    };
 
     return .{
         .stdio = try result,
@@ -1558,7 +1564,7 @@ fn failForeign(
                 return error.MakeSkipped;
 
             const b = run.step.owner;
-            const host_name = try b.host.result.zigTriple(b.allocator);
+            const host_name = try b.graph.host.result.zigTriple(b.allocator);
             const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
             return run.step.fail(
