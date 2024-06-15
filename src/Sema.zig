@@ -26488,7 +26488,7 @@ fn zirWorkItem(
 
     switch (target.cpu.arch) {
         // TODO: Allow for other GPU targets.
-        .amdgcn => {},
+        .amdgcn, .spirv64, .spirv32 => {},
         else => {
             return sema.fail(block, builtin_src, "builtin only available on GPU targets; targeted architecture is {s}", .{@tagName(target.cpu.arch)});
         },
