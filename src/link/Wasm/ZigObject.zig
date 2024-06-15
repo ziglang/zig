@@ -241,9 +241,10 @@ pub fn allocateSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator) !Symbol.In
 pub fn updateDecl(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    mod: *Module,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
 ) !void {
+    const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
     if (decl.val.getFunction(mod)) |_| {
         return;
@@ -269,6 +270,7 @@ pub fn updateDecl(
 
     const res = try codegen.generateSymbol(
         &wasm_file.base,
+        pt,
         decl.navSrcLoc(mod),
         val,
         &code_writer,
@@ -285,21 +287,21 @@ pub fn updateDecl(
         },
     };
 
-    return zig_object.finishUpdateDecl(wasm_file, decl_index, code);
+    return zig_object.finishUpdateDecl(wasm_file, pt, decl_index, code);
 }
 
 pub fn updateFunc(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    mod: *Module,
+    pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
 ) !void {
     const gpa = wasm_file.base.comp.gpa;
-    const func = mod.funcInfo(func_index);
+    const func = pt.zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = pt.zcu.declPtr(decl_index);
     const atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const atom = wasm_file.getAtomPtr(atom_index);
     atom.clear();
@@ -308,7 +310,8 @@ pub fn updateFunc(
     defer code_writer.deinit();
     const result = try codegen.generateFunction(
         &wasm_file.base,
-        decl.navSrcLoc(mod),
+        pt,
+        decl.navSrcLoc(pt.zcu),
         func_index,
         air,
         liveness,
@@ -320,29 +323,31 @@ pub fn updateFunc(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
+            try pt.zcu.failed_analysis.put(gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
 
-    return zig_object.finishUpdateDecl(wasm_file, decl_index, code);
+    return zig_object.finishUpdateDecl(wasm_file, pt, decl_index, code);
 }
 
 fn finishUpdateDecl(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     code: []const u8,
 ) !void {
-    const gpa = wasm_file.base.comp.gpa;
-    const zcu = wasm_file.base.comp.module.?;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const gpa = zcu.gpa;
     const decl = zcu.declPtr(decl_index);
     const decl_info = zig_object.decls_map.get(decl_index).?;
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
     const full_name = try decl.fullyQualifiedName(zcu);
-    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&zcu.intern_pool));
+    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(ip));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
@@ -382,7 +387,7 @@ fn finishUpdateDecl(
             // Will be freed upon freeing of decl or after cleanup of Wasm binary.
             const full_segment_name = try std.mem.concat(gpa, u8, &.{
                 segment_name,
-                full_name.toSlice(&zcu.intern_pool),
+                full_name.toSlice(ip),
             });
             errdefer gpa.free(full_segment_name);
             sym.tag = .data;
@@ -390,7 +395,7 @@ fn finishUpdateDecl(
         },
     }
     if (code.len == 0) return;
-    atom.alignment = decl.getAlignment(zcu);
+    atom.alignment = decl.getAlignment(pt);
 }
 
 /// Creates and initializes a new segment in the 'Data' section.
@@ -437,9 +442,10 @@ pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_ind
 pub fn lowerAnonDecl(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
+    pt: Zcu.PerThread,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.Result {
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.anon_decls.getOrPut(gpa, decl_val);
@@ -449,7 +455,7 @@ pub fn lowerAnonDecl(
             @intFromEnum(decl_val),
         }) catch unreachable;
 
-        switch (try zig_object.lowerConst(wasm_file, name, Value.fromInterned(decl_val), src_loc)) {
+        switch (try zig_object.lowerConst(wasm_file, pt, name, Value.fromInterned(decl_val), src_loc)) {
             .ok => |atom_index| zig_object.anon_decls.values()[gop.index] = atom_index,
             .fail => |em| return .{ .fail = em },
         }
@@ -469,9 +475,15 @@ pub fn lowerAnonDecl(
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
+pub fn lowerUnnamedConst(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    pt: Zcu.PerThread,
+    val: Value,
+    decl_index: InternPool.DeclIndex,
+) !u32 {
+    const mod = pt.zcu;
+    const gpa = mod.gpa;
     std.debug.assert(val.typeOf(mod).zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
@@ -494,7 +506,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     else
         decl.navSrcLoc(mod);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src)) {
+    switch (try zig_object.lowerConst(wasm_file, pt, name, val, decl_src)) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
@@ -509,10 +521,17 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
 
 const LowerConstResult = union(enum) {
     ok: Atom.Index,
-    fail: *Module.ErrorMsg,
+    fail: *Zcu.ErrorMsg,
 };
 
-fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.LazySrcLoc) !LowerConstResult {
+fn lowerConst(
+    zig_object: *ZigObject,
+    wasm_file: *Wasm,
+    pt: Zcu.PerThread,
+    name: []const u8,
+    val: Value,
+    src_loc: Zcu.LazySrcLoc,
+) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
 
@@ -526,7 +545,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: V
 
     const code = code: {
         const atom = wasm_file.getAtomPtr(atom_index);
-        atom.alignment = ty.abiAlignment(mod);
+        atom.alignment = ty.abiAlignment(pt);
         const segment_name = try std.mem.concat(gpa, u8, &.{ ".rodata.", name });
         errdefer gpa.free(segment_name);
         zig_object.symbol(sym_index).* = .{
@@ -536,13 +555,14 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: V
             .index = try zig_object.createDataSegment(
                 gpa,
                 segment_name,
-                ty.abiAlignment(mod),
+                ty.abiAlignment(pt),
             ),
             .virtual_address = undefined,
         };
 
         const result = try codegen.generateSymbol(
             &wasm_file.base,
+            pt,
             src_loc,
             val,
             &value_bytes,
@@ -568,7 +588,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: V
 /// Returns the symbol index of the error name table.
 ///
 /// When the symbol does not yet exist, it will create a new one instead.
-pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !Symbol.Index {
+pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm, pt: Zcu.PerThread) !Symbol.Index {
     if (zig_object.error_table_symbol != .null) {
         return zig_object.error_table_symbol;
     }
@@ -581,8 +601,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !Symbol.Ind
     const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    const mod = wasm_file.base.comp.module.?;
-    atom.alignment = slice_ty.abiAlignment(mod);
+    atom.alignment = slice_ty.abiAlignment(pt);
 
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_name_table");
     const segment_name = try gpa.dupe(u8, ".rodata.__zig_err_name_table");
@@ -604,7 +623,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm) !Symbol.Ind
 ///
 /// This creates a table that consists of pointers and length to each error name.
 /// The table is what is being pointed to within the runtime bodies that are generated.
-fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
+fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.PerThread.Id) !void {
     if (zig_object.error_table_symbol == .null) return;
     const gpa = wasm_file.base.comp.gpa;
     const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = zig_object.error_table_symbol }).?;
@@ -631,11 +650,11 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const mod = wasm_file.base.comp.module.?;
-    for (mod.global_error_set.keys()) |error_name| {
+    const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.module.?, .tid = tid };
+    for (pt.zcu.global_error_set.keys()) |error_name| {
         const atom = wasm_file.getAtomPtr(atom_index);
 
-        const error_name_slice = error_name.toSlice(&mod.intern_pool);
+        const error_name_slice = error_name.toSlice(&pt.zcu.intern_pool);
         const len: u32 = @intCast(error_name_slice.len + 1); // names are 0-terminated
 
         const slice_ty = Type.slice_const_u8_sentinel_0;
@@ -650,14 +669,14 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
             .offset = offset,
             .addend = @intCast(addend),
         });
-        atom.size += @intCast(slice_ty.abiSize(mod));
+        atom.size += @intCast(slice_ty.abiSize(pt));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
         try names_atom.code.ensureUnusedCapacity(gpa, len);
         names_atom.code.appendSliceAssumeCapacity(error_name_slice[0..len]);
 
-        log.debug("Populated error name: '{}'", .{error_name.fmt(&mod.intern_pool)});
+        log.debug("Populated error name: '{}'", .{error_name.fmt(&pt.zcu.intern_pool)});
     }
     names_atom.size = addend;
     zig_object.error_names_atom = names_atom_index;
@@ -858,10 +877,11 @@ pub fn deleteExport(
 pub fn updateExports(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    mod: *Module,
-    exported: Module.Exported,
+    pt: Zcu.PerThread,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) !void {
+    const mod = pt.zcu;
     const decl_index = switch (exported) {
         .decl_index => |i| i,
         .value => |val| {
@@ -880,7 +900,7 @@ pub fn updateExports(
     for (export_indices) |export_idx| {
         const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
-            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                 gpa,
                 decl.navSrcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
@@ -913,7 +933,7 @@ pub fn updateExports(
             },
             .strong => {}, // symbols are strong by default
             .link_once => {
-                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+                try mod.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     decl.navSrcLoc(mod),
                     "Unimplemented: LinkOnce",
@@ -1096,7 +1116,7 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, inde
     return atom_index;
 }
 
-pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Zcu, decl_index: InternPool.DeclIndex) !void {
     if (zig_object.dwarf) |*dw| {
         const decl = mod.declPtr(decl_index);
         const decl_name = try decl.fullyQualifiedName(mod);
@@ -1228,8 +1248,8 @@ fn appendFunction(zig_object: *ZigObject, gpa: std.mem.Allocator, func: std.wasm
     return index;
 }
 
-pub fn flushModule(zig_object: *ZigObject, wasm_file: *Wasm) !void {
-    try zig_object.populateErrorNameTable(wasm_file);
+pub fn flushModule(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.PerThread.Id) !void {
+    try zig_object.populateErrorNameTable(wasm_file, tid);
     try zig_object.setupErrorsLen(wasm_file);
 }
 
@@ -1248,8 +1268,6 @@ const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const StringTable = @import("../StringTable.zig");
 const Symbol = @import("Symbol.zig");
 const Type = @import("../../Type.zig");

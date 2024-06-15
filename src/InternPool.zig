@@ -4548,17 +4548,14 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
 
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
-    for (static_keys[0..@intFromEnum(Index.empty_struct_type)]) |key| {
-        _ = ip.get(gpa, key) catch unreachable;
-    }
-    _ = ip.getAnonStructType(gpa, .{
-        .types = &.{},
-        .names = &.{},
-        .values = &.{},
-    }) catch unreachable;
-    for (static_keys[@intFromEnum(Index.empty_struct_type) + 1 ..]) |key| {
-        _ = ip.get(gpa, key) catch unreachable;
-    }
+    for (&static_keys, 0..) |key, key_index| switch (@as(Index, @enumFromInt(key_index))) {
+        .empty_struct_type => assert(try ip.getAnonStructType(gpa, .main, .{
+            .types = &.{},
+            .names = &.{},
+            .values = &.{},
+        }) == .empty_struct_type),
+        else => |expected_index| assert(try ip.get(gpa, .main, key) == expected_index),
+    };
 
     if (std.debug.runtime_safety) {
         // Sanity check.
@@ -5242,7 +5239,7 @@ fn indexToKeyBigInt(ip: *const InternPool, limb_index: u32, positive: bool) Key 
     } };
 }
 
-pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
+pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) Allocator.Error!Index {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
     if (gop.found_existing) return @enumFromInt(gop.index);
@@ -5266,8 +5263,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 _ = ip.map.pop();
                 var new_key = key;
                 new_key.ptr_type.flags.size = .Many;
-                const ptr_type_index = try ip.get(gpa, new_key);
+                const ptr_type_index = try ip.get(gpa, tid, new_key);
                 assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
+
                 try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
                     .tag = .type_slice,
@@ -5519,7 +5517,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         else => unreachable,
                     }
                     _ = ip.map.pop();
-                    const index_index = try ip.get(gpa, .{ .int = .{
+                    const index_index = try ip.get(gpa, tid, .{ .int = .{
                         .ty = .usize_type,
                         .storage = .{ .u64 = base_index.index },
                     } });
@@ -5932,7 +5930,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 const elem = switch (aggregate.storage) {
                     .bytes => |bytes| elem: {
                         _ = ip.map.pop();
-                        const elem = try ip.get(gpa, .{ .int = .{
+                        const elem = try ip.get(gpa, tid, .{ .int = .{
                             .ty = .u8_type,
                             .storage = .{ .u64 = bytes.at(0, ip) },
                         } });
@@ -6074,7 +6072,12 @@ pub const UnionTypeInit = struct {
     },
 };
 
-pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocator.Error!WipNamespaceType.Result {
+pub fn getUnionType(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    ini: UnionTypeInit,
+) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .union_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
@@ -6221,6 +6224,7 @@ pub const StructTypeInit = struct {
 pub fn getStructType(
     ip: *InternPool,
     gpa: Allocator,
+    _: Zcu.PerThread.Id,
     ini: StructTypeInit,
 ) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
@@ -6396,7 +6400,12 @@ pub const AnonStructTypeInit = struct {
     values: []const Index,
 };
 
-pub fn getAnonStructType(ip: *InternPool, gpa: Allocator, ini: AnonStructTypeInit) Allocator.Error!Index {
+pub fn getAnonStructType(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    ini: AnonStructTypeInit,
+) Allocator.Error!Index {
     assert(ini.types.len == ini.values.len);
     for (ini.types) |elem| assert(elem != .none);
 
@@ -6450,7 +6459,12 @@ pub const GetFuncTypeKey = struct {
     addrspace_is_generic: bool = false,
 };
 
-pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocator.Error!Index {
+pub fn getFuncType(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    key: GetFuncTypeKey,
+) Allocator.Error!Index {
     // Validate input parameters.
     assert(key.return_type != .none);
     for (key.param_types) |param_type| assert(param_type != .none);
@@ -6503,7 +6517,12 @@ pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocat
     return @enumFromInt(ip.items.len - 1);
 }
 
-pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: Key.ExternFunc) Allocator.Error!Index {
+pub fn getExternFunc(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    key: Key.ExternFunc,
+) Allocator.Error!Index {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .extern_func = key }, adapter);
     if (gop.found_existing) return @enumFromInt(gop.index);
@@ -6531,7 +6550,12 @@ pub const GetFuncDeclKey = struct {
     is_noinline: bool,
 };
 
-pub fn getFuncDecl(ip: *InternPool, gpa: Allocator, key: GetFuncDeclKey) Allocator.Error!Index {
+pub fn getFuncDecl(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    key: GetFuncDeclKey,
+) Allocator.Error!Index {
     // The strategy here is to add the function type unconditionally, then to
     // ask if it already exists, and if so, revert the lengths of the mutated
     // arrays. This is similar to what `getOrPutTrailingString` does.
@@ -6598,7 +6622,12 @@ pub const GetFuncDeclIesKey = struct {
     rbrace_column: u32,
 };
 
-pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) Allocator.Error!Index {
+pub fn getFuncDeclIes(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    key: GetFuncDeclIesKey,
+) Allocator.Error!Index {
     // Validate input parameters.
     assert(key.bare_return_type != .none);
     for (key.param_types) |param_type| assert(param_type != .none);
@@ -6707,6 +6736,7 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
 pub fn getErrorSetType(
     ip: *InternPool,
     gpa: Allocator,
+    _: Zcu.PerThread.Id,
     names: []const NullTerminatedString,
 ) Allocator.Error!Index {
     assert(std.sort.isSorted(NullTerminatedString, names, {}, NullTerminatedString.indexLessThan));
@@ -6770,11 +6800,16 @@ pub const GetFuncInstanceKey = struct {
     inferred_error_set: bool,
 };
 
-pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey) Allocator.Error!Index {
+pub fn getFuncInstance(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    arg: GetFuncInstanceKey,
+) Allocator.Error!Index {
     if (arg.inferred_error_set)
-        return getFuncInstanceIes(ip, gpa, arg);
+        return getFuncInstanceIes(ip, gpa, tid, arg);
 
-    const func_ty = try ip.getFuncType(gpa, .{
+    const func_ty = try ip.getFuncType(gpa, tid, .{
         .param_types = arg.param_types,
         .return_type = arg.bare_return_type,
         .noalias_bits = arg.noalias_bits,
@@ -6844,6 +6879,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
 pub fn getFuncInstanceIes(
     ip: *InternPool,
     gpa: Allocator,
+    _: Zcu.PerThread.Id,
     arg: GetFuncInstanceKey,
 ) Allocator.Error!Index {
     // Validate input parameters.
@@ -6955,7 +6991,6 @@ pub fn getFuncInstanceIes(
     assert(!ip.map.getOrPutAssumeCapacityAdapted(Key{
         .func_type = extraFuncType(ip, func_type_extra_index),
     }, adapter).found_existing);
-
     return finishFuncInstance(
         ip,
         gpa,
@@ -7096,6 +7131,7 @@ pub const WipEnumType = struct {
 pub fn getEnumType(
     ip: *InternPool,
     gpa: Allocator,
+    _: Zcu.PerThread.Id,
     ini: EnumTypeInit,
 ) Allocator.Error!WipEnumType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
@@ -7172,7 +7208,7 @@ pub fn getEnumType(
                 break :m values_map.toOptional();
             };
             errdefer if (ini.has_values) {
-                _ = ip.map.pop();
+                _ = ip.maps.pop();
             };
 
             try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
@@ -7245,7 +7281,12 @@ const GeneratedTagEnumTypeInit = struct {
 /// Creates an enum type which was automatically-generated as the tag type of a
 /// `union` with no explicit tag type. Since this is only called once per union
 /// type, it asserts that no matching type yet exists.
-pub fn getGeneratedTagEnumType(ip: *InternPool, gpa: Allocator, ini: GeneratedTagEnumTypeInit) Allocator.Error!Index {
+pub fn getGeneratedTagEnumType(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    ini: GeneratedTagEnumTypeInit,
+) Allocator.Error!Index {
     assert(ip.isUnion(ini.owner_union_ty));
     assert(ip.isIntegerType(ini.tag_ty));
     for (ini.values) |val| assert(ip.typeOf(val) == ini.tag_ty);
@@ -7342,7 +7383,12 @@ pub const OpaqueTypeInit = struct {
     },
 };
 
-pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeInit) Allocator.Error!WipNamespaceType.Result {
+pub fn getOpaqueType(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    ini: OpaqueTypeInit,
+) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .opaque_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
@@ -7680,23 +7726,23 @@ test "basic usage" {
     var ip: InternPool = .{};
     defer ip.deinit(gpa);
 
-    const i32_type = try ip.get(gpa, .{ .int_type = .{
+    const i32_type = try ip.get(gpa, .main, .{ .int_type = .{
         .signedness = .signed,
         .bits = 32,
     } });
-    const array_i32 = try ip.get(gpa, .{ .array_type = .{
+    const array_i32 = try ip.get(gpa, .main, .{ .array_type = .{
         .len = 10,
         .child = i32_type,
         .sentinel = .none,
     } });
 
-    const another_i32_type = try ip.get(gpa, .{ .int_type = .{
+    const another_i32_type = try ip.get(gpa, .main, .{ .int_type = .{
         .signedness = .signed,
         .bits = 32,
     } });
     try std.testing.expect(another_i32_type == i32_type);
 
-    const another_array_i32 = try ip.get(gpa, .{ .array_type = .{
+    const another_array_i32 = try ip.get(gpa, .main, .{ .array_type = .{
         .len = 10,
         .child = i32_type,
         .sentinel = .none,
@@ -7766,48 +7812,54 @@ pub fn sliceLen(ip: *const InternPool, i: Index) Index {
 /// * payload => error union
 /// * fn <=> fn
 /// * aggregate <=> aggregate (where children can also be coerced)
-pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+pub fn getCoerced(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    val: Index,
+    new_ty: Index,
+) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
 
     const tags = ip.items.items(.tag);
 
     switch (val) {
-        .undef => return ip.get(gpa, .{ .undef = new_ty }),
+        .undef => return ip.get(gpa, tid, .{ .undef = new_ty }),
         .null_value => {
-            if (ip.isOptionalType(new_ty)) return ip.get(gpa, .{ .opt = .{
+            if (ip.isOptionalType(new_ty)) return ip.get(gpa, tid, .{ .opt = .{
                 .ty = new_ty,
                 .val = .none,
             } });
 
             if (ip.isPointerType(new_ty)) switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
-                .One, .Many, .C => return ip.get(gpa, .{ .ptr = .{
+                .One, .Many, .C => return ip.get(gpa, tid, .{ .ptr = .{
                     .ty = new_ty,
                     .base_addr = .int,
                     .byte_offset = 0,
                 } }),
-                .Slice => return ip.get(gpa, .{ .slice = .{
+                .Slice => return ip.get(gpa, tid, .{ .slice = .{
                     .ty = new_ty,
-                    .ptr = try ip.get(gpa, .{ .ptr = .{
+                    .ptr = try ip.get(gpa, tid, .{ .ptr = .{
                         .ty = ip.slicePtrType(new_ty),
                         .base_addr = .int,
                         .byte_offset = 0,
                     } }),
-                    .len = try ip.get(gpa, .{ .undef = .usize_type }),
+                    .len = try ip.get(gpa, tid, .{ .undef = .usize_type }),
                 } }),
             };
         },
         else => switch (tags[@intFromEnum(val)]) {
-            .func_decl => return getCoercedFuncDecl(ip, gpa, val, new_ty),
-            .func_instance => return getCoercedFuncInstance(ip, gpa, val, new_ty),
+            .func_decl => return getCoercedFuncDecl(ip, gpa, tid, val, new_ty),
+            .func_instance => return getCoercedFuncInstance(ip, gpa, tid, val, new_ty),
             .func_coerced => {
                 const extra_index = ip.items.items(.data)[@intFromEnum(val)];
                 const func: Index = @enumFromInt(
                     ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncCoerced, "func").?],
                 );
                 switch (tags[@intFromEnum(func)]) {
-                    .func_decl => return getCoercedFuncDecl(ip, gpa, val, new_ty),
-                    .func_instance => return getCoercedFuncInstance(ip, gpa, val, new_ty),
+                    .func_decl => return getCoercedFuncDecl(ip, gpa, tid, val, new_ty),
+                    .func_instance => return getCoercedFuncInstance(ip, gpa, tid, val, new_ty),
                     else => unreachable,
                 }
             },
@@ -7816,9 +7868,9 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
     }
 
     switch (ip.indexToKey(val)) {
-        .undef => return ip.get(gpa, .{ .undef = new_ty }),
+        .undef => return ip.get(gpa, tid, .{ .undef = new_ty }),
         .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
-            return ip.get(gpa, .{ .extern_func = .{
+            return ip.get(gpa, tid, .{ .extern_func = .{
                 .ty = new_ty,
                 .decl = extern_func.decl,
                 .lib_name = extern_func.lib_name,
@@ -7827,12 +7879,12 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         .func => unreachable,
 
         .int => |int| switch (ip.indexToKey(new_ty)) {
-            .enum_type => return ip.get(gpa, .{ .enum_tag = .{
+            .enum_type => return ip.get(gpa, tid, .{ .enum_tag = .{
                 .ty = new_ty,
-                .int = try ip.getCoerced(gpa, val, ip.loadEnumType(new_ty).tag_ty),
+                .int = try ip.getCoerced(gpa, tid, val, ip.loadEnumType(new_ty).tag_ty),
             } }),
             .ptr_type => switch (int.storage) {
-                inline .u64, .i64 => |int_val| return ip.get(gpa, .{ .ptr = .{
+                inline .u64, .i64 => |int_val| return ip.get(gpa, tid, .{ .ptr = .{
                     .ty = new_ty,
                     .base_addr = .int,
                     .byte_offset = @intCast(int_val),
@@ -7841,7 +7893,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .lazy_align, .lazy_size => {},
             },
             else => if (ip.isIntegerType(new_ty))
-                return getCoercedInts(ip, gpa, int, new_ty),
+                return ip.getCoercedInts(gpa, tid, int, new_ty),
         },
         .float => |float| switch (ip.indexToKey(new_ty)) {
             .simple_type => |simple| switch (simple) {
@@ -7852,7 +7904,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .f128,
                 .c_longdouble,
                 .comptime_float,
-                => return ip.get(gpa, .{ .float = .{
+                => return ip.get(gpa, tid, .{ .float = .{
                     .ty = new_ty,
                     .storage = float.storage,
                 } }),
@@ -7861,17 +7913,17 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             else => {},
         },
         .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
-            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
+            return ip.getCoercedInts(gpa, tid, ip.indexToKey(enum_tag.int).int, new_ty),
         .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
             .enum_type => {
                 const enum_type = ip.loadEnumType(new_ty);
                 const index = enum_type.nameIndex(ip, enum_literal).?;
-                return ip.get(gpa, .{ .enum_tag = .{
+                return ip.get(gpa, tid, .{ .enum_tag = .{
                     .ty = new_ty,
                     .int = if (enum_type.values.len != 0)
                         enum_type.values.get(ip)[index]
                     else
-                        try ip.get(gpa, .{ .int = .{
+                        try ip.get(gpa, tid, .{ .int = .{
                             .ty = enum_type.tag_ty,
                             .storage = .{ .u64 = index },
                         } }),
@@ -7880,22 +7932,22 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             else => {},
         },
         .slice => |slice| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size == .Slice)
-            return ip.get(gpa, .{ .slice = .{
+            return ip.get(gpa, tid, .{ .slice = .{
                 .ty = new_ty,
-                .ptr = try ip.getCoerced(gpa, slice.ptr, ip.slicePtrType(new_ty)),
+                .ptr = try ip.getCoerced(gpa, tid, slice.ptr, ip.slicePtrType(new_ty)),
                 .len = slice.len,
             } })
         else if (ip.isIntegerType(new_ty))
-            return ip.getCoerced(gpa, slice.ptr, new_ty),
+            return ip.getCoerced(gpa, tid, slice.ptr, new_ty),
         .ptr => |ptr| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size != .Slice)
-            return ip.get(gpa, .{ .ptr = .{
+            return ip.get(gpa, tid, .{ .ptr = .{
                 .ty = new_ty,
                 .base_addr = ptr.base_addr,
                 .byte_offset = ptr.byte_offset,
             } })
         else if (ip.isIntegerType(new_ty))
             switch (ptr.base_addr) {
-                .int => return ip.get(gpa, .{ .int = .{
+                .int => return ip.get(gpa, tid, .{ .int = .{
                     .ty = .usize_type,
                     .storage = .{ .u64 = @intCast(ptr.byte_offset) },
                 } }),
@@ -7904,44 +7956,44 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         .opt => |opt| switch (ip.indexToKey(new_ty)) {
             .ptr_type => |ptr_type| return switch (opt.val) {
                 .none => switch (ptr_type.flags.size) {
-                    .One, .Many, .C => try ip.get(gpa, .{ .ptr = .{
+                    .One, .Many, .C => try ip.get(gpa, tid, .{ .ptr = .{
                         .ty = new_ty,
                         .base_addr = .int,
                         .byte_offset = 0,
                     } }),
-                    .Slice => try ip.get(gpa, .{ .slice = .{
+                    .Slice => try ip.get(gpa, tid, .{ .slice = .{
                         .ty = new_ty,
-                        .ptr = try ip.get(gpa, .{ .ptr = .{
+                        .ptr = try ip.get(gpa, tid, .{ .ptr = .{
                             .ty = ip.slicePtrType(new_ty),
                             .base_addr = .int,
                             .byte_offset = 0,
                         } }),
-                        .len = try ip.get(gpa, .{ .undef = .usize_type }),
+                        .len = try ip.get(gpa, tid, .{ .undef = .usize_type }),
                     } }),
                 },
-                else => |payload| try ip.getCoerced(gpa, payload, new_ty),
+                else => |payload| try ip.getCoerced(gpa, tid, payload, new_ty),
             },
-            .opt_type => |child_type| return try ip.get(gpa, .{ .opt = .{
+            .opt_type => |child_type| return try ip.get(gpa, tid, .{ .opt = .{
                 .ty = new_ty,
                 .val = switch (opt.val) {
                     .none => .none,
-                    else => try ip.getCoerced(gpa, opt.val, child_type),
+                    else => try ip.getCoerced(gpa, tid, opt.val, child_type),
                 },
             } }),
             else => {},
         },
         .err => |err| if (ip.isErrorSetType(new_ty))
-            return ip.get(gpa, .{ .err = .{
+            return ip.get(gpa, tid, .{ .err = .{
                 .ty = new_ty,
                 .name = err.name,
             } })
         else if (ip.isErrorUnionType(new_ty))
-            return ip.get(gpa, .{ .error_union = .{
+            return ip.get(gpa, tid, .{ .error_union = .{
                 .ty = new_ty,
                 .val = .{ .err_name = err.name },
             } }),
         .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
-            return ip.get(gpa, .{ .error_union = .{
+            return ip.get(gpa, tid, .{ .error_union = .{
                 .ty = new_ty,
                 .val = error_union.val,
             } }),
@@ -7960,20 +8012,20 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 };
                 if (old_ty_child != new_ty_child) break :direct;
                 switch (aggregate.storage) {
-                    .bytes => |bytes| return ip.get(gpa, .{ .aggregate = .{
+                    .bytes => |bytes| return ip.get(gpa, tid, .{ .aggregate = .{
                         .ty = new_ty,
                         .storage = .{ .bytes = bytes },
                     } }),
                     .elems => |elems| {
                         const elems_copy = try gpa.dupe(Index, elems[0..new_len]);
                         defer gpa.free(elems_copy);
-                        return ip.get(gpa, .{ .aggregate = .{
+                        return ip.get(gpa, tid, .{ .aggregate = .{
                             .ty = new_ty,
                             .storage = .{ .elems = elems_copy },
                         } });
                     },
                     .repeated_elem => |elem| {
-                        return ip.get(gpa, .{ .aggregate = .{
+                        return ip.get(gpa, tid, .{ .aggregate = .{
                             .ty = new_ty,
                             .storage = .{ .repeated_elem = elem },
                         } });
@@ -7991,7 +8043,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     // We have to intern each value here, so unfortunately we can't easily avoid
                     // the repeated indexToKey calls.
                     for (agg_elems, 0..) |*elem, index| {
-                        elem.* = try ip.get(gpa, .{ .int = .{
+                        elem.* = try ip.get(gpa, tid, .{ .int = .{
                             .ty = .u8_type,
                             .storage = .{ .u64 = bytes.at(index, ip) },
                         } });
@@ -8008,27 +8060,27 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .struct_type => ip.loadStructType(new_ty).field_types.get(ip)[i],
                     else => unreachable,
                 };
-                elem.* = try ip.getCoerced(gpa, elem.*, new_elem_ty);
+                elem.* = try ip.getCoerced(gpa, tid, elem.*, new_elem_ty);
             }
-            return ip.get(gpa, .{ .aggregate = .{ .ty = new_ty, .storage = .{ .elems = agg_elems } } });
+            return ip.get(gpa, tid, .{ .aggregate = .{ .ty = new_ty, .storage = .{ .elems = agg_elems } } });
         },
         else => {},
     }
 
     switch (ip.indexToKey(new_ty)) {
         .opt_type => |child_type| switch (val) {
-            .null_value => return ip.get(gpa, .{ .opt = .{
+            .null_value => return ip.get(gpa, tid, .{ .opt = .{
                 .ty = new_ty,
                 .val = .none,
             } }),
-            else => return ip.get(gpa, .{ .opt = .{
+            else => return ip.get(gpa, tid, .{ .opt = .{
                 .ty = new_ty,
-                .val = try ip.getCoerced(gpa, val, child_type),
+                .val = try ip.getCoerced(gpa, tid, val, child_type),
             } }),
         },
-        .error_union_type => |error_union_type| return ip.get(gpa, .{ .error_union = .{
+        .error_union_type => |error_union_type| return ip.get(gpa, tid, .{ .error_union = .{
             .ty = new_ty,
-            .val = .{ .payload = try ip.getCoerced(gpa, val, error_union_type.payload_type) },
+            .val = .{ .payload = try ip.getCoerced(gpa, tid, val, error_union_type.payload_type) },
         } }),
         else => {},
     }
@@ -8042,27 +8094,45 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
     unreachable;
 }
 
-fn getCoercedFuncDecl(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+fn getCoercedFuncDecl(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    val: Index,
+    new_ty: Index,
+) Allocator.Error!Index {
     const datas = ip.items.items(.data);
     const extra_index = datas[@intFromEnum(val)];
     const prev_ty: Index = @enumFromInt(
         ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncDecl, "ty").?],
     );
     if (new_ty == prev_ty) return val;
-    return getCoercedFunc(ip, gpa, val, new_ty);
+    return getCoercedFunc(ip, gpa, tid, val, new_ty);
 }
 
-fn getCoercedFuncInstance(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+fn getCoercedFuncInstance(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    val: Index,
+    new_ty: Index,
+) Allocator.Error!Index {
     const datas = ip.items.items(.data);
     const extra_index = datas[@intFromEnum(val)];
     const prev_ty: Index = @enumFromInt(
         ip.extra.items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "ty").?],
     );
     if (new_ty == prev_ty) return val;
-    return getCoercedFunc(ip, gpa, val, new_ty);
+    return getCoercedFunc(ip, gpa, tid, val, new_ty);
 }
 
-fn getCoercedFunc(ip: *InternPool, gpa: Allocator, func: Index, ty: Index) Allocator.Error!Index {
+fn getCoercedFunc(
+    ip: *InternPool,
+    gpa: Allocator,
+    _: Zcu.PerThread.Id,
+    func: Index,
+    ty: Index,
+) Allocator.Error!Index {
     const prev_extra_len = ip.extra.items.len;
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.FuncCoerced).Struct.fields.len);
     try ip.items.ensureUnusedCapacity(gpa, 1);
@@ -8092,7 +8162,7 @@ fn getCoercedFunc(ip: *InternPool, gpa: Allocator, func: Index, ty: Index) Alloc
 
 /// Asserts `val` has an integer type.
 /// Assumes `new_ty` is an integer type.
-pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, int: Key.Int, new_ty: Index) Allocator.Error!Index {
+pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, int: Key.Int, new_ty: Index) Allocator.Error!Index {
     // The key cannot be passed directly to `get`, otherwise in the case of
     // big_int storage, the limbs would be invalidated before they are read.
     // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
@@ -8111,7 +8181,7 @@ pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, int: Key.Int, new_ty: Ind
             } };
         },
     };
-    return ip.get(gpa, .{ .int = .{
+    return ip.get(gpa, tid, .{ .int = .{
         .ty = new_ty,
         .storage = new_storage,
     } });

@@ -2146,6 +2146,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.module) |zcu| {
+        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.root_name,
@@ -2165,10 +2167,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
-            try zcu.populateTestFunctions(main_progress_node);
+            try pt.populateTestFunctions(main_progress_node);
         }
 
-        try zcu.processExports();
+        try pt.processExports();
     }
 
     if (comp.totalErrorCount() != 0) {
@@ -2247,7 +2249,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 }
             }
 
-            try flush(comp, arena, main_progress_node);
+            try flush(comp, arena, .main, main_progress_node);
             if (comp.totalErrorCount() != 0) return;
 
             // Failure here only means an unnecessary cache miss.
@@ -2264,16 +2266,16 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             whole.lock = man.toOwnedLock();
         },
         .incremental => {
-            try flush(comp, arena, main_progress_node);
+            try flush(comp, arena, .main, main_progress_node);
             if (comp.totalErrorCount() != 0) return;
         },
     }
 }
 
-fn flush(comp: *Compilation, arena: Allocator, prog_node: std.Progress.Node) !void {
+fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
-        lf.flush(arena, prog_node) catch |err| switch (err) {
+        lf.flush(arena, tid, prog_node) catch |err| switch (err) {
             error.FlushFailure => {}, // error reported through link_error_flags
             error.LLDReportedFailure => {}, // error reported via lockAndParseLldStderr
             else => |e| return e,
@@ -3419,7 +3421,7 @@ pub fn performAllTheWork(
 
     while (true) {
         if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item, main_progress_node);
+            try processOneJob(0, comp, work_item, main_progress_node);
             continue;
         }
         if (comp.module) |zcu| {
@@ -3447,11 +3449,11 @@ pub fn performAllTheWork(
     }
 }
 
-fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !void {
+fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
-            const zcu = comp.module.?;
-            const decl = zcu.declPtr(decl_index);
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const decl = pt.zcu.declPtr(decl_index);
 
             switch (decl.analysis) {
                 .unreferenced => unreachable,
@@ -3469,7 +3471,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     assert(decl.has_tv);
 
-                    try zcu.linkerUpdateDecl(decl_index);
+                    try pt.linkerUpdateDecl(decl_index);
                     return;
                 },
             }
@@ -3478,16 +3480,16 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             const named_frame = tracy.namedFrame("codegen_func");
             defer named_frame.end();
 
-            const zcu = comp.module.?;
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
             // This call takes ownership of `func.air`.
-            try zcu.linkerUpdateFunc(func.func, func.air);
+            try pt.linkerUpdateFunc(func.func, func.air);
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
-            const zcu = comp.module.?;
-            zcu.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -3496,8 +3498,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             if (true) @panic("regressed compiler feature: emit-h should hook into updateExports, " ++
                 "not decl analysis, which is too early to know about @export calls");
 
-            const zcu = comp.module.?;
-            const decl = zcu.declPtr(decl_index);
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const decl = pt.zcu.declPtr(decl_index);
 
             switch (decl.analysis) {
                 .unreferenced => unreachable,
@@ -3515,7 +3517,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                     defer named_frame.end();
 
                     const gpa = comp.gpa;
-                    const emit_h = zcu.emit_h.?;
+                    const emit_h = pt.zcu.emit_h.?;
                     _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
                     const decl_emit_h = emit_h.declPtr(decl_index);
                     const fwd_decl = &decl_emit_h.fwd_decl;
@@ -3523,11 +3525,11 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                     var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
                     defer ctypes_arena.deinit();
 
-                    const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
+                    const file_scope = pt.zcu.namespacePtr(decl.src_namespace).fileScope(pt.zcu);
 
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
-                        .zcu = zcu,
+                        .pt = pt,
                         .mod = file_scope.mod,
                         .error_msg = null,
                         .pass = .{ .decl = decl_index },
@@ -3557,25 +3559,25 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             }
         },
         .analyze_decl => |decl_index| {
-            const zcu = comp.module.?;
-            zcu.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            pt.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
-            const decl = zcu.declPtr(decl_index);
+            const decl = pt.zcu.declPtr(decl_index);
             if (decl.kind == .@"test" and comp.config.is_test) {
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
+                try pt.zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
         },
         .resolve_type_fully => |ty| {
             const named_frame = tracy.namedFrame("resolve_type_fully");
             defer named_frame.end();
 
-            const zcu = comp.module.?;
-            Type.fromInterned(ty).resolveFully(zcu) catch |err| switch (err) {
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -3603,12 +3605,12 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                 try zcu.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
             };
         },
-        .analyze_mod => |pkg| {
+        .analyze_mod => |mod| {
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const zcu = comp.module.?;
-            zcu.semaPkg(pkg) catch |err| switch (err) {
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            pt.semaPkg(mod) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };

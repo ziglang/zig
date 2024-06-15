@@ -15,8 +15,6 @@ const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Value = @import("Value.zig");
@@ -367,14 +365,14 @@ pub const File = struct {
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
+    pub fn lowerUnnamedConst(base: *File, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .spirv => unreachable,
             .c => unreachable,
             .nvptx => unreachable,
             inline else => |t| {
-                return @as(*t.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(val, decl_index);
+                return @as(*t.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(pt, val, decl_index);
             },
         }
     }
@@ -399,13 +397,13 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
-        const decl = module.declPtr(decl_index);
+    pub fn updateDecl(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
+        const decl = pt.zcu.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDecl(module, decl_index);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDecl(pt, decl_index);
             },
         }
     }
@@ -413,7 +411,7 @@ pub const File = struct {
     /// May be called before or after updateExports for any given Decl.
     pub fn updateFunc(
         base: *File,
-        module: *Module,
+        pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
@@ -421,12 +419,12 @@ pub const File = struct {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(module, func_index, air, liveness);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, air, liveness);
             },
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
+    pub fn updateDeclLineNumber(base: *File, module: *Zcu, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
         assert(decl.has_tv);
         switch (base.tag) {
@@ -537,7 +535,7 @@ pub const File = struct {
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     /// `arena` has the lifetime of the call to `Compilation.update`.
-    pub fn flush(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
+    pub fn flush(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @as(*C, @fieldParentPtr("base", base)).flush(arena, prog_node);
@@ -563,27 +561,27 @@ pub const File = struct {
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
         if (use_lld and output_mode == .Lib and link_mode == .static) {
-            return base.linkAsArchive(arena, prog_node);
+            return base.linkAsArchive(arena, tid, prog_node);
         }
         switch (base.tag) {
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).flush(arena, prog_node);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).flush(arena, tid, prog_node);
             },
         }
     }
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
+    pub fn flushModule(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, prog_node);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, tid, prog_node);
             },
         }
     }
 
-    /// Called when a Decl is deleted from the Module.
+    /// Called when a Decl is deleted from the Zcu.
     pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
         switch (base.tag) {
             inline else => |tag| {
@@ -604,14 +602,14 @@ pub const File = struct {
     /// May be called before or after updateDecl for any given Decl.
     pub fn updateExports(
         base: *File,
-        module: *Module,
-        exported: Module.Exported,
+        pt: Zcu.PerThread,
+        exported: Zcu.Exported,
         export_indices: []const u32,
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, export_indices);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(pt, exported, export_indices);
             },
         }
     }
@@ -644,9 +642,10 @@ pub const File = struct {
 
     pub fn lowerAnonDecl(
         base: *File,
+        pt: Zcu.PerThread,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
-        src_loc: Module.LazySrcLoc,
+        src_loc: Zcu.LazySrcLoc,
     ) !LowerResult {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
@@ -654,7 +653,7 @@ pub const File = struct {
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerAnonDecl(decl_val, decl_align, src_loc);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerAnonDecl(pt, decl_val, decl_align, src_loc);
             },
         }
     }
@@ -689,7 +688,7 @@ pub const File = struct {
         }
     }
 
-    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
+    pub fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -704,7 +703,7 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
         const zcu_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
-            try base.flushModule(arena, prog_node);
+            try base.flushModule(arena, tid, prog_node);
 
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
             break :blk try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
@@ -896,14 +895,14 @@ pub const File = struct {
         kind: Kind,
         ty: Type,
 
-        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Module) LazySymbol {
+        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Zcu) LazySymbol {
             return .{ .kind = kind, .ty = if (decl) |decl_index|
                 mod.declPtr(decl_index).val.toType()
             else
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol, mod: *Module) InternPool.OptionalDeclIndex {
+        pub fn getDecl(self: LazySymbol, mod: *Zcu) InternPool.OptionalDeclIndex {
             return InternPool.OptionalDeclIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };

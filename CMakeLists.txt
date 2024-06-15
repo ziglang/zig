@@ -525,6 +525,7 @@ set(ZIG_STAGE2_SOURCES
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
+    src/Zcu/PerThread.zig
     src/arch/aarch64/CodeGen.zig
     src/arch/aarch64/Emit.zig
     src/arch/aarch64/Mir.zig

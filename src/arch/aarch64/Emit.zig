@@ -8,9 +8,7 @@ const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
-const ErrorMsg = Module.ErrorMsg;
+const ErrorMsg = Zcu.ErrorMsg;
 const assert = std.debug.assert;
 const Instruction = bits.Instruction;
 const Register = bits.Register;
@@ -22,7 +20,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.LazySrcLoc,
+src_loc: Zcu.LazySrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,

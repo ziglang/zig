@@ -7,8 +7,6 @@ const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
 const Type = @import("Type.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;

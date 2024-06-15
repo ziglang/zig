@@ -172,7 +172,7 @@ pub fn main() anyerror!void {
         }
         // We would prefer to use raw libc allocator here, but cannot
         // use it if it won't support the alignment we need.
-        if (@alignOf(std.c.max_align_t) < @alignOf(i128)) {
+        if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
             break :gpa std.heap.c_allocator;
         }
         break :gpa std.heap.raw_c_allocator;
@@ -3092,7 +3092,7 @@ fn buildOutputType(
     defer emit_implib_resolved.deinit();
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
+    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
     defer thread_pool.deinit();
 
     var cleanup_local_cache_dir: ?fs.Dir = null;
@@ -4895,7 +4895,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
+    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
     defer thread_pool.deinit();
 
     // Dummy http client that is not actually used when only_core_functionality is enabled.
@@ -5329,7 +5329,7 @@ fn jitCmd(
     defer global_cache_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
+    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
     defer thread_pool.deinit();
 
     var child_argv: std.ArrayListUnmanaged([]const u8) = .{};

@@ -360,11 +360,11 @@ pub fn deinit(self: *MachO) void {
     self.unwind_records.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
-    try self.flushModule(arena, prog_node);
+pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    try self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -391,7 +391,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
-    if (self.getZigObject()) |zo| try zo.flushModule(self);
+    if (self.getZigObject()) |zo| try zo.flushModule(self, tid);
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
@@ -3178,24 +3178,24 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     try self.base.file.?.pwriteAll(buffer.items, offset);
 }
 
-pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *MachO, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    return self.getZigObject().?.updateFunc(self, mod, func_index, air, liveness);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
+    return self.getZigObject().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
-pub fn lowerUnnamedConst(self: *MachO, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return self.getZigObject().?.lowerUnnamedConst(self, val, decl_index);
+pub fn lowerUnnamedConst(self: *MachO, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return self.getZigObject().?.lowerUnnamedConst(self, pt, val, decl_index);
 }
 
-pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    return self.getZigObject().?.updateDecl(self, mod, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
+    return self.getZigObject().?.updateDecl(self, pt, decl_index);
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -3205,15 +3205,15 @@ pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPoo
 
 pub fn updateExports(
     self: *MachO,
-    mod: *Module,
+    pt: Zcu.PerThread,
     exported: Module.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
-    return self.getZigObject().?.updateExports(self, mod, exported, export_indices);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
+    return self.getZigObject().?.updateExports(self, pt, exported, export_indices);
 }
 
 pub fn deleteExport(
@@ -3237,11 +3237,12 @@ pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: 
 
 pub fn lowerAnonDecl(
     self: *MachO,
+    pt: Zcu.PerThread,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
-    return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
+    return self.getZigObject().?.lowerAnonDecl(self, pt, decl_val, explicit_alignment, src_loc);
 }
 
 pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
