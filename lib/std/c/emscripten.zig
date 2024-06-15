@@ -171,7 +171,7 @@ pub const RTLD = struct {
     pub const LOCAL = 0;
 };
 
-pub const dirent = struct {
+pub const dirent = extern struct {
     ino: c_uint,
     off: c_uint,
     reclen: c_ushort,

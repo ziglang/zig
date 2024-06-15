@@ -330,14 +330,14 @@ pub const RTLD = struct {
     pub const LOCAL = 0;
 };
 
-pub const dirent = struct {
+pub const dirent = extern struct {
     ino: c_uint,
     off: c_uint,
     reclen: c_ushort,
     type: u8,
     name: [256]u8,
 };
-pub const dirent64 = struct {
+pub const dirent64 = extern struct {
     ino: c_ulong,
     off: c_ulong,
     reclen: c_ushort,
