@@ -3968,7 +3968,7 @@ pub const EpollCtlError = error{
     FileDescriptorIncompatibleWithEpoll,
 } || UnexpectedError;
 
-pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollCtlError!void {
+pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*system.epoll_event) EpollCtlError!void {
     const rc = system.epoll_ctl(epfd, op, fd, event);
     switch (errno(rc)) {
         .SUCCESS => return,
@@ -3988,7 +3988,7 @@ pub fn epoll_ctl(epfd: i32, op: u32, fd: i32, event: ?*linux.epoll_event) EpollC
 /// Waits for an I/O event on an epoll file descriptor.
 /// Returns the number of file descriptors ready for the requested I/O,
 /// or zero if no file descriptor became ready during the requested timeout milliseconds.
-pub fn epoll_wait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
+pub fn epoll_wait(epfd: i32, events: []system.epoll_event, timeout: i32) usize {
     while (true) {
         // TODO get rid of the @intCast
         const rc = system.epoll_wait(epfd, events.ptr, @intCast(events.len), timeout);
@@ -7142,32 +7142,35 @@ pub const PerfEventOpenError = error{
 } || UnexpectedError;
 
 pub fn perf_event_open(
-    attr: *linux.perf_event_attr,
+    attr: *system.perf_event_attr,
     pid: pid_t,
     cpu: i32,
     group_fd: fd_t,
     flags: usize,
 ) PerfEventOpenError!fd_t {
-    const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
-    switch (errno(rc)) {
-        .SUCCESS => return @intCast(rc),
-        .@"2BIG" => return error.TooBig,
-        .ACCES => return error.PermissionDenied,
-        .BADF => unreachable, // group_fd file descriptor is not valid.
-        .BUSY => return error.DeviceBusy,
-        .FAULT => unreachable, // Segmentation fault.
-        .INVAL => unreachable, // Bad attr settings.
-        .INTR => unreachable, // Mixed perf and ftrace handling for a uprobe.
-        .MFILE => return error.ProcessResources,
-        .NODEV => return error.EventRequiresUnsupportedCpuFeature,
-        .NOENT => unreachable, // Invalid type setting.
-        .NOSPC => return error.TooManyBreakpoints,
-        .NOSYS => return error.SampleStackNotSupported,
-        .OPNOTSUPP => return error.EventNotSupported,
-        .OVERFLOW => return error.SampleMaxStackOverflow,
-        .PERM => return error.PermissionDenied,
-        .SRCH => return error.ProcessNotFound,
-        else => |err| return unexpectedErrno(err),
+    if (native_os == .linux) {
+        // There is no syscall wrapper for this function exposed by libcs
+        const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .@"2BIG" => return error.TooBig,
+            .ACCES => return error.PermissionDenied,
+            .BADF => unreachable, // group_fd file descriptor is not valid.
+            .BUSY => return error.DeviceBusy,
+            .FAULT => unreachable, // Segmentation fault.
+            .INVAL => unreachable, // Bad attr settings.
+            .INTR => unreachable, // Mixed perf and ftrace handling for a uprobe.
+            .MFILE => return error.ProcessResources,
+            .NODEV => return error.EventRequiresUnsupportedCpuFeature,
+            .NOENT => unreachable, // Invalid type setting.
+            .NOSPC => return error.TooManyBreakpoints,
+            .NOSYS => return error.SampleStackNotSupported,
+            .OPNOTSUPP => return error.EventNotSupported,
+            .OVERFLOW => return error.SampleMaxStackOverflow,
+            .PERM => return error.PermissionDenied,
+            .SRCH => return error.ProcessNotFound,
+            else => |err| return unexpectedErrno(err),
+        }
     }
 }
 
@@ -7182,8 +7185,8 @@ pub const TimerFdCreateError = error{
 pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
-pub fn timerfd_create(clokid: i32, flags: linux.TFD) TimerFdCreateError!fd_t {
-    const rc = linux.timerfd_create(clokid, flags);
+pub fn timerfd_create(clokid: i32, flags: system.TFD) TimerFdCreateError!fd_t {
+    const rc = system.timerfd_create(clokid, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),
         .INVAL => unreachable,
@@ -7198,11 +7201,11 @@ pub fn timerfd_create(clokid: i32, flags: linux.TFD) TimerFdCreateError!fd_t {
 
 pub fn timerfd_settime(
     fd: i32,
-    flags: linux.TFD.TIMER,
-    new_value: *const linux.itimerspec,
-    old_value: ?*linux.itimerspec,
+    flags: system.TFD.TIMER,
+    new_value: *const system.itimerspec,
+    old_value: ?*system.itimerspec,
 ) TimerFdSetError!void {
-    const rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    const rc = system.timerfd_settime(fd, @bitCast(flags), new_value, old_value);
     return switch (errno(rc)) {
         .SUCCESS => {},
         .BADF => error.InvalidHandle,
@@ -7213,9 +7216,9 @@ pub fn timerfd_settime(
     };
 }
 
-pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
-    var curr_value: linux.itimerspec = undefined;
-    const rc = linux.timerfd_gettime(fd, &curr_value);
+pub fn timerfd_gettime(fd: i32) TimerFdGetError!system.itimerspec {
+    var curr_value: system.itimerspec = undefined;
+    const rc = system.timerfd_gettime(fd, &curr_value);
     return switch (errno(rc)) {
         .SUCCESS => return curr_value,
         .BADF => error.InvalidHandle,
