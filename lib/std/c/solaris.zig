@@ -34,8 +34,8 @@ pub const sem_t = extern struct {
     __pad2: [2]u64 = [_]u64{0} ** 2,
 };
 
-pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
-pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) c_int;
+pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) c_int;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
