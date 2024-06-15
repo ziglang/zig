@@ -7171,6 +7171,8 @@ pub fn perf_event_open(
     }
 }
 
+pub const TFD = system.TFD;
+
 pub const TimerFdCreateError = error{
     AccessDenied,
     ProcessFdQuotaExceeded,
@@ -7196,11 +7198,13 @@ pub fn timerfd_create(clokid: i32, flags: system.TFD) TimerFdCreateError!fd_t {
     };
 }
 
+pub const itimerspec = system.itimerspec;
+
 pub fn timerfd_settime(
     fd: i32,
     flags: system.TFD.TIMER,
-    new_value: *const system.itimerspec,
-    old_value: ?*system.itimerspec,
+    new_value: *const itimerspec,
+    old_value: ?*itimerspec,
 ) TimerFdSetError!void {
     const rc = system.timerfd_settime(fd, @bitCast(flags), new_value, old_value);
     return switch (errno(rc)) {
@@ -7213,8 +7217,8 @@ pub fn timerfd_settime(
     };
 }
 
-pub fn timerfd_gettime(fd: i32) TimerFdGetError!system.itimerspec {
-    var curr_value: system.itimerspec = undefined;
+pub fn timerfd_gettime(fd: i32) TimerFdGetError!itimerspec {
+    var curr_value: itimerspec = undefined;
     const rc = system.timerfd_gettime(fd, &curr_value);
     return switch (errno(rc)) {
         .SUCCESS => return curr_value,
