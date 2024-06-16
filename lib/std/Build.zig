@@ -1058,6 +1058,10 @@ pub fn addRemoveDirTree(b: *Build, dir_path: []const u8) *Step.RemoveDir {
     return Step.RemoveDir.create(b, dir_path);
 }
 
+pub fn addFail(b: *Build, error_msg: []const u8) *Step.Fail {
+    return Step.Fail.create(b, error_msg);
+}
+
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
     return Step.Fmt.create(b, options);
 }
