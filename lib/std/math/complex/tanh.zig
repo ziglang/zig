@@ -7,60 +7,62 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
 
-/// Returns the hyperbolic tangent of z.
-pub fn tanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
-    return switch (T) {
-        f32 => tanh32(z),
-        f64 => tanh64(z),
-        else => @compileError("tan not implemented for " ++ @typeName(z)),
-    };
-}
+const ldexp_cexp32 = @import("ldexp.zig").ldexp_cexp32;
+const ldexp_cexp64 = @import("ldexp.zig").ldexp_cexp64;
 
-fn tanh32(z: Complex(f32)) Complex(f32) {
-    const x = z.re;
-    const y = z.im;
-
-    const hx = @as(u32, @bitCast(x));
-    const ix = hx & 0x7fffffff;
-
-    if (ix >= 0x7f800000) {
-        if (ix & 0x7fffff != 0) {
-            const r = if (y == 0) y else x * y;
-            return Complex(f32).init(x, r);
-        }
-        const xx = @as(f32, @bitCast(hx - 0x40000000));
-        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
-        return Complex(f32).init(xx, math.copysign(@as(f32, 0.0), r));
-    }
-
-    if (!math.isFinite(y)) {
-        const r = if (ix != 0) y - y else x;
-        return Complex(f32).init(r, y - y);
-    }
-
-    // x >= 11
-    if (ix >= 0x41300000) {
-        const exp_mx = @exp(-@abs(x));
-        return Complex(f32).init(math.copysign(@as(f32, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
-    }
-
+fn kahan(comptime T: type, x: T, y: T) [2]T {
     // Kahan's algorithm
     const t = @tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
     const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
-
-    return Complex(f32).init((beta * rho * s) / den, t / den);
+    return .{
+        (beta * rho * s) / den,
+        t / den,
+    };
 }
 
-fn tanh64(z: Complex(f64)) Complex(f64) {
-    const x = z.re;
-    const y = z.im;
+pub const tanhFallback = kahan;
+
+pub fn tanh32(x: f32, y: f32) [2]f32 {
+    const zero: f32 = 0;
+    const one: f32 = 1;
+
+    const hx: u32 = @bitCast(x);
+    const ix = hx & 0x7fffffff;
+
+    if (ix >= 0x7f800000) {
+        return if (ix & 0x7fffff != 0) .{
+            x,
+            if (y == 0) y else x * y,
+        } else .{
+            @bitCast(hx - 0x40000000),
+            math.copysign(zero, if (math.isInf(y)) y else @sin(y) * @cos(y)),
+        };
+    }
+
+    if (!math.isFinite(y)) return .{
+        if (ix != 0) y - y else x,
+        y - y,
+    };
+
+    // x >= 11
+    if (ix >= 0x41300000) {
+        const exp_mx = @exp(-@abs(x));
+        return .{
+            math.copysign(one, x),
+            4 * @sin(y) * @cos(y) * exp_mx * exp_mx,
+        };
+    }
+
+    return kahan(f32, x, y);
+}
+
+pub fn tanh64(x: f64, y: f64) [2]f64 {
+    const zero: f64 = 0;
+    const one: f64 = 1;
 
     const fx: u64 = @bitCast(x);
     // TODO: zig should allow this conversion implicitly because it can notice that the value necessarily
@@ -70,51 +72,59 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7ff00000) {
-        if ((ix & 0x7fffff) | lx != 0) {
-            const r = if (y == 0) y else x * y;
-            return Complex(f64).init(x, r);
-        }
-
-        const xx: f64 = @bitCast((@as(u64, hx - 0x40000000) << 32) | lx);
-        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
-        return Complex(f64).init(xx, math.copysign(@as(f64, 0.0), r));
+        return if ((ix & 0x7fffff) | lx != 0) .{
+            x,
+            if (y == 0) y else x * y,
+        } else .{
+            @bitCast((@as(u64, hx - 0x40000000) << 32) | lx),
+            math.copysign(zero, if (math.isInf(y)) y else @sin(y) * @cos(y)),
+        };
     }
 
-    if (!math.isFinite(y)) {
-        const r = if (ix != 0) y - y else x;
-        return Complex(f64).init(r, y - y);
-    }
+    if (!math.isFinite(y)) return .{
+        if (ix != 0) y - y else x,
+        y - y,
+    };
 
     // x >= 22
     if (ix >= 0x40360000) {
         const exp_mx = @exp(-@abs(x));
-        return Complex(f64).init(math.copysign(@as(f64, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
+        return .{
+            math.copysign(one, x),
+            4 * @sin(y) * @cos(y) * exp_mx * exp_mx,
+        };
     }
 
-    // Kahan's algorithm
-    const t = @tan(y);
-    const beta = 1.0 + t * t;
-    const s = math.sinh(x);
-    const rho = @sqrt(1 + s * s);
-    const den = 1 + beta * s * s;
-
-    return Complex(f64).init((beta * rho * s) / den, t / den);
+    return kahan(f64, x, y);
 }
 
-const epsilon = 0.0001;
-
 test tanh32 {
-    const a = Complex(f32).init(5, 3);
-    const c = tanh(a);
-
-    try testing.expect(math.approxEqAbs(f32, c.re, 0.999913, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, -0.000025, epsilon));
+    const z = tanh32(5, 3);
+    const re: f32 = 0.9999128201513536;
+    const im: f32 = -2.536867620767604e-5;
+    try testing.expect(math.approxEqAbs(f32, z[0], re, @sqrt(math.floatEpsAt(f32, re))));
+    try testing.expect(math.approxEqAbs(f32, z[1], im, @sqrt(math.floatEpsAt(f32, im))));
 }
 
 test tanh64 {
-    const a = Complex(f64).init(5, 3);
-    const c = tanh(a);
+    const z = tanh64(5, 3);
+    const re: f64 = 0.9999128201513536;
+    const im: f64 = -2.536867620767604e-5;
+    try testing.expect(math.approxEqAbs(f64, z[0], re, @sqrt(math.floatEpsAt(f64, re))));
+    try testing.expect(math.approxEqAbs(f64, z[1], im, @sqrt(math.floatEpsAt(f64, im))));
+}
 
-    try testing.expect(math.approxEqAbs(f64, c.re, 0.999913, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, -0.000025, epsilon));
+test tanhFallback {
+    const re = 0.9999128201513536;
+    const im = -2.536867620767604e-5;
+    inline for (.{ f32, f64 }) |F| {
+        const z = tanhFallback(F, 5, 3);
+        try testing.expect(math.approxEqAbs(F, z[0], re, @sqrt(math.floatEpsAt(F, re))));
+        try testing.expect(math.approxEqAbs(F, z[1], im, @sqrt(math.floatEpsAt(F, im))));
+    }
+    { // separate f128 test with less strict tolerance
+        const z = tanhFallback(f128, 5, 3);
+        try testing.expect(math.approxEqAbs(f128, z[0], re, @sqrt(math.floatEpsAt(f64, re))));
+        try testing.expect(math.approxEqAbs(f128, z[1], im, @sqrt(math.floatEpsAt(f64, im))));
+    }
 }

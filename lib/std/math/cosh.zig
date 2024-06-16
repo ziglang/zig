@@ -16,12 +16,16 @@ const maxInt = std.math.maxInt;
 ///  - cosh(+-0)   = 1
 ///  - cosh(+-inf) = +inf
 ///  - cosh(nan)   = nan
+///
+/// Only implemented to spec for f32 and f64,
+/// fallback implementation may be imprecise,
+/// or behave incorrectly in some edge cases.
 pub fn cosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => cosh32(x),
         f64 => cosh64(x),
-        else => @compileError("cosh not implemented for " ++ @typeName(T)),
+        else => 0.5 * (@exp(x) + @exp(-x)),
     };
 }
 

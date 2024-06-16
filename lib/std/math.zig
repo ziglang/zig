@@ -338,8 +338,6 @@ pub inline fn exp2(value: anytype) @TypeOf(value) {
 }
 
 pub const complex = @import("math/complex.zig");
-pub const Complex = complex.Complex;
-
 pub const big = @import("math/big.zig");
 
 test {
@@ -399,7 +397,6 @@ test {
     _ = lgamma;
 
     _ = complex;
-    _ = Complex;
 
     _ = big;
 }

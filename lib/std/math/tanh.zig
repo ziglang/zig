@@ -17,12 +17,16 @@ const maxInt = std.math.maxInt;
 ///  - sinh(+-0)   = +-0
 ///  - sinh(+-inf) = +-1
 ///  - sinh(nan)   = nan
+///
+/// Only implemented to spec for f32 and f64,
+/// fallback implementation may be imprecise,
+/// or behave incorrectly in some edge cases.
 pub fn tanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {
         f32 => tanh32(x),
         f64 => tanh64(x),
-        else => @compileError("tanh not implemented for " ++ @typeName(T)),
+        else => (@exp(x) - @exp(-x)) / (@exp(x) + @exp(-x)),
     };
 }
 
