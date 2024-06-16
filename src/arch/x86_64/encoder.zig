@@ -1125,6 +1125,11 @@ test "encode" {
 test "lower I encoding" {
     var enc = TestEncode{};
 
+    try enc.encode(.int, &.{
+        .{ .imm = Immediate.u(0x10) },
+    });
+    try expectEqualHexStrings("\xCD\x10", enc.code(), "int 0x10");
+
     try enc.encode(.push, &.{
         .{ .imm = Immediate.u(0x10) },
     });
@@ -1841,8 +1846,14 @@ test "lower FD/TD encoding" {
 test "lower NP encoding" {
     var enc = TestEncode{};
 
+    try enc.encode(.int1, &.{});
+    try expectEqualHexStrings("\xF1", enc.code(), "int1");
+
     try enc.encode(.int3, &.{});
     try expectEqualHexStrings("\xCC", enc.code(), "int3");
+
+    try enc.encode(.iret, &.{});
+    try expectEqualHexStrings("\xCF", enc.code(), "iret");
 
     try enc.encode(.nop, &.{});
     try expectEqualHexStrings("\x90", enc.code(), "nop");
@@ -1852,6 +1863,39 @@ test "lower NP encoding" {
 
     try enc.encode(.syscall, &.{});
     try expectEqualHexStrings("\x0f\x05", enc.code(), "syscall");
+
+    try enc.encode(.sysret, &.{});
+    try expectEqualHexStrings("\x0f\x07", enc.code(), "sysret");
+
+    try enc.encode(.hlt, &.{});
+    try expectEqualHexStrings("\xf4", enc.code(), "hlt");
+
+    try enc.encode(.cmc, &.{});
+    try expectEqualHexStrings("\xf5", enc.code(), "cmc");
+
+    try enc.encode(.clc, &.{});
+    try expectEqualHexStrings("\xf8", enc.code(), "clc");
+
+    try enc.encode(.stc, &.{});
+    try expectEqualHexStrings("\xf9", enc.code(), "stc");
+
+    try enc.encode(.cli, &.{});
+    try expectEqualHexStrings("\xfa", enc.code(), "cli");
+
+    try enc.encode(.sti, &.{});
+    try expectEqualHexStrings("\xfb", enc.code(), "sti");
+
+    try enc.encode(.cld, &.{});
+    try expectEqualHexStrings("\xfc", enc.code(), "cld");
+
+    try enc.encode(.std, &.{});
+    try expectEqualHexStrings("\xfd", enc.code(), "std");
+
+    try enc.encode(.wrmsr, &.{});
+    try expectEqualHexStrings("\xf0\x30", enc.code(), "wrmsr");
+
+    try enc.encode(.rdmsr, &.{});
+    try expectEqualHexStrings("\xf0\x32", enc.code(), "rdmsr");
 }
 
 fn invalidInstruction(mnemonic: Instruction.Mnemonic, ops: []const Instruction.Operand) !void {
@@ -2476,9 +2520,12 @@ test "assemble" {
         \\fld dword ptr [rbp]
         \\xor bl, 0xff
         \\ud2
+        \\rdmsr
         \\add rsp, -1
         \\add rsp, 0xff
         \\mov sil, byte ptr [rax + rcx * 1]
+        \\cli
+        \\mov %%rax, %%cr3
         \\
     ;
 
@@ -2539,9 +2586,12 @@ test "assemble" {
         0xD9, 0x45, 0x00,
         0x80, 0xF3, 0xFF,
         0x0F, 0x0B,
+        0x0F, 0x32,
         0x48, 0x83, 0xC4, 0xFF,
         0x48, 0x81, 0xC4, 0xFF, 0x00, 0x00, 0x00,
         0x40, 0x8A, 0x34, 0x08,
+        0xFA,
+        0x0F, 0x22, 0xD8,
     };
     // zig fmt: on
 

@@ -153,7 +153,7 @@ pub const Condition = enum(u5) {
     }
 };
 
-pub const Register = enum(u7) {
+pub const Register = enum(u8) {
     // zig fmt: off
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
     r8, r9, r10, r11, r12, r13, r14, r15,
@@ -183,12 +183,15 @@ pub const Register = enum(u7) {
 
     rip, eip, ip,
 
+    cr0, cr2, cr3, cr4, cr8,
+
     none,
     // zig fmt: on
 
     pub const Class = enum {
         general_purpose,
         segment,
+        control,
         x87,
         mmx,
         sse,
@@ -209,6 +212,8 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => .x87,
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .segment,
+
+            @intFromEnum(Register.cr0)   ... @intFromEnum(Register.cr8)    => .control,
 
             else => unreachable,
             // zig fmt: on
@@ -231,6 +236,8 @@ pub const Register = enum(u7) {
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es) - 48,
 
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr8)   => @intFromEnum(Register.cr0),
+
             else => unreachable,
             // zig fmt: on
         };
@@ -252,6 +259,8 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => 80,
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => 16,
+
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr8)   => 64,
 
             else => unreachable,
             // zig fmt: on
@@ -289,6 +298,8 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => @intFromEnum(Register.st0),
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es),
+
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr8)   => @intFromEnum(Register.cr0),
 
             else => unreachable,
             // zig fmt: on
@@ -370,6 +381,7 @@ pub const Register = enum(u7) {
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),
             .segment => 50 + @as(u6, reg.enc()),
+            .control => unreachable,
         };
     }
 };
@@ -404,6 +416,7 @@ test "Register classes" {
     try expect(Register.mm3.class() == .mmx);
     try expect(Register.st3.class() == .x87);
     try expect(Register.fs.class() == .segment);
+    try expect(Register.cr3.class() == .control);
 }
 
 pub const FrameIndex = enum(u32) {

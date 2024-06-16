@@ -337,7 +337,29 @@ pub const Inst = struct {
         /// Increment by 1
         inc,
         /// Call to interrupt procedure
+        int1,
+        /// Call to interrupt procedure
         int3,
+        /// Call to interrupt procedure
+        int,
+        /// Interrupt return
+        iret,
+        /// Halt
+        hlt,
+        /// Complement carry flag
+        cmc,
+        /// Clear carry flag
+        clc,
+        /// Set carry flag
+        stc,
+        /// Clear interrupt flag
+        cli,
+        /// Set interrupt flag
+        sti,
+        /// Clear direction flag
+        cld,
+        /// Set direction flag
+        std,
         /// Conditional jump
         j,
         /// Jump
@@ -429,12 +451,18 @@ pub const Inst = struct {
         sto,
         /// Syscall
         syscall,
+        /// Return from syscall
+        sysret,
         /// Test condition
         @"test",
         /// Count the number of trailing zero bits
         tzcnt,
         /// Undefined instruction
         ud2,
+        /// Write MSR
+        wrmsr,
+        /// Read MSR
+        rdmsr,
         /// Exchange and add
         xadd,
         /// Exchange register/memory with register
@@ -1092,7 +1120,7 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u16 = undefined,
+        _: u15 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {

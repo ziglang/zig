@@ -308,7 +308,23 @@ pub const table = [_]Entry{
     .{ .inc, .m, &.{ .rm32 }, &.{ 0xff }, 0, .none,  .none },
     .{ .inc, .m, &.{ .rm64 }, &.{ 0xff }, 0, .long,  .none },
 
+    .{ .int1, .zo, &.{}, &.{ 0xf1 }, 0, .none, .none },
+
     .{ .int3, .zo, &.{}, &.{ 0xcc }, 0, .none, .none },
+
+    .{ .int, .i, &.{ .imm8 }, &.{ 0xcd }, 0, .none, .none },
+
+    .{ .iret, .zo, &.{}, &.{ 0xcf }, 0, .none, .none },
+
+    .{ .hlt, .zo, &.{}, &.{ 0xf4 }, 0, .none, .none },
+
+    .{ .cmc, .zo, &.{}, &.{ 0xf5 }, 0, .none, .none },
+    .{ .clc, .zo, &.{}, &.{ 0xf8 }, 0, .none, .none },
+    .{ .stc, .zo, &.{}, &.{ 0xf9 }, 0, .none, .none },
+    .{ .cli, .zo, &.{}, &.{ 0xfa }, 0, .none, .none },
+    .{ .sti, .zo, &.{}, &.{ 0xfb }, 0, .none, .none },
+    .{ .cld, .zo, &.{}, &.{ 0xfc }, 0, .none, .none },
+    .{ .std, .zo, &.{}, &.{ 0xfd }, 0, .none, .none },
 
     .{ .ja,    .d, &.{ .rel32 }, &.{ 0x0f, 0x87 }, 0, .none, .none },
     .{ .jae,   .d, &.{ .rel32 }, &.{ 0x0f, 0x83 }, 0, .none, .none },
@@ -401,6 +417,8 @@ pub const table = [_]Entry{
     .{ .mov, .mi, &.{ .rm16,    .imm16   }, &.{ 0xc7 }, 0, .short, .none },
     .{ .mov, .mi, &.{ .rm32,    .imm32   }, &.{ 0xc7 }, 0, .none,  .none },
     .{ .mov, .mi, &.{ .rm64,    .imm32s  }, &.{ 0xc7 }, 0, .long,  .none },
+    .{ .mov, .rm, &.{ .rm64,     .eee    }, &.{ 0x0f, 0x20 }, 0, .long,  .none },
+    .{ .mov, .mr, &.{ .eee,     .rm64    }, &.{ 0x0f, 0x22 }, 0, .long,  .none },
 
     .{ .movbe, .rm, &.{ .r16, .m16 }, &.{ 0x0f, 0x38, 0xf0 }, 0, .short, .movbe },
     .{ .movbe, .rm, &.{ .r32, .m32 }, &.{ 0x0f, 0x38, 0xf0 }, 0, .none,  .movbe },
@@ -781,6 +799,7 @@ pub const table = [_]Entry{
     .{ .sub, .rm, &.{ .r64,  .rm64   }, &.{ 0x2b }, 0, .long,  .none },
 
     .{ .syscall, .zo, &.{}, &.{ 0x0f, 0x05 }, 0, .none, .none },
+    .{ .sysret, .zo, &.{}, &.{ 0x0f, 0x07 }, 0, .none, .none },
 
     .{ .@"test", .zi, &.{ .al,   .imm8   }, &.{ 0xa8 }, 0, .none,  .none },
     .{ .@"test", .zi, &.{ .ax,   .imm16  }, &.{ 0xa9 }, 0, .short, .none },
@@ -802,6 +821,9 @@ pub const table = [_]Entry{
     .{ .tzcnt, .rm, &.{ .r64, .rm64 }, &.{ 0xf3, 0x0f, 0xbc }, 0, .long,  .bmi },
 
     .{ .ud2, .zo, &.{}, &.{ 0x0f, 0x0b }, 0, .none, .none },
+
+    .{ .wrmsr, .zo, &.{}, &.{ 0x0f, 0x30 }, 0, .none, .none },
+    .{ .rdmsr, .zo, &.{}, &.{ 0x0f, 0x32 }, 0, .none, .none },
 
     .{ .xadd, .mr, &.{ .rm8,  .r8  }, &.{ 0x0f, 0xc0 }, 0, .none,  .none },
     .{ .xadd, .mr, &.{ .rm8,  .r8  }, &.{ 0x0f, 0xc0 }, 0, .rex,   .none },

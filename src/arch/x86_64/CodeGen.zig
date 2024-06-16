@@ -14311,7 +14311,7 @@ const MoveStrategy = union(enum) {
 fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !MoveStrategy {
     const mod = self.bin_file.comp.module.?;
     switch (class) {
-        .general_purpose, .segment => return .{ .move = .{ ._, .mov } },
+        .general_purpose, .segment, .control => return .{ .move = .{ ._, .mov } },
         .x87 => return .x87_load_store,
         .mmx => {},
         .sse => switch (ty.zigTypeTag(mod)) {
@@ -14684,7 +14684,7 @@ fn genSetReg(
                 ),
                 else => unreachable,
             },
-            .segment, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(try mod.undefValue(ty)), opts),
+            .segment, .control, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(try mod.undefValue(ty)), opts),
         },
         .eflags => |cc| try self.asmSetccRegister(cc, dst_reg.to8()),
         .immediate => |imm| {
@@ -14722,6 +14722,11 @@ fn genSetReg(
                     registerAlias(dst_reg, abi_size),
                     src_reg,
                 ),
+                .control => try self.asmRegisterRegister(
+                    .{ ._, .mov },
+                    registerAlias(dst_reg, abi_size),
+                    src_reg,
+                ),
                 .x87, .mmx => unreachable,
                 .sse => try self.asmRegisterRegister(
                     switch (abi_size) {
@@ -14738,12 +14743,21 @@ fn genSetReg(
                 dst_reg,
                 switch (src_reg.class()) {
                     .general_purpose, .segment => registerAlias(src_reg, abi_size),
-                    .x87, .mmx => unreachable,
+                    .x87, .mmx, .control => unreachable,
+                    .sse => try self.copyToTmpRegister(ty, src_mcv),
+                },
+            ),
+            .control => try self.asmRegisterRegister(
+                .{ ._, .mov },
+                dst_reg,
+                switch (src_reg.class()) {
+                    .general_purpose => registerAlias(src_reg, abi_size),
+                    .x87, .mmx, .segment, .control => unreachable,
                     .sse => try self.copyToTmpRegister(ty, src_mcv),
                 },
             ),
             .x87 => switch (src_reg.class()) {
-                .general_purpose, .segment => unreachable,
+                .general_purpose, .segment, .control => unreachable,
                 .x87 => switch (src_reg) {
                     .st0 => try self.asmRegister(.{ .f_, .st }, dst_reg),
                     .st1, .st2, .st3, .st4, .st5, .st6 => {
@@ -14772,6 +14786,7 @@ fn genSetReg(
                     .{ .register = try self.copyToTmpRegister(ty, src_mcv) },
                     opts,
                 ),
+                .control => unreachable,
                 .x87, .mmx => unreachable,
                 .sse => try self.asmRegisterRegister(
                     @as(?Mir.Inst.FixedTag, switch (ty.scalarType(mod).zigTypeTag(mod)) {
@@ -14866,7 +14881,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx => unreachable,
+                    .segment, .control, .mmx => unreachable,
                     .x87, .sse => {},
                 },
                 .load_direct => |sym_index| switch (dst_reg.class()) {
@@ -14884,7 +14899,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx => unreachable,
+                    .segment, .control, .mmx => unreachable,
                     .x87, .sse => {},
                 },
                 .load_got, .load_tlv => {},
@@ -15047,7 +15062,7 @@ fn genSetMem(
             };
             const src_alias = registerAlias(src_reg, abi_size);
             const src_size: u32 = @intCast(switch (src_alias.class()) {
-                .general_purpose, .segment, .x87 => @divExact(src_alias.bitSize(), 8),
+                .general_purpose, .segment, .control, .x87 => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
             const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
@@ -19060,6 +19075,10 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
         else
             unreachable,
         .segment => if (size_bytes <= 2)
+            reg
+        else
+            unreachable,
+        .control => if (size_bytes <= 8)
             reg
         else
             unreachable,
