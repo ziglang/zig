@@ -346,6 +346,7 @@ pub const File = struct {
         SocketNotConnected,
         NotOpenForReading,
         WouldBlock,
+        Canceled,
         AccessDenied,
         Unexpected,
         DiskQuota,

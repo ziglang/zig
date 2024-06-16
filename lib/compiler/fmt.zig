@@ -185,6 +185,7 @@ const FmtError = error{
     BrokenPipe,
     Unexpected,
     WouldBlock,
+    Canceled,
     FileClosed,
     DestinationAddressRequired,
     DiskQuota,
