@@ -1141,6 +1141,7 @@ fn preadAtLeast(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usi
         const len = file.pread(buf[i..], offset + i) catch |err| switch (err) {
             error.OperationAborted => unreachable, // Windows-only
             error.WouldBlock => unreachable, // Did not request blocking mode
+            error.Canceled => unreachable, // timerfd is unseekable
             error.NotOpenForReading => unreachable,
             error.SystemResources => return error.SystemResources,
             error.IsDir => return error.UnableToReadElfFile,
