@@ -38,35 +38,30 @@ fn redupif32(x: f32) f32 {
 
 fn atan32(z: Complex(f32)) Complex(f32) {
     const maxnum = 1.0e38;
+    const overflow = Complex(f32).init(maxnum, maxnum);
 
     const x = z.re;
     const y = z.im;
 
-    if ((x == 0.0) and (y > 1.0)) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
+    if ((x == 0.0) and (y > 1.0)) return overflow;
 
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
+    if (a == 0.0) return overflow;
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif32(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
+    if (a == 0.0) return overflow;
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f32).init(w, 0.25 * @log(a));
+    return .{
+        .re = w,
+        .im = @log(a) * 0.25,
+    };
 }
 
 fn redupif64(x: f64) f64 {
@@ -87,35 +82,30 @@ fn redupif64(x: f64) f64 {
 
 fn atan64(z: Complex(f64)) Complex(f64) {
     const maxnum = 1.0e308;
+    const overflow = Complex(f64).init(maxnum, maxnum);
 
     const x = z.re;
     const y = z.im;
 
-    if ((x == 0.0) and (y > 1.0)) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
+    if ((x == 0.0) and (y > 1.0)) return overflow;
 
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
+    if (a == 0.0) return overflow;
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif64(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
+    if (a == 0.0) return overflow;
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f64).init(w, 0.25 * @log(a));
+    return .{
+        .re = w,
+        .im = @log(a) * 0.25,
+    };
 }
 
 const epsilon = 0.0001;

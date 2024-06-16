@@ -14,7 +14,6 @@ const Complex = cmath.Complex;
 /// as the imaginary part of z.
 pub fn sqrt(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
-
     return switch (T) {
         f32 => sqrt32(z),
         f64 => sqrt64(z),
@@ -26,47 +25,53 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
-    if (x == 0 and y == 0) {
-        return Complex(f32).init(0, y);
-    }
-    if (math.isInf(y)) {
-        return Complex(f32).init(math.inf(f32), y);
-    }
-    if (math.isNan(x)) {
-        // raise invalid if y is not nan
-        const t = (y - y) / (y - y);
-        return Complex(f32).init(x, t);
-    }
+    if (x == 0 and y == 0) return .{
+        .re = 0,
+        .im = y,
+    };
+
+    if (math.isInf(y)) return .{
+        .re = math.inf(f32),
+        .im = y,
+    };
+
+    if (math.isNan(x)) return .{
+        .re = x,
+        .im = (y - y) / (y - y), // raise invalid if y is not nan
+    };
+
     if (math.isInf(x)) {
         // sqrt(inf + i nan)    = inf + nan i
         // sqrt(inf + iy)       = inf + i0
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
-        if (math.signbit(x)) {
-            return Complex(f32).init(@abs(x - y), math.copysign(x, y));
-        } else {
-            return Complex(f32).init(x, math.copysign(y - y, y));
-        }
+        return if (math.signbit(x)) .{
+            .re = @abs(x - y),
+            .im = math.copysign(x, y),
+        } else .{
+            .re = x,
+            .im = math.copysign(y - y, y),
+        };
     }
 
     // y = nan special case is handled fine below
 
     // double-precision avoids overflow with correct rounding.
-    const dx = @as(f64, x);
-    const dy = @as(f64, y);
+    const dx: f64 = x;
+    const dy: f64 = y;
 
     if (dx >= 0) {
-        const t = @sqrt((dx + math.hypot(dx, dy)) * 0.5);
-        return Complex(f32).init(
-            @as(f32, @floatCast(t)),
-            @as(f32, @floatCast(dy / (2.0 * t))),
-        );
+        const t = @sqrt(0.5 * (math.hypot(dx, dy) + dx));
+        return .{
+            .re = @floatCast(t),
+            .im = @floatCast(dy / (2.0 * t)),
+        };
     } else {
-        const t = @sqrt((-dx + math.hypot(dx, dy)) * 0.5);
-        return Complex(f32).init(
-            @as(f32, @floatCast(@abs(y) / (2.0 * t))),
-            @as(f32, @floatCast(math.copysign(t, y))),
-        );
+        const t = @sqrt(0.5 * (math.hypot(dx, dy) - dx));
+        return .{
+            .re = @floatCast(@abs(y) / (2.0 * t)),
+            .im = @floatCast(math.copysign(t, y)),
+        };
     }
 }
 
@@ -77,27 +82,33 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
     var x = z.re;
     var y = z.im;
 
-    if (x == 0 and y == 0) {
-        return Complex(f64).init(0, y);
-    }
-    if (math.isInf(y)) {
-        return Complex(f64).init(math.inf(f64), y);
-    }
-    if (math.isNan(x)) {
-        // raise invalid if y is not nan
-        const t = (y - y) / (y - y);
-        return Complex(f64).init(x, t);
-    }
+    if (x == 0 and y == 0) return .{
+        .re = 0,
+        .im = y,
+    };
+
+    if (math.isInf(y)) return .{
+        .re = math.inf(f64),
+        .im = y,
+    };
+
+    if (math.isNan(x)) return .{
+        .re = x,
+        .im = (y - y) / (y - y), // raise invalid if y is not nan
+    };
+
     if (math.isInf(x)) {
         // sqrt(inf + i nan)    = inf + nan i
         // sqrt(inf + iy)       = inf + i0
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
-        if (math.signbit(x)) {
-            return Complex(f64).init(@abs(x - y), math.copysign(x, y));
-        } else {
-            return Complex(f64).init(x, math.copysign(y - y, y));
-        }
+        return if (math.signbit(x)) .{
+            .re = @abs(x - y),
+            .im = math.copysign(x, y),
+        } else .{
+            .re = x,
+            .im = math.copysign(y - y, y),
+        };
     }
 
     // y = nan special case is handled fine below
@@ -112,11 +123,13 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
 
     var result: Complex(f64) = undefined;
     if (x >= 0) {
-        const t = @sqrt((x + math.hypot(x, y)) * 0.5);
-        result = Complex(f64).init(t, y / (2.0 * t));
+        const t = @sqrt(0.5 * (math.hypot(x, y) + x));
+        result.re = t;
+        result.im = y / (2.0 * t);
     } else {
-        const t = @sqrt((-x + math.hypot(x, y)) * 0.5);
-        result = Complex(f64).init(@abs(y) / (2.0 * t), math.copysign(t, y));
+        const t = @sqrt(0.5 * (math.hypot(x, y) - x));
+        result.re = @abs(y) / (2.0 * t);
+        result.im = math.copysign(t, y);
     }
 
     if (scale) {

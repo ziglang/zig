@@ -24,28 +24,34 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     const x = z.re;
     const y = z.im;
 
-    const hx = @as(u32, @bitCast(x));
+    const hx: u32 = @bitCast(x);
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7f800000) {
-        if (ix & 0x7fffff != 0) {
-            const r = if (y == 0) y else x * y;
-            return Complex(f32).init(x, r);
-        }
-        const xx = @as(f32, @bitCast(hx - 0x40000000));
-        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
-        return Complex(f32).init(xx, math.copysign(@as(f32, 0.0), r));
+        return if (ix & 0x7fffff != 0) .{
+            .re = x,
+            .im = if (y == 0) y else x * y,
+        } else .{
+            .re = @bitCast(hx - 0x40000000),
+            .im = math.copysign(
+                @as(f32, 0.0),
+                if (math.isInf(y)) y else @sin(y) * @cos(y),
+            ),
+        };
     }
 
-    if (!math.isFinite(y)) {
-        const r = if (ix != 0) y - y else x;
-        return Complex(f32).init(r, y - y);
-    }
+    if (!math.isFinite(y)) return .{
+        .re = if (ix != 0) y - y else x,
+        .im = y - y,
+    };
 
     // x >= 11
     if (ix >= 0x41300000) {
         const exp_mx = @exp(-@abs(x));
-        return Complex(f32).init(math.copysign(@as(f32, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
+        return .{
+            .re = math.copysign(@as(f32, 1.0), x),
+            .im = 4 * @sin(y) * @cos(y) * exp_mx * exp_mx,
+        };
     }
 
     // Kahan's algorithm
@@ -55,7 +61,10 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
-    return Complex(f32).init((beta * rho * s) / den, t / den);
+    return .{
+        .re = (beta * rho * s) / den,
+        .im = t / den,
+    };
 }
 
 fn tanh64(z: Complex(f64)) Complex(f64) {
@@ -70,25 +79,30 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7ff00000) {
-        if ((ix & 0x7fffff) | lx != 0) {
-            const r = if (y == 0) y else x * y;
-            return Complex(f64).init(x, r);
-        }
-
-        const xx: f64 = @bitCast((@as(u64, hx - 0x40000000) << 32) | lx);
-        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
-        return Complex(f64).init(xx, math.copysign(@as(f64, 0.0), r));
+        return if ((ix & 0x7fffff) | lx != 0) .{
+            .re = x,
+            .im = if (y == 0) y else x * y,
+        } else .{
+            .re = @bitCast((@as(u64, hx - 0x40000000) << 32) | lx),
+            .im = math.copysign(
+                @as(f64, 0.0),
+                if (math.isInf(y)) y else @sin(y) * @cos(y),
+            ),
+        };
     }
 
-    if (!math.isFinite(y)) {
-        const r = if (ix != 0) y - y else x;
-        return Complex(f64).init(r, y - y);
-    }
+    if (!math.isFinite(y)) return .{
+        .re = if (ix != 0) y - y else x,
+        .im = y - y,
+    };
 
     // x >= 22
     if (ix >= 0x40360000) {
         const exp_mx = @exp(-@abs(x));
-        return Complex(f64).init(math.copysign(@as(f64, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
+        return .{
+            .re = math.copysign(@as(f64, 1.0), x),
+            .im = 4 * @sin(y) * @cos(y) * exp_mx * exp_mx,
+        };
     }
 
     // Kahan's algorithm
@@ -98,7 +112,10 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
-    return Complex(f64).init((beta * rho * s) / den, t / den);
+    return .{
+        .re = (beta * rho * s) / den,
+        .im = t / den,
+    };
 }
 
 const epsilon = 0.0001;

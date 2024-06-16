@@ -14,7 +14,10 @@ pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const q = Complex(T).init(-y, x);
     const r = cmath.log(q.add(cmath.sqrt(p)));
 
-    return Complex(T).init(r.im, -r.re);
+    return .{
+        .re = r.im,
+        .im = -r.re,
+    };
 }
 
 const epsilon = 0.0001;

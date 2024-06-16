@@ -36,7 +36,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Create a new Complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
-            return Self{
+            return .{
                 .re = re,
                 .im = im,
             };
@@ -44,7 +44,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the sum of two complex numbers.
         pub fn add(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re + other.re,
                 .im = self.im + other.im,
             };
@@ -52,7 +52,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the subtraction of two complex numbers.
         pub fn sub(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re - other.re,
                 .im = self.im - other.im,
             };
@@ -60,7 +60,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the product of two complex numbers.
         pub fn mul(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re * other.re - self.im * other.im,
                 .im = self.im * other.re + self.re * other.im,
             };
@@ -72,7 +72,7 @@ pub fn Complex(comptime T: type) type {
             const im_num = self.im * other.re - self.re * other.im;
             const den = other.re * other.re + other.im * other.im;
 
-            return Self{
+            return .{
                 .re = re_num / den,
                 .im = im_num / den,
             };
@@ -80,7 +80,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the complex conjugate of a number.
         pub fn conjugate(self: Self) Self {
-            return Self{
+            return .{
                 .re = self.re,
                 .im = -self.im,
             };
@@ -88,7 +88,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the negation of a complex number.
         pub fn neg(self: Self) Self {
-            return Self{
+            return .{
                 .re = -self.re,
                 .im = -self.im,
             };
@@ -96,7 +96,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the product of complex number and i=sqrt(-1)
         pub fn mulbyi(self: Self) Self {
-            return Self{
+            return .{
                 .re = -self.im,
                 .im = self.re,
             };
@@ -105,7 +105,7 @@ pub fn Complex(comptime T: type) type {
         /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
             const m = self.re * self.re + self.im * self.im;
-            return Self{
+            return .{
                 .re = self.re / m,
                 .im = -self.im / m,
             };

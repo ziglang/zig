@@ -7,12 +7,13 @@ const Complex = cmath.Complex;
 /// Returns the projection of z onto the riemann sphere.
 pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
-
-    if (math.isInf(z.re) or math.isInf(z.im)) {
-        return Complex(T).init(math.inf(T), math.copysign(@as(T, 0.0), z.re));
-    }
-
-    return Complex(T).init(z.re, z.im);
+    return if (math.isInf(z.re) or math.isInf(z.im)) .{
+        .re = math.inf(T),
+        .im = math.copysign(@as(T, 0.0), z.re),
+    } else .{
+        .re = z.re,
+        .im = z.im,
+    };
 }
 
 test proj {

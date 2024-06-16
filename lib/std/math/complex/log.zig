@@ -6,11 +6,10 @@ const Complex = cmath.Complex;
 
 /// Returns the natural logarithm of z.
 pub fn log(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
-    const r = cmath.abs(z);
-    const phi = cmath.arg(z);
-
-    return Complex(T).init(@log(r), phi);
+    return .{
+        .re = @log(math.hypot(z.re, z.im)),
+        .im = math.atan2(z.im, z.re),
+    };
 }
 
 const epsilon = 0.0001;
