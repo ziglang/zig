@@ -487,6 +487,7 @@ pub const Op = enum {
                     256 => .ymm,
                     else => unreachable,
                 },
+                .ip => unreachable,
             },
 
             .mem => |mem| switch (mem) {
