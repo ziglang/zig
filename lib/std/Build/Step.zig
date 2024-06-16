@@ -83,6 +83,7 @@ pub const Id = enum {
     install_file,
     install_dir,
     remove_dir,
+    fail,
     fmt,
     translate_c,
     write_file,
@@ -102,6 +103,7 @@ pub const Id = enum {
             .install_file => InstallFile,
             .install_dir => InstallDir,
             .remove_dir => RemoveDir,
+            .fail => Fail,
             .fmt => Fmt,
             .translate_c => TranslateC,
             .write_file => WriteFile,
@@ -119,6 +121,7 @@ pub const Id = enum {
 pub const CheckFile = @import("Step/CheckFile.zig");
 pub const CheckObject = @import("Step/CheckObject.zig");
 pub const ConfigHeader = @import("Step/ConfigHeader.zig");
+pub const Fail = @import("Step/Fail.zig");
 pub const Fmt = @import("Step/Fmt.zig");
 pub const InstallArtifact = @import("Step/InstallArtifact.zig");
 pub const InstallDir = @import("Step/InstallDir.zig");
@@ -551,6 +554,7 @@ pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
 test {
     _ = CheckFile;
     _ = CheckObject;
+    _ = Fail;
     _ = Fmt;
     _ = InstallArtifact;
     _ = InstallDir;
