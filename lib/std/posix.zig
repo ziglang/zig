@@ -791,6 +791,10 @@ pub const ReadError = error{
     /// and reading from the file descriptor would block.
     WouldBlock,
 
+    /// reading a timerfd with CANCEL_ON_SET will lead to this error
+    /// when the clock goes through a discontinuous change
+    Canceled,
+
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
@@ -851,6 +855,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
+            .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
