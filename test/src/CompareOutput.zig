@@ -96,7 +96,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .target = b.host,
+                .target = b.graph.host,
                 .optimize = .Debug,
             });
             exe.addAssemblyFile(write_src.files.items[0].getPath());
@@ -121,7 +121,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                     .name = "test",
                     .root_source_file = write_src.files.items[0].getPath(),
                     .optimize = optimize,
-                    .target = b.host,
+                    .target = b.graph.host,
                 });
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
@@ -146,7 +146,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
             const exe = b.addExecutable(.{
                 .name = "test",
                 .root_source_file = write_src.files.items[0].getPath(),
-                .target = b.host,
+                .target = b.graph.host,
                 .optimize = .Debug,
             });
             if (case.link_libc) {

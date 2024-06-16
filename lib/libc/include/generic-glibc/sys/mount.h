@@ -1,5 +1,5 @@
 /* Header file for mounting/unmount Linux filesystems.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -226,6 +226,7 @@ struct mount_attr
 #define MOVE_MOUNT_T_AUTOMOUNTS 0x00000020 /* Follow automounts on to path */
 #define MOVE_MOUNT_T_EMPTY_PATH 0x00000040 /* Empty to path permitted */
 #define MOVE_MOUNT_SET_GROUP    0x00000100 /* Set sharing group instead */
+#define MOVE_MOUNT_BENEATH      0x00000200 /* Mount beneath top mount */
 
 
 /* fspick flags.  */
@@ -255,6 +256,8 @@ enum fsconfig_command
 # define FSCONFIG_CMD_CREATE FSCONFIG_CMD_CREATE
   FSCONFIG_CMD_RECONFIGURE = 7,   /* Invoke superblock reconfiguration */
 # define FSCONFIG_CMD_RECONFIGURE FSCONFIG_CMD_RECONFIGURE
+  FSCONFIG_CMD_CREATE_EXCL = 8,    /* Create new superblock, fail if reusing existing superblock */
+# define FSCONFIG_CMD_CREATE_EXCL FSCONFIG_CMD_CREATE_EXCL
 };
 #endif
 

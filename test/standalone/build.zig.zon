@@ -92,6 +92,9 @@
         .issue_11595 = .{
             .path = "issue_11595",
         },
+        .libcxx = .{
+            .path = "libcxx",
+        },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
         },

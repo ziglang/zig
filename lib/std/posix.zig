@@ -19,7 +19,7 @@ const root = @import("root");
 const std = @import("std.zig");
 const mem = std.mem;
 const fs = std.fs;
-const max_path_bytes = fs.MAX_PATH_BYTES;
+const max_path_bytes = fs.max_path_bytes;
 const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 const assert = std.debug.assert;
@@ -2770,9 +2770,6 @@ pub fn renameatW(
             .SUCCESS => return,
             // INVALID_PARAMETER here means that the filesystem does not support FileRenameInformationEx
             .INVALID_PARAMETER => {},
-            .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
-            .FILE_IS_A_DIRECTORY => return error.IsDir,
-            .NOT_A_DIRECTORY => return error.NotDir,
             // For all other statuses, fall down to the switch below to handle them.
             else => need_fallback = false,
         }
@@ -2815,6 +2812,9 @@ pub fn renameatW(
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
         .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
+        .FILE_IS_A_DIRECTORY => return error.IsDir,
+        .NOT_A_DIRECTORY => return error.NotDir,
         else => return windows.unexpectedStatus(rc),
     }
 }
@@ -5933,6 +5933,8 @@ pub fn sendmsg(
 pub const SendToError = SendMsgError || error{
     /// The destination address is not reachable by the bound address.
     UnreachableAddress,
+    /// The destination address is not listening.
+    ConnectionRefused,
 };
 
 /// Transmit a message to another socket.
@@ -6005,6 +6007,7 @@ pub fn sendto(
             .AGAIN => return error.WouldBlock,
             .ALREADY => return error.FastOpenAlreadyInProgress,
             .BADF => unreachable, // always a race condition
+            .CONNREFUSED => return error.ConnectionRefused,
             .CONNRESET => return error.ConnectionResetByPeer,
             .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
             .FAULT => unreachable, // An invalid user space address was specified for an argument.
@@ -6066,6 +6069,7 @@ pub fn send(
         error.AddressNotAvailable => unreachable,
         error.SocketNotConnected => unreachable,
         error.UnreachableAddress => unreachable,
+        error.ConnectionRefused => unreachable,
         else => |e| return e,
     };
 }

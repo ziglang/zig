@@ -447,9 +447,6 @@ pub fn panicExtra(
 /// The counter is incremented/decremented atomically.
 var panicking = std.atomic.Value(u8).init(0);
 
-// Locked to avoid interleaving panic messages from multiple threads.
-var panic_mutex = std.Thread.Mutex{};
-
 /// Counts how many times the panic handler is invoked by this thread.
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
@@ -474,8 +471,8 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
             // Make sure to release the mutex when done
             {
-                panic_mutex.lock();
-                defer panic_mutex.unlock();
+                lockStdErr();
+                defer unlockStdErr();
 
                 const stderr = io.getStdErr().writer();
                 if (builtin.single_threaded) {
@@ -1301,7 +1298,7 @@ pub fn readElfDebugInfo(
                     if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
                 }
 
-                var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var cwd_buf: [fs.max_path_bytes]u8 = undefined;
                 const cwd_path = posix.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
@@ -2604,8 +2601,8 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             _ = panicking.fetchAdd(1, .seq_cst);
 
             {
-                panic_mutex.lock();
-                defer panic_mutex.unlock();
+                lockStdErr();
+                defer unlockStdErr();
 
                 dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
             }
@@ -2680,8 +2677,8 @@ fn handleSegfaultWindowsExtra(
                 _ = panicking.fetchAdd(1, .seq_cst);
 
                 {
-                    panic_mutex.lock();
-                    defer panic_mutex.unlock();
+                    lockStdErr();
+                    defer unlockStdErr();
 
                     dumpSegfaultInfoWindows(info, msg, label);
                 }

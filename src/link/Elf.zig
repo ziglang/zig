@@ -1831,7 +1831,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                         break :success;
                 }
             } else {
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buffer: [fs.max_path_bytes]u8 = undefined;
                 if (fs.realpath(scr_obj.path, &buffer)) |path| {
                     test_path.clearRetainingCapacity();
                     try test_path.writer().writeAll(path);
@@ -3706,7 +3706,7 @@ fn sortInitFini(self: *Elf) !void {
                 }
                 const default: i32 = if (is_ctor_dtor) -1 else std.math.maxInt(i32);
                 const name = atom_ptr.name(self);
-                var it = mem.splitBackwards(u8, name, ".");
+                var it = mem.splitBackwardsScalar(u8, name, '.');
                 const priority = std.fmt.parseUnsigned(u16, it.first(), 10) catch default;
                 break :blk priority;
             };
@@ -5097,9 +5097,9 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
         .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
-        .aarch64_be => return "aarch64_be_linux",
+        .aarch64_be => return "aarch64linuxb",
         .arm, .thumb => return "armelf_linux_eabi",
-        .armeb, .thumbeb => return "armebelf_linux_eabi",
+        .armeb, .thumbeb => return "armelfb_linux_eabi",
         .powerpc => return "elf32ppclinux",
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",

@@ -1156,9 +1156,7 @@ fn analyzeBodyInner(
             .round => try sema.zirUnaryMath(block, inst, .round, Value.round),
             .trunc => try sema.zirUnaryMath(block, inst, .trunc_float, Value.trunc),
 
-            .error_set_decl      => try sema.zirErrorSetDecl(block, inst, .parent),
-            .error_set_decl_anon => try sema.zirErrorSetDecl(block, inst, .anon),
-            .error_set_decl_func => try sema.zirErrorSetDecl(block, inst, .func),
+            .error_set_decl => try sema.zirErrorSetDecl(inst),
 
             .add        => try sema.zirArithmetic(block, inst, .add,        true),
             .addwrap    => try sema.zirArithmetic(block, inst, .addwrap,    true),
@@ -3468,9 +3466,7 @@ fn zirOpaqueDecl(
 
 fn zirErrorSetDecl(
     sema: *Sema,
-    block: *Block,
     inst: Zir.Inst.Index,
-    name_strategy: Zir.Inst.NameStrategy,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3478,7 +3474,6 @@ fn zirErrorSetDecl(
     const mod = sema.mod;
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.ErrorSetDecl, inst_data.payload_index);
 
     var names: InferredErrorSet.NameMap = .{};
@@ -3495,23 +3490,7 @@ fn zirErrorSetDecl(
         assert(!result.found_existing); // verified in AstGen
     }
 
-    const error_set_ty = try mod.errorSetFromUnsortedNames(names.keys());
-
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
-        block,
-        src,
-        error_set_ty.toValue(),
-        name_strategy,
-        "error",
-        inst,
-    );
-    const new_decl = mod.declPtr(new_decl_index);
-    new_decl.owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
-
-    const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
-    try mod.finalizeAnonDecl(new_decl_index);
-    return decl_val;
+    return Air.internedToRef((try mod.errorSetFromUnsortedNames(names.keys())).toIntern());
 }
 
 fn zirRetPtr(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
@@ -26509,7 +26488,7 @@ fn zirWorkItem(
 
     switch (target.cpu.arch) {
         // TODO: Allow for other GPU targets.
-        .amdgcn => {},
+        .amdgcn, .spirv64, .spirv32 => {},
         else => {
             return sema.fail(block, builtin_src, "builtin only available on GPU targets; targeted architecture is {s}", .{@tagName(target.cpu.arch)});
         },

@@ -1,5 +1,6 @@
 /* Define ISO C stdio on top of C++ iostreams.
-   Copyright (C) 1991-2023 Free Software Foundation, Inc.
+   Copyright (C) 1991-2024 Free Software Foundation, Inc.
+   Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -278,7 +279,7 @@ extern FILE *__REDIRECT (fopen, (const char *__restrict __filename,
 extern FILE *__REDIRECT (freopen, (const char *__restrict __filename,
 				   const char *__restrict __modes,
 				   FILE *__restrict __stream), freopen64)
-  __wur;
+  __wur __nonnull ((3));
 # else
 #  define fopen fopen64
 #  define freopen freopen64
@@ -330,21 +331,22 @@ extern __FILE *open_wmemstream (wchar_t **__bufloc, size_t *__sizeloc) __THROW
 
 /* If BUF is NULL, make STREAM unbuffered.
    Else make it use buffer BUF, of size BUFSIZ.  */
-extern void setbuf (FILE *__restrict __stream, char *__restrict __buf) __THROW;
+extern void setbuf (FILE *__restrict __stream, char *__restrict __buf) __THROW
+  __nonnull ((1));
 /* Make STREAM use buffering mode MODE.
    If BUF is not NULL, use N bytes of it for buffering;
    else allocate an internal buffer N bytes long.  */
 extern int setvbuf (FILE *__restrict __stream, char *__restrict __buf,
-		    int __modes, size_t __n) __THROW;
+		    int __modes, size_t __n) __THROW __nonnull ((1));
 
 #ifdef	__USE_MISC
 /* If BUF is NULL, make STREAM unbuffered.
    Else make it use SIZE bytes of BUF for buffering.  */
 extern void setbuffer (FILE *__restrict __stream, char *__restrict __buf,
-		       size_t __size) __THROW;
+		       size_t __size) __THROW __nonnull ((1));
 
 /* Make STREAM line-buffered.  */
-extern void setlinebuf (FILE *__stream) __THROW;
+extern void setlinebuf (FILE *__stream) __THROW __nonnull ((1));
 #endif
 
 
@@ -353,7 +355,7 @@ extern void setlinebuf (FILE *__stream) __THROW;
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int fprintf (FILE *__restrict __stream,
-		    const char *__restrict __format, ...);
+		    const char *__restrict __format, ...) __nonnull ((1));
 /* Write formatted output to stdout.
 
    This function is a possible cancellation point and therefore not
@@ -368,7 +370,7 @@ extern int sprintf (char *__restrict __s,
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int vfprintf (FILE *__restrict __s, const char *__restrict __format,
-		     __gnuc_va_list __arg);
+		     __gnuc_va_list __arg) __nonnull ((1));
 /* Write formatted output to stdout from argument list ARG.
 
    This function is a possible cancellation point and therefore not
@@ -418,7 +420,7 @@ extern int dprintf (int __fd, const char *__restrict __fmt, ...)
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern int fscanf (FILE *__restrict __stream,
-		   const char *__restrict __format, ...) __wur;
+		   const char *__restrict __format, ...) __wur __nonnull ((1));
 /* Read formatted input from stdin.
 
    This function is a possible cancellation point and therefore not
@@ -439,7 +441,7 @@ extern int sscanf (const char *__restrict __s,
 #  ifdef __REDIRECT
 extern int __REDIRECT (fscanf, (FILE *__restrict __stream,
 				const char *__restrict __format, ...),
-		       __isoc23_fscanf) __wur;
+		       __isoc23_fscanf) __wur __nonnull ((1));
 extern int __REDIRECT (scanf, (const char *__restrict __format, ...),
 		       __isoc23_scanf) __wur;
 extern int __REDIRECT_NTH (sscanf, (const char *__restrict __s,
@@ -447,7 +449,8 @@ extern int __REDIRECT_NTH (sscanf, (const char *__restrict __s,
 			   __isoc23_sscanf);
 #  else
 extern int __isoc23_fscanf (FILE *__restrict __stream,
-			    const char *__restrict __format, ...) __wur;
+			    const char *__restrict __format, ...) __wur
+  __nonnull ((1));
 extern int __isoc23_scanf (const char *__restrict __format, ...) __wur;
 extern int __isoc23_sscanf (const char *__restrict __s,
 			    const char *__restrict __format, ...) __THROW;
@@ -459,7 +462,7 @@ extern int __isoc23_sscanf (const char *__restrict __s,
 #  ifdef __REDIRECT
 extern int __REDIRECT (fscanf, (FILE *__restrict __stream,
 				const char *__restrict __format, ...),
-		       __isoc99_fscanf) __wur;
+		       __isoc99_fscanf) __wur __nonnull ((1));
 extern int __REDIRECT (scanf, (const char *__restrict __format, ...),
 		       __isoc99_scanf) __wur;
 extern int __REDIRECT_NTH (sscanf, (const char *__restrict __s,
@@ -467,7 +470,8 @@ extern int __REDIRECT_NTH (sscanf, (const char *__restrict __s,
 			   __isoc99_sscanf);
 #  else
 extern int __isoc99_fscanf (FILE *__restrict __stream,
-			    const char *__restrict __format, ...) __wur;
+			    const char *__restrict __format, ...) __wur
+  __nonnull ((1));
 extern int __isoc99_scanf (const char *__restrict __format, ...) __wur;
 extern int __isoc99_sscanf (const char *__restrict __s,
 			    const char *__restrict __format, ...) __THROW;
@@ -485,7 +489,7 @@ extern int __isoc99_sscanf (const char *__restrict __s,
    marked with __THROW.  */
 extern int vfscanf (FILE *__restrict __s, const char *__restrict __format,
 		    __gnuc_va_list __arg)
-     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur;
+     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur __nonnull ((1));
 
 /* Read formatted input from stdin into argument list ARG.
 
@@ -508,7 +512,7 @@ extern int __REDIRECT (vfscanf,
 		       (FILE *__restrict __s,
 			const char *__restrict __format, __gnuc_va_list __arg),
 		       __isoc23_vfscanf)
-     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur;
+     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur __nonnull ((1));
 extern int __REDIRECT (vscanf, (const char *__restrict __format,
 				__gnuc_va_list __arg), __isoc23_vscanf)
      __attribute__ ((__format__ (__scanf__, 1, 0))) __wur;
@@ -520,7 +524,7 @@ extern int __REDIRECT_NTH (vsscanf,
 #   elif !defined __REDIRECT
 extern int __isoc23_vfscanf (FILE *__restrict __s,
 			     const char *__restrict __format,
-			     __gnuc_va_list __arg) __wur;
+			     __gnuc_va_list __arg) __wur __nonnull ((1));
 extern int __isoc23_vscanf (const char *__restrict __format,
 			    __gnuc_va_list __arg) __wur;
 extern int __isoc23_vsscanf (const char *__restrict __s,
@@ -537,7 +541,7 @@ extern int __REDIRECT (vfscanf,
 		       (FILE *__restrict __s,
 			const char *__restrict __format, __gnuc_va_list __arg),
 		       __isoc99_vfscanf)
-     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur;
+     __attribute__ ((__format__ (__scanf__, 2, 0))) __wur __nonnull ((1));
 extern int __REDIRECT (vscanf, (const char *__restrict __format,
 				__gnuc_va_list __arg), __isoc99_vscanf)
      __attribute__ ((__format__ (__scanf__, 1, 0))) __wur;
@@ -549,7 +553,7 @@ extern int __REDIRECT_NTH (vsscanf,
 #   elif !defined __REDIRECT
 extern int __isoc99_vfscanf (FILE *__restrict __s,
 			     const char *__restrict __format,
-			     __gnuc_va_list __arg) __wur;
+			     __gnuc_va_list __arg) __wur __nonnull ((1));
 extern int __isoc99_vscanf (const char *__restrict __format,
 			    __gnuc_va_list __arg) __wur;
 extern int __isoc99_vsscanf (const char *__restrict __s,
@@ -568,8 +572,8 @@ extern int __isoc99_vsscanf (const char *__restrict __s,
 
    These functions are possible cancellation points and therefore not
    marked with __THROW.  */
-extern int fgetc (FILE *__stream);
-extern int getc (FILE *__stream);
+extern int fgetc (FILE *__stream) __nonnull ((1));
+extern int getc (FILE *__stream) __nonnull ((1));
 
 /* Read a character from stdin.
 
@@ -582,7 +586,7 @@ extern int getchar (void);
 
    These functions are possible cancellation points and therefore not
    marked with __THROW.  */
-extern int getc_unlocked (FILE *__stream);
+extern int getc_unlocked (FILE *__stream) __nonnull ((1));
 extern int getchar_unlocked (void);
 #endif /* Use POSIX.  */
 
@@ -593,7 +597,7 @@ extern int getchar_unlocked (void);
    cancellation point.  But due to similarity with an POSIX interface
    or due to the implementation it is a cancellation point and
    therefore not marked with __THROW.  */
-extern int fgetc_unlocked (FILE *__stream);
+extern int fgetc_unlocked (FILE *__stream) __nonnull ((1));
 #endif /* Use MISC.  */
 
 
@@ -604,8 +608,8 @@ extern int fgetc_unlocked (FILE *__stream);
 
    These functions is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fputc (int __c, FILE *__stream);
-extern int putc (int __c, FILE *__stream);
+extern int fputc (int __c, FILE *__stream) __nonnull ((2));
+extern int putc (int __c, FILE *__stream) __nonnull ((2));
 
 /* Write a character to stdout.
 
@@ -620,7 +624,7 @@ extern int putchar (int __c);
    cancellation point.  But due to similarity with an POSIX interface
    or due to the implementation it is a cancellation point and
    therefore not marked with __THROW.  */
-extern int fputc_unlocked (int __c, FILE *__stream);
+extern int fputc_unlocked (int __c, FILE *__stream) __nonnull ((2));
 #endif /* Use MISC.  */
 
 #ifdef __USE_POSIX199506
@@ -628,7 +632,7 @@ extern int fputc_unlocked (int __c, FILE *__stream);
 
    These functions are possible cancellation points and therefore not
    marked with __THROW.  */
-extern int putc_unlocked (int __c, FILE *__stream);
+extern int putc_unlocked (int __c, FILE *__stream) __nonnull ((2));
 extern int putchar_unlocked (int __c);
 #endif /* Use POSIX.  */
 
@@ -636,10 +640,10 @@ extern int putchar_unlocked (int __c);
 #if defined __USE_MISC \
     || (defined __USE_XOPEN && !defined __USE_XOPEN2K)
 /* Get a word (int) from STREAM.  */
-extern int getw (FILE *__stream);
+extern int getw (FILE *__stream) __nonnull ((1));
 
 /* Write a word (int) to STREAM.  */
-extern int putw (int __w, FILE *__stream);
+extern int putw (int __w, FILE *__stream) __nonnull ((2));
 #endif
 
 
@@ -648,7 +652,7 @@ extern int putw (int __w, FILE *__stream);
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern char *fgets (char *__restrict __s, int __n, FILE *__restrict __stream)
-     __wur __fortified_attr_access (__write_only__, 1, 2);
+     __wur __fortified_attr_access (__write_only__, 1, 2) __nonnull ((3));
 
 #if __GLIBC_USE (DEPRECATED_GETS)
 /* Get a newline-terminated string from stdin, removing the newline.
@@ -672,7 +676,7 @@ extern char *gets (char *__s) __wur __attribute_deprecated__;
    therefore not marked with __THROW.  */
 extern char *fgets_unlocked (char *__restrict __s, int __n,
 			     FILE *__restrict __stream) __wur
-    __fortified_attr_access (__write_only__, 1, 2);
+    __fortified_attr_access (__write_only__, 1, 2) __nonnull ((3));
 #endif
 
 
@@ -689,10 +693,10 @@ extern char *fgets_unlocked (char *__restrict __s, int __n,
    therefore not marked with __THROW.  */
 extern __ssize_t __getdelim (char **__restrict __lineptr,
                              size_t *__restrict __n, int __delimiter,
-                             FILE *__restrict __stream) __wur;
+                             FILE *__restrict __stream) __wur __nonnull ((4));
 extern __ssize_t getdelim (char **__restrict __lineptr,
                            size_t *__restrict __n, int __delimiter,
-                           FILE *__restrict __stream) __wur;
+                           FILE *__restrict __stream) __wur __nonnull ((4));
 
 /* Like `getdelim', but reads up to a newline.
 
@@ -702,7 +706,7 @@ extern __ssize_t getdelim (char **__restrict __lineptr,
    therefore not marked with __THROW.  */
 extern __ssize_t getline (char **__restrict __lineptr,
                           size_t *__restrict __n,
-                          FILE *__restrict __stream) __wur;
+                          FILE *__restrict __stream) __wur __nonnull ((3));
 #endif
 
 
@@ -710,7 +714,8 @@ extern __ssize_t getline (char **__restrict __lineptr,
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fputs (const char *__restrict __s, FILE *__restrict __stream);
+extern int fputs (const char *__restrict __s, FILE *__restrict __stream)
+  __nonnull ((2));
 
 /* Write a string, followed by a newline, to stdout.
 
@@ -723,7 +728,7 @@ extern int puts (const char *__s);
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int ungetc (int __c, FILE *__stream);
+extern int ungetc (int __c, FILE *__stream) __nonnull ((2));
 
 
 /* Read chunks of generic data from STREAM.
@@ -731,13 +736,14 @@ extern int ungetc (int __c, FILE *__stream);
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern size_t fread (void *__restrict __ptr, size_t __size,
-		     size_t __n, FILE *__restrict __stream) __wur;
+		     size_t __n, FILE *__restrict __stream) __wur
+  __nonnull((4));
 /* Write chunks of generic data to STREAM.
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
 extern size_t fwrite (const void *__restrict __ptr, size_t __size,
-		      size_t __n, FILE *__restrict __s);
+		      size_t __n, FILE *__restrict __s) __nonnull((4));
 
 #ifdef __USE_GNU
 /* This function does the same as `fputs' but does not lock the stream.
@@ -747,7 +753,7 @@ extern size_t fwrite (const void *__restrict __ptr, size_t __size,
    or due to the implementation it is a cancellation point and
    therefore not marked with __THROW.  */
 extern int fputs_unlocked (const char *__restrict __s,
-			   FILE *__restrict __stream);
+			   FILE *__restrict __stream) __nonnull ((2));
 #endif
 
 #ifdef __USE_MISC
@@ -758,9 +764,11 @@ extern int fputs_unlocked (const char *__restrict __s,
    or due to the implementation they are cancellation points and
    therefore not marked with __THROW.  */
 extern size_t fread_unlocked (void *__restrict __ptr, size_t __size,
-			      size_t __n, FILE *__restrict __stream) __wur;
+			      size_t __n, FILE *__restrict __stream) __wur
+  __nonnull ((4));
 extern size_t fwrite_unlocked (const void *__restrict __ptr, size_t __size,
-			       size_t __n, FILE *__restrict __stream);
+			       size_t __n, FILE *__restrict __stream)
+  __nonnull ((4));
 #endif
 
 
@@ -768,17 +776,18 @@ extern size_t fwrite_unlocked (const void *__restrict __ptr, size_t __size,
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fseek (FILE *__stream, long int __off, int __whence);
+extern int fseek (FILE *__stream, long int __off, int __whence)
+  __nonnull ((1));
 /* Return the current position of STREAM.
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern long int ftell (FILE *__stream) __wur;
+extern long int ftell (FILE *__stream) __wur __nonnull ((1));
 /* Rewind to the beginning of STREAM.
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern void rewind (FILE *__stream);
+extern void rewind (FILE *__stream) __nonnull ((1));
 
 /* The Single Unix Specification, Version 2, specifies an alternative,
    more adequate interface for the two functions above which deal with
@@ -791,18 +800,20 @@ extern void rewind (FILE *__stream);
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fseeko (FILE *__stream, __off_t __off, int __whence);
+extern int fseeko (FILE *__stream, __off_t __off, int __whence)
+  __nonnull ((1));
 /* Return the current position of STREAM.
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern __off_t ftello (FILE *__stream) __wur;
+extern __off_t ftello (FILE *__stream) __wur __nonnull ((1));
 # else
 #  ifdef __REDIRECT
 extern int __REDIRECT (fseeko,
 		       (FILE *__stream, __off64_t __off, int __whence),
-		       fseeko64);
-extern __off64_t __REDIRECT (ftello, (FILE *__stream), ftello64);
+		       fseeko64) __nonnull ((1));
+extern __off64_t __REDIRECT (ftello, (FILE *__stream), ftello64)
+  __nonnull ((1));
 #  else
 #   define fseeko fseeko64
 #   define ftello ftello64
@@ -815,18 +826,21 @@ extern __off64_t __REDIRECT (ftello, (FILE *__stream), ftello64);
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fgetpos (FILE *__restrict __stream, fpos_t *__restrict __pos);
+extern int fgetpos (FILE *__restrict __stream, fpos_t *__restrict __pos)
+  __nonnull ((1));
 /* Set STREAM's position.
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int fsetpos (FILE *__stream, const fpos_t *__pos);
+extern int fsetpos (FILE *__stream, const fpos_t *__pos) __nonnull ((1));
 #else
 # ifdef __REDIRECT
 extern int __REDIRECT (fgetpos, (FILE *__restrict __stream,
-				 fpos_t *__restrict __pos), fgetpos64);
+				 fpos_t *__restrict __pos), fgetpos64)
+  __nonnull ((1));
 extern int __REDIRECT (fsetpos,
-		       (FILE *__stream, const fpos_t *__pos), fsetpos64);
+		       (FILE *__stream, const fpos_t *__pos), fsetpos64)
+  __nonnull ((1));
 # else
 #  define fgetpos fgetpos64
 #  define fsetpos fsetpos64
@@ -834,24 +848,26 @@ extern int __REDIRECT (fsetpos,
 #endif
 
 #ifdef __USE_LARGEFILE64
-extern int fseeko64 (FILE *__stream, __off64_t __off, int __whence);
-extern __off64_t ftello64 (FILE *__stream) __wur;
-extern int fgetpos64 (FILE *__restrict __stream, fpos64_t *__restrict __pos);
-extern int fsetpos64 (FILE *__stream, const fpos64_t *__pos);
+extern int fseeko64 (FILE *__stream, __off64_t __off, int __whence)
+  __nonnull ((1));
+extern __off64_t ftello64 (FILE *__stream) __wur __nonnull ((1));
+extern int fgetpos64 (FILE *__restrict __stream, fpos64_t *__restrict __pos)
+  __nonnull ((1));
+extern int fsetpos64 (FILE *__stream, const fpos64_t *__pos) __nonnull ((1));
 #endif
 
 /* Clear the error and EOF indicators for STREAM.  */
-extern void clearerr (FILE *__stream) __THROW;
+extern void clearerr (FILE *__stream) __THROW __nonnull ((1));
 /* Return the EOF indicator for STREAM.  */
-extern int feof (FILE *__stream) __THROW __wur;
+extern int feof (FILE *__stream) __THROW __wur __nonnull ((1));
 /* Return the error indicator for STREAM.  */
-extern int ferror (FILE *__stream) __THROW __wur;
+extern int ferror (FILE *__stream) __THROW __wur __nonnull ((1));
 
 #ifdef __USE_MISC
 /* Faster versions when locking is not required.  */
-extern void clearerr_unlocked (FILE *__stream) __THROW;
-extern int feof_unlocked (FILE *__stream) __THROW __wur;
-extern int ferror_unlocked (FILE *__stream) __THROW __wur;
+extern void clearerr_unlocked (FILE *__stream) __THROW __nonnull ((1));
+extern int feof_unlocked (FILE *__stream) __THROW __wur __nonnull ((1));
+extern int ferror_unlocked (FILE *__stream) __THROW __wur __nonnull ((1));
 #endif
 
 
@@ -864,12 +880,12 @@ extern void perror (const char *__s) __COLD;
 
 #ifdef	__USE_POSIX
 /* Return the system file descriptor for STREAM.  */
-extern int fileno (FILE *__stream) __THROW __wur;
+extern int fileno (FILE *__stream) __THROW __wur __nonnull ((1));
 #endif /* Use POSIX.  */
 
 #ifdef __USE_MISC
 /* Faster version when locking is not required.  */
-extern int fileno_unlocked (FILE *__stream) __THROW __wur;
+extern int fileno_unlocked (FILE *__stream) __THROW __wur __nonnull ((1));
 #endif
 
 
@@ -878,7 +894,7 @@ extern int fileno_unlocked (FILE *__stream) __THROW __wur;
 
    This function is a possible cancellation point and therefore not
    marked with __THROW.  */
-extern int pclose (FILE *__stream);
+extern int pclose (FILE *__stream) __nonnull ((1));
 
 /* Create a new stream connected to a pipe running the given command.
 
@@ -922,14 +938,14 @@ extern int obstack_vprintf (struct obstack *__restrict __obstack,
 /* These are defined in POSIX.1:1996.  */
 
 /* Acquire ownership of STREAM.  */
-extern void flockfile (FILE *__stream) __THROW;
+extern void flockfile (FILE *__stream) __THROW __nonnull ((1));
 
 /* Try to acquire ownership of STREAM but do not block if it is not
    possible.  */
-extern int ftrylockfile (FILE *__stream) __THROW __wur;
+extern int ftrylockfile (FILE *__stream) __THROW __wur __nonnull ((1));
 
 /* Relinquish the ownership granted for STREAM.  */
-extern void funlockfile (FILE *__stream) __THROW;
+extern void funlockfile (FILE *__stream) __THROW __nonnull ((1));
 #endif /* POSIX */
 
 #if defined __USE_XOPEN && !defined __USE_XOPEN2K && !defined __USE_GNU

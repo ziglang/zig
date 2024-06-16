@@ -426,7 +426,9 @@ const DataLayoutBuilder = struct {
             };
             if (self.target.cpu.arch == .aarch64_32) continue;
             if (!info.force_in_data_layout and matches_default and
-                self.target.cpu.arch != .riscv64 and !(self.target.cpu.arch == .aarch64 and
+                self.target.cpu.arch != .riscv64 and
+                self.target.cpu.arch != .loongarch64 and
+                !(self.target.cpu.arch == .aarch64 and
                 (self.target.os.tag == .uefi or self.target.os.tag == .windows)) and
                 self.target.cpu.arch != .bpfeb and self.target.cpu.arch != .bpfel) continue;
             try writer.writeAll("-p");
@@ -535,6 +537,7 @@ const DataLayoutBuilder = struct {
             .nvptx64,
             => &.{ 16, 32, 64 },
             .x86_64 => &.{ 8, 16, 32, 64 },
+            .loongarch64 => &.{64},
             else => &.{},
         }), 0..) |natural, index| switch (index) {
             0 => try writer.print("-n{d}", .{natural}),
@@ -683,6 +686,14 @@ const DataLayoutBuilder = struct {
                         64, 128 => {
                             abi = size;
                             pref = size;
+                        },
+                        else => {},
+                    },
+                    .loongarch64 => switch (size) {
+                        128 => {
+                            abi = size;
+                            pref = size;
+                            force_abi = true;
                         },
                         else => {},
                     },
@@ -1964,7 +1975,7 @@ pub const Object = struct {
                 defer gpa.free(dir_path);
                 if (std.fs.path.isAbsolute(dir_path))
                     break :dir_path try o.builder.metadataString(dir_path);
-                var abs_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                var abs_buffer: [std.fs.max_path_bytes]u8 = undefined;
                 const abs_path = std.fs.realpath(dir_path, &abs_buffer) catch
                     break :dir_path try o.builder.metadataString(dir_path);
                 break :dir_path try o.builder.metadataString(abs_path);
@@ -3115,6 +3126,7 @@ pub const Object = struct {
 
         try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
+        variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         variable_index.setAlignment(alignment.toLlvm(), &o.builder);
         return variable_index;
@@ -12039,6 +12051,13 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
                 // There is no LLVMInitializeARCAsmParser function.
             }
         },
+        .loongarch32, .loongarch64 => {
+            llvm.LLVMInitializeLoongArchTarget();
+            llvm.LLVMInitializeLoongArchTargetInfo();
+            llvm.LLVMInitializeLoongArchTargetMC();
+            llvm.LLVMInitializeLoongArchAsmPrinter();
+            llvm.LLVMInitializeLoongArchAsmParser();
+        },
 
         // LLVM backends that have no initialization functions.
         .tce,
@@ -12060,8 +12079,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .renderscript32,
         .renderscript64,
         .dxil,
-        .loongarch32,
-        .loongarch64,
         => {},
 
         .spu_2 => unreachable, // LLVM does not support this backend
