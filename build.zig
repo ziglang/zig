@@ -31,10 +31,18 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
+    const enable_tidy = b.option(bool, "enable-tidy", "Check langref output HTML validity") orelse false;
 
     const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
+    const check_langref = tidyCheck(b, langref_file);
+    const check_autodocs = tidyCheck(b, b.path("lib/docs/index.html"));
+    if (enable_tidy) {
+        test_step.dependOn(check_langref);
+        test_step.dependOn(check_autodocs);
+    }
     if (!skip_install_langref) {
+        if (enable_tidy) install_langref.step.dependOn(check_langref);
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
@@ -51,6 +59,7 @@ pub fn build(b: *std.Build) !void {
         .install_subdir = "doc/std",
     });
     if (std_docs) {
+        if (enable_tidy) install_std_docs.step.dependOn(check_autodocs);
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
 
@@ -1307,4 +1316,13 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
 
     docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
     return docgen_cmd.addOutputFileArg("langref.html");
+}
+
+fn tidyCheck(b: *std.Build, html_file: std.Build.LazyPath) *std.Build.Step {
+    const run_tidy = b.addSystemCommand(&.{
+        "tidy", "--drop-empty-elements", "no", "-qe",
+    });
+    run_tidy.addFileArg(html_file);
+    run_tidy.expectExitCode(0);
+    return &run_tidy.step;
 }

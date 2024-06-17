@@ -69,11 +69,8 @@ stage3-debug/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-
-# Look for HTML errors.
-# TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
+  --zig-lib-dir "$PWD/../lib" \
+  -Denable-tidy
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1
