@@ -5915,6 +5915,14 @@ test "zig fmt: error for ptr mod on array child type" {
     });
 }
 
+test "zig fmt: pointer type syntax to index" {
+    try testCanonical(
+        \\test {
+        \\    _ = .{}[*0];
+        \\}
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}

@@ -668,7 +668,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .array_access => {
             const suffix = datas[node];
-            const lbracket = tree.firstToken(suffix.rhs) - 1;
+            const lbracket = tree.firstToken(suffix.rhs) - @intFromBool(tree.lastToken(suffix.lhs) + 1 != tree.firstToken(suffix.rhs));
             const rbracket = tree.lastToken(suffix.rhs) + 1;
             const one_line = tree.tokensOnSameLine(lbracket, rbracket);
             const inner_space = if (one_line) Space.none else Space.newline;
