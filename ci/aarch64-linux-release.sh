@@ -49,13 +49,6 @@ unset CXX
 
 ninja install
 
-# TODO: move this to a build.zig step (check-fmt)
-echo "Looking for non-conforming code formatting..."
-stage3-release/bin/zig fmt --check .. \
-  --exclude ../test/cases/ \
-  --exclude ../doc/ \
-  --exclude ../build-release
-
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3-release/bin/zig build \
   -Dtarget=arm-linux-musleabihf \

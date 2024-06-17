@@ -428,18 +428,21 @@ pub fn build(b: *std.Build) !void {
     }
     const optimization_modes = chosen_opt_modes_buf[0..chosen_mode_index];
 
-    const fmt_include_paths = &.{ "doc", "lib", "src", "test", "tools", "build.zig" };
+    const fmt_include_paths = &.{ "lib", "src", "test", "tools", "build.zig", "build.zig.zon" };
     const fmt_exclude_paths = &.{"test/cases"};
     const do_fmt = b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
     });
+    b.step("fmt", "Modify source files in place to have conforming formatting").dependOn(&do_fmt.step);
 
-    b.step("test-fmt", "Check source files having conforming formatting").dependOn(&b.addFmt(.{
+    const check_fmt = b.step("test-fmt", "Check source files having conforming formatting");
+    check_fmt.dependOn(&b.addFmt(.{
         .paths = fmt_include_paths,
         .exclude_paths = fmt_exclude_paths,
         .check = true,
     }).step);
+    test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     try tests.addCases(b, test_cases_step, test_filters, check_case_exe, target, .{
@@ -533,9 +536,6 @@ pub fn build(b: *std.Build) !void {
     }));
 
     try addWasiUpdateStep(b, version);
-
-    b.step("fmt", "Modify source files in place to have conforming formatting")
-        .dependOn(&do_fmt.step);
 
     const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
