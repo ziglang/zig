@@ -318,8 +318,8 @@ pub const sem_t = extern struct {
 
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
-pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
-pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) c_int;
+pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) c_int;
 
 pub const RTLD = struct {
     pub const LAZY = 1;
@@ -330,14 +330,14 @@ pub const RTLD = struct {
     pub const LOCAL = 0;
 };
 
-pub const dirent = struct {
+pub const dirent = extern struct {
     ino: c_uint,
     off: c_uint,
     reclen: c_ushort,
     type: u8,
     name: [256]u8,
 };
-pub const dirent64 = struct {
+pub const dirent64 = extern struct {
     ino: c_ulong,
     off: c_ulong,
     reclen: c_ushort,
