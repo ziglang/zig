@@ -71,7 +71,7 @@ pub fn ArrayHashMap(
     comptime K: type,
     comptime V: type,
     /// A namespace that provides these two functions:
-    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn hash(self, K) u64`
     /// * `pub fn eql(self, K, K) bool`
     ///
     comptime Context: type,
@@ -105,7 +105,7 @@ pub fn ArrayHashMap(
         /// The MultiArrayList type backing this map
         pub const DataList = Unmanaged.DataList;
 
-        /// The stored hash type, either u32 or void.
+        /// The stored hash type, either u64 or void.
         pub const Hash = Unmanaged.Hash;
 
         /// getOrPut variants return this structure, with pointers
@@ -505,7 +505,7 @@ pub fn ArrayHashMapUnmanaged(
     comptime K: type,
     comptime V: type,
     /// A namespace that provides these two functions:
-    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn hash(self, K) u64`
     /// * `pub fn eql(self, K, K) bool`
     comptime Context: type,
     /// When `false`, this data structure is biased towards cheap `eql`
@@ -554,8 +554,8 @@ pub fn ArrayHashMapUnmanaged(
         /// The MultiArrayList type backing this map
         pub const DataList = std.MultiArrayList(Data);
 
-        /// The stored hash type, either u32 or void.
-        pub const Hash = if (store_hash) u32 else void;
+        /// The stored hash type, either u64 or void.
+        pub const Hash = if (store_hash) u64 else void;
 
         /// getOrPut variants return this structure, with pointers
         /// to the backing store and a flag to indicate whether an
@@ -655,6 +655,7 @@ pub fn ArrayHashMapUnmanaged(
                     .u8 => @memset(header.indexes(u8), Index(u8).empty),
                     .u16 => @memset(header.indexes(u16), Index(u16).empty),
                     .u32 => @memset(header.indexes(u32), Index(u32).empty),
+                    .u64 => @memset(header.indexes(u64), Index(u64).empty),
                 }
             }
         }
@@ -697,14 +698,14 @@ pub fn ArrayHashMapUnmanaged(
             return .{
                 .keys = slice.items(.key).ptr,
                 .values = slice.items(.value).ptr,
-                .len = @as(u32, @intCast(slice.len)),
+                .len = slice.len,
             };
         }
         pub const Iterator = struct {
             keys: [*]K,
             values: [*]V,
-            len: u32,
-            index: u32 = 0,
+            len: u64,
+            index: u64 = 0,
 
             pub fn next(it: *Iterator) ?Entry {
                 if (it.index >= it.len) return null;
@@ -824,6 +825,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => return self.getOrPutInternal(key, ctx, header, u8),
                 .u16 => return self.getOrPutInternal(key, ctx, header, u16),
                 .u32 => return self.getOrPutInternal(key, ctx, header, u32),
+                .u64 => return self.getOrPutInternal(key, ctx, header, u64),
             }
         }
 
@@ -1040,6 +1042,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => return self.getIndexWithHeaderGeneric(key, ctx, header, u8),
                 .u16 => return self.getIndexWithHeaderGeneric(key, ctx, header, u16),
                 .u32 => return self.getIndexWithHeaderGeneric(key, ctx, header, u32),
+                .u64 => return self.getIndexWithHeaderGeneric(key, ctx, header, u64),
             }
         }
         fn getIndexWithHeaderGeneric(self: Self, key: anytype, ctx: anytype, header: *IndexHeader, comptime I: type) ?usize {
@@ -1467,6 +1470,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => self.fetchRemoveByKeyGeneric(key, key_ctx, ctx, header, u8, removal_type),
                 .u16 => self.fetchRemoveByKeyGeneric(key, key_ctx, ctx, header, u16, removal_type),
                 .u32 => self.fetchRemoveByKeyGeneric(key, key_ctx, ctx, header, u32, removal_type),
+                .u64 => self.fetchRemoveByKeyGeneric(key, key_ctx, ctx, header, u64, removal_type),
             };
         }
         fn fetchRemoveByKeyGeneric(
@@ -1518,6 +1522,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => self.removeByKeyGeneric(key, key_ctx, ctx, header, u8, removal_type),
                 .u16 => self.removeByKeyGeneric(key, key_ctx, ctx, header, u16, removal_type),
                 .u32 => self.removeByKeyGeneric(key, key_ctx, ctx, header, u32, removal_type),
+                .u64 => self.removeByKeyGeneric(key, key_ctx, ctx, header, u64, removal_type),
             };
         }
         fn removeByKeyGeneric(self: *Self, key: anytype, key_ctx: anytype, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, comptime removal_type: RemovalType) bool {
@@ -1540,6 +1545,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => self.removeByIndexGeneric(entry_index, ctx, header, u8, removal_type),
                 .u16 => self.removeByIndexGeneric(entry_index, ctx, header, u16, removal_type),
                 .u32 => self.removeByIndexGeneric(entry_index, ctx, header, u32, removal_type),
+                .u64 => self.removeByIndexGeneric(entry_index, ctx, header, u64, removal_type),
             }
         }
         fn removeByIndexGeneric(self: *Self, entry_index: usize, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, comptime removal_type: RemovalType) void {
@@ -1593,6 +1599,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => self.removeFromIndexByIndexGeneric(entry_index, ctx, header, u8, header.indexes(u8)),
                 .u16 => self.removeFromIndexByIndexGeneric(entry_index, ctx, header, u16, header.indexes(u16)),
                 .u32 => self.removeFromIndexByIndexGeneric(entry_index, ctx, header, u32, header.indexes(u32)),
+                .u64 => self.removeFromIndexByIndexGeneric(entry_index, ctx, header, u64, header.indexes(u64)),
             }
         }
         fn removeFromIndexByIndexGeneric(self: *Self, entry_index: usize, ctx: ByIndexContext, header: *IndexHeader, comptime I: type, indexes: []Index(I)) void {
@@ -1803,6 +1810,7 @@ pub fn ArrayHashMapUnmanaged(
                 .u8 => return self.insertAllEntriesIntoNewHeaderGeneric(ctx, header, u8),
                 .u16 => return self.insertAllEntriesIntoNewHeaderGeneric(ctx, header, u16),
                 .u32 => return self.insertAllEntriesIntoNewHeaderGeneric(ctx, header, u32),
+                .u64 => return self.insertAllEntriesIntoNewHeaderGeneric(ctx, header, u64),
             }
         }
         fn insertAllEntriesIntoNewHeaderGeneric(self: *Self, ctx: ByIndexContext, header: *IndexHeader, comptime I: type) void {
@@ -1843,7 +1851,7 @@ pub fn ArrayHashMapUnmanaged(
             }
         }
 
-        fn checkedHash(ctx: anytype, key: anytype) u32 {
+        fn checkedHash(ctx: anytype, key: anytype) u64 {
             // If you get a compile error on the next line, it means that your
             // generic hash function doesn't accept your key.
             return ctx.hash(key);
@@ -1867,7 +1875,7 @@ pub fn ArrayHashMapUnmanaged(
             const hash_status = if (store_hash) "stored" else "computed";
             p("  len={} capacity={} hashes {s}\n", .{ slice.len, slice.capacity, hash_status });
             var i: usize = 0;
-            const mask: u32 = if (self.index_header) |header| header.mask() else ~@as(u32, 0);
+            const mask: u64 = if (self.index_header) |header| header.mask() else ~@as(u64, 0);
             while (i < slice.len) : (i += 1) {
                 const hash = if (store_hash) slice.items(.hash)[i] else checkedHash(ctx, slice.items(.key)[i]);
                 if (store_hash) {
@@ -1888,6 +1896,7 @@ pub fn ArrayHashMapUnmanaged(
                     .u8 => dumpIndex(header, u8),
                     .u16 => dumpIndex(header, u16),
                     .u32 => dumpIndex(header, u32),
+                    .u64 => dumpIndex(header, u64),
                 }
             }
         }
@@ -1915,15 +1924,17 @@ pub fn ArrayHashMapUnmanaged(
     };
 }
 
-const CapacityIndexType = enum { u8, u16, u32 };
+const CapacityIndexType = enum { u8, u16, u32, u64 };
 
 fn capacityIndexType(bit_index: u8) CapacityIndexType {
     if (bit_index <= 8)
         return .u8;
     if (bit_index <= 16)
         return .u16;
-    assert(bit_index <= 32);
-    return .u32;
+    if (bit_index <= 16)
+        return .u32;
+    assert(bit_index <= 64);
+    return .u64;
 }
 
 fn capacityIndexSize(bit_index: u8) usize {
@@ -1931,6 +1942,7 @@ fn capacityIndexSize(bit_index: u8) usize {
         .u8 => return @sizeOf(Index(u8)),
         .u16 => return @sizeOf(Index(u16)),
         .u32 => return @sizeOf(Index(u32)),
+        .u64 => return @sizeOf(Index(u64)),
     }
 }
 
@@ -1985,14 +1997,14 @@ fn Index(comptime I: type) type {
 }
 
 /// the byte size of the index must fit in a usize.  This is a power of two
-/// length * the size of an Index(u32).  The index is 8 bytes (3 bits repr)
+/// length * the size of an Index(u64).  The index is 8 bytes (3 bits repr)
 /// and max_usize + 1 is not representable, so we need to subtract out 4 bits.
 const max_representable_index_len = @bitSizeOf(usize) - 4;
 const max_bit_index = @min(32, max_representable_index_len);
 const min_bit_index = 5;
 const max_capacity = (1 << max_bit_index) - 1;
 const index_capacities = blk: {
-    var caps: [max_bit_index + 1]u32 = undefined;
+    var caps: [max_bit_index + 1]u64 = undefined;
     for (caps[0..max_bit_index], 0..) |*item, i| {
         item.* = (1 << i) * 3 / 5;
     }
@@ -2013,7 +2025,7 @@ const IndexHeader = struct {
     /// This field tracks the total number of items in the arrays following
     /// this header.  It is the bit index of the power of two number of indices.
     /// This value is between min_bit_index and max_bit_index, inclusive.
-    bit_index: u8 align(@alignOf(u32)),
+    bit_index: u8 align(@alignOf(u64)),
 
     /// Map from an incrementing index to an index slot in the attached arrays.
     fn constrainIndex(header: IndexHeader, i: usize) usize {
@@ -2034,14 +2046,14 @@ const IndexHeader = struct {
         return hash_map.capacityIndexType(header.bit_index);
     }
 
-    fn capacity(self: IndexHeader) u32 {
+    fn capacity(self: IndexHeader) u64 {
         return index_capacities[self.bit_index];
     }
     fn length(self: IndexHeader) usize {
         return @as(usize, 1) << @as(math.Log2Int(usize), @intCast(self.bit_index));
     }
-    fn mask(self: IndexHeader) u32 {
-        return @as(u32, @intCast(self.length() - 1));
+    fn mask(self: IndexHeader) u64 {
+        return self.length() - 1;
     }
 
     fn findBitIndex(desired_capacity: usize) !u8 {
@@ -2086,7 +2098,7 @@ const IndexHeader = struct {
 
     // Verify that the header has sufficient alignment to produce aligned arrays.
     comptime {
-        if (@alignOf(u32) > @alignOf(IndexHeader))
+        if (@alignOf(u64) > @alignOf(IndexHeader))
             @compileError("IndexHeader must have a larger alignment than its indexes!");
     }
 };
@@ -2532,7 +2544,7 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
             } else {
                 var hasher = Wyhash.init(0);
                 autoHash(&hasher, key);
-                return @truncate(hasher.final());
+                return hasher.final();
             }
         }
     }.hash;
@@ -2566,13 +2578,13 @@ pub fn autoEqlIsCheap(comptime K: type) bool {
     };
 }
 
-pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime strategy: std.hash.Strategy) (fn (Context, K) u32) {
+pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime strategy: std.hash.Strategy) (fn (Context, K) u64) {
     return struct {
-        fn hash(ctx: Context, key: K) u32 {
+        fn hash(ctx: Context, key: K) u64 {
             _ = ctx;
             var hasher = Wyhash.init(0);
             std.hash.autoHashStrat(&hasher, key, strategy);
-            return @as(u32, @truncate(hasher.final()));
+            return hasher.final();
         }
     }.hash;
 }
