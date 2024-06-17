@@ -80,6 +80,8 @@ pub const Options = struct {
 pub const Node = struct {
     index: OptionalIndex,
 
+    pub const none: Node = .{ .index = .none };
+
     pub const max_name_len = 40;
 
     const Storage = extern struct {
@@ -177,9 +179,9 @@ pub const Node = struct {
     pub fn start(node: Node, name: []const u8, estimated_total_items: usize) Node {
         if (noop_impl) {
             assert(node.index == .none);
-            return .{ .index = .none };
+            return Node.none;
         }
-        const node_index = node.index.unwrap() orelse return .{ .index = .none };
+        const node_index = node.index.unwrap() orelse return Node.none;
         const parent = node_index.toParent();
 
         const freelist_head = &global_progress.node_freelist_first;
@@ -196,7 +198,7 @@ pub const Node = struct {
         if (free_index >= global_progress.node_storage.len) {
             // Ran out of node storage memory. Progress for this node will not be tracked.
             _ = @atomicRmw(u32, &global_progress.node_end_index, .Sub, 1, .monotonic);
-            return .{ .index = .none };
+            return Node.none;
         }
 
         return init(@enumFromInt(free_index), parent, name, estimated_total_items);
@@ -357,7 +359,7 @@ pub fn start(options: Options) Node {
     global_progress.initial_delay_ns = options.initial_delay_ns;
 
     if (noop_impl)
-        return .{ .index = .none };
+        return Node.none;
 
     if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
         global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
@@ -368,12 +370,12 @@ pub fn start(options: Options) Node {
             }),
         }) catch |err| {
             std.log.warn("failed to spawn IPC thread for communicating progress to parent: {s}", .{@errorName(err)});
-            return .{ .index = .none };
+            return Node.none;
         };
     } else |env_err| switch (env_err) {
         error.EnvironmentVariableNotFound => {
             if (options.disable_printing) {
-                return .{ .index = .none };
+                return Node.none;
             }
             const stderr = std.io.getStdErr();
             global_progress.terminal = stderr;
@@ -386,7 +388,7 @@ pub fn start(options: Options) Node {
             }
 
             if (global_progress.terminal_mode == .off) {
-                return .{ .index = .none };
+                return Node.none;
             }
 
             if (have_sigwinch) {
@@ -408,12 +410,12 @@ pub fn start(options: Options) Node {
                 global_progress.update_thread = thread;
             } else |err| {
                 std.log.warn("unable to spawn thread for printing progress to terminal: {s}", .{@errorName(err)});
-                return .{ .index = .none };
+                return Node.none;
             }
         },
         else => |e| {
             std.log.warn("invalid ZIG_PROGRESS file descriptor integer: {s}", .{@errorName(e)});
-            return .{ .index = .none };
+            return Node.none;
         },
     }
 
