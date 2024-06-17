@@ -6,4 +6,4 @@ export fn entry() void {
 // backend=llvm
 // target=native
 //
-// :?:?: error: 10 unused arguments in '{d} {d} {d} {d} {d}'
+// :?:?: error: 10 unused arguments in "{d} {d} {d} {d} {d}"

@@ -84,7 +84,7 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    const err_ctx = ", in: \"" ++ fmt ++ "\"";
+    const err_ctx = " in \"" ++ fmt ++ "\"";
     if (args_type_info != .Struct) {
         @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType) ++ err_ctx);
     }

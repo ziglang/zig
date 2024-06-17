@@ -11,4 +11,4 @@ test "print too many arguments" {
     });
 }
 
-// test_error=unused argument in 'here is a string: '{s}' here is a number: {}
+// test_error=unused argument in "here is a string: '{s}' here is a number: {}
