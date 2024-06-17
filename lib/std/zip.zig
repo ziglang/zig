@@ -104,7 +104,7 @@ pub const EndRecord = extern struct {
 };
 
 /// Find and return the end record for the given seekable zip stream.
-/// Note that `seekable_stream` must be an instance of `std.io.SeekabkeStream` and
+/// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
 /// its context must also have a `.reader()` method that returns an instance of
 /// `std.io.Reader`.
 pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
@@ -576,7 +576,7 @@ pub const ExtractOptions = struct {
 };
 
 /// Extract the zipped files inside `seekable_stream` to the given `dest` directory.
-/// Note that `seekable_stream` must be an instance of `std.io.SeekabkeStream` and
+/// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
 /// its context must also have a `.reader()` method that returns an instance of
 /// `std.io.Reader`.
 pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptions) !void {

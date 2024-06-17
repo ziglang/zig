@@ -179,8 +179,10 @@ static void FuncGen_blockBegin(struct FuncGen *self, FILE *out, enum WasmOpcode 
         self->reuse = realloc(self->reuse, sizeof(uint32_t) * self->reuse_len);
         if (self->reuse == NULL) panic("out of memory");
     }
-    memcpy(&self->reuse[self->reuse_i], &self->reuse[reuse_top], sizeof(uint32_t) * reuse_n);
-    self->reuse_i += reuse_n;
+    if (reuse_n != 0) {
+        memcpy(&self->reuse[self->reuse_i], &self->reuse[reuse_top], sizeof(uint32_t) * reuse_n);
+        self->reuse_i += reuse_n;
+    }
 }
 
 static enum WasmOpcode FuncGen_blockKind(const struct FuncGen *self, uint32_t label_idx) {
