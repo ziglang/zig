@@ -352,6 +352,38 @@ pub const Stat = extern struct {
     }
 };
 
+pub extern "c" fn timerfd_create(clockid: c_int, flags: c_int) c_int;
+
+pub extern "c" fn timerfd_settime(
+    fd: c_int,
+    flags: c_int,
+    new_value: *const itimerspec,
+    old_value: ?*itimerspec,
+) c_int;
+
+pub extern "c" fn timerfd_gettime(fd: c_int, curr_value: *itimerspec) c_int;
+
+const TFD_TIMER = packed struct(u32) {
+    ABSTIME: bool = false,
+    CANCEL_ON_SET: bool = false,
+    _: u30 = 0,
+};
+
+pub const TFD = packed struct(u32) {
+    _0: u2 = 0,
+    NONBLOCK: bool = false,
+    _3: u17 = 0,
+    CLOEXEC: bool = false,
+    _: u11 = 0,
+
+    pub const TIMER = TFD_TIMER;
+};
+
+pub const itimerspec = extern struct {
+    it_interval: timespec,
+    it_value: timespec,
+};
+
 pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
