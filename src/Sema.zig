@@ -9347,13 +9347,17 @@ fn zirFunc(
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
     }
 
-    // If this instruction has a body it means it's the type of the `owner_decl`
-    // otherwise it's a function type without a `callconv` attribute and should
-    // never be `.C`.
-    const cc: std.builtin.CallingConvention = if (has_body and mod.declPtr(sema.owner_decl_index).is_exported)
-        .C
-    else
-        .Unspecified;
+    // If this instruction has a body, then it's a function declaration, and we decide
+    // the callconv based on whether it is exported. Otherwise, the callconv defaults
+    // to `.Unspecified`.
+    const cc: std.builtin.CallingConvention = if (has_body) cc: {
+        const fn_is_exported = if (sema.generic_owner != .none) exported: {
+            const generic_owner_fn = mod.funcInfo(sema.generic_owner);
+            const generic_owner_decl = mod.declPtr(generic_owner_fn.owner_decl);
+            break :exported generic_owner_decl.is_exported;
+        } else sema.owner_decl.is_exported;
+        break :cc if (fn_is_exported) .C else .Unspecified;
+    } else .Unspecified;
 
     return sema.funcCommon(
         block,
