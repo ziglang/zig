@@ -36,13 +36,17 @@ pub fn build(b: *std.Build) !void {
     const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     const check_langref = tidyCheck(b, langref_file);
-    const check_autodocs = tidyCheck(b, b.path("lib/docs/index.html"));
+    if (enable_tidy) install_langref.step.dependOn(check_langref);
+    // Checking autodocs is disabled because tidy gives a false positive:
+    // line 304 column 9 - Warning: moved <style> tag to <head>! fix-style-tags: no to avoid.
+    // I noticed that `--show-warnings no` still incorrectly causes exit code 1.
+    // I was unable to find an alternative to tidy.
+    //const check_autodocs = tidyCheck(b, b.path("lib/docs/index.html"));
     if (enable_tidy) {
         test_step.dependOn(check_langref);
-        test_step.dependOn(check_autodocs);
+        //test_step.dependOn(check_autodocs);
     }
     if (!skip_install_langref) {
-        if (enable_tidy) install_langref.step.dependOn(check_langref);
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
@@ -58,8 +62,8 @@ pub fn build(b: *std.Build) !void {
         .install_dir = .prefix,
         .install_subdir = "doc/std",
     });
+    //if (enable_tidy) install_std_docs.step.dependOn(check_autodocs);
     if (std_docs) {
-        if (enable_tidy) install_std_docs.step.dependOn(check_autodocs);
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
 
