@@ -269,7 +269,17 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 
-pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
+pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
+    const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
+    try handleChildProcessTerm(s, run_result.term, null, argv);
+    return run_result.stdout;
+}
+
+pub fn captureChildProcess(
+    s: *Step,
+    progress_node: std.Progress.Node,
+    argv: []const []const u8,
+) !std.process.Child.RunResult {
     const arena = s.owner.allocator;
 
     try handleChildProcUnsupported(s, null, argv);
@@ -278,13 +288,14 @@ pub fn evalChildProcess(s: *Step, argv: []const []const u8) !void {
     const result = std.process.Child.run(.{
         .allocator = arena,
         .argv = argv,
+        .progress_node = progress_node,
     }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
     }
 
-    try handleChildProcessTerm(s, result.term, null, argv);
+    return result;
 }
 
 pub fn fail(step: *Step, comptime fmt: []const u8, args: anytype) error{ OutOfMemory, MakeFailed } {
