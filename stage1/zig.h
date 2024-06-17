@@ -3666,7 +3666,7 @@ typedef int zig_memory_order;
 #define zig_fence(order) zig_fence_unavailable
 #endif
 
-#if _MSC_VER && (_M_IX86 || _M_X64)
+#if _MSC_VER && (_M_IX86 || _M_X64) && !(defined(zig_clang) && !defined(__STDC_NO_ATOMICS__))
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
