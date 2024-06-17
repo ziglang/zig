@@ -31,9 +31,21 @@ pub fn build(b: *std.Build) !void {
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
     const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
+    const enable_tidy = b.option(bool, "enable-tidy", "Check langref output HTML validity") orelse false;
 
     const langref_file = generateLangRef(b);
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
+    const check_langref = tidyCheck(b, langref_file);
+    if (enable_tidy) install_langref.step.dependOn(check_langref);
+    // Checking autodocs is disabled because tidy gives a false positive:
+    // line 304 column 9 - Warning: moved <style> tag to <head>! fix-style-tags: no to avoid.
+    // I noticed that `--show-warnings no` still incorrectly causes exit code 1.
+    // I was unable to find an alternative to tidy.
+    //const check_autodocs = tidyCheck(b, b.path("lib/docs/index.html"));
+    if (enable_tidy) {
+        test_step.dependOn(check_langref);
+        //test_step.dependOn(check_autodocs);
+    }
     if (!skip_install_langref) {
         b.getInstallStep().dependOn(&install_langref.step);
     }
@@ -50,6 +62,7 @@ pub fn build(b: *std.Build) !void {
         .install_dir = .prefix,
         .install_subdir = "doc/std",
     });
+    //if (enable_tidy) install_std_docs.step.dependOn(check_autodocs);
     if (std_docs) {
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
@@ -1307,4 +1320,13 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
 
     docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
     return docgen_cmd.addOutputFileArg("langref.html");
+}
+
+fn tidyCheck(b: *std.Build, html_file: std.Build.LazyPath) *std.Build.Step {
+    const run_tidy = b.addSystemCommand(&.{
+        "tidy", "--drop-empty-elements", "no", "-qe",
+    });
+    run_tidy.addFileArg(html_file);
+    run_tidy.expectExitCode(0);
+    return &run_tidy.step;
 }

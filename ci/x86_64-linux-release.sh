@@ -69,11 +69,8 @@ stage3-release/bin/zig build test docs \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-
-# Look for HTML errors.
-# TODO: move this to a build.zig flag (-Denable-tidy)
-tidy --drop-empty-elements no -qe "../zig-out/doc/langref.html"
+  --zig-lib-dir "$PWD/../lib" \
+  -Denable-tidy
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
