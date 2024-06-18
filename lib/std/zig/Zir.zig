@@ -3738,6 +3738,7 @@ fn findDeclsInner(
                 .union_decl,
                 .enum_decl,
                 .opaque_decl,
+                .reify,
                 => return list.append(inst),
 
                 else => return,
