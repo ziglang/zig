@@ -246,12 +246,15 @@ pub const GlobalEmitH = struct {
     /// Tracks all decls in order to iterate over them and emit .h code for them.
     decl_table: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
     /// Similar to the allocated_decls field of Module, this is where `EmitH` objects
-    /// are allocated. There will be exactly one EmitH object per Decl object, with
+    /// are allocated. There will be exactly one EmitH object per decl_table entry, with
     /// identical indexes.
     allocated_emit_h: std.SegmentedList(EmitH, 0) = .{},
 
-    pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: Decl.Index) *EmitH {
-        return global_emit_h.allocated_emit_h.at(@intFromEnum(decl_index));
+    pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: Decl.Index) ?*EmitH {
+        return if (global_emit_h.decl_table.getIndex(decl_index)) |index|
+            global_emit_h.allocated_emit_h.at(index)
+        else
+            null;
     }
 };
 
@@ -2541,9 +2544,10 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     ip.destroyDecl(gpa, decl_index);
 
     if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
+        if (mod_emit_h.declPtr(decl_index)) |decl_emit_h| {
+            decl_emit_h.fwd_decl.deinit(gpa);
+            decl_emit_h.* = undefined;
+        }
     }
 }
 
@@ -3770,11 +3774,6 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     // Decl itself is safely analyzed, and body analysis is not yet queued
 
     try mod.comp.work_queue.writeItem(.{ .codegen_func = func_index });
-    if (mod.emit_h != null) {
-        // TODO: we ideally only want to do this if the function's type changed
-        // since the last update
-        try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
-    }
     func.analysis(ip).state = .queued;
 }
 
@@ -4258,10 +4257,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         try sema.resolveTypeFully(decl_ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
-
-        if (result.invalidate_decl_ref and mod.emit_h != null) {
-            try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
-        }
     }
 
     if (decl.is_exported) {
@@ -4931,6 +4926,12 @@ pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!vo
     }
 }
 
+pub fn emitHDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
+    if (mod.emit_h != null) {
+        try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+    }
+}
+
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
@@ -5276,13 +5277,6 @@ pub fn allocateNewDecl(zcu: *Zcu, namespace: Namespace.Index) !Decl.Index {
         .is_exported = false,
         .kind = .anon,
     });
-
-    if (zcu.emit_h) |zcu_emit_h| {
-        if (@intFromEnum(decl_index) >= zcu_emit_h.allocated_emit_h.len) {
-            try zcu_emit_h.allocated_emit_h.append(gpa, .{});
-            assert(@intFromEnum(decl_index) == zcu_emit_h.allocated_emit_h.len);
-        }
-    }
 
     return decl_index;
 }

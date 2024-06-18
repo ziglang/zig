@@ -6505,6 +6505,7 @@ fn addExport(mod: *Module, export_init: Module.Export) error{OutOfMemory}!void {
             const de_gop = mod.decl_exports.getOrPutAssumeCapacity(decl_index);
             if (!de_gop.found_existing) de_gop.value_ptr.* = .{};
             try de_gop.value_ptr.append(gpa, new_export);
+            try mod.emitHDecl(decl_index);
         },
         .value => |value| {
             const ve_gop = mod.value_exports.getOrPutAssumeCapacity(value);

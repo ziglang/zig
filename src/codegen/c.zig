@@ -3087,16 +3087,10 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const zcu = dg.zcu;
     const decl_index = dg.pass.decl;
     const decl = zcu.declPtr(decl_index);
+    _ = decl; // autofix
     const writer = dg.fwdDeclWriter();
+    _ = writer; // autofix
 
-    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
-        .Fn => if (dg.declIsGlobal(decl.val)) {
-            try writer.writeAll("zig_extern ");
-            try dg.renderFunctionSignature(writer, dg.pass.decl, .complete, .{ .export_index = 0 });
-            try dg.fwd_decl.appendSlice(";\n");
-        },
-        else => {},
-    }
 }
 
 /// Generate code for an entire body which ends with a `noreturn` instruction. The states of

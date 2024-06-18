@@ -2267,7 +2267,7 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: std.Progress.Node) !vo
     }
 
     if (comp.module) |zcu| {
-        try link.File.C.flushEmitH(zcu);
+        try @import("emit_h.zig").flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
             if (build_options.only_c) unreachable;
@@ -3425,37 +3425,20 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     const gpa = comp.gpa;
                     const emit_h = module.emit_h.?;
-                    _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
-                    const decl_emit_h = emit_h.declPtr(decl_index);
-                    const fwd_decl = &decl_emit_h.fwd_decl;
-                    fwd_decl.shrinkRetainingCapacity(0);
-                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer ctypes_arena.deinit();
 
-                    var dg: c_codegen.DeclGen = .{
-                        .gpa = gpa,
-                        .zcu = module,
-                        .mod = module.namespacePtr(decl.src_namespace).file_scope.mod,
-                        .error_msg = null,
-                        .pass = .{ .decl = decl_index },
-                        .is_naked_fn = false,
-                        .fwd_decl = fwd_decl.toManaged(gpa),
-                        .ctype_pool = c_codegen.CType.Pool.empty,
-                        .scratch = .{},
-                        .anon_decl_deps = .{},
-                        .aligned_anon_decls = .{},
-                    };
-                    defer {
-                        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                        fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
-                        dg.ctype_pool.deinit(gpa);
-                        dg.scratch.deinit(gpa);
-                    }
-                    try dg.ctype_pool.init(gpa);
+                    const gop = try emit_h.decl_table.getOrPut(gpa, decl_index);
 
-                    c_codegen.genHeader(&dg) catch |err| switch (err) {
+                    if (gop.found_existing) return;
+
+                    const decl_emit_h = try emit_h.allocated_emit_h.addOne(gpa);
+                    decl_emit_h.* = .{};
+
+                    std.debug.assert(emit_h.allocated_emit_h.len == emit_h.decl_table.count());
+
+                    var error_msg: ?*Module.ErrorMsg = null;
+                    @import("emit_h.zig").emitH(gpa, module, decl, decl_emit_h, &error_msg) catch |err| switch (err) {
                         error.AnalysisFail => {
-                            try emit_h.failed_decls.put(gpa, decl_index, dg.error_msg.?);
+                            try emit_h.failed_decls.put(gpa, decl_index, error_msg.?);
                             return;
                         },
                         else => |e| return e,
