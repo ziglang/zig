@@ -126,12 +126,17 @@ pub const StdIo = union(enum) {
 };
 
 pub const Arg = union(enum) {
-    artifact: *Step.Compile,
+    artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
     directory_source: PrefixedLazyPath,
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
+};
+
+pub const PrefixedArtifact = struct {
+    prefix: []const u8,
+    artifact: *Step.Compile,
 };
 
 pub const PrefixedLazyPath = struct {
@@ -185,10 +190,20 @@ pub fn enableTestRunnerMode(run: *Run) void {
 }
 
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {
+    run.addPrefixedArtifactArg("", artifact);
+}
+
+pub fn addPrefixedArtifactArg(run: *Run, prefix: []const u8, artifact: *Step.Compile) void {
     const b = run.step.owner;
+
+    const prefixed_artifact: PrefixedArtifact = .{
+        .prefix = b.dupe(prefix),
+        .artifact = artifact,
+    };
+    run.argv.append(b.allocator, .{ .artifact = prefixed_artifact }) catch @panic("OOM");
+
     const bin_file = artifact.getEmittedBin();
     bin_file.addStepDependencies(&run.step);
-    run.argv.append(b.allocator, Arg{ .artifact = artifact }) catch @panic("OOM");
 }
 
 /// Provides a file path as a command line argument to the command being run.
@@ -610,14 +625,16 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
             },
-            .artifact => |artifact| {
+            .artifact => |pa| {
+                const artifact = pa.artifact;
+
                 if (artifact.rootModuleTarget().os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     run.addPathForDynLibs(artifact);
                 }
                 const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?; // the path is guaranteed to be set
 
-                try argv_list.append(file_path);
+                try argv_list.append(b.fmt("{s}{s}", .{ pa.prefix, file_path }));
 
                 _ = try man.addFile(file_path, null);
             },
@@ -912,7 +929,7 @@ fn runCommand(
             // work even for the edge case that the binary was produced by a
             // third party.
             const exe = switch (run.argv.items[0]) {
-                .artifact => |exe| exe,
+                .artifact => |exe| exe.artifact,
                 else => break :interpret,
             };
             switch (exe.kind) {
