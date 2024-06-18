@@ -7,16 +7,24 @@ const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const Zir = std.zig.Zir;
 
+const EmitH = @This();
 const Error = error{ OutOfMemory, AnalysisFail };
 
-pub fn emitH(gpa: std.mem.Allocator, zcu: *Zcu, decl: *Zcu.Decl, emit_h: *Zcu.EmitH, error_msg: *?*Zcu.ErrorMsg) Error!void {
-    _ = error_msg; // autofix
+gpa: std.mem.Allocator,
+zcu: *Zcu,
+decl: *Zcu.Decl,
+emit_h: *Zcu.EmitH,
+error_msg: ?*Zcu.ErrorMsg,
 
-    const ip = &zcu.intern_pool;
+pub fn emitDecl(emitter: *EmitH) Error!void {
+    const zcu = emitter.zcu;
+    const decl = emitter.decl;
+
+    const ip = &emitter.zcu.intern_pool;
     const ty = decl.typeOf(zcu);
     const file = decl.getFileScope(zcu);
 
-    const writer = emit_h.fwd_decl.writer(gpa);
+    const writer = emitter.emit_h.fwd_decl.writer(emitter.gpa);
 
     if (decl.zir_decl_index.unwrap()) |zir_index| {
         const zir_decl, const extra_end = file.zir.getDeclaration(zir_index.resolve(ip));
@@ -34,14 +42,14 @@ pub fn emitH(gpa: std.mem.Allocator, zcu: *Zcu, decl: *Zcu.Decl, emit_h: *Zcu.Em
             const info = zcu.typeToFunc(ty).?;
 
             try writer.writeAll("zig_extern ");
-            try emitReferenceToType(writer, zcu, ip, info.return_type);
+            try emitter.emitInlineType(writer, info.return_type);
             // TODO: Use exported decl name
             try writer.print(" {s}(", .{decl.name.toSlice(ip)});
 
             const params = info.param_types.get(ip);
 
             for (params, 0..) |param, param_idx| {
-                try emitReferenceToType(writer, zcu, ip, param);
+                try emitter.emitInlineType(writer, param);
                 try writer.print(" a{d}", .{param_idx});
                 if (param_idx != params.len - 1) try writer.writeAll(", ");
             }
@@ -74,7 +82,7 @@ pub fn emitH(gpa: std.mem.Allocator, zcu: *Zcu, decl: *Zcu.Decl, emit_h: *Zcu.Em
 
                         for (info.field_names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
                             try writer.print("    ", .{});
-                            try emitReferenceToType(writer, zcu, ip, field_type);
+                            try emitter.emitInlineType(writer, field_type);
                             try writer.print(" {s};\n", .{field_name.toSlice(ip)});
                         }
 
@@ -103,7 +111,7 @@ pub fn emitH(gpa: std.mem.Allocator, zcu: *Zcu, decl: *Zcu.Decl, emit_h: *Zcu.Em
 
                         for (tag_type_info.names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
                             try writer.print("    ", .{});
-                            try emitReferenceToType(writer, zcu, ip, field_type);
+                            try emitter.emitInlineType(writer, field_type);
                             try writer.print(" {s};\n", .{field_name.toSlice(ip)});
                         }
 
@@ -145,12 +153,14 @@ pub fn emitH(gpa: std.mem.Allocator, zcu: *Zcu, decl: *Zcu.Decl, emit_h: *Zcu.Em
     }
 }
 
-fn emitReferenceToType(
+fn emitInlineType(
+    emitter: *EmitH,
     writer: anytype,
-    zcu: *Zcu,
-    ip: *const InternPool,
     index: InternPool.Index,
 ) Error!void {
+    const zcu = emitter.zcu;
+    const ip = &zcu.intern_pool;
+
     switch (index) {
         .f16_type => try writer.writeAll("zig_f16"),
         .f32_type => try writer.writeAll("zig_f32"),
@@ -193,7 +203,7 @@ fn emitReferenceToType(
             },
             .enum_type => {
                 const info = ip.loadEnumType(index);
-                try emitReferenceToType(writer, zcu, ip, info.tag_ty);
+                try emitter.emitInlineType(writer, info.tag_ty);
                 try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = info.decl });
             },
             .ptr_type => |info| {
@@ -201,12 +211,17 @@ fn emitReferenceToType(
                 if (info.flags.is_const) {
                     try writer.writeAll("const ");
                 }
-                try emitReferenceToType(writer, zcu, ip, info.child);
+                try emitter.emitInlineType(writer, info.child);
                 try writer.writeAll(" *");
             },
-            else => unreachable,
+            else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
         },
     }
+}
+
+fn fail(emitter: *EmitH, comptime format: []const u8, args: anytype) Error {
+    emitter.error_msg = Zcu.ErrorMsg.create(emitter.gpa, emitter.decl.srcLoc(emitter.zcu), format, args) catch |err| return err;
+    return error.AnalysisFail;
 }
 
 pub fn flushEmitH(zcu: *Zcu) !void {

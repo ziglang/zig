@@ -38,6 +38,7 @@ const libtsan = @import("libtsan.zig");
 const Zir = std.zig.Zir;
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
+const EmitH = @import("EmitH.zig");
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -2267,7 +2268,7 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: std.Progress.Node) !vo
     }
 
     if (comp.module) |zcu| {
-        try @import("emit_h.zig").flushEmitH(zcu);
+        try EmitH.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
             if (build_options.only_c) unreachable;
@@ -3435,10 +3436,17 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     std.debug.assert(emit_h.allocated_emit_h.len == emit_h.decl_table.count());
 
-                    var error_msg: ?*Module.ErrorMsg = null;
-                    @import("emit_h.zig").emitH(gpa, module, decl, decl_emit_h, &error_msg) catch |err| switch (err) {
+                    var emitter = EmitH{
+                        .gpa = gpa,
+                        .zcu = module,
+                        .decl = decl,
+                        .emit_h = decl_emit_h,
+                        .error_msg = null,
+                    };
+
+                    emitter.emitDecl() catch |err| switch (err) {
                         error.AnalysisFail => {
-                            try emit_h.failed_decls.put(gpa, decl_index, error_msg.?);
+                            try emit_h.failed_decls.put(gpa, decl_index, emitter.error_msg.?);
                             return;
                         },
                         else => |e| return e,
