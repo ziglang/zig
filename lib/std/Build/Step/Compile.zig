@@ -21,7 +21,7 @@ const Compile = @This();
 pub const base_id: Step.Id = .compile;
 
 step: Step,
-root_module: Module,
+root_module: *Module,
 
 name: []const u8,
 linker_script: ?LazyPath = null,
@@ -400,7 +400,9 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .use_lld = options.use_lld,
     };
 
-    compile.root_module.init(owner, options.root_module, compile);
+    const root_module = owner.allocator.create(Module) catch @panic("OOM");
+    root_module.init(owner, options.root_module, compile);
+    compile.root_module = root_module;
 
     if (options.zig_lib_dir) |lp| {
         compile.zig_lib_dir = lp.dupe(compile.step.owner);
@@ -1047,7 +1049,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(arena, &compile.root_module);
+        var cli_named_modules = try CliNamedModules.init(arena, compile.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
