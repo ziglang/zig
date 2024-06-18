@@ -800,6 +800,116 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @intFromPtr(address), length);
 }
 
+pub const key_t = i32;
+pub const IPC = struct {
+    pub const PRIVATE = 0;
+
+    /// create key if key does not exist
+    pub const CREAT = 0x200;
+
+    /// fail if key exists
+    pub const EXCL = 0x400;
+
+    /// return error on wait
+    pub const NOWAIT = 0x800;
+
+    /// remove identifier
+    pub const RMID = 0;
+
+    /// set 'ipc_perm' options
+    pub const SET = 1;
+
+    /// get 'ipc_perm' options
+    pub const STAT = 2;
+
+    /// get info about shared memory limits and parameters
+    pub const INFO = 3;
+};
+
+pub const SHM = struct {
+    /// segment will be destroyed on last detach
+    pub const DEST = 0x200;
+
+    /// segment will not be swapped
+    pub const LOCKED = 0x400;
+
+    /// segment will use huge TLB pages
+    pub const HUGETLB = 0x800;
+
+    pub const HUGE_SHIFT = 26;
+    pub const HUGE_2MB = 21 << HUGE_SHIFT;
+    pub const HUGE_1GB = 30 << HUGE_SHIFT;
+
+    /// don't check for reservations
+    pub const NORESERVE = 0x1000;
+
+    /// attach read-only else read-write
+    pub const RDONLY = 0x1000;
+
+    /// round attach address to SHMLBA
+    pub const RND = 0x2000;
+
+    /// take-over region on attach
+    pub const REMAP = 0x4000;
+
+    /// execution access
+    pub const EXEC = 0x8000;
+
+    /// lock segment
+    pub const LOCK = 11;
+
+    /// unlock segment
+    pub const UNLOCK = 12;
+
+    /// get 'ipc_perm' options from kernel index
+    pub const STAT = 13;
+
+    /// get info about about system resources consumed by shared memory
+    pub const INFO = 14;
+
+    /// get 'ipc_perm' options from kernel index without checking read access
+    pub const STAT_ANY = 15;
+};
+
+pub const ipc_perm = extern struct {
+    key: c_int,
+    uid: uid_t,
+    gid: gid_t,
+    cuid: uid_t,
+    cgid: gid_t,
+    mode: mode_t,
+    seq: c_ushort,
+};
+
+pub const shmid_ds = extern struct {
+    shm_perm: ipc_perm,
+    shm_segsz: usize,
+    shm_atime: time_t,
+    shm_dtime: time_t,
+    shm_ctime: time_t,
+    shm_cpid: pid_t,
+    shm_lpid: pid_t,
+    shm_nattch: c_ulong,
+    __pad1: c_ulong,
+    __pad2: c_ulong,
+};
+
+pub fn shmget(key: key_t, size: usize, shmflg: u32) usize {
+    return syscall3(.shmget, @intCast(key), size, shmflg);
+}
+
+pub fn shmat(shmid: u32, shmaddr: ?[*]align(std.mem.page_size) u8, shmflg: u32) usize {
+    return syscall3(.shmat, shmid, @intFromPtr(shmaddr), shmflg);
+}
+
+pub fn shmctl(shmid: u32, cmd: i32, ds: ?*shmid_ds) usize {
+    return syscall3(.shmctl, shmid, @intCast(cmd), @intFromPtr(ds));
+}
+
+pub fn shmdt(shmaddr: *const anyopaque) usize {
+    return syscall1(.shmdt, @intFromPtr(shmaddr));
+}
+
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
     if (@hasField(SYS, "poll")) {
         return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)));
