@@ -31,3 +31,4 @@ export fn entry() void {
 // target=native
 //
 // :12:16: error: no field named 'arst' in enum 'tmp.Tag'
+// :1:13: note: enum declared here

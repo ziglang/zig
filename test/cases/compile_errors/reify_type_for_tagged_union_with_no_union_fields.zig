@@ -27,3 +27,6 @@ export fn entry() void {
 // target=native
 //
 // :12:16: error: enum fields missing in union
+// :1:13: note: field 'signed' missing, declared here
+// :1:13: note: field 'unsigned' missing, declared here
+// :1:13: note: enum declared here
