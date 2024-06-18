@@ -2835,7 +2835,9 @@ pub const Inst = struct {
     };
 
     pub const Reify = struct {
-        node: i32,
+        /// This node is absolute, because `reify` instructions are tracked across updates, and
+        /// this simplifies the logic for getting source locations for types.
+        node: Ast.Node.Index,
         operand: Ref,
         src_line: u32,
     };

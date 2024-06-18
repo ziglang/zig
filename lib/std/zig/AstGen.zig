@@ -9361,9 +9361,10 @@ fn builtinCall(
             try gz.instructions.ensureUnusedCapacity(gpa, 1);
             try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-            const payload_index = try gz.astgen.addExtra(Zir.Inst.UnNode{
-                .node = gz.nodeIndexToRelative(node),
+            const payload_index = try gz.astgen.addExtra(Zir.Inst.Reify{
+                .node = node, // Absolute node index -- see the definition of `Reify`.
                 .operand = operand,
+                .src_line = astgen.source_line,
             });
             const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{

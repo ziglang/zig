@@ -21210,10 +21210,22 @@ fn zirReify(
     const ip = &mod.intern_pool;
     const name_strategy: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
     const extra = sema.code.extraData(Zir.Inst.Reify, extended.operand).data;
-    const src = block.nodeOffset(extra.node);
+    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = LazySrcLoc.Offset.nodeOffset(0),
+    };
+    const operand_src: LazySrcLoc = .{
+        .base_node_inst = tracked_inst,
+        .offset = .{
+            .node_offset_builtin_call_arg = .{
+                .builtin_call_node = 0, // `tracked_inst` is precisely the `reify` instruction, so offset is 0
+                .arg_index = 0,
+            },
+        },
+    };
     const type_info_ty = try sema.getBuiltinType("Type");
     const uncasted_operand = try sema.resolveInst(extra.operand);
-    const operand_src = block.builtinCallArgSrc(extra.node, 0);
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstDefinedValue(block, operand_src, type_info, .{
         .needed_comptime_reason = "operand to @Type must be comptime-known",

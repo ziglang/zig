@@ -3336,22 +3336,11 @@ pub const Type = struct {
         const ip = &zcu.intern_pool;
         return .{
             .base_node_inst = switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => |info| switch (info) {
-                    .declared => ip.loadStructType(ty.toIntern()).zir_index.unwrap() orelse return null,
-                    else => return null,
-                },
-                .union_type => |info| switch (info) {
-                    .declared => ip.loadUnionType(ty.toIntern()).zir_index,
-                    else => return null,
-                },
-                .opaque_type => |info| switch (info) {
-                    .declared => ip.loadOpaqueType(ty.toIntern()).zir_index,
-                    else => return null,
-                },
-                .enum_type => |info| switch (info) {
-                    .declared => ip.loadEnumType(ty.toIntern()).zir_index.unwrap().?,
+                .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
+                    .declared => |d| d.zir_index,
+                    .reified => |r| r.zir_index,
                     .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index, // must be declared since we can't generate tags when reifying
-                    else => return null,
+                    .empty_struct => return null,
                 },
                 else => return null,
             },

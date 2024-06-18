@@ -586,7 +586,10 @@ const Writer = struct {
                 try stream.print("{d}, ", .{inst_data.src_line});
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
-                try self.writeSrcNode(stream, inst_data.node);
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = inst_data.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, 0);
             },
 
             .builtin_extern,
