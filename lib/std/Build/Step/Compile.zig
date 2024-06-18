@@ -262,7 +262,7 @@ pub const Entry = union(enum) {
 
 pub const Options = struct {
     name: []const u8,
-    root_module: Module.CreateOptions,
+    root_module: *Module,
     kind: Kind,
     linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
@@ -359,7 +359,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     else
         owner.fmt("{s} ", .{name});
 
-    const resolved_target = options.root_module.target.?;
+    const resolved_target = options.root_module.resolved_target orelse
+        @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
     const step_name = owner.fmt("{s} {s}{s} {s}", .{
@@ -431,10 +432,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .zig_process = null,
     };
-
-    const root_module = owner.allocator.create(Module) catch @panic("OOM");
-    root_module.init(owner, options.root_module, compile);
-    compile.root_module = root_module;
+    options.root_module.init(owner, .{ .existing = options.root_module }, compile);
+    compile.root_module = options.root_module;
 
     if (options.zig_lib_dir) |lp| {
         compile.zig_lib_dir = lp.dupe(compile.step.owner);
