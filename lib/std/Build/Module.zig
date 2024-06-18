@@ -430,7 +430,7 @@ pub const DependencyIterator = struct {
                     if (!it.chase_dyn_libs and compile.isDynamicLibrary()) continue;
 
                     it.set.put(it.allocator, .{
-                        .module = &compile.root_module,
+                        .module = compile.root_module,
                         .compile = compile,
                     }, "root") catch @panic("OOM");
                 },
