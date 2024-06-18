@@ -671,7 +671,7 @@ pub const ExecutableOptions = struct {
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target,
             .optimize = options.optimize,
@@ -684,7 +684,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .version = options.version,
         .kind = .exe,
         .linkage = options.linkage,
@@ -721,7 +721,7 @@ pub const ObjectOptions = struct {
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target,
             .optimize = options.optimize,
@@ -734,7 +734,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .obj,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
@@ -775,7 +775,7 @@ pub const SharedLibraryOptions = struct {
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
@@ -788,7 +788,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
@@ -826,7 +826,7 @@ pub const StaticLibraryOptions = struct {
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
@@ -839,7 +839,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
@@ -887,7 +887,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_module = .{
+        .root_module = b.createModule(.{
             .root_source_file = options.root_source_file,
             .target = options.target orelse b.graph.host,
             .optimize = options.optimize,
@@ -900,7 +900,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
-        },
+        }),
         .max_rss = options.max_rss,
         .filters = if (options.filter != null and options.filters.len > 0) filters: {
             const filters = b.allocator.alloc([]const u8, 1 + options.filters.len) catch @panic("OOM");
@@ -930,10 +930,10 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
     const obj_step = Step.Compile.create(b, .{
         .name = options.name,
         .kind = .obj,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
-        },
+        }),
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir,
     });
