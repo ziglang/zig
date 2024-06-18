@@ -484,7 +484,17 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     });
     defer gpa.free(name);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl.navSrcLoc(mod).upgrade(mod))) {
+    // We want to lower the source location of `decl`. However, when generating
+    // lazy functions (for e.g. `@tagName`), `decl` may correspond to a type
+    // rather than a `Nav`!
+    // The future split of `Decl` into `Nav` and `Cau` may require rethinking this
+    // logic. For now, just get the source location conditionally as needed.
+    const decl_src = if (decl.typeOf(mod).toIntern() == .type_type)
+        decl.val.toType().srcLoc(mod)
+    else
+        decl.navSrcLoc(mod);
+
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src.upgrade(mod))) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
