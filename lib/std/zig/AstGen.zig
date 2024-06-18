@@ -9310,7 +9310,6 @@ fn builtinCall(
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
         .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
-        .in_comptime        => return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime,        node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
@@ -9352,6 +9351,12 @@ fn builtinCall(
         .int_cast       => return typeCast(gz, scope, ri, node, params[0], .int_cast, builtin_name),
         .truncate       => return typeCast(gz, scope, ri, node, params[0], .truncate, builtin_name),
         // zig fmt: on
+
+        .in_comptime => if (gz.is_comptime) {
+            return astgen.failNode(node, "redundant '@inComptime' in comptime scope", .{});
+        } else {
+            return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime, node), node);
+        },
 
         .Type => {
             const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .type_info_type } }, params[0]);
