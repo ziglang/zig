@@ -63,6 +63,7 @@ pub fn getOutput(translate_c: *TranslateC) std.Build.LazyPath {
     return .{ .generated = .{ .file = &translate_c.output_file } };
 }
 
+/// Deprecated: use `createModule` or `addModule` with `std.Build.addExecutable` instead.
 /// Creates a step to build an executable from the translated source.
 pub fn addExecutable(translate_c: *TranslateC, options: AddExecutableOptions) *Step.Compile {
     return translate_c.step.owner.addExecutable(.{

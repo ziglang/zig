@@ -687,24 +687,9 @@ pub fn addOptions(b: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    /// If you want the executable to run on the same computer as the one
-    /// building the package, pass the `host` field of the package's `Build`
-    /// instance.
-    target: ResolvedTarget,
-    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    code_model: std.builtin.CodeModel = .default,
     linkage: ?std.builtin.LinkMode = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?std.builtin.UnwindTables = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -714,14 +699,47 @@ pub const ExecutableOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = b.createModule(.{
+        .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file,
-            .target = options.target,
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -746,32 +764,51 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    code_model: std.builtin.CodeModel = .default,
-    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?std.builtin.UnwindTables = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = b.createModule(.{
+        .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file,
-            .target = options.target,
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -793,22 +830,8 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
-    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?std.builtin.UnwindTables = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -818,13 +841,46 @@ pub const SharedLibraryOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = b.createModule(.{
-            .target = options.target,
+        .root_module = options.root_module orelse b.createModule(.{
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
@@ -850,32 +906,51 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?std.builtin.UnwindTables = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = b.createModule(.{
-            .target = options.target,
+        .root_module = options.root_module orelse b.createModule(.{
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
@@ -900,27 +975,46 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: LazyPath,
-    target: ?ResolvedTarget = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    /// deprecated: use `.filters = &.{filter}` instead of `.filter = filter`.
+    /// Deprecated; use `.filters = &.{filter}` instead of `.filter = filter`.
     filter: ?[]const u8 = null,
     filters: []const []const u8 = &.{},
     test_runner: ?LazyPath = null,
-    link_libc: ?bool = null,
-    link_libcpp: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?std.builtin.UnwindTables = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    version: ?std.SemanticVersion = null,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    link_libcpp: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 /// Creates an executable containing unit tests.
@@ -932,11 +1026,14 @@ pub const TestOptions = struct {
 /// two steps are separated because they are independently configured and
 /// cached.
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.root_source_file != null) {
+        @panic("`root_module` and `root_source_file` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_module = b.createModule(.{
-            .root_source_file = options.root_source_file,
+        .root_module = options.root_module orelse b.createModule(.{
+            .root_source_file = options.root_source_file orelse @panic("`root_module` and `root_source_file` cannot both be null"),
             .target = options.target orelse b.graph.host,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
@@ -974,19 +1071,20 @@ pub const AssemblyOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Deprecated; prefer using `addObject` where the `root_module` has an empty
+/// `root_source_file` and contains an assembly file via `Module.addAssemblyFile`.
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
-    const obj_step = Step.Compile.create(b, .{
+    const root_module = b.createModule(.{
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    root_module.addAssemblyFile(options.source_file);
+    return b.addObject(.{
         .name = options.name,
-        .kind = .obj,
-        .root_module = b.createModule(.{
-            .target = options.target,
-            .optimize = options.optimize,
-        }),
         .max_rss = options.max_rss,
         .zig_lib_dir = options.zig_lib_dir,
+        .root_module = root_module,
     });
-    obj_step.addAssemblyFile(options.source_file);
-    return obj_step;
 }
 
 /// This function creates a module and adds it to the package's module set, making
