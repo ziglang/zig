@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/foo.zig"),
     });
 
-    foo_module.addImport("root2", &exe.root_module);
+    foo_module.addImport("root2", exe.root_module);
     exe.root_module.addImport("foo", foo_module);
 
     const run_cmd = b.addRunArtifact(exe);
