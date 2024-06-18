@@ -1727,20 +1727,47 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
 }
 
+fn supportedWindowsProgramExtension(ext: []const u8) bool {
+    inline for (@typeInfo(std.process.Child.WindowsExtension).Enum.fields) |field| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    }
+    return false;
+}
+
+fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
+    if (fs.realpathAlloc(b.allocator, full_path)) |p| {
+        return p;
+    } else |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+        else => {},
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (b.graph.env_map.get("PATHEXT")) |PATHEXT| {
+            var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
+
+            while (it.next()) |ext| {
+                if (!supportedWindowsProgramExtension(ext)) continue;
+
+                return fs.realpathAlloc(b.allocator, b.fmt("{s}{s}", .{ full_path, ext })) catch |err| switch (err) {
+                    error.OutOfMemory => @panic("OOM"),
+                    else => continue,
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = b.graph.host.result.exeFileExt();
     for (b.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            const full_path = b.pathJoin(&.{
-                search_prefix,
-                "bin",
-                b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
         }
     }
     if (b.graph.env_map.get("PATH")) |PATH| {
@@ -1750,10 +1777,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             }
             var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |p| {
-                const full_path = b.pathJoin(&.{
-                    p, b.fmt("{s}{s}", .{ name, exe_extension }),
-                });
-                return fs.realpathAlloc(b.allocator, full_path) catch continue;
+                return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
             }
         }
     }
@@ -1762,10 +1786,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             return name;
         }
         for (paths) |p| {
-            const full_path = b.pathJoin(&.{
-                p, b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
         }
     }
     return error.FileNotFound;
