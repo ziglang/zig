@@ -70,7 +70,7 @@ fn addCompileStep(
 ) *Compile {
     const compile_step = Compile.create(b, .{
         .name = overlay.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = base.target,
             .optimize = base.optimize,
             .root_source_file = rsf: {
@@ -80,7 +80,7 @@ fn addCompileStep(
             },
             .pic = overlay.pic,
             .strip = if (base.strip) |s| s else overlay.strip,
-        },
+        }),
         .use_llvm = base.use_llvm,
         .use_lld = base.use_lld,
         .kind = switch (kind) {
