@@ -119,7 +119,7 @@ pub fn StaticStringMapWithEql(
             kvs.* = .{
                 .keys = sorted_keys.ptr,
                 .values = sorted_vals.ptr,
-                .len = kvs_list.len,
+                .len = @intCast(kvs_list.len),
             };
             self.kvs = kvs;
 
