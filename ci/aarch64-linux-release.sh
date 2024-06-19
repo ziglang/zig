@@ -64,6 +64,15 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-tidy
 
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build-release/stage3-release/bin/zig
+cd $wd
+
+unset wd
+
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-release/bin/zig build update-zig1
 
