@@ -2252,19 +2252,19 @@ fn buildOutputType(
                     entry = .disabled;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_initial_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse initial memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--max-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_max_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_max_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse max memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--shared-memory")) {
                     create_module.opts.shared_memory = true;
                 } else if (mem.eql(u8, arg, "--global-base")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_global_base = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_global_base = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse global base '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--export")) {
