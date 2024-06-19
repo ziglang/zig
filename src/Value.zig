@@ -266,6 +266,7 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                 .none => 0,
                 else => |payload| Value.fromInterned(payload).getUnsignedIntAdvanced(mod, opt_sema),
             },
+            .enum_tag => |enum_tag| return Value.fromInterned(enum_tag.int).getUnsignedIntAdvanced(mod, opt_sema),
             else => null,
         },
     };

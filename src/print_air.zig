@@ -295,10 +295,12 @@ const Writer = struct {
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
+            .switch_dispatch => try w.writeBr(s, inst),
+            .repeat => try w.writeRepeat(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .@"try" => try w.writeTry(s, inst),
             .try_ptr => try w.writeTryPtr(s, inst),
-            .switch_br => try w.writeSwitchBr(s, inst),
+            .loop_switch_br, .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
             .atomic_load => try w.writeAtomicLoad(s, inst),
@@ -704,6 +706,11 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, br.operand);
     }
 
+    fn writeRepeat(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const repeat = w.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+        try w.writeInstIndex(s, repeat.loop_inst, false);
+    }
+
     fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
@@ -843,14 +850,25 @@ const Writer = struct {
 
         while (case_i < switch_br.data.cases_len) : (case_i += 1) {
             const case = w.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[case.end..][0..case.data.items_len]));
-            const case_body: []const Air.Inst.Index = @ptrCast(w.air.extra[case.end + items.len ..][0..case.data.body_len]);
-            extra_index = case.end + case.data.items_len + case_body.len;
+            extra_index = case.end;
+            const items: []const Air.Inst.Ref = @ptrCast(w.air.extra[extra_index..][0..case.data.items_len]);
+            extra_index += items.len;
+            // TODO: this can be written more cleanly once Sema allows @ptrCast on slices where the length changes.
+            const ranges: []const [2]Air.Inst.Ref = @as([*]const [2]Air.Inst.Ref, @ptrCast(w.air.extra[extra_index..].ptr))[0..case.data.ranges_len];
+            extra_index += case.data.ranges_len * 2;
+            const case_body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra_index..][0..case.data.body_len]);
+            extra_index += case_body.len;
 
             try s.writeAll(", [");
             for (items, 0..) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
+            }
+            for (ranges, 0..) |range, range_i| {
+                if (items.len != 0 or range_i != 0) try s.writeAll(", ");
+                try w.writeInstRef(s, range[0], false);
+                try s.writeAll("..");
+                try w.writeInstRef(s, range[1], false);
             }
             try s.writeAll("] => {\n");
             w.indent += 2;
