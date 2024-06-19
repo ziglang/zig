@@ -33,32 +33,6 @@ pub const subsystem: ?std.Target.SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
-        try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
-        };
-    }
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -752,112 +726,7 @@ pub const panic: PanicFn = if (@hasDecl(root, "panic"))
 else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
     root.os.panic
 else
-    default_panic;
-
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
-
-    // For backends that cannot handle the language features depended on by the
-    // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        while (true) {
-            @breakpoint();
-        }
-    }
-
-    if (builtin.zig_backend == .stage2_riscv64) {
-        asm volatile ("ecall"
-            :
-            : [number] "{a7}" (64),
-              [arg1] "{a0}" (1),
-              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
-              [arg3] "{a2}" (msg.len),
-            : "memory"
-        );
-        std.posix.exit(127);
-    }
-
-    switch (builtin.os.tag) {
-        .freestanding => {
-            while (true) {
-                @breakpoint();
-            }
-        },
-        .wasi => {
-            std.debug.print("{s}", .{msg});
-            std.posix.abort();
-        },
-        .uefi => {
-            const uefi = std.os.uefi;
-
-            const ExitData = struct {
-                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
-                    // Need boot services for pool allocation
-                    if (uefi.system_table.boot_services == null) {
-                        return error.BootServicesUnavailable;
-                    }
-
-                    // ExitData buffer must be allocated using boot_services.allocatePool
-                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
-                    errdefer uefi.raw_pool_allocator.free(utf16);
-
-                    if (exit_msg.len > 255) {
-                        return error.MessageTooLong;
-                    }
-
-                    var fmt: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-                    const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
-
-                    utf16[len] = 0;
-
-                    exit_size.* = 256;
-
-                    return @as([*:0]u16, @ptrCast(utf16.ptr));
-                }
-            };
-
-            var exit_size: usize = 0;
-            const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
-
-            if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
-                }
-            }
-
-            if (uefi.system_table.boot_services) |bs| {
-                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
-            }
-
-            // Didn't have boot_services, just fallback to whatever.
-            std.posix.abort();
-        },
-        .cuda, .amdhsa => std.posix.abort(),
-        .plan9 => {
-            var status: [std.os.plan9.ERRMAX]u8 = undefined;
-            const len = @min(msg.len, status.len - 1);
-            @memcpy(status[0..len], msg[0..len]);
-            status[len] = 0;
-            std.os.plan9.exits(status[0..len :0]);
-        },
-        else => {
-            const first_trace_addr = ret_addr orelse @returnAddress();
-            std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
-        },
-    }
-}
+    std.debug.panicImpl;
 
 pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
     if (!std.meta.eql(expected, actual)) {
@@ -925,10 +794,301 @@ pub noinline fn returnError(st: *StackTrace) void {
 }
 
 pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
-    if (st.index < st.instruction_addresses.len)
+    @setRuntimeSafety(false);
+    if (st.index < st.instruction_addresses.len) {
         st.instruction_addresses[st.index] = addr;
+    }
+    st.index +%= 1;
+}
 
-    st.index += 1;
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PanicFnGeneric = fn (comptime PanicCause, anytype) noreturn;
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PanicFnSimple = fn (anytype) noreturn;
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PanicId = @typeInfo(PanicCause).Union.tag_type.?;
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const PanicCause = union(enum(u8)) {
+    message,
+    unwrapped_error,
+    returned_noreturn,
+    reached_unreachable,
+    corrupt_switch,
+    accessed_out_of_bounds,
+    accessed_out_of_order,
+    accessed_out_of_order_extra,
+    accessed_inactive_field: type,
+    accessed_null_value,
+    divided_by_zero,
+    memcpy_argument_aliasing,
+    mismatched_memcpy_argument_lengths,
+    mismatched_for_loop_capture_lengths,
+    mismatched_sentinel: type,
+    mismatched_null_sentinel,
+    shl_overflowed: type,
+    shr_overflowed: type,
+    shift_amt_overflowed: type,
+    div_with_remainder: type,
+    mul_overflowed: type,
+    add_overflowed: type,
+    sub_overflowed: type,
+    div_overflowed: type,
+    cast_truncated_data: Cast,
+    cast_to_enum_from_invalid: type,
+    cast_to_error_from_invalid: Cast,
+    cast_to_ptr_from_invalid: usize,
+    cast_to_int_from_invalid: Cast,
+    cast_to_unsigned_from_negative: Cast,
+
+    const ErrorStackTrace = struct {
+        st: ?*StackTrace,
+        err: anyerror,
+    };
+    const Bounds = struct {
+        index: usize,
+        length: usize,
+    };
+    const OrderedBounds = struct {
+        start: usize,
+        end: usize,
+    };
+    const OrderedBoundsExtra = struct {
+        start: usize,
+        end: usize,
+        length: usize,
+    };
+    const AddressRanges = struct {
+        dest_start: usize,
+        dest_end: usize,
+        src_start: usize,
+        src_end: usize,
+    };
+    const ArgumentLengths = struct {
+        dest_len: usize,
+        src_len: usize,
+    };
+    const CaptureLengths = struct {
+        loop_len: usize,
+        capture_len: usize,
+    };
+};
+
+/// This type is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const Cast = struct {
+    to: type,
+    from: type,
+};
+
+/// This function is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub fn PanicData(comptime cause: PanicCause) type {
+    switch (cause) {
+        .message => {
+            return []const u8;
+        },
+        .returned_noreturn,
+        .reached_unreachable,
+        .accessed_null_value,
+        .divided_by_zero,
+        .corrupt_switch,
+        => {
+            return void;
+        },
+        .unwrapped_error => {
+            return PanicCause.ErrorStackTrace;
+        },
+        .accessed_out_of_bounds => {
+            return PanicCause.Bounds;
+        },
+        .accessed_out_of_order => {
+            return PanicCause.OrderedBounds;
+        },
+        .accessed_out_of_order_extra => {
+            return PanicCause.OrderedBoundsExtra;
+        },
+        .accessed_inactive_field => |tag_type| {
+            return struct { expected: tag_type, found: tag_type };
+        },
+        .memcpy_argument_aliasing => {
+            return PanicCause.AddressRanges;
+        },
+        .mismatched_memcpy_argument_lengths => {
+            return PanicCause.ArgumentLengths;
+        },
+        .mismatched_for_loop_capture_lengths => {
+            return PanicCause.CaptureLengths;
+        },
+        .mismatched_null_sentinel => {
+            return u8;
+        },
+        .mismatched_sentinel => |elem_type| {
+            return struct { expected: elem_type, actual: elem_type };
+        },
+        .mul_overflowed,
+        .add_overflowed,
+        .sub_overflowed,
+        .div_overflowed,
+        .div_with_remainder,
+        => |val_type| {
+            return struct { lhs: val_type, rhs: val_type };
+        },
+        .shl_overflowed,
+        .shr_overflowed,
+        => |int_type| {
+            switch (@typeInfo(int_type)) {
+                .Vector => |info| {
+                    return struct { value: int_type, shift_amt: @Vector(info.len, u16) };
+                },
+                else => {
+                    return struct { value: int_type, shift_amt: u16 };
+                },
+            }
+        },
+        .shift_amt_overflowed => |int_type| {
+            switch (@typeInfo(int_type)) {
+                .Vector => |info| {
+                    return @Vector(info.len, u16);
+                },
+                else => {
+                    return u16;
+                },
+            }
+        },
+        .cast_to_ptr_from_invalid => {
+            return usize;
+        },
+        .cast_to_int_from_invalid => |num_types| {
+            return num_types.from;
+        },
+        .cast_truncated_data => |num_types| {
+            return num_types.from;
+        },
+        .cast_to_unsigned_from_negative => |int_types| {
+            return int_types.from;
+        },
+        .cast_to_error_from_invalid => |error_type| {
+            return error_type.from;
+        },
+        .cast_to_enum_from_invalid => |enum_type| {
+            return @typeInfo(enum_type).Enum.tag_type;
+        },
+    }
+}
+
+pub const panic2 = if (@hasDecl(root, "panic2")) root.panic2 else if (builtin.mode == .Debug)
+    panicImplData
+else
+    panicImpl;
+
+pub fn panicImpl(id: anytype) noreturn {
+    @setCold(true);
+    @setRuntimeSafety(false);
+    if (@TypeOf(id) == PanicId) {
+        std.debug.panicImpl(switch (id) {
+            inline else => |cause| @field(std.debug.panic_messages, @tagName(cause)),
+        }, null, @returnAddress());
+    } else {
+        std.debug.panicImpl(id, null, @returnAddress());
+    }
+}
+
+pub fn panicImplData(comptime cause: PanicCause, data: anytype) noreturn {
+    @setCold(true);
+    @setRuntimeSafety(false);
+    if (@TypeOf(data) == void) @call(.auto, std.debug.panicImpl, .{
+        @field(std.debug.panic_messages, @tagName(cause)), null, @returnAddress(),
+    });
+    switch (cause) {
+        .message => {
+            std.debug.panicImpl(data, null, @returnAddress());
+        },
+        .unwrapped_error => @call(.auto, std.debug.panicUnwrappedError, .{
+            data.st, data.err, @returnAddress(),
+        }),
+        .accessed_out_of_bounds => @call(.auto, std.debug.panicAccessedOutOfBounds, .{
+            data.index, data.length, @returnAddress(),
+        }),
+        .accessed_out_of_order => @call(.auto, std.debug.panicAccessedOutOfOrder, .{
+            data.start, data.end, @returnAddress(),
+        }),
+        .accessed_out_of_order_extra => @call(.auto, std.debug.panicAccessedOutOfOrderExtra, .{
+            data.start, data.end, data.length, @returnAddress(),
+        }),
+        .accessed_inactive_field => @call(.auto, std.debug.panicAccessedInactiveField, .{
+            @tagName(data.expected), @tagName(data.found), @returnAddress(),
+        }),
+        .memcpy_argument_aliasing => @call(.auto, std.debug.panicMemcpyArgumentAliasing, .{
+            data.dest_start, data.dest_end, data.src_start, data.src_end, @returnAddress(),
+        }),
+        .mismatched_memcpy_argument_lengths => @call(.auto, std.debug.panicMismatchedMemcpyLengths, .{
+            data.dest_len, data.src_len, @returnAddress(),
+        }),
+        .mismatched_for_loop_capture_lengths => @call(.auto, std.debug.panicMismatchedForLoopCaptureLengths, .{
+            data.loop_len, data.capture_len, @returnAddress(),
+        }),
+        .mismatched_null_sentinel => @call(.auto, std.debug.panicMismatchedNullSentinel, .{
+            data, @returnAddress(),
+        }),
+        .cast_to_enum_from_invalid => |enum_type| @call(.auto, std.debug.panicCastToTagFromInvalid, .{
+            std.meta.BestNum(@typeInfo(enum_type).Enum.tag_type), @typeName(enum_type), data, @returnAddress(),
+        }),
+        .cast_to_error_from_invalid => |error_type| @call(.auto, std.debug.panicCastToErrorFromInvalid, .{
+            error_type.from, @typeName(error_type.to), data, @returnAddress(),
+        }),
+        .add_overflowed,
+        .sub_overflowed,
+        .mul_overflowed,
+        .div_overflowed,
+        => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).combined, .{
+            cause, @typeName(std.meta.Scalar(int_type)), std.meta.bestExtrema(int_type), data.lhs, data.rhs, @returnAddress(),
+        }),
+        .shl_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shl, .{
+            @typeName(std.meta.Scalar(int_type)), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
+        }),
+        .shr_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(int_type)).shr, .{
+            @typeName(std.meta.Scalar(int_type)), data.value, data.shift_amt, ~@abs(@as(std.meta.Scalar(int_type), 0)), @returnAddress(),
+        }),
+        .shift_amt_overflowed => |int_type| @call(.auto, std.debug.panicArithOverflow(std.meta.BestInt(@TypeOf(data))).shiftRhs, .{
+            @typeName(std.meta.Scalar(int_type)), @bitSizeOf(int_type), data, @returnAddress(),
+        }),
+        .div_with_remainder => |num_type| @call(.auto, std.debug.panicExactDivisionWithRemainder, .{
+            std.meta.BestNum(num_type), data.lhs, data.rhs, @returnAddress(),
+        }),
+        .mismatched_sentinel => |elem_type| @call(.auto, std.debug.panicMismatchedSentinel, .{
+            std.meta.BestNum(elem_type), @typeName(elem_type),
+            data.expected,               data.actual,
+            @returnAddress(),
+        }),
+        .cast_to_ptr_from_invalid => |alignment| @call(.auto, std.debug.panicCastToPointerFromInvalid, .{
+            data, alignment, @returnAddress(),
+        }),
+        .cast_to_unsigned_from_negative => |int_types| @call(.auto, std.debug.panicCastToUnsignedFromNegative, .{
+            std.meta.BestNum(int_types.to),   @typeName(int_types.to),
+            std.meta.BestNum(int_types.from), @typeName(int_types.from),
+            data,                             @returnAddress(),
+        }),
+        .cast_to_int_from_invalid => |num_types| @call(.auto, std.debug.panicCastToIntFromInvalid, .{
+            std.meta.BestNum(num_types.to),     @typeName(num_types.to),
+            std.meta.BestNum(num_types.from),   @typeName(num_types.from),
+            std.meta.bestExtrema(num_types.to), data,
+            @returnAddress(),
+        }),
+        .cast_truncated_data => |num_types| @call(.auto, std.debug.panicCastTruncatedData, .{
+            std.meta.BestNum(num_types.to),     @typeName(num_types.to),
+            std.meta.BestNum(num_types.from),   @typeName(num_types.from),
+            std.meta.bestExtrema(num_types.to), data,
+            @returnAddress(),
+        }),
+        else => @compileError(@field(std.debug.panic_messages, @tagName(cause))),
+    }
 }
 
 const std = @import("std.zig");

@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 
-pub const panic = @import("compiler_rt/common.zig").panic;
+pub const panic2 = @import("compiler_rt/common.zig").panic2;
 
 comptime {
     // Integer routines

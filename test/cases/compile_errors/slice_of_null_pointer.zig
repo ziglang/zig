@@ -8,4 +8,4 @@ comptime {
 // error
 // target=native
 //
-// :5:10: error: slice of null pointer
+// :5:9: error: slice of null pointer

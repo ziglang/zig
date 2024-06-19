@@ -54,4 +54,4 @@ test "basic slices" {
     // This is because the pointed-to data is zero bits long, so its immutability is irrelevant.
 }
 
-// test_safety=index out of bounds
+// test_safety=index 10 out of bounds of length 4

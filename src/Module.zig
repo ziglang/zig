@@ -172,10 +172,19 @@ reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
     src: LazySrcLoc,
 }) = .{},
 
-panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
-/// The panic function body.
-panic_func_index: InternPool.Index = .none,
-null_stack_trace: InternPool.Index = .none,
+safety: struct {
+    panic_fn_sig: enum { none, generic, simple } = .none,
+
+    panic_fn_inst: Air.Inst.Ref = .none,
+    panic_data_fn_inst: Air.Inst.Ref = .none,
+
+    panic_cause_ty: InternPool.Index = .none,
+    panic_cast_ty: InternPool.Index = .none,
+    panic_id_ty: InternPool.Index = .none,
+
+    fn_cache: [128]InternPool.Index = .{.none} ** 128,
+    ty_cache: [128]InternPool.Index = .{.none} ** 128,
+} = .{},
 
 pub const PanicId = enum {
     unreach,

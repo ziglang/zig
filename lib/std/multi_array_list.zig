@@ -71,17 +71,16 @@ pub fn MultiArrayList(comptime T: type) type {
 
             pub fn items(self: Slice, comptime field: Field) []FieldType(field) {
                 const F = FieldType(field);
+                var ret: []F = &[0]F{};
                 if (self.capacity == 0) {
-                    return &[_]F{};
+                    return ret;
                 }
-                const byte_ptr = self.ptrs[@intFromEnum(field)];
-                const casted_ptr: [*]F = if (@sizeOf(F) == 0)
-                    undefined
-                else
-                    @ptrCast(@alignCast(byte_ptr));
-                return casted_ptr[0..self.len];
+                ret.len = self.len;
+                if (@sizeOf(F) != 0) {
+                    ret.ptr = @ptrCast(@alignCast(self.ptrs[@intFromEnum(field)]));
+                }
+                return ret;
             }
-
             pub fn set(self: *Slice, index: usize, elem: T) void {
                 const e = switch (@typeInfo(T)) {
                     .Struct => elem,

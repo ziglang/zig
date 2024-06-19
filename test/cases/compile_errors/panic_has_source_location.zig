@@ -6,7 +6,7 @@ export fn foo() void {
     @panic("oh no");
 }
 
-pub fn panic(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic2(_: std.builtin.PanicCause, _: anytype) noreturn {
     @compileError("panic");
 }
 

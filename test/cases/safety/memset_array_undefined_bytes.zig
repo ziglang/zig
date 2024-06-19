@@ -1,14 +1,14 @@
-const std = @import("std");
-
-pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    _ = stack_trace;
-    if (std.mem.eql(u8, message, "integer overflow")) {
+pub fn panic2(comptime cause: std.builtin.PanicCause, _: anytype) noreturn {
+    if (cause == .add_overflowed) {
         std.process.exit(0);
     }
+    std.debug.print(@src().file ++ ": Expected panic cause: '.add_overflowed', found panic cause: '." ++ @tagName(cause) ++ "'\n", .{});
     std.process.exit(1);
 }
+const std = @import("std");
 pub fn main() !void {
     var buffer = [6]u8{ 1, 2, 3, 4, 5, 6 };
+    _ = &buffer;
     @memset(&buffer, undefined);
     var x: u8 = buffer[1];
     x += buffer[2];
