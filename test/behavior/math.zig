@@ -236,7 +236,6 @@ test "float equality" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const x: f64 = 0.012;
     const y: f64 = x + 1.0;
@@ -593,8 +592,6 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testSignedNegationWrappingEval(minInt(i16));
     try comptime testSignedNegationWrappingEval(minInt(i16));
 }
@@ -605,8 +602,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testUnsignedNegationWrappingEval(1);
     try comptime testUnsignedNegationWrappingEval(1);
 }
@@ -667,8 +662,6 @@ test "bit shift a u1" {
 }
 
 test "truncating shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrTrunc(maxInt(u16));
     try comptime testShrTrunc(maxInt(u16));
 }
@@ -1436,8 +1429,6 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShlTrunc(maxInt(u16));
     try comptime testShlTrunc(maxInt(u16));
 }
@@ -1460,8 +1451,6 @@ fn testShlExact(x: u8) !void {
 }
 
 test "exact shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrExact(0b10110100);
     try comptime testShrExact(0b10110100);
 }
@@ -1471,8 +1460,6 @@ fn testShrExact(x: u8) !void {
 }
 
 test "shift left/right on u0 operand" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: u0 = 0;
@@ -1821,7 +1808,6 @@ test "absFloat" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testAbsFloat();
     try comptime testAbsFloat();

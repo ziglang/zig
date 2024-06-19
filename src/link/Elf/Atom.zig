@@ -1409,11 +1409,11 @@ const x86_64 = struct {
             .GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
             .SIZE32 => {
                 const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))), .little);
+                try cwriter.writeInt(u32, @bitCast(@as(i32, @intCast(size + A))), .little);
             },
             .SIZE64 => {
                 const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                try cwriter.writeInt(i64, @as(i64, @intCast(size + A)), .little);
+                try cwriter.writeInt(i64, @intCast(size + A), .little);
             },
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
@@ -2001,26 +2001,25 @@ const riscv = struct {
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
 
         switch (r_type) {
-            .@"64" => {
-                try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
-            },
-
-            .HI20 => {
-                try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file);
-            },
+            .@"32" => try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file),
+            .@"64" => try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file),
+            .HI20 => try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file),
 
             .CALL_PLT => if (symbol.flags.import) {
                 symbol.flags.needs_plt = true;
             },
+            .GOT_HI20 => symbol.flags.needs_got = true,
 
-            .GOT_HI20 => {
-                symbol.flags.needs_got = true;
-            },
+            .TPREL_HI20,
+            .TPREL_LO12_I,
+            .TPREL_LO12_S,
+            .TPREL_ADD,
 
             .PCREL_HI20,
             .PCREL_LO12_I,
             .PCREL_LO12_S,
             .LO12_I,
+            .LO12_S,
             .ADD32,
             .SUB32,
             => {},
@@ -2058,6 +2057,8 @@ const riscv = struct {
         switch (r_type) {
             .NONE => unreachable,
 
+            .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+
             .@"64" => {
                 try atom.resolveDynAbsReloc(
                     target,
@@ -2074,11 +2075,6 @@ const riscv = struct {
             .HI20 => {
                 const value: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
                 riscv_util.writeInstU(code[r_offset..][0..4], value);
-            },
-
-            .LO12_I => {
-                const value: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
-                riscv_util.writeInstI(code[r_offset..][0..4], value);
             },
 
             .GOT_HI20 => {
@@ -2141,6 +2137,39 @@ const riscv = struct {
                     .PCREL_LO12_S => riscv_util.writeInstS(code[r_offset..][0..4], @bitCast(disp)),
                     else => unreachable,
                 }
+            },
+
+            .LO12_I,
+            .LO12_S,
+            => {
+                const disp: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
+                switch (r_type) {
+                    .LO12_I => riscv_util.writeInstI(code[r_offset..][0..4], disp),
+                    .LO12_S => riscv_util.writeInstS(code[r_offset..][0..4], disp),
+                    else => unreachable,
+                }
+            },
+
+            .TPREL_HI20 => {
+                const target_addr: u32 = @intCast(target.address(.{}, elf_file));
+                const val: i32 = @intCast(S + A - target_addr);
+                riscv_util.writeInstU(code[r_offset..][0..4], @bitCast(val));
+            },
+
+            .TPREL_LO12_I,
+            .TPREL_LO12_S,
+            => {
+                const target_addr: u32 = @intCast(target.address(.{}, elf_file));
+                const val: i32 = @intCast(S + A - target_addr);
+                switch (r_type) {
+                    .TPREL_LO12_I => riscv_util.writeInstI(code[r_offset..][0..4], @bitCast(val)),
+                    .TPREL_LO12_S => riscv_util.writeInstS(code[r_offset..][0..4], @bitCast(val)),
+                    else => unreachable,
+                }
+            },
+
+            .TPREL_ADD => {
+                // TODO: annotates an ADD instruction that can be removed when TPREL is relaxed
             },
 
             else => |x| switch (@intFromEnum(x)) {

@@ -418,7 +418,6 @@ test "tagged union initialization with runtime void" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(testTaggedUnionInit({}));
 }
@@ -1744,7 +1743,6 @@ test "union with 128 bit integer" {
 
 test "memset extern union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = extern union {
         foo: u8,
@@ -1766,7 +1764,6 @@ test "memset extern union" {
 
 test "memset packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = packed union {
         a: u32,
@@ -1977,8 +1974,6 @@ test "reinterpret packed union inside packed struct" {
 }
 
 test "inner struct initializer uses union layout" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const namespace = struct {
         const U = union {
             a: struct {
@@ -2004,7 +1999,6 @@ test "inner struct initializer uses union layout" {
 
 test "inner struct initializer uses packed union layout" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const namespace = struct {
         const U = packed union {
@@ -2031,7 +2025,6 @@ test "inner struct initializer uses packed union layout" {
 
 test "extern union initialized via reintepreted struct field initializer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
@@ -2155,7 +2148,6 @@ test "pass register-sized field as non-register-sized union" {
 
 test "circular dependency through pointer field of a union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const UnionInner = extern struct {

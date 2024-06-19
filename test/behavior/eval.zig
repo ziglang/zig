@@ -73,7 +73,6 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
 test "constant expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var array: [array_size]u8 = undefined;
     _ = &array;
@@ -506,7 +505,6 @@ test "comptime shlWithOverflow" {
 test "const ptr to variable data changes at runtime" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(foo_ref.name[0] == 'a');
     foo_ref.name = "b";
@@ -549,7 +547,6 @@ test "static eval list init" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(static_vec3.data[2] == 1.0);
     try expect(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
@@ -721,8 +718,6 @@ fn loopNTimes(comptime n: usize) void {
 }
 
 test "variable inside inline loop that has different types on different iterations" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testVarInsideInlineLoop(.{ true, @as(u32, 42) });
 }
 
@@ -746,7 +741,6 @@ test "array concatenation of function calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a = oneItem(3) ++ oneItem(4);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
@@ -756,7 +750,6 @@ test "array multiplication of function calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a = oneItem(3) ** scalar(2);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
@@ -774,7 +767,6 @@ test "array concatenation peer resolves element types - value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a = [2]u3{ 1, 7 };
     var b = [3]u8{ 200, 225, 255 };
@@ -1088,7 +1080,6 @@ test "comptime break operand passing through runtime condition converted to runt
 test "comptime break operand passing through runtime switch converted to runtime break" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(runtime: u8) !void {
@@ -1556,7 +1547,6 @@ test "non-optional and optional array elements concatenated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const array = [1]u8{'A'} ++ [1]?u8{null};
     var index: usize = 0;
@@ -1631,8 +1621,6 @@ test "struct in comptime false branch is not evaluated" {
 }
 
 test "result of nested switch assigned to variable" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var zds: u32 = 0;
     zds = switch (zds) {
         0 => switch (zds) {
@@ -1647,8 +1635,6 @@ test "result of nested switch assigned to variable" {
 }
 
 test "inline for loop of functions returning error unions" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const T1 = struct {
         fn v() error{}!usize {
             return 1;
@@ -1667,8 +1653,6 @@ test "inline for loop of functions returning error unions" {
 }
 
 test "if inside a switch" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var condition = true;
     var wave_type: u32 = 0;
     _ = .{ &condition, &wave_type };

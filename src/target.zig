@@ -431,6 +431,23 @@ pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     };
 }
 
+pub fn minFunctionAlignment(target: std.Target) Alignment {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcel,
+        .sparc64,
+        => .@"2",
+        else => .@"1",
+    };
+}
+
 pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => false,

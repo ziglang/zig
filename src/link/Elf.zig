@@ -5842,7 +5842,8 @@ pub fn tpAddress(self: *Elf) i64 {
     const addr = switch (self.getTarget().cpu.arch) {
         .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
         .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
-        else => @panic("TODO implement getTpAddress for this arch"),
+        .riscv64 => phdr.p_vaddr,
+        else => |arch| std.debug.panic("TODO implement getTpAddress for {s}", .{@tagName(arch)}),
     };
     return @intCast(addr);
 }

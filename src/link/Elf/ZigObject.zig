@@ -906,7 +906,9 @@ fn updateDeclCode(
 
     log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
 
-    const required_alignment = decl.getAlignment(mod);
+    const required_alignment = decl.getAlignment(mod).max(
+        target_util.minFunctionAlignment(mod.getTarget()),
+    );
 
     const sym = elf_file.symbol(sym_index);
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
@@ -1634,6 +1636,7 @@ const log = std.log.scoped(.link);
 const mem = std.mem;
 const relocation = @import("relocation.zig");
 const trace = @import("../../tracy.zig").trace;
+const target_util = @import("../../target.zig");
 const std = @import("std");
 
 const Air = @import("../../Air.zig");

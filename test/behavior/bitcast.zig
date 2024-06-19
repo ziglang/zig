@@ -250,7 +250,6 @@ test "bitcast packed struct to integer and back" {
 test "implicit cast to error union by returning" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -280,8 +279,6 @@ test "comptime bitcast used in expression has the correct type" {
 }
 
 test "bitcast passed as tuple element" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             comptime assert(@TypeOf(args[0]) == f32);
@@ -292,8 +289,6 @@ test "bitcast passed as tuple element" {
 }
 
 test "triple level result location with bitcast sandwich passed as tuple element" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             comptime assert(@TypeOf(args[0]) == f64);
