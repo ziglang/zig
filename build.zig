@@ -50,12 +50,15 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const autodoc_test = b.addObject(.{
-        .name = "std",
+    const std_mod = b.createModule(.{
         .root_source_file = b.path("lib/std/std.zig"),
         .target = target,
-        .zig_lib_dir = b.path("lib"),
         .optimize = .Debug,
+    });
+    const autodoc_test = b.addObject2(.{
+        .name = "std",
+        .root_module = std_mod,
+        .zig_lib_dir = b.path("lib"),
     });
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
@@ -82,12 +85,15 @@ pub fn build(b: *std.Build) !void {
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
 
-    const check_case_exe = b.addExecutable(.{
-        .name = "check-case",
+    const check_case_mod = b.createModule(.{
         .root_source_file = b.path("test/src/Cases.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
+    });
+    const check_case_exe = b.addExecutable2(.{
+        .name = "check-case",
+        .root_module = check_case_mod,
     });
     check_case_exe.stack_size = stack_size;
 
@@ -244,8 +250,8 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "only_core_functionality", only_c);
 
     if (link_libc) {
-        exe.linkLibC();
-        check_case_exe.linkLibC();
+        exe.root_module.link_libc = true;
+        check_case_mod.link_libc = true;
     }
 
     const is_debug = optimize == .Debug;
@@ -338,21 +344,25 @@ pub fn build(b: *std.Build) !void {
                 }
             }
 
-            try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, check_case_exe, use_zig_libcxx);
+            if (exe.rootModuleTarget().isDarwin()) {
+                // useful for package maintainers
+                exe.headerpad_max_install_names = true;
+            }
+            try addCmakeCfgOptionsToModule(b, cfg, exe.root_module, use_zig_libcxx);
+            try addCmakeCfgOptionsToModule(b, cfg, check_case_mod, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
-            try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(check_case_exe);
+            try addStaticLlvmOptionsToModule(exe.root_module);
+            try addStaticLlvmOptionsToModule(check_case_mod);
         }
         if (target.result.os.tag == .windows) {
-            inline for (.{ exe, check_case_exe }) |artifact| {
+            inline for (.{ exe.root_module, check_case_mod }) |mod| {
                 // LLVM depends on networking as of version 18.
-                artifact.linkSystemLibrary("ws2_32");
+                mod.linkSystemLibrary("ws2_32", .{});
 
-                artifact.linkSystemLibrary("version");
-                artifact.linkSystemLibrary("uuid");
-                artifact.linkSystemLibrary("ole32");
+                mod.linkSystemLibrary("version", .{});
+                mod.linkSystemLibrary("uuid", .{});
+                mod.linkSystemLibrary("ole32", .{});
             }
         }
     }
@@ -378,23 +388,23 @@ pub fn build(b: *std.Build) !void {
         else
             &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
-        exe.addIncludePath(.{ .cwd_relative = tracy_path });
-        exe.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
+        exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
+        exe.root_module.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
         if (!enable_llvm) {
             exe.root_module.linkSystemLibrary("c++", .{ .use_pkg_config = .no });
         }
-        exe.linkLibC();
+        exe.root_module.link_libc = true;
 
         if (target.result.os.tag == .windows) {
-            exe.linkSystemLibrary("dbghelp");
-            exe.linkSystemLibrary("ws2_32");
+            exe.root_module.linkSystemLibrary("dbghelp", .{});
+            exe.root_module.linkSystemLibrary("ws2_32", .{});
         }
     }
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const test_cases_options = b.addOptions();
-    check_case_exe.root_module.addOptions("build_options", test_cases_options);
+    check_case_mod.addOptions("build_options", test_cases_options);
 
     test_cases_options.addOption(bool, "enable_tracy", false);
     test_cases_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
@@ -552,10 +562,14 @@ pub fn build(b: *std.Build) !void {
 
     const update_mingw_step = b.step("update-mingw", "Update zig's bundled mingw");
     const opt_mingw_src_path = b.option([]const u8, "mingw-src", "path to mingw-w64 source directory");
-    const update_mingw_exe = b.addExecutable(.{
-        .name = "update_mingw",
-        .target = b.graph.host,
+
+    const update_mingw_mod = b.createModule(.{
         .root_source_file = b.path("tools/update_mingw.zig"),
+        .target = b.graph.host,
+    });
+    const update_mingw_exe = b.addExecutable2(.{
+        .name = "update_mingw",
+        .root_module = update_mingw_mod,
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
     update_mingw_run.addDirectoryArg(b.path("lib"));
@@ -628,34 +642,46 @@ const AddCompilerStepOptions = struct {
 };
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = "zig",
-        .root_source_file = b.path("src/main.zig"),
-        .target = options.target,
-        .optimize = options.optimize,
-        .max_rss = 7_000_000_000,
-        .strip = options.strip,
-        .sanitize_thread = options.sanitize_thread,
-        .single_threaded = options.single_threaded,
-    });
-    exe.stack_size = stack_size;
-
-    const aro_module = b.createModule(.{
+    const aro_mod = b.createModule(.{
         .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
-    const aro_translate_c_module = b.createModule(.{
+    const aro_translate_c_mod = b.createModule(.{
         .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
         .imports = &.{
             .{
                 .name = "aro",
-                .module = aro_module,
+                .module = aro_mod,
             },
         },
     });
 
-    exe.root_module.addImport("aro", aro_module);
-    exe.root_module.addImport("aro_translate_c", aro_translate_c_module);
+    const mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = options.target,
+        .optimize = options.optimize,
+        .strip = options.strip,
+        .sanitize_thread = options.sanitize_thread,
+        .single_threaded = options.single_threaded,
+        .imports = &.{
+            .{
+                .name = "aro",
+                .module = aro_mod,
+            },
+            .{
+                .name = "aro_translate_c",
+                .module = aro_translate_c_mod,
+            },
+        },
+    });
+
+    const exe = b.addExecutable2(.{
+        .name = "zig",
+        .root_module = mod,
+        .max_rss = 7_000_000_000,
+    });
+    exe.stack_size = stack_size;
+
     return exe;
 }
 
@@ -674,17 +700,15 @@ const exe_cflags = [_][]const u8{
     "-Wno-comment",
 };
 
-fn addCmakeCfgOptionsToExe(
+fn addCmakeCfgOptionsToModule(
     b: *std.Build,
     cfg: CMakeConfig,
-    exe: *std.Build.Step.Compile,
+    mod: *std.Build.Module,
     use_zig_libcxx: bool,
 ) !void {
-    if (exe.rootModuleTarget().isDarwin()) {
-        // useful for package maintainers
-        exe.headerpad_max_install_names = true;
-    }
-    exe.addObjectFile(.{ .cwd_relative = b.pathJoin(&[_][]const u8{
+    const target = mod.resolved_target.?.result;
+
+    mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&[_][]const u8{
         cfg.cmake_binary_dir,
         "zigcpp",
         b.fmt("{s}{s}{s}", .{
@@ -694,118 +718,119 @@ fn addCmakeCfgOptionsToExe(
         }),
     }) });
     assert(cfg.lld_include_dir.len != 0);
-    exe.addIncludePath(.{ .cwd_relative = cfg.lld_include_dir });
-    exe.addIncludePath(.{ .cwd_relative = cfg.llvm_include_dir });
-    exe.addLibraryPath(.{ .cwd_relative = cfg.llvm_lib_dir });
-    addCMakeLibraryList(exe, cfg.clang_libraries);
-    addCMakeLibraryList(exe, cfg.lld_libraries);
-    addCMakeLibraryList(exe, cfg.llvm_libraries);
+    mod.addIncludePath(.{ .cwd_relative = cfg.lld_include_dir });
+    mod.addIncludePath(.{ .cwd_relative = cfg.llvm_include_dir });
+    mod.addLibraryPath(.{ .cwd_relative = cfg.llvm_lib_dir });
+    addCMakeLibraryList(mod, cfg.clang_libraries);
+    addCMakeLibraryList(mod, cfg.lld_libraries);
+    addCMakeLibraryList(mod, cfg.llvm_libraries);
 
     if (use_zig_libcxx) {
-        exe.linkLibCpp();
+        mod.link_libcpp = true;
     } else {
         // System -lc++ must be used because in this code path we are attempting to link
         // against system-provided LLVM, Clang, LLD.
         const need_cpp_includes = true;
         const static = cfg.llvm_linkage == .static;
-        const lib_suffix = if (static) exe.rootModuleTarget().staticLibSuffix()[1..] else exe.rootModuleTarget().dynamicLibSuffix()[1..];
-        switch (exe.rootModuleTarget().os.tag) {
+        const lib_suffix = if (static) target.staticLibSuffix()[1..] else target.dynamicLibSuffix()[1..];
+        switch (target.os.tag) {
             .linux => {
                 // First we try to link against the detected libcxx name. If that doesn't work, we fall
                 // back to -lc++ and cross our fingers.
-                addCxxKnownPath(b, cfg, exe, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
+                addCxxKnownPath(b, cfg, mod, b.fmt("lib{s}.{s}", .{ cfg.system_libcxx, lib_suffix }), "", need_cpp_includes) catch |err| switch (err) {
                     error.RequiredLibraryNotFound => {
-                        exe.linkLibCpp();
+                        mod.link_libcpp = true;
                     },
                     else => |e| return e,
                 };
-                exe.linkSystemLibrary("unwind");
+                mod.linkSystemLibrary("unwind", .{});
             },
             .ios, .macos, .watchos, .tvos, .visionos => {
-                exe.linkLibCpp();
+                mod.link_libcpp = true;
             },
             .windows => {
-                if (exe.rootModuleTarget().abi != .msvc) exe.linkLibCpp();
+                if (target.abi != .msvc) mod.link_libcpp = true;
             },
             .freebsd => {
                 if (static) {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
                 } else {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 }
             },
             .openbsd => {
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, mod, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, mod, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             .netbsd, .dragonfly => {
                 if (static) {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
                 } else {
-                    try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                    try addCxxKnownPath(b, cfg, mod, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 }
             },
             .solaris, .illumos => {
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, mod, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, mod, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             .haiku => {
-                try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+                try addCxxKnownPath(b, cfg, mod, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
             else => {},
         }
     }
 
     if (cfg.dia_guids_lib.len != 0) {
-        exe.addObjectFile(.{ .cwd_relative = cfg.dia_guids_lib });
+        mod.addObjectFile(.{ .cwd_relative = cfg.dia_guids_lib });
     }
 }
 
-fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
+fn addStaticLlvmOptionsToModule(mod: *std.Build.Module) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
     // in a dependency on llvm::cfg::Update<llvm::BasicBlock*>::dump() which is
     // unavailable when LLVM is compiled in Release mode.
     const zig_cpp_cflags = exe_cflags ++ [_][]const u8{"-DNDEBUG=1"};
-    exe.addCSourceFiles(.{
+    mod.addCSourceFiles(.{
         .files = &zig_cpp_sources,
         .flags = &zig_cpp_cflags,
     });
 
     for (clang_libs) |lib_name| {
-        exe.linkSystemLibrary(lib_name);
+        mod.linkSystemLibrary(lib_name, .{});
     }
 
     for (lld_libs) |lib_name| {
-        exe.linkSystemLibrary(lib_name);
+        mod.linkSystemLibrary(lib_name, .{});
     }
 
     for (llvm_libs) |lib_name| {
-        exe.linkSystemLibrary(lib_name);
+        mod.linkSystemLibrary(lib_name, .{});
     }
 
-    exe.linkSystemLibrary("z");
-    exe.linkSystemLibrary("zstd");
+    mod.linkSystemLibrary("z", .{});
+    mod.linkSystemLibrary("zstd", .{});
 
-    if (exe.rootModuleTarget().os.tag != .windows or exe.rootModuleTarget().abi != .msvc) {
+    const target = mod.resolved_target.?.result;
+    if (target.os.tag != .windows or target.abi != .msvc) {
         // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
-        exe.linkSystemLibrary("c++");
+        mod.linkSystemLibrary("c++", .{});
     }
 
-    if (exe.rootModuleTarget().os.tag == .windows) {
-        exe.linkSystemLibrary("version");
-        exe.linkSystemLibrary("uuid");
-        exe.linkSystemLibrary("ole32");
+    if (target.os.tag == .windows) {
+        mod.linkSystemLibrary("version", .{});
+        mod.linkSystemLibrary("uuid", .{});
+        mod.linkSystemLibrary("ole32", .{});
     }
 }
 
 fn addCxxKnownPath(
     b: *std.Build,
     ctx: CMakeConfig,
-    exe: *std.Build.Step.Compile,
+    mod: *std.Build.Module,
     objname: []const u8,
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
@@ -831,7 +856,7 @@ fn addCxxKnownPath(
         }
         return error.RequiredLibraryNotFound;
     }
-    exe.addObjectFile(.{ .cwd_relative = path_unpadded });
+    mod.addObjectFile(.{ .cwd_relative = path_unpadded });
 
     // TODO a way to integrate with system c++ include files here
     // c++ -E -Wp,-v -xc++ /dev/null
@@ -843,17 +868,19 @@ fn addCxxKnownPath(
     }
 }
 
-fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
+fn addCMakeLibraryList(mod: *std.Build.Module, list: []const u8) void {
+    const target = mod.resolved_target.?.result;
+
     var it = mem.tokenizeScalar(u8, list, ';');
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
-            exe.linkSystemLibrary(lib["-l".len..]);
-        } else if (exe.rootModuleTarget().os.tag == .windows and
+            mod.linkSystemLibrary(lib["-l".len..], .{});
+        } else if (target.os.tag == .windows and
             mem.endsWith(u8, lib, ".lib") and !fs.path.isAbsolute(lib))
         {
-            exe.linkSystemLibrary(lib[0 .. lib.len - ".lib".len]);
+            mod.linkSystemLibrary(lib[0 .. lib.len - ".lib".len], .{});
         } else {
-            exe.addObjectFile(.{ .cwd_relative = lib });
+            mod.addObjectFile(.{ .cwd_relative = lib });
         }
     }
 }
@@ -1269,11 +1296,15 @@ const llvm_libs = [_][]const u8{
 };
 
 fn generateLangRef(b: *std.Build) std.Build.LazyPath {
-    const doctest_exe = b.addExecutable(.{
-        .name = "doctest",
+    const doctest_mod = b.createModule(.{
         .root_source_file = b.path("tools/doctest.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
+    });
+
+    const doctest_exe = b.addExecutable2(.{
+        .name = "doctest",
+        .root_module = doctest_mod,
     });
 
     var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
@@ -1307,11 +1338,15 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
         _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
     }
 
-    const docgen_exe = b.addExecutable(.{
-        .name = "docgen",
+    const docgen_mod = b.createModule(.{
         .root_source_file = b.path("tools/docgen.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
+    });
+
+    const docgen_exe = b.addExecutable2(.{
+        .name = "docgen",
+        .root_module = docgen_mod,
     });
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
