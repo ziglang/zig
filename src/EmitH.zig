@@ -16,7 +16,7 @@ decl: *Zcu.Decl,
 emit_h: *Zcu.EmitH,
 error_msg: ?*Zcu.ErrorMsg,
 
-pub fn emitDecl(emitter: *EmitH) Error!void {
+pub fn renderDecl(emitter: *EmitH) Error!void {
     const zcu = emitter.zcu;
     const decl = emitter.decl;
     std.debug.assert(decl.analysis == .complete and decl.has_tv);
@@ -40,38 +40,26 @@ pub fn emitDecl(emitter: *EmitH) Error!void {
     if (decl.is_exported) {
         switch (ip.indexToKey(decl.val.toIntern())) {
             .variable => |v| {
+                std.debug.assert(!v.is_const);
+
                 try writer.writeAll("zig_extern ");
-                if (v.is_const) try writer.writeAll("const ");
                 if (v.is_threadlocal) try writer.writeAll("zig_threadlocal ");
                 if (v.is_weak_linkage) try writer.writeAll("zig_weak_linkage ");
-                try emitter.emitInlineType(writer, v.ty);
-                // TODO: Use exported decl name
-                try writer.print(" {s};\n", .{decl.name.toSlice(ip)});
+                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), v.ty, .{});
+                try writer.writeAll(";\n");
             },
             .func => {
-                const info = zcu.typeToFunc(decl.val.typeOf(zcu)).?;
-
+                // TODO: exported decl name?
+                // TODO: callconv?
                 try writer.writeAll("zig_extern ");
-                try emitter.emitInlineType(writer, info.return_type);
-                // TODO: Use exported decl name
-                try writer.print(" {s}(", .{decl.name.toSlice(ip)});
-
-                const params = info.param_types.get(ip);
-
-                for (params, 0..) |param, param_idx| {
-                    try emitter.emitInlineType(writer, param);
-                    try writer.print(" a{d}", .{param_idx});
-                    if (param_idx != params.len - 1) try writer.writeAll(", ");
-                }
-
-                try writer.writeAll(");\n");
+                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), decl.val.typeOf(zcu).toIntern(), .{});
+                try writer.writeAll(";\n");
             },
             else => {
                 // Constant
                 try writer.writeAll("zig_extern const ");
-                try emitter.emitInlineType(writer, decl.val.typeOf(zcu).toIntern());
-                // TODO: Use exported decl name
-                try writer.print(" {s};\n", .{decl.name.toSlice(ip)});
+                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), decl.val.typeOf(zcu).toIntern(), .{});
+                try writer.writeAll(";\n");
             },
         }
     } else {
@@ -102,8 +90,8 @@ pub fn emitDecl(emitter: *EmitH) Error!void {
 
                     for (info.field_names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
                         try writer.print("    ", .{});
-                        try emitter.emitInlineType(writer, field_type);
-                        try writer.print(" {s};\n", .{field_name.toSlice(ip)});
+                        try emitter.renderTypeAndName(writer, field_name.toSlice(ip), field_type, .{});
+                        try writer.writeAll(";\n");
                     }
 
                     try writer.print("}} {s};\n", .{name});
@@ -131,8 +119,8 @@ pub fn emitDecl(emitter: *EmitH) Error!void {
 
                     for (tag_type_info.names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
                         try writer.print("    ", .{});
-                        try emitter.emitInlineType(writer, field_type);
-                        try writer.print(" {s};\n", .{field_name.toSlice(ip)});
+                        try emitter.renderTypeAndName(writer, field_name.toSlice(ip), field_type, .{});
+                        try writer.writeAll(";\n");
                     }
 
                     try writer.print("}} {s};\n", .{name});
@@ -166,19 +154,48 @@ pub fn emitDecl(emitter: *EmitH) Error!void {
 
                 try writer.print("}} {s};\n", .{name});
             },
-            // emitInlineType will only queue work for structs, unions, and enums.
+            // Only queued work is for structs, unions, and enums.
             else => unreachable,
         }
     }
 }
 
-fn emitInlineType(
+// Logic adapted from codegen/c.zig
+
+fn renderTypeAndName(
+    emitter: *EmitH,
+    writer: anytype,
+    name: []const u8,
+    ty: InternPool.Index,
+    qualifiers: CQualifiers,
+) Error!void {
+    try writer.print("{}", .{try emitter.renderTypePrefix(writer, ty, qualifiers)});
+    try writeName(writer, name);
+    try emitter.renderTypeSuffix(writer, ty, .{});
+}
+
+/// TODO: Write a good name that:
+/// - is a valid C type name
+/// - is FQN-esque for decls
+/// - doesn't have conflicts
+/// - optional: is not super duper long
+fn writeName(
+    writer: anytype,
+    name: []const u8,
+) Error!void {
+    try writer.writeAll(name);
+}
+
+fn renderTypePrefix(
     emitter: *EmitH,
     writer: anytype,
     index: InternPool.Index,
-) Error!void {
+    qualifiers: CQualifiers,
+) Error!TrailingSpace {
     const zcu = emitter.zcu;
     const ip = &zcu.intern_pool;
+
+    var trailing: TrailingSpace = .maybe_space;
 
     switch (index) {
         .f16_type => try writer.writeAll("zig_f16"),
@@ -201,7 +218,6 @@ fn emitInlineType(
         .anyopaque_type => try writer.writeAll("void"),
         .bool_type => try writer.writeAll("_Bool"),
         .void_type => try writer.writeAll("void"),
-
         .u0_type => try writer.writeAll("void"), // TODO: skip this param
         .u8_type => try writer.writeAll("uint8_t"),
         .u16_type => try writer.writeAll("uint16_t"),
@@ -212,38 +228,114 @@ fn emitInlineType(
             .struct_type => {
                 const info = zcu.typeToStruct(Type.fromInterned(index)).?;
                 const decl = info.decl.unwrap().?;
-                try writer.writeAll(ip.declPtrConst(decl).name.toSlice(ip));
+                try writeName(writer, ip.declPtrConst(decl).name.toSlice(ip));
                 try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = decl });
             },
             .union_type => {
                 const info = zcu.typeToUnion(Type.fromInterned(index)).?;
-                try writer.writeAll(ip.declPtrConst(info.decl).name.toSlice(ip));
+                try writeName(writer, ip.declPtrConst(info.decl).name.toSlice(ip));
                 try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = info.decl });
             },
             .enum_type => {
                 const info = ip.loadEnumType(index);
-                try emitter.emitInlineType(writer, info.tag_ty);
+                trailing = try emitter.renderTypePrefix(writer, info.tag_ty, .{});
                 try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = info.decl });
             },
             .ptr_type => |info| {
                 std.debug.assert(info.flags.size != .Slice);
-                if (info.flags.is_const) {
-                    try writer.writeAll("const ");
-                }
-                try emitter.emitInlineType(writer, info.child);
-                try writer.writeAll(" *");
+                try writer.print("{}*", .{try emitter.renderTypePrefix(
+                    writer,
+                    info.child,
+                    CQualifiers.init(.{
+                        .@"const" = info.flags.is_const,
+                        .@"volatile" = info.flags.is_volatile,
+                    }),
+                )});
+                trailing = .no_space;
             },
             .array_type => |info| {
-                // TODO: Refactor to prefix/postfix approach
-                // arrays break everything I've written so far :(
-                try writer.writeAll("(");
-                try emitter.emitInlineType(writer, info.child);
-                try writer.print(")[{d}]", .{info.lenIncludingSentinel()});
+                try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.child, qualifiers)});
+                return .no_space;
+            },
+            .func_type => |info| {
+                try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.return_type, .{})});
+                return .no_space;
             },
             else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
         },
     }
+
+    var qualifier_it = qualifiers.iterator();
+    while (qualifier_it.next()) |qualifier| {
+        try writer.print("{}{s}", .{ trailing, @tagName(qualifier) });
+        trailing = .maybe_space;
+    }
+
+    return trailing;
 }
+
+fn renderTypeSuffix(
+    emitter: *EmitH,
+    writer: anytype,
+    index: InternPool.Index,
+    qualifiers: CQualifiers,
+) Error!void {
+    const zcu = emitter.zcu;
+    const ip = &zcu.intern_pool;
+
+    switch (ip.indexToKey(index)) {
+        .simple_type, .int_type, .struct_type, .union_type, .enum_type => {},
+        .ptr_type => |info| try emitter.renderTypeSuffix(writer, info.child, .{}),
+        .array_type => |info| {
+            try writer.print(")[{}]", .{info.lenIncludingSentinel()});
+            try emitter.renderTypeSuffix(writer, info.child, .{});
+        },
+        .func_type => |info| {
+            try writer.writeAll(")(");
+
+            var need_comma = false;
+            for (info.param_types.get(ip), 0..) |param_type, param_index| {
+                if (need_comma) try writer.writeAll(", ");
+                need_comma = true;
+                const trailing =
+                    try emitter.renderTypePrefix(writer, param_type, qualifiers);
+                try writer.print("{}a{d}", .{ trailing, param_index });
+                try emitter.renderTypeSuffix(writer, param_type, .{});
+            }
+            if (info.is_var_args) {
+                if (need_comma) try writer.writeAll(", ");
+                need_comma = true;
+                try writer.writeAll("...");
+            }
+            if (!need_comma) try writer.writeAll("void");
+            try writer.writeByte(')');
+
+            try emitter.renderTypeSuffix(writer, info.return_type, .{});
+        },
+        else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
+    }
+}
+
+const CQualifiers = std.enums.EnumSet(enum { @"const", @"volatile", restrict });
+const TrailingSpace = enum {
+    no_space,
+    maybe_space,
+
+    pub fn format(
+        trailing_space: @This(),
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        w: anytype,
+    ) @TypeOf(w).Error!void {
+        if (fmt.len != 0)
+            @compileError("invalid format string '" ++ fmt ++ "' for type '" ++
+                @typeName(@This()) ++ "'");
+        switch (trailing_space) {
+            .no_space => {},
+            .maybe_space => try w.writeByte(' '),
+        }
+    }
+};
 
 fn fail(emitter: *EmitH, comptime format: []const u8, args: anytype) Error {
     emitter.error_msg = Zcu.ErrorMsg.create(emitter.gpa, emitter.decl.srcLoc(emitter.zcu), format, args) catch |err| return err;

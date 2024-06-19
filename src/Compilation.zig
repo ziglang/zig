@@ -3445,7 +3445,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                         .error_msg = null,
                     };
 
-                    emitter.emitDecl() catch |err| switch (err) {
+                    emitter.renderDecl() catch |err| switch (err) {
                         error.AnalysisFail => {
                             try emit_h.failed_decls.put(gpa, decl_index, emitter.error_msg.?);
                             return;
