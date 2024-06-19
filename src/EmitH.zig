@@ -19,9 +19,9 @@ error_msg: ?*Zcu.ErrorMsg,
 pub fn emitDecl(emitter: *EmitH) Error!void {
     const zcu = emitter.zcu;
     const decl = emitter.decl;
+    std.debug.assert(decl.analysis == .complete and decl.has_tv);
 
     const ip = &emitter.zcu.intern_pool;
-    const ty = decl.typeOf(zcu);
     const file = decl.getFileScope(zcu);
 
     const writer = emitter.emit_h.fwd_decl.writer(emitter.gpa);
@@ -37,119 +37,138 @@ pub fn emitDecl(emitter: *EmitH) Error!void {
         }
     }
 
-    switch (ty.zigTypeTag(zcu)) {
-        .Fn => {
-            const info = zcu.typeToFunc(ty).?;
+    if (decl.is_exported) {
+        switch (ip.indexToKey(decl.val.toIntern())) {
+            .variable => |v| {
+                try writer.writeAll("zig_extern ");
+                if (v.is_const) try writer.writeAll("const ");
+                if (v.is_threadlocal) try writer.writeAll("zig_threadlocal ");
+                if (v.is_weak_linkage) try writer.writeAll("zig_weak_linkage ");
+                try emitter.emitInlineType(writer, v.ty);
+                // TODO: Use exported decl name
+                try writer.print(" {s};\n", .{decl.name.toSlice(ip)});
+            },
+            .func => {
+                const info = zcu.typeToFunc(decl.val.typeOf(zcu)).?;
 
-            try writer.writeAll("zig_extern ");
-            try emitter.emitInlineType(writer, info.return_type);
-            // TODO: Use exported decl name
-            try writer.print(" {s}(", .{decl.name.toSlice(ip)});
+                try writer.writeAll("zig_extern ");
+                try emitter.emitInlineType(writer, info.return_type);
+                // TODO: Use exported decl name
+                try writer.print(" {s}(", .{decl.name.toSlice(ip)});
 
-            const params = info.param_types.get(ip);
+                const params = info.param_types.get(ip);
 
-            for (params, 0..) |param, param_idx| {
-                try emitter.emitInlineType(writer, param);
-                try writer.print(" a{d}", .{param_idx});
-                if (param_idx != params.len - 1) try writer.writeAll(", ");
-            }
+                for (params, 0..) |param, param_idx| {
+                    try emitter.emitInlineType(writer, param);
+                    try writer.print(" a{d}", .{param_idx});
+                    if (param_idx != params.len - 1) try writer.writeAll(", ");
+                }
 
-            try writer.writeAll(");\n");
-        },
-        .Type => {
-            const val = decl.valueOrFail() catch return error.AnalysisFail;
-            const tp = val.toType();
+                try writer.writeAll(");\n");
+            },
+            else => {
+                // Constant
+                try writer.writeAll("zig_extern const ");
+                try emitter.emitInlineType(writer, decl.val.typeOf(zcu).toIntern());
+                // TODO: Use exported decl name
+                try writer.print(" {s};\n", .{decl.name.toSlice(ip)});
+            },
+        }
+    } else {
+        // This branch is only reachable due to a type referenced in exported decl.
+        std.debug.assert(decl.val.typeOf(zcu).toIntern() == .type_type);
 
-            switch (tp.zigTypeTag(zcu)) {
-                .Struct => {
-                    const should_make_opaque = switch (tp.containerLayout(zcu)) {
-                        .@"extern" => false,
-                        .@"packed" => switch (tp.bitSizeAdvanced(zcu, null) catch unreachable) {
-                            0, 8, 16, 32, 64, 128 => false,
-                            else => true,
-                        },
-                        .auto => true,
-                    };
+        const value_as_type = decl.val.toType();
 
-                    const info = zcu.typeToStruct(tp).?;
+        switch (value_as_type.zigTypeTag(zcu)) {
+            .Struct => {
+                const should_make_opaque = switch (value_as_type.containerLayout(zcu)) {
+                    .@"extern" => false,
+                    .@"packed" => switch (value_as_type.bitSizeAdvanced(zcu, null) catch unreachable) {
+                        0, 8, 16, 32, 64, 128 => false,
+                        else => true,
+                    },
+                    .auto => true,
+                };
 
-                    const name = decl.name.toSlice(ip);
-                    if (should_make_opaque) {
-                        try writer.print("typedef struct {s} {s};\n", .{ name, name });
-                    } else {
-                        try writer.writeAll("typedef struct ");
-                        try writer.print("{s} {{\n", .{name});
+                const info = zcu.typeToStruct(value_as_type).?;
 
-                        for (info.field_names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
-                            try writer.print("    ", .{});
-                            try emitter.emitInlineType(writer, field_type);
-                            try writer.print(" {s};\n", .{field_name.toSlice(ip)});
-                        }
+                const name = decl.name.toSlice(ip);
+                if (should_make_opaque) {
+                    try writer.print("typedef struct {s} {s};\n", .{ name, name });
+                } else {
+                    try writer.writeAll("typedef struct ");
+                    try writer.print("{s} {{\n", .{name});
 
-                        try writer.print("}} {s};\n", .{name});
-                    }
-                },
-                .Union => {
-                    const should_make_opaque = switch (tp.containerLayout(zcu)) {
-                        .@"extern" => false,
-                        .@"packed" => switch (tp.bitSizeAdvanced(zcu, null) catch unreachable) {
-                            0, 8, 16, 32, 64, 128 => false,
-                            else => true,
-                        },
-                        .auto => true,
-                    };
-
-                    const info = zcu.typeToUnion(tp).?;
-                    const tag_type_info = info.loadTagType(ip);
-
-                    const name = decl.name.toSlice(ip);
-                    if (should_make_opaque) {
-                        try writer.print("typedef union {s} {s};\n", .{ name, name });
-                    } else {
-                        try writer.writeAll("typedef union ");
-                        try writer.print("{s} {{\n", .{name});
-
-                        for (tag_type_info.names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
-                            try writer.print("    ", .{});
-                            try emitter.emitInlineType(writer, field_type);
-                            try writer.print(" {s};\n", .{field_name.toSlice(ip)});
-                        }
-
-                        try writer.print("}} {s};\n", .{name});
-                    }
-                },
-                .Enum => {
-                    const info = ip.loadEnumType(tp.ip_index);
-
-                    const name = decl.name.toSlice(ip);
-                    try writer.writeAll("typedef enum {\n");
-
-                    const values = info.values.get(ip);
-
-                    if (values.len > 0) {
-                        for (info.names.get(ip), values) |tag_name, value| {
-                            try writer.print("    {s} = {d},\n", .{
-                                tag_name.toSlice(ip),
-                                switch (ip.indexToKey(value).int.storage) {
-                                    inline .u64, .i64 => |x| std.math.cast(u128, x) orelse unreachable,
-                                    .big_int => |x| x.to(u128) catch unreachable,
-                                    .lazy_align, .lazy_size => unreachable,
-                                },
-                            });
-                        }
-                    } else {
-                        // Auto-numbered
-                        for (info.names.get(ip), 0..) |tag_name, value| {
-                            try writer.print("    {s} = {d},\n", .{ tag_name.toSlice(ip), value });
-                        }
+                    for (info.field_names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
+                        try writer.print("    ", .{});
+                        try emitter.emitInlineType(writer, field_type);
+                        try writer.print(" {s};\n", .{field_name.toSlice(ip)});
                     }
 
                     try writer.print("}} {s};\n", .{name});
-                },
-                else => unreachable,
-            }
-        },
-        else => {},
+                }
+            },
+            .Union => {
+                const should_make_opaque = switch (value_as_type.containerLayout(zcu)) {
+                    .@"extern" => false,
+                    .@"packed" => switch (value_as_type.bitSizeAdvanced(zcu, null) catch unreachable) {
+                        0, 8, 16, 32, 64, 128 => false,
+                        else => true,
+                    },
+                    .auto => true,
+                };
+
+                const info = zcu.typeToUnion(value_as_type).?;
+                const tag_type_info = info.loadTagType(ip);
+
+                const name = decl.name.toSlice(ip);
+                if (should_make_opaque) {
+                    try writer.print("typedef union {s} {s};\n", .{ name, name });
+                } else {
+                    try writer.writeAll("typedef union ");
+                    try writer.print("{s} {{\n", .{name});
+
+                    for (tag_type_info.names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
+                        try writer.print("    ", .{});
+                        try emitter.emitInlineType(writer, field_type);
+                        try writer.print(" {s};\n", .{field_name.toSlice(ip)});
+                    }
+
+                    try writer.print("}} {s};\n", .{name});
+                }
+            },
+            .Enum => {
+                const info = ip.loadEnumType(value_as_type.toIntern());
+
+                const name = decl.name.toSlice(ip);
+                try writer.writeAll("typedef enum {\n");
+
+                const values = info.values.get(ip);
+
+                if (values.len > 0) {
+                    for (info.names.get(ip), values) |tag_name, value| {
+                        try writer.print("    {s} = {d},\n", .{
+                            tag_name.toSlice(ip),
+                            switch (ip.indexToKey(value).int.storage) {
+                                inline .u64, .i64 => |x| std.math.cast(u128, x) orelse unreachable,
+                                .big_int => |x| x.to(u128) catch unreachable,
+                                .lazy_align, .lazy_size => unreachable,
+                            },
+                        });
+                    }
+                } else {
+                    // Auto-numbered
+                    for (info.names.get(ip), 0..) |tag_name, value| {
+                        try writer.print("    {s} = {d},\n", .{ tag_name.toSlice(ip), value });
+                    }
+                }
+
+                try writer.print("}} {s};\n", .{name});
+            },
+            // emitInlineType will only queue work for structs, unions, and enums.
+            else => unreachable,
+        }
     }
 }
 
@@ -213,6 +232,13 @@ fn emitInlineType(
                 }
                 try emitter.emitInlineType(writer, info.child);
                 try writer.writeAll(" *");
+            },
+            .array_type => |info| {
+                // TODO: Refactor to prefix/postfix approach
+                // arrays break everything I've written so far :(
+                try writer.writeAll("(");
+                try emitter.emitInlineType(writer, info.child);
+                try writer.print(")[{d}]", .{info.lenIncludingSentinel()});
             },
             else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
         },

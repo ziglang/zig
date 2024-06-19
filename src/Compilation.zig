@@ -3429,6 +3429,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     const gop = try emit_h.decl_table.getOrPut(gpa, decl_index);
 
+                    // TODO: support updating declarations
                     if (gop.found_existing) return;
 
                     const decl_emit_h = try emit_h.allocated_emit_h.addOne(gpa);
