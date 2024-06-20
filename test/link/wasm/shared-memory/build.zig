@@ -11,8 +11,7 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
-    const exe = b.addExecutable(.{
-        .name = "lib",
+    const mod = b.createModule(.{
         .root_source_file = b.path("lib.zig"),
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
@@ -24,13 +23,18 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         .strip = false,
         .single_threaded = false,
     });
+    mod.export_symbol_names = &.{"foo"};
+
+    const exe = b.addExecutable2(.{
+        .name = "lib",
+        .root_module = mod,
+        .use_lld = false,
+    });
     exe.entry = .disabled;
-    exe.use_lld = false;
     exe.import_memory = true;
     exe.export_memory = true;
     exe.shared_memory = true;
     exe.max_memory = 67108864;
-    exe.root_module.export_symbol_names = &.{"foo"};
 
     const check_exe = exe.checkObject();
 
