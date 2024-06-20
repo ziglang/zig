@@ -13,9 +13,13 @@ test {
     _ = TrailerFlags;
 }
 
+pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
+
+pub const isTag = @compileError("deprecated; use 'tagged_value == @field(E, tag_name)' directly");
+
 /// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    // Using StaticStringMap here is more performant, but it will start to take too
+    // Using ComptimeStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
     // performance when doing things like constructing lookup maps at comptime.
     // TODO The '100' here is arbitrary and should be increased when possible:
@@ -30,7 +34,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
             }
             break :build_kvs kvs_array[0..];
         };
-        const map = std.StaticStringMap(T).initComptime(kvs);
+        const map = std.ComptimeStringMap(T, kvs);
         return map.get(str);
     } else {
         inline for (@typeInfo(T).Enum.fields) |enumField| {
@@ -715,7 +719,7 @@ pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
             return field_info.type;
     }
 
-    @compileError("no field '" ++ tag_name ++ "' in union '" ++ @typeName(U) ++ "'");
+    unreachable;
 }
 
 /// Given a tagged union type, and an enum, return the type of the union field
@@ -757,13 +761,16 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         },
         .Union => |info| {
             if (info.tag_type) |UnionTag| {
-                const tag_a: UnionTag = a;
-                const tag_b: UnionTag = b;
+                const tag_a = activeTag(a);
+                const tag_b = activeTag(b);
                 if (tag_a != tag_b) return false;
 
-                return switch (a) {
-                    inline else => |val, tag| return eql(val, @field(b, @tagName(tag))),
-                };
+                inline for (info.fields) |field_info| {
+                    if (@field(UnionTag, field_info.name) == tag_a) {
+                        return eql(@field(a, field_info.name), @field(b, field_info.name));
+                    }
+                }
+                return false;
             }
 
             @compileError("cannot compare untagged union type " ++ @typeName(T));
@@ -855,15 +862,6 @@ test eql {
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
-
-    const CU = union(enum) {
-        a: void,
-        b: void,
-        c: comptime_int,
-    };
-
-    try testing.expect(eql(CU{ .a = {} }, .a));
-    try testing.expect(!eql(CU{ .a = {} }, .b));
 }
 
 test intToEnum {
@@ -1203,11 +1201,12 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
         .Pointer => |info| info.size != .Slice,
 
+        .Optional => |info| @typeInfo(info.child) == .Pointer and
+            hasUniqueRepresentation(info.child),
+
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
-            if (info.layout == .@"packed") return @sizeOf(T) * 8 == @bitSizeOf(T);
-
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
@@ -1253,19 +1252,6 @@ test hasUniqueRepresentation {
 
     try testing.expect(!hasUniqueRepresentation(TestStruct5));
 
-    const TestStruct6 = packed struct(u8) {
-        @"0": bool,
-        @"1": bool,
-        @"2": bool,
-        @"3": bool,
-        @"4": bool,
-        @"5": bool,
-        @"6": bool,
-        @"7": bool,
-    };
-
-    try testing.expect(hasUniqueRepresentation(TestStruct6));
-
     const TestUnion1 = packed union {
         a: u32,
         b: u16,
@@ -1301,8 +1287,15 @@ test hasUniqueRepresentation {
         try testing.expect(!hasUniqueRepresentation(T));
     }
 
+    try testing.expect(hasUniqueRepresentation(*u8));
+    try testing.expect(hasUniqueRepresentation(*const u8));
+    try testing.expect(hasUniqueRepresentation(?*u8));
+    try testing.expect(hasUniqueRepresentation(?*const u8));
+
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
+    try testing.expect(!hasUniqueRepresentation(?[]u8));
+    try testing.expect(!hasUniqueRepresentation(?[]const u8));
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
