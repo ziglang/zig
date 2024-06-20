@@ -26,14 +26,10 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
 
     const writer = emitter.emit_h.fwd_decl.writer(emitter.gpa);
 
-    if (decl.zir_decl_index.unwrap()) |zir_index| {
-        const zir_decl, const extra_end = file.zir.getDeclaration(zir_index.resolve(ip));
+    if (decl.zir_decl_index.unwrap()) |tracked_inst_index| {
+        const zir_decl, const extra_end = file.zir.getDeclaration(tracked_inst_index.resolve(ip));
         if (zir_decl.flags.has_doc_comment) {
-            const doc_comment = file.zir.nullTerminatedString(@enumFromInt(file.zir.extra[extra_end]));
-            var it = std.mem.split(u8, doc_comment, "\n");
-            while (it.next()) |line| {
-                try writer.print("//{s}\n", .{line});
-            }
+            try emitter.renderDocComment(writer, @enumFromInt(file.zir.extra[extra_end]), 0);
         }
     }
 
@@ -88,7 +84,83 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                     try writer.writeAll("typedef struct ");
                     try writer.print("{s} {{\n", .{name});
 
-                    for (info.field_names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
+                    const doc_comments = try emitter.gpa.alloc(std.zig.Zir.NullTerminatedString, info.field_types.len);
+                    @memset(doc_comments, .empty);
+                    defer emitter.gpa.free(doc_comments);
+
+                    if (info.zir_index.unwrap()) |tracked_inst_index| get_doc_comments: {
+                        if (doc_comments.len == 0) break :get_doc_comments;
+
+                        const extended = file.zir.instructions.items(.data)[@intFromEnum(tracked_inst_index.resolve(ip))].extended;
+                        const small: std.zig.Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+
+                        var extra_index: usize = extended.operand + @sizeOf(std.zig.Zir.Inst.StructDecl) / @sizeOf(u32);
+
+                        const captures_len = if (small.has_captures_len) blk: {
+                            const captures_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk captures_len;
+                        } else 0;
+
+                        const fields_len = if (small.has_fields_len) blk: {
+                            const fields_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk fields_len;
+                        } else 0;
+
+                        std.debug.assert(info.field_types.len == fields_len);
+
+                        const decls_len = if (small.has_decls_len) blk: {
+                            const decls_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk decls_len;
+                        } else 0;
+
+                        extra_index += captures_len;
+
+                        if (small.has_backing_int) {
+                            const backing_int_body_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            extra_index += if (backing_int_body_len == 0)
+                                1
+                            else
+                                backing_int_body_len;
+                        }
+
+                        extra_index += decls_len;
+
+                        const bits_per_field = 4;
+                        const fields_per_u32 = 32 / bits_per_field;
+                        const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+
+                        var bit_bag_index: usize = extra_index;
+                        extra_index += bit_bags_count;
+                        var cur_bit_bag: u32 = undefined;
+                        var field_i: u32 = 0;
+                        while (field_i < fields_len) : (field_i += 1) {
+                            if (field_i % fields_per_u32 == 0) {
+                                cur_bit_bag = file.zir.extra[bit_bag_index];
+                                bit_bag_index += 1;
+                            }
+                            const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
+                            cur_bit_bag >>= 1;
+                            const has_default = @as(u1, @truncate(cur_bit_bag)) != 0;
+                            cur_bit_bag >>= 3;
+
+                            extra_index += @intFromBool(!small.is_tuple);
+                            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
+                            extra_index += 1;
+
+                            doc_comments[field_i] = doc_comment_index;
+
+                            extra_index += 1;
+                            extra_index += @intFromBool(has_align);
+                            extra_index += @intFromBool(has_default);
+                        }
+                    }
+
+                    for (info.field_names.get(ip), info.field_types.get(ip), doc_comments) |field_name, field_type, doc_comment| {
+                        try emitter.renderDocComment(writer, doc_comment, 1);
                         try writer.print("    ", .{});
                         try emitter.renderTypeAndName(writer, field_name.toSlice(ip), field_type, .{});
                         try writer.writeAll(";\n");
@@ -117,7 +189,82 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                     try writer.writeAll("typedef union ");
                     try writer.print("{s} {{\n", .{name});
 
-                    for (tag_type_info.names.get(ip), info.field_types.get(ip)) |field_name, field_type| {
+                    const doc_comments = try emitter.gpa.alloc(std.zig.Zir.NullTerminatedString, info.field_types.len);
+                    @memset(doc_comments, .empty);
+                    defer emitter.gpa.free(doc_comments);
+
+                    if (doc_comments.len > 0) {
+                        const extended = file.zir.instructions.items(.data)[@intFromEnum(info.zir_index.resolve(ip))].extended;
+                        const small: std.zig.Zir.Inst.UnionDecl.Small = @bitCast(extended.small);
+
+                        var extra_index: usize = extended.operand + @sizeOf(std.zig.Zir.Inst.UnionDecl) / @sizeOf(u32);
+
+                        extra_index += @intFromBool(small.has_tag_type);
+
+                        const captures_len = if (small.has_captures_len) blk: {
+                            const captures_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk captures_len;
+                        } else 0;
+
+                        const body_len = if (small.has_body_len) blk: {
+                            const body_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk body_len;
+                        } else 0;
+
+                        const fields_len = if (small.has_fields_len) blk: {
+                            const fields_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk fields_len;
+                        } else 0;
+
+                        std.debug.assert(info.field_types.len == fields_len);
+
+                        const decls_len = if (small.has_decls_len) blk: {
+                            const decls_len = file.zir.extra[extra_index];
+                            extra_index += 1;
+                            break :blk decls_len;
+                        } else 0;
+
+                        extra_index += captures_len;
+                        extra_index += decls_len;
+                        extra_index += body_len;
+
+                        const bits_per_field = 4;
+                        const fields_per_u32 = 32 / bits_per_field;
+                        const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+                        const body_end = extra_index;
+                        extra_index += bit_bags_count;
+                        var bit_bag_index: usize = body_end;
+                        var cur_bit_bag: u32 = undefined;
+                        var field_i: u32 = 0;
+                        while (field_i < fields_len) : (field_i += 1) {
+                            if (field_i % fields_per_u32 == 0) {
+                                cur_bit_bag = file.zir.extra[bit_bag_index];
+                                bit_bag_index += 1;
+                            }
+                            const has_type = @as(u1, @truncate(cur_bit_bag)) != 0;
+                            cur_bit_bag >>= 1;
+                            const has_align = @as(u1, @truncate(cur_bit_bag)) != 0;
+                            cur_bit_bag >>= 1;
+                            const has_value = @as(u1, @truncate(cur_bit_bag)) != 0;
+                            cur_bit_bag >>= 2;
+
+                            extra_index += 1;
+                            const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
+                            extra_index += 1;
+
+                            doc_comments[field_i] = doc_comment_index;
+
+                            extra_index += @intFromBool(has_type);
+                            extra_index += @intFromBool(has_align);
+                            extra_index += @intFromBool(has_value);
+                        }
+                    }
+
+                    for (tag_type_info.names.get(ip), info.field_types.get(ip), doc_comments) |field_name, field_type, doc_comment| {
+                        try emitter.renderDocComment(writer, doc_comment, 1);
                         try writer.print("    ", .{});
                         try emitter.renderTypeAndName(writer, field_name.toSlice(ip), field_type, .{});
                         try writer.writeAll(";\n");
@@ -132,10 +279,78 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                 const name = decl.name.toSlice(ip);
                 try writer.writeAll("typedef enum {\n");
 
+                const doc_comments = try emitter.gpa.alloc(std.zig.Zir.NullTerminatedString, info.names.len);
+                @memset(doc_comments, .empty);
+                defer emitter.gpa.free(doc_comments);
+
+                if (info.zir_index.unwrap()) |tracked_inst_index| get_doc_comments: {
+                    if (doc_comments.len == 0) break :get_doc_comments;
+
+                    const extended = file.zir.instructions.items(.data)[@intFromEnum(tracked_inst_index.resolve(ip))].extended;
+                    const small: std.zig.Zir.Inst.EnumDecl.Small = @bitCast(extended.small);
+
+                    var extra_index: usize = extended.operand + @sizeOf(std.zig.Zir.Inst.EnumDecl) / @sizeOf(u32);
+
+                    extra_index += @intFromBool(small.has_tag_type);
+
+                    const captures_len = if (small.has_captures_len) blk: {
+                        const captures_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk captures_len;
+                    } else 0;
+
+                    const body_len = if (small.has_body_len) blk: {
+                        const body_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk body_len;
+                    } else 0;
+
+                    const fields_len = if (small.has_fields_len) blk: {
+                        const fields_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk fields_len;
+                    } else 0;
+
+                    const decls_len = if (small.has_decls_len) blk: {
+                        const decls_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk decls_len;
+                    } else 0;
+
+                    extra_index += captures_len;
+                    extra_index += decls_len;
+                    extra_index += body_len;
+
+                    const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
+                    const body_end = extra_index;
+                    extra_index += bit_bags_count;
+                    var bit_bag_index: usize = body_end;
+                    var cur_bit_bag: u32 = undefined;
+                    var field_i: u32 = 0;
+                    while (field_i < fields_len) : (field_i += 1) {
+                        if (field_i % 32 == 0) {
+                            cur_bit_bag = file.zir.extra[bit_bag_index];
+                            bit_bag_index += 1;
+                        }
+                        const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
+                        cur_bit_bag >>= 1;
+
+                        extra_index += 1;
+
+                        const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(file.zir.extra[extra_index]);
+                        extra_index += 1;
+
+                        doc_comments[field_i] = doc_comment_index;
+
+                        extra_index += @intFromBool(has_tag_value);
+                    }
+                }
+
                 const values = info.values.get(ip);
 
                 if (values.len > 0) {
-                    for (info.names.get(ip), values) |tag_name, value| {
+                    for (info.names.get(ip), doc_comments, values) |tag_name, doc_comment, value| {
+                        try emitter.renderDocComment(writer, doc_comment, 1);
                         try writer.print("    {s} = {d},\n", .{
                             tag_name.toSlice(ip),
                             switch (ip.indexToKey(value).int.storage) {
@@ -147,7 +362,8 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                     }
                 } else {
                     // Auto-numbered
-                    for (info.names.get(ip), 0..) |tag_name, value| {
+                    for (info.names.get(ip), doc_comments, 0..) |tag_name, doc_comment, value| {
+                        try emitter.renderDocComment(writer, doc_comment, 1);
                         try writer.print("    {s} = {d},\n", .{ tag_name.toSlice(ip), value });
                     }
                 }
@@ -184,6 +400,22 @@ fn writeName(
     name: []const u8,
 ) Error!void {
     try writer.writeAll(name);
+}
+
+fn renderDocComment(
+    emitter: *EmitH,
+    writer: anytype,
+    string: std.zig.Zir.NullTerminatedString,
+    indent: usize,
+) Error!void {
+    if (string == .empty) return;
+
+    const doc_comment = emitter.decl.getFileScope(emitter.zcu).zir.nullTerminatedString(string);
+    var it = std.mem.splitScalar(u8, doc_comment, '\n');
+    while (it.next()) |line| {
+        try writer.writeByteNTimes(' ', indent * 4);
+        try writer.print("//{s}\n", .{line});
+    }
 }
 
 fn renderTypePrefix(
@@ -253,7 +485,7 @@ fn renderTypePrefix(
                 )});
                 trailing = .no_space;
             },
-            .array_type => |info| {
+            inline .array_type, .vector_type => |info| {
                 try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.child, qualifiers)});
                 return .no_space;
             },
@@ -261,7 +493,7 @@ fn renderTypePrefix(
                 try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.return_type, .{})});
                 return .no_space;
             },
-            else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
+            else => return emitter.fail("TODO: implement renderTypePrefix for {s}", .{@tagName(ip.indexToKey(index))}),
         },
     }
 
@@ -290,6 +522,10 @@ fn renderTypeSuffix(
             try writer.print(")[{}]", .{info.lenIncludingSentinel()});
             try emitter.renderTypeSuffix(writer, info.child, .{});
         },
+        .vector_type => |info| {
+            try writer.print(")[{}]", .{info.len});
+            try emitter.renderTypeSuffix(writer, info.child, .{});
+        },
         .func_type => |info| {
             try writer.writeAll(")(");
 
@@ -312,7 +548,7 @@ fn renderTypeSuffix(
 
             try emitter.renderTypeSuffix(writer, info.return_type, .{});
         },
-        else => return emitter.fail("TODO: implement emitInlineType for {s}", .{@tagName(ip.indexToKey(index))}),
+        else => return emitter.fail("TODO: implement renderTypeSuffix for {s}", .{@tagName(ip.indexToKey(index))}),
     }
 }
 
