@@ -28,6 +28,7 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const crash_report = @import("../crash_report.zig");
 
 const target_util = @import("../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
@@ -4916,7 +4917,13 @@ pub const FuncGen = struct {
         const mod = o.module;
         const ip = &mod.intern_pool;
         const air_tags = self.air.instructions.items(.tag);
+
+        var crash_info = crash_report.prepCodeGenState(mod, body, self.air, self.liveness, self.dg.decl);
+        crash_info.push();
+        defer crash_info.pop();
+
         for (body, 0..) |inst, i| {
+            crash_info.setBodyIndex(i);
             if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
 
             const val: Builder.Value = switch (air_tags[@intFromEnum(inst)]) {

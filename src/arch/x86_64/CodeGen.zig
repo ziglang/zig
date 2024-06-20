@@ -12,6 +12,7 @@ const wip_mir_log = std.log.scoped(.wip_mir);
 const math = std.math;
 const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
+const crash_report = @import("../../crash_report.zig");
 
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
@@ -1954,7 +1955,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
 
-    for (body) |inst| {
+    var crash_info = crash_report.prepCodeGenState(mod, body, self.air, self.liveness, mod.declPtr(self.owner.getDecl(mod)));
+    crash_info.push();
+    defer crash_info.pop();
+
+    for (body, 0..) |inst, i| {
+        crash_info.setBodyIndex(i);
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});

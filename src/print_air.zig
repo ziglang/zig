@@ -2,12 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 const InternPool = @import("InternPool.zig");
+
+const Module = Zcu;
 
 pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
@@ -50,6 +52,34 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
         .skip_body = false,
     };
     writer.writeBody(stream, air.getMainBody()) catch return;
+}
+
+pub fn writeContext(
+    stream: anytype,
+    zcu: *Zcu,
+    block: []const Air.Inst.Index,
+    block_index: usize,
+    air: Air,
+    liveness: ?Liveness,
+) !void {
+    var writer: Writer = .{
+        .module = zcu,
+        .gpa = zcu.gpa,
+        .air = air,
+        .liveness = liveness,
+        .indent = 6,
+        .skip_body = false,
+    };
+
+    try writer.writeBody(stream, block[0..block_index]);
+    try stream.writeAll("    > ");
+    writer.indent = 0;
+    try writer.writeInst(stream, block[block_index]);
+    writer.indent = 6;
+    try stream.writeByte('\n');
+    if (block_index + 1 < block.len) {
+        try writer.writeBody(stream, block[block_index + 1 ..]);
+    }
 }
 
 pub fn writeInst(
