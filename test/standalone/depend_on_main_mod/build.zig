@@ -7,19 +7,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "depend_on_main_mod",
+    const foo_mod = b.addModule("foo", .{
+        .root_source_file = b.path("src/foo.zig"),
+    });
+
+    const main_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    // Make `main_mod` depend on itself through foo
+    foo_mod.addImport("root2", main_mod);
+    main_mod.addImport("foo", foo_mod);
 
-    const foo_module = b.addModule("foo", .{
-        .root_source_file = b.path("src/foo.zig"),
+    const exe = b.addExecutable2(.{
+        .name = "depend_on_main_mod",
+        .root_module = main_mod,
     });
-
-    foo_module.addImport("root2", exe.root_module);
-    exe.root_module.addImport("foo", foo_module);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectExitCode(0);

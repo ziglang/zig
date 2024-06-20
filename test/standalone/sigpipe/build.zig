@@ -16,7 +16,7 @@ pub fn build(b: *std.build.Builder) !void {
     // This test runs "breakpipe" as a child process and that process
     // depends on inheriting a SIGPIPE disposition of "default".
     {
-        const act = posix.Sigaction{
+        const act: posix.Sigaction = .{
             .handler = .{ .handler = posix.SIG.DFL },
             .mask = posix.empty_sigset,
             .flags = 0,
@@ -27,11 +27,17 @@ pub fn build(b: *std.build.Builder) !void {
     for ([_]bool{ false, true }) |keep_sigpipe| {
         const options = b.addOptions();
         options.addOption(bool, "keep_sigpipe", keep_sigpipe);
-        const exe = b.addExecutable(.{
-            .name = "breakpipe",
+
+        const mod = b.createModule(.{
             .root_source_file = b.path("breakpipe.zig"),
         });
-        exe.addOptions("build_options", options);
+        mod.addOptions("build_options", options);
+
+        const exe = b.addExecutable2(.{
+            .name = "breakpipe",
+            .root_module = mod,
+        });
+
         const run = b.addRunArtifact(exe);
         if (keep_sigpipe) {
             run.addCheck(.{ .expect_term = .{ .Signal = std.posix.SIG.PIPE } });
