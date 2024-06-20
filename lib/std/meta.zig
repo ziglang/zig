@@ -1203,6 +1203,11 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
         .Pointer => |info| info.size != .Slice,
 
+        .Optional => |info| switch (@typeInfo(info.child)) {
+            .Pointer => |ptr_info| ptr_info.size != .Slice,
+            else => false,
+        },
+
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
@@ -1301,8 +1306,15 @@ test hasUniqueRepresentation {
         try testing.expect(!hasUniqueRepresentation(T));
     }
 
+    try testing.expect(hasUniqueRepresentation(*u8));
+    try testing.expect(hasUniqueRepresentation(*const u8));
+    try testing.expect(hasUniqueRepresentation(?*u8));
+    try testing.expect(hasUniqueRepresentation(?*const u8));
+
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
+    try testing.expect(!hasUniqueRepresentation(?[]u8));
+    try testing.expect(!hasUniqueRepresentation(?[]const u8));
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
