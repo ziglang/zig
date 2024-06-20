@@ -7652,6 +7652,8 @@ pub const Metadata = enum(u32) {
         derived_pointer_type,
         derived_member_type,
         derived_static_member_type,
+        derived_typedef,
+        imported_declaration,
         subroutine_type,
         enumerator_unsigned,
         enumerator_signed_positive,
@@ -7699,6 +7701,8 @@ pub const Metadata = enum(u32) {
                 .derived_pointer_type,
                 .derived_member_type,
                 .derived_static_member_type,
+                .derived_typedef,
+                .imported_declaration,
                 .subroutine_type,
                 .enumerator_unsigned,
                 .enumerator_signed_positive,
@@ -7816,6 +7820,7 @@ pub const Metadata = enum(u32) {
         producer: MetadataString,
         enums: Metadata,
         globals: Metadata,
+        imports: Metadata,
     };
 
     pub const Subprogram = struct {
@@ -7941,6 +7946,14 @@ pub const Metadata = enum(u32) {
         pub fn bitOffset(self: DerivedType) u64 {
             return @as(u64, self.offset_in_bits_hi) << 32 | self.offset_in_bits_lo;
         }
+    };
+
+    pub const ImportedEntity = struct {
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        entity: Metadata,
     };
 
     pub const SubroutineType = struct {
@@ -8232,6 +8245,7 @@ pub const Metadata = enum(u32) {
                 DIBasicType,
                 DICompositeType,
                 DIDerivedType,
+                DIImportedEntity,
                 DISubroutineType,
                 DIEnumerator,
                 DISubrange,
@@ -9969,7 +9983,7 @@ pub fn printUnbuffered(
                         .enums = extra.enums,
                         .retainedTypes = null,
                         .globals = extra.globals,
-                        .imports = null,
+                        .imports = extra.imports,
                         .macros = null,
                         .dwoId = null,
                         .splitDebugInlining = false,
@@ -10110,16 +10124,18 @@ pub fn printUnbuffered(
                 .derived_pointer_type,
                 .derived_member_type,
                 .derived_static_member_type,
+                .derived_typedef,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIDerivedType, .{
                         .tag = @as(enum {
                             DW_TAG_pointer_type,
                             DW_TAG_member,
+                            DW_TAG_typedef,
                         }, switch (kind) {
                             .derived_pointer_type => .DW_TAG_pointer_type,
-                            .derived_member_type,
-                            .derived_static_member_type => .DW_TAG_member,
+                            .derived_member_type, .derived_static_member_type => .DW_TAG_member,
+                            .derived_typedef => .DW_TAG_typedef,
                             else => unreachable,
                         }),
                         .name = switch (extra.name) {
@@ -10140,6 +10156,22 @@ pub fn printUnbuffered(
                         .extraData = null,
                         .dwarfAddressSpace = null,
                         .annotations = null,
+                    }, writer);
+                },
+                .imported_declaration => {
+                    const extra = self.metadataExtraData(Metadata.ImportedEntity, metadata_item.data);
+
+                    try metadata_formatter.specialized(.@"!", .DIImportedEntity, .{
+                        .tag = .DW_TAG_imported_declaration,
+                        .scope = extra.scope,
+                        .entity = extra.entity,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .name = switch (extra.name) {
+                            .none => null,
+                            else => extra.name,
+                        },
+                        .elements = null,
                     }, writer);
                 },
                 .subroutine_type => {
@@ -11747,10 +11779,11 @@ pub fn debugCompileUnit(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
+    imports: Metadata,
     options: Metadata.CompileUnit.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
-    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, options);
+    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, imports, options);
 }
 
 pub fn debugSubprogram(
@@ -12005,6 +12038,53 @@ pub fn debugMemberType(
     );
 }
 
+pub fn debugTypedef(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    align_in_bits: u64,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
+
+    assert(!self.strip);
+    return self.metadataSimpleAssumeCapacity(.derived_typedef, Metadata.DerivedType{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .underlying_type = underlying_type,
+        .size_in_bits_lo = 0,
+        .size_in_bits_hi = 0,
+        .align_in_bits_lo = @truncate(align_in_bits),
+        .align_in_bits_hi = @truncate(align_in_bits >> 32),
+        .offset_in_bits_lo = 0,
+        .offset_in_bits_hi = 0,
+    });
+}
+
+pub fn debugImportDeclaration(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    entity: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.ImportedEntity, 0);
+
+    assert(!self.strip);
+    return self.metadataSimpleAssumeCapacity(.imported_declaration, Metadata.ImportedEntity{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .entity = entity,
+    });
+}
+
 pub fn debugSubroutineType(
     self: *Builder,
     types_tuple: Metadata,
@@ -12241,6 +12321,7 @@ pub fn debugCompileUnitAssumeCapacity(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
+    imports: Metadata,
     options: Metadata.CompileUnit.Options,
 ) Metadata {
     assert(!self.strip);
@@ -12251,6 +12332,7 @@ pub fn debugCompileUnitAssumeCapacity(
             .producer = producer,
             .enums = enums,
             .globals = globals,
+            .imports = imports,
         },
     );
 }
@@ -12538,22 +12620,19 @@ fn debugMemberTypeAssumeCapacity(
     static: bool,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataSimpleAssumeCapacity(
-        if (static) .derived_static_member_type else .derived_member_type,
-        Metadata.DerivedType{
-            .name = name,
-            .file = file,
-            .scope = scope,
-            .line = line,
-            .underlying_type = underlying_type,
-            .size_in_bits_lo = @truncate(size_in_bits),
-            .size_in_bits_hi = @truncate(size_in_bits >> 32),
-            .align_in_bits_lo = @truncate(align_in_bits),
-            .align_in_bits_hi = @truncate(align_in_bits >> 32),
-            .offset_in_bits_lo = @truncate(offset_in_bits),
-            .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
-        }
-    );
+    return self.metadataSimpleAssumeCapacity(if (static) .derived_static_member_type else .derived_member_type, Metadata.DerivedType{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .underlying_type = underlying_type,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+        .align_in_bits_lo = @truncate(align_in_bits),
+        .align_in_bits_hi = @truncate(align_in_bits >> 32),
+        .offset_in_bits_lo = @truncate(offset_in_bits),
+        .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
+    });
 }
 
 fn debugSubroutineTypeAssumeCapacity(
@@ -13850,6 +13929,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             },
                             .enums = extra.enums,
                             .globals = extra.globals,
+                            .imports = extra.imports,
                         }, metadata_adapter);
                     },
                     .subprogram,
@@ -13945,13 +14025,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .derived_pointer_type,
                     .derived_member_type,
                     .derived_static_member_type,
+                    .derived_typedef,
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.DerivedType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
                             .tag = switch (kind) {
                                 .derived_pointer_type => DW.TAG.pointer_type,
-                                .derived_member_type,
-                                .derived_static_member_type => DW.TAG.member,
+                                .derived_member_type, .derived_static_member_type => DW.TAG.member,
+                                .derived_typedef => DW.TAG.typedef,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -13965,6 +14046,17 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .flags = .{
                                 .StaticMember = kind == .derived_static_member_type,
                             },
+                        }, metadata_adapter);
+                    },
+                    .imported_declaration => {
+                        const extra = self.metadataExtraData(Metadata.ImportedEntity, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.ImportedEntity{
+                            .tag = DW.TAG.imported_declaration,
+                            .scope = extra.scope,
+                            .entity = extra.entity,
+                            .line = extra.line,
+                            .name = extra.name,
+                            .file = extra.file,
                         }, metadata_adapter);
                     },
                     .subroutine_type => {
