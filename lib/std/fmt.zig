@@ -795,89 +795,57 @@ test {
 
 pub const Case = enum { lower, upper };
 
-fn formatSliceHexImpl(comptime case: Case) type {
-    const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
+const SliceFormatData = struct {
+    bytes: []const u8,
+    case: Case,
+};
 
-    return struct {
-        pub fn formatSliceHexImpl(
-            bytes: []const u8,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = fmt;
-            _ = options;
-            var buf: [2]u8 = undefined;
+fn fmtSliceHexImpl(data: SliceFormatData, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    const charset = "0123456789" ++ if (data.case == .upper) "ABCDEF" else "abcdef";
 
-            for (bytes) |c| {
-                buf[0] = charset[c >> 4];
-                buf[1] = charset[c & 15];
-                try writer.writeAll(&buf);
-            }
-        }
-    };
+    _ = fmt;
+    _ = options;
+    var buf: [2]u8 = undefined;
+
+    for (data.bytes) |c| {
+        buf[0] = charset[c >> 4];
+        buf[1] = charset[c & 15];
+        try writer.writeAll(&buf);
+    }
 }
-
-const formatSliceHexLower = formatSliceHexImpl(.lower).formatSliceHexImpl;
-const formatSliceHexUpper = formatSliceHexImpl(.upper).formatSliceHexImpl;
 
 /// Return a Formatter for a []const u8 where every byte is formatted as a pair
-/// of lowercase hexadecimal digits.
-pub fn fmtSliceHexLower(bytes: []const u8) std.fmt.Formatter(formatSliceHexLower) {
-    return .{ .data = bytes };
+/// of hexadecimal digits.
+pub fn fmtSliceHex(bytes: []const u8, case: Case) Formatter(fmtSliceHexImpl) {
+    return .{ .data = .{ .bytes = bytes, .case = case } };
 }
 
-/// Return a Formatter for a []const u8 where every byte is formatted as pair
-/// of uppercase hexadecimal digits.
-pub fn fmtSliceHexUpper(bytes: []const u8) std.fmt.Formatter(formatSliceHexUpper) {
-    return .{ .data = bytes };
-}
+fn fmtSliceEscapeImpl(data: SliceFormatData, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    const charset = "0123456789" ++ if (data.case == .upper) "ABCDEF" else "abcdef";
 
-fn formatSliceEscapeImpl(comptime case: Case) type {
-    const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
+    _ = fmt;
+    _ = options;
+    var buf: [4]u8 = undefined;
 
-    return struct {
-        pub fn formatSliceEscapeImpl(
-            bytes: []const u8,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = fmt;
-            _ = options;
-            var buf: [4]u8 = undefined;
+    buf[0] = '\\';
+    buf[1] = 'x';
 
-            buf[0] = '\\';
-            buf[1] = 'x';
-
-            for (bytes) |c| {
-                if (std.ascii.isPrint(c)) {
-                    try writer.writeByte(c);
-                } else {
-                    buf[2] = charset[c >> 4];
-                    buf[3] = charset[c & 15];
-                    try writer.writeAll(&buf);
-                }
-            }
+    for (data.bytes) |c| {
+        if (std.ascii.isPrint(c)) {
+            try writer.writeByte(c);
+        } else {
+            buf[2] = charset[c >> 4];
+            buf[3] = charset[c & 15];
+            try writer.writeAll(&buf);
         }
-    };
-}
-
-const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).formatSliceEscapeImpl;
-const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).formatSliceEscapeImpl;
-
-/// Return a Formatter for a []const u8 where every non-printable ASCII
-/// character is escaped as \xNN, where NN is the character in lowercase
-/// hexadecimal notation.
-pub fn fmtSliceEscapeLower(bytes: []const u8) std.fmt.Formatter(formatSliceEscapeLower) {
-    return .{ .data = bytes };
+    }
 }
 
 /// Return a Formatter for a []const u8 where every non-printable ASCII
-/// character is escaped as \xNN, where NN is the character in uppercase
-/// hexadecimal notation.
-pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscapeUpper) {
-    return .{ .data = bytes };
+/// character is escaped as \xNN, where NN is the character in hexadecimal
+/// notation.
+pub fn fmtSliceEscape(bytes: []const u8, case: Case) Formatter(fmtSliceEscapeImpl) {
+    return .{ .data = .{ .bytes = bytes, .case = case } };
 }
 
 fn formatSizeImpl(comptime base: comptime_int) type {
@@ -962,8 +930,8 @@ fn checkTextFmt(comptime fmt: []const u8) void {
     switch (fmt[0]) {
         // Example of deprecation:
         // '[deprecated_specifier]' => @compileError("specifier '[deprecated_specifier]' has been deprecated, wrap your argument in `std.some_function` instead"),
-        'x' => @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead"),
-        'X' => @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead"),
+        'x' => @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHex with case .lower instead"),
+        'X' => @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHex with case .upper instead"),
         else => {},
     }
 }
@@ -2072,10 +2040,10 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeLower("abc 123")});
-    try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
-    try expectFmt("abc 123", "{s}", .{fmtSliceEscapeUpper("abc 123")});
-    try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscape("abc 123", .lower)});
+    try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscape("ab\xffc", .lower)});
+    try expectFmt("abc 123", "{s}", .{fmtSliceEscape("abc 123", .upper)});
+    try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscape("ab\xffc", .upper)});
 }
 
 test "pointer" {
@@ -2420,13 +2388,13 @@ test "struct.zero-size" {
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
-    try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
+    try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHex(some_bytes, .lower)});
+    try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHex(some_bytes, .upper)});
     //Test Slices
-    try expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes[0..2])});
-    try expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes[2..])});
+    try expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{fmtSliceHex(some_bytes[0..2], .upper)});
+    try expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{fmtSliceHex(some_bytes[2..], .lower)});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(bytes_with_zeros)});
+    try expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{fmtSliceHex(bytes_with_zeros, .lower)});
 }
 
 /// Encodes a sequence of bytes as hexadecimal digits.
@@ -2473,9 +2441,9 @@ test bytesToHex {
 
 test hexToBytes {
     var buf: [32]u8 = undefined;
-    try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
-    try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});
-    try expectFmt("", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, ""))});
+    try expectFmt("90" ** 32, "{s}", .{fmtSliceHex(try hexToBytes(&buf, "90" ** 32), .upper)});
+    try expectFmt("ABCD", "{s}", .{fmtSliceHex(try hexToBytes(&buf, "ABCD"), .upper)});
+    try expectFmt("", "{s}", .{fmtSliceHex(try hexToBytes(&buf, ""), .upper)});
     try std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));
     try std.testing.expectError(error.InvalidLength, hexToBytes(&buf, "AAA"));
     try std.testing.expectError(error.NoSpaceLeft, hexToBytes(buf[0..1], "ABAB"));

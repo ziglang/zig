@@ -620,7 +620,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 _ = unused_fmt_string;
                 _ = options;
                 switch (ctx.kind) {
-                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
+                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscape(ctx.msg, .lower)}),
                     else => try writer.writeAll(ctx.msg),
                 }
             }
@@ -942,7 +942,7 @@ const MachODumper = struct {
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
                     try writer.writeByte('\n');
-                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHex(&uuid.uuid, .lower)});
                 },
 
                 .DATA_IN_CODE,

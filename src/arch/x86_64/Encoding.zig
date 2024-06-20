@@ -149,7 +149,7 @@ pub fn format(
             },
         }
 
-        try writer.print(".{}", .{std.fmt.fmtSliceHexUpper(opc[0 .. opc.len - 1])});
+        try writer.print(".{}", .{std.fmt.fmtSliceHex(opc[0 .. opc.len - 1], .upper)});
         opc = opc[opc.len - 1 ..];
 
         try writer.writeAll(".W");

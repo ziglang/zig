@@ -61,19 +61,17 @@ pub const Guid = extern struct {
     ) !void {
         _ = options;
         if (f.len == 0) {
-            const fmt = std.fmt.fmtSliceHexLower;
-
             const time_low = @byteSwap(self.time_low);
             const time_mid = @byteSwap(self.time_mid);
             const time_high_and_version = @byteSwap(self.time_high_and_version);
 
             return std.fmt.format(writer, "{:0>8}-{:0>4}-{:0>4}-{:0>2}{:0>2}-{:0>12}", .{
-                fmt(std.mem.asBytes(&time_low)),
-                fmt(std.mem.asBytes(&time_mid)),
-                fmt(std.mem.asBytes(&time_high_and_version)),
-                fmt(std.mem.asBytes(&self.clock_seq_high_and_reserved)),
-                fmt(std.mem.asBytes(&self.clock_seq_low)),
-                fmt(std.mem.asBytes(&self.node)),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&time_low), .lower),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&time_mid), .lower),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&time_high_and_version), .lower),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&self.clock_seq_high_and_reserved), .lower),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&self.clock_seq_low), .lower),
+                std.fmt.fmtSliceHex(std.mem.asBytes(&self.node), .lower),
             });
         } else {
             std.fmt.invalidFmtError(f, self);

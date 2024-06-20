@@ -1012,7 +1012,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
                 .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{
-                    uri, std.fmt.fmtSliceHexLower(&want_oid),
+                    uri, std.fmt.fmtSliceHex(&want_oid, .lower),
                 }),
             }));
             return error.FetchFailed;
@@ -1020,7 +1020,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
 
         var want_oid_buf: [git.fmt_oid_length]u8 = undefined;
         _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
-            std.fmt.fmtSliceHexLower(&want_oid),
+            std.fmt.fmtSliceHex(&want_oid, .lower),
         }) catch unreachable;
         var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
@@ -1585,7 +1585,7 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     for (all_files) |hashed_file| {
         try w.print("{s}: {s}: {s}\n", .{
             @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            std.fmt.fmtSliceHex(&hashed_file.hash, .lower),
             hashed_file.normalized_path,
         });
     }

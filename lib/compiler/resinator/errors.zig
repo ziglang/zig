@@ -420,10 +420,10 @@ pub const ErrorDetails = struct {
                 .hint => return,
             },
             .illegal_byte => {
-                return writer.print("character '{s}' is not allowed", .{std.fmt.fmtSliceEscapeUpper(self.token.slice(source))});
+                return writer.print("character '{s}' is not allowed", .{std.fmt.fmtSliceEscape(self.token.slice(source), .upper)});
             },
             .illegal_byte_outside_string_literals => {
-                return writer.print("character '{s}' is not allowed outside of string literals", .{std.fmt.fmtSliceEscapeUpper(self.token.slice(source))});
+                return writer.print("character '{s}' is not allowed outside of string literals", .{std.fmt.fmtSliceEscape(self.token.slice(source), .upper)});
             },
             .illegal_codepoint_outside_string_literals => {
                 // This is somewhat hacky, but we know that:

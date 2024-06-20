@@ -432,7 +432,7 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                 printRt(m, prop.msg, .{"{s}"}, .{&str});
             } else {
                 var buf: [3]u8 = undefined;
-                const str = std.fmt.bufPrint(&buf, "x{x}", .{std.fmt.fmtSliceHexLower(&.{msg.extra.invalid_escape.char})}) catch unreachable;
+                const str = std.fmt.bufPrint(&buf, "x{x}", .{std.fmt.fmtSliceHex(&.{msg.extra.invalid_escape.char}, .lower)}) catch unreachable;
                 printRt(m, prop.msg, .{"{s}"}, .{str});
             }
         },

@@ -40,7 +40,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
             try macho_file.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
-                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+                std.fmt.fmtSliceEscape(ARFMAG, .lower), std.fmt.fmtSliceEscape(&hdr.ar_fmag, .lower),
             });
             return error.MalformedArchive;
         }

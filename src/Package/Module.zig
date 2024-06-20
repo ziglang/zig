@@ -392,7 +392,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             _ = std.fmt.bufPrint(
                 &hex_digest,
                 "{s}",
-                .{std.fmt.fmtSliceHexLower(&bin_digest)},
+                .{std.fmt.fmtSliceHex(&bin_digest, .lower)},
             ) catch unreachable;
 
             break :digest .{ bin_digest, hex_digest };

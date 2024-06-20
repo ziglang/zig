@@ -580,7 +580,7 @@ const HexWriter = struct {
                 @as(u8, @intCast(payload_bytes.len)),
                 self.address,
                 @intFromEnum(self.payload),
-                std.fmt.fmtSliceHexUpper(payload_bytes),
+                std.fmt.fmtSliceHex(payload_bytes, .upper),
                 self.checksum(),
             });
             try file.writeAll(line);
