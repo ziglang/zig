@@ -5,21 +5,21 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const exe = b.addExecutable(.{
-        .name = "main",
+    const main_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
+    main_mod.addCSourceFiles(.{ .files = &.{"test.c"} });
 
-    const c_sources = [_][]const u8{
-        "test.c",
-    };
-    exe.addCSourceFiles(.{ .files = &c_sources });
-    exe.linkLibC();
+    const exe = b.addExecutable2(.{
+        .name = "main",
+        .root_module = main_mod,
+    });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectExitCode(0);

@@ -7,27 +7,35 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .aarch64,
         .os_tag = .ios,
     });
+    const optimize: std.builtin.OptimizeMode = .Debug;
+
     const sdk = std.zig.system.darwin.getSdk(b.allocator, target.result) orelse
         @panic("no iOS SDK found");
     b.sysroot = sdk;
 
-    const exe = b.addExecutable(.{
-        .name = "main",
-        .optimize = optimize,
+    const main_mod = b.createModule(.{
         .target = target,
+        .optimize = optimize,
+        .link_libc = true,
     });
-    exe.addCSourceFile(.{ .file = b.path("main.m"), .flags = &.{} });
-    exe.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include" }) });
-    exe.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/System/Library/Frameworks" }) });
-    exe.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/lib" }) });
-    exe.linkFramework("Foundation");
-    exe.linkFramework("UIKit");
-    exe.linkLibC();
+    main_mod.addCSourceFile(.{
+        .file = b.path("main.m"),
+        .flags = &.{},
+    });
+    main_mod.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    main_mod.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/System/Library/Frameworks" }) });
+    main_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/lib" }) });
+    main_mod.linkFramework("Foundation", .{});
+    main_mod.linkFramework("UIKit", .{});
+
+    const exe = b.addExecutable2(.{
+        .name = "main",
+        .root_module = main_mod,
+    });
 
     const check = exe.checkObject();
     check.checkInHeaders();
