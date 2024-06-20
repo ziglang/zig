@@ -2,7 +2,6 @@ const std = @import("std");
 const Zcu = @import("Module.zig");
 const c = @import("codegen/c.zig");
 const trace = @import("tracy.zig").trace;
-const zig_h = @import("link/C.zig").zig_h;
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const Zir = std.zig.Zir;
@@ -40,6 +39,7 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
         switch (ip.indexToKey(decl.val.toIntern())) {
             .variable => |v| {
                 std.debug.assert(!v.is_const);
+                emitter.emit_h.header_section = .variables;
 
                 for (exports.items) |exp| {
                     try writer.writeAll("zig_extern ");
@@ -50,6 +50,8 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                 }
             },
             .func => {
+                emitter.emit_h.header_section = .functions;
+
                 for (exports.items) |exp| {
                     try writer.writeAll("zig_extern ");
                     if (type_of_val.fnCallingConvention(zcu) == .Naked) try writer.writeAll("zig_naked ");
@@ -59,6 +61,8 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
             },
             else => {
                 // Constant
+                emitter.emit_h.header_section = .variables;
+
                 for (exports.items) |exp| {
                     try writer.writeAll("zig_extern const ");
                     try emitter.renderTypeAndName(writer, exp.opts.name.toSlice(ip), type_of_val.toIntern(), .{});
@@ -69,6 +73,8 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
     } else {
         // This branch is only reachable due to a type referenced in exported decl.
         std.debug.assert(type_of_val.toIntern() == .type_type);
+
+        emitter.emit_h.header_section = .typedefs;
 
         const value_as_type = decl.val.toType();
 
@@ -174,7 +180,7 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                         try writer.writeAll(";\n");
                     }
 
-                    try writer.print("}} {s};\n", .{name});
+                    try writer.print("}} {s};\n\n", .{name});
                 }
             },
             .Union => {
@@ -278,7 +284,7 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                         try writer.writeAll(";\n");
                     }
 
-                    try writer.print("}} {s};\n", .{name});
+                    try writer.print("}} {s};\n\n", .{name});
                 }
             },
             .Enum => {
@@ -376,7 +382,7 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
                     }
                 }
 
-                try writer.print("}} {s};\n", .{name});
+                try writer.print("}} {s};\n\n", .{name});
             },
             // Only queued work is for structs, unions, and enums.
             else => unreachable,
@@ -398,11 +404,7 @@ fn renderTypeAndName(
     try emitter.renderTypeSuffix(writer, ty, .parens_not_needed, .{});
 }
 
-/// TODO: Write a good name that:
-/// - is a valid C type name
-/// - is FQN-esque for decls
-/// - doesn't have conflicts
-/// - optional: is not super duper long
+// TODO: Write a better name that is a valid C type name
 fn writeName(
     writer: anytype,
     name: []const u8,
@@ -604,7 +606,13 @@ fn renderTypeSuffix(
                     .parens_not_needed,
                     qualifiers,
                 );
-                try writer.print("{}a{d}", .{ trailing, param_index });
+
+                if (emitter.decl.val.typeOf(zcu).toIntern() == index) {
+                    // Is the function type we're emitting actually from our decl?
+                    // If so, we can actually emit its param names! :)
+                    try writer.print("{}{s}", .{ trailing, zcu.getParamName(emitter.decl.val.toIntern(), @intCast(param_index)) });
+                }
+
                 try emitter.renderTypeSuffix(
                     writer,
                     param_type,
@@ -658,6 +666,13 @@ fn fail(emitter: *EmitH, comptime format: []const u8, args: anytype) Error {
     return error.AnalysisFail;
 }
 
+pub const HeaderSection = enum {
+    unknown,
+    typedefs,
+    variables,
+    functions,
+};
+
 pub fn flushEmitH(zcu: *Zcu) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -666,8 +681,23 @@ pub fn flushEmitH(zcu: *Zcu) !void {
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
+
+    const sorted_emit_hs = try zcu.gpa.alloc(Zcu.EmitH, emit_h.allocated_emit_h.count());
+    defer zcu.gpa.free(sorted_emit_hs);
+
+    emit_h.allocated_emit_h.writeToSlice(sorted_emit_hs, 0);
+
+    std.sort.pdq(Zcu.EmitH, sorted_emit_hs, void{}, struct {
+        fn lessThan(context: void, lhs: Zcu.EmitH, rhs: Zcu.EmitH) bool {
+            _ = context;
+            return @intFromEnum(lhs.header_section) < @intFromEnum(rhs.header_section);
+        }
+    }.lessThan);
+
     var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
     defer all_buffers.deinit();
+
+    const zig_h = "#include \"zig.h\"\n\n";
 
     var file_size: u64 = zig_h.len;
     if (zig_h.len != 0) {
@@ -677,8 +707,7 @@ pub fn flushEmitH(zcu: *Zcu) !void {
         });
     }
 
-    for (0..emit_h.decl_table.count()) |decl_table_index| {
-        const decl_emit_h = emit_h.allocated_emit_h.at(decl_table_index);
+    for (sorted_emit_hs) |decl_emit_h| {
         const buf = decl_emit_h.fwd_decl.items;
         if (buf.len != 0) {
             all_buffers.appendAssumeCapacity(.{

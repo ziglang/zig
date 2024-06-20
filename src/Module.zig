@@ -572,6 +572,7 @@ pub const Decl = struct {
 /// This state is attached to every Decl when Module emit_h is non-null.
 pub const EmitH = struct {
     fwd_decl: ArrayListUnmanaged(u8) = .{},
+    header_section: @import("EmitH.zig").HeaderSection = .unknown,
 };
 
 pub const DeclAdapter = struct {
