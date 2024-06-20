@@ -13,6 +13,7 @@ const Error = error{ OutOfMemory, AnalysisFail };
 gpa: std.mem.Allocator,
 zcu: *Zcu,
 decl: *Zcu.Decl,
+decl_index: std.zig.DeclIndex,
 emit_h: *Zcu.EmitH,
 error_msg: ?*Zcu.ErrorMsg,
 
@@ -20,10 +21,12 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
     const zcu = emitter.zcu;
     const decl = emitter.decl;
     std.debug.assert(decl.analysis == .complete and decl.has_tv);
+    const type_of_val = decl.val.typeOf(zcu);
 
     const ip = &emitter.zcu.intern_pool;
     const file = decl.getFileScope(zcu);
 
+    emitter.emit_h.fwd_decl.items.len = 0;
     const writer = emitter.emit_h.fwd_decl.writer(emitter.gpa);
 
     if (decl.zir_decl_index.unwrap()) |tracked_inst_index| {
@@ -33,34 +36,39 @@ pub fn renderDecl(emitter: *EmitH) Error!void {
         }
     }
 
-    if (decl.is_exported) {
+    if (zcu.decl_exports.get(emitter.decl_index)) |exports| {
         switch (ip.indexToKey(decl.val.toIntern())) {
             .variable => |v| {
                 std.debug.assert(!v.is_const);
 
-                try writer.writeAll("zig_extern ");
-                if (v.is_threadlocal) try writer.writeAll("zig_threadlocal ");
-                if (v.is_weak_linkage) try writer.writeAll("zig_weak_linkage ");
-                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), v.ty, .{});
-                try writer.writeAll(";\n");
+                for (exports.items) |exp| {
+                    try writer.writeAll("zig_extern ");
+                    if (v.is_threadlocal) try writer.writeAll("zig_threadlocal ");
+                    if (exp.opts.linkage == .weak) try writer.writeAll("zig_weak_linkage ");
+                    try emitter.renderTypeAndName(writer, exp.opts.name.toSlice(ip), v.ty, .{});
+                    try writer.writeAll(";\n");
+                }
             },
             .func => {
-                // TODO: exported decl name?
-                // TODO: callconv?
-                try writer.writeAll("zig_extern ");
-                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), decl.val.typeOf(zcu).toIntern(), .{});
-                try writer.writeAll(";\n");
+                for (exports.items) |exp| {
+                    try writer.writeAll("zig_extern ");
+                    if (type_of_val.fnCallingConvention(zcu) == .Naked) try writer.writeAll("zig_naked ");
+                    try emitter.renderTypeAndName(writer, exp.opts.name.toSlice(ip), type_of_val.toIntern(), .{});
+                    try writer.writeAll(";\n");
+                }
             },
             else => {
                 // Constant
-                try writer.writeAll("zig_extern const ");
-                try emitter.renderTypeAndName(writer, decl.name.toSlice(ip), decl.val.typeOf(zcu).toIntern(), .{});
-                try writer.writeAll(";\n");
+                for (exports.items) |exp| {
+                    try writer.writeAll("zig_extern const ");
+                    try emitter.renderTypeAndName(writer, exp.opts.name.toSlice(ip), type_of_val.toIntern(), .{});
+                    try writer.writeAll(";\n");
+                }
             },
         }
     } else {
         // This branch is only reachable due to a type referenced in exported decl.
-        std.debug.assert(decl.val.typeOf(zcu).toIntern() == .type_type);
+        std.debug.assert(type_of_val.toIntern() == .type_type);
 
         const value_as_type = decl.val.toType();
 
@@ -385,9 +393,9 @@ fn renderTypeAndName(
     ty: InternPool.Index,
     qualifiers: CQualifiers,
 ) Error!void {
-    try writer.print("{}", .{try emitter.renderTypePrefix(writer, ty, qualifiers)});
+    try writer.print("{}", .{try emitter.renderTypePrefix(writer, ty, .parens_not_needed, qualifiers)});
     try writeName(writer, name);
-    try emitter.renderTypeSuffix(writer, ty, .{});
+    try emitter.renderTypeSuffix(writer, ty, .parens_not_needed, .{});
 }
 
 /// TODO: Write a good name that:
@@ -422,6 +430,7 @@ fn renderTypePrefix(
     emitter: *EmitH,
     writer: anytype,
     index: InternPool.Index,
+    are_parens_needed: ParensNeeded,
     qualifiers: CQualifiers,
 ) Error!TrailingSpace {
     const zcu = emitter.zcu;
@@ -470,7 +479,7 @@ fn renderTypePrefix(
             },
             .enum_type => {
                 const info = ip.loadEnumType(index);
-                trailing = try emitter.renderTypePrefix(writer, info.tag_ty, .{});
+                trailing = try emitter.renderTypePrefix(writer, info.tag_ty, .parens_not_needed, .{});
                 try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = info.decl });
             },
             .ptr_type => |info| {
@@ -478,6 +487,7 @@ fn renderTypePrefix(
                 try writer.print("{}*", .{try emitter.renderTypePrefix(
                     writer,
                     info.child,
+                    .parens_needed,
                     CQualifiers.init(.{
                         .@"const" = info.flags.is_const,
                         .@"volatile" = info.flags.is_volatile,
@@ -486,12 +496,36 @@ fn renderTypePrefix(
                 trailing = .no_space;
             },
             inline .array_type, .vector_type => |info| {
-                try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.child, qualifiers)});
-                return .no_space;
+                const child_trailing = try emitter.renderTypePrefix(
+                    writer,
+                    info.child,
+                    .parens_not_needed,
+                    qualifiers,
+                );
+
+                switch (are_parens_needed) {
+                    .parens_needed => {
+                        try writer.print("{}(", .{child_trailing});
+                        return .no_space;
+                    },
+                    .parens_not_needed => return child_trailing,
+                }
             },
             .func_type => |info| {
-                try writer.print("{}(", .{try emitter.renderTypePrefix(writer, info.return_type, .{})});
-                return .no_space;
+                const child_trailing = try emitter.renderTypePrefix(
+                    writer,
+                    info.return_type,
+                    .parens_not_needed,
+                    .{},
+                );
+
+                switch (are_parens_needed) {
+                    .parens_needed => {
+                        try writer.print("{}(", .{child_trailing});
+                        return .no_space;
+                    },
+                    .parens_not_needed => return child_trailing,
+                }
             },
             else => return emitter.fail("TODO: implement renderTypePrefix for {s}", .{@tagName(ip.indexToKey(index))}),
         },
@@ -510,6 +544,7 @@ fn renderTypeSuffix(
     emitter: *EmitH,
     writer: anytype,
     index: InternPool.Index,
+    are_parens_needed: ParensNeeded,
     qualifiers: CQualifiers,
 ) Error!void {
     const zcu = emitter.zcu;
@@ -517,26 +552,65 @@ fn renderTypeSuffix(
 
     switch (ip.indexToKey(index)) {
         .simple_type, .int_type, .struct_type, .union_type, .enum_type => {},
-        .ptr_type => |info| try emitter.renderTypeSuffix(writer, info.child, .{}),
+        .ptr_type => |info| try emitter.renderTypeSuffix(
+            writer,
+            info.child,
+            .parens_needed,
+            .{},
+        ),
         .array_type => |info| {
-            try writer.print(")[{}]", .{info.lenIncludingSentinel()});
-            try emitter.renderTypeSuffix(writer, info.child, .{});
+            switch (are_parens_needed) {
+                .parens_needed => try writer.writeByte(')'),
+                .parens_not_needed => {},
+            }
+
+            try writer.print("[{}]", .{info.lenIncludingSentinel()});
+            try emitter.renderTypeSuffix(
+                writer,
+                info.child,
+                .parens_not_needed,
+                .{},
+            );
         },
         .vector_type => |info| {
-            try writer.print(")[{}]", .{info.len});
-            try emitter.renderTypeSuffix(writer, info.child, .{});
+            switch (are_parens_needed) {
+                .parens_needed => try writer.writeByte(')'),
+                .parens_not_needed => {},
+            }
+
+            try writer.print("[{}]", .{info.len});
+            try emitter.renderTypeSuffix(
+                writer,
+                info.child,
+                .parens_not_needed,
+                .{},
+            );
         },
         .func_type => |info| {
-            try writer.writeAll(")(");
+            switch (are_parens_needed) {
+                .parens_needed => try writer.writeByte(')'),
+                .parens_not_needed => {},
+            }
 
+            try writer.writeByte('(');
             var need_comma = false;
             for (info.param_types.get(ip), 0..) |param_type, param_index| {
                 if (need_comma) try writer.writeAll(", ");
                 need_comma = true;
                 const trailing =
-                    try emitter.renderTypePrefix(writer, param_type, qualifiers);
+                    try emitter.renderTypePrefix(
+                    writer,
+                    param_type,
+                    .parens_not_needed,
+                    qualifiers,
+                );
                 try writer.print("{}a{d}", .{ trailing, param_index });
-                try emitter.renderTypeSuffix(writer, param_type, .{});
+                try emitter.renderTypeSuffix(
+                    writer,
+                    param_type,
+                    .parens_not_needed,
+                    .{},
+                );
             }
             if (info.is_var_args) {
                 if (need_comma) try writer.writeAll(", ");
@@ -546,12 +620,18 @@ fn renderTypeSuffix(
             if (!need_comma) try writer.writeAll("void");
             try writer.writeByte(')');
 
-            try emitter.renderTypeSuffix(writer, info.return_type, .{});
+            try emitter.renderTypeSuffix(
+                writer,
+                info.return_type,
+                .parens_not_needed,
+                .{},
+            );
         },
         else => return emitter.fail("TODO: implement renderTypeSuffix for {s}", .{@tagName(ip.indexToKey(index))}),
     }
 }
 
+const ParensNeeded = enum { parens_needed, parens_not_needed };
 const CQualifiers = std.enums.EnumSet(enum { @"const", @"volatile", restrict });
 const TrailingSpace = enum {
     no_space,

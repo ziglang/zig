@@ -3429,11 +3429,16 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     const gop = try emit_h.decl_table.getOrPut(gpa, decl_index);
 
-                    // TODO: support updating declarations
+                    // TODO: Remove the line below once dependency loops are properly handled
                     if (gop.found_existing) return;
 
-                    const decl_emit_h = try emit_h.allocated_emit_h.addOne(gpa);
-                    decl_emit_h.* = .{};
+                    const decl_emit_h = if (gop.found_existing)
+                        emit_h.allocated_emit_h.at(gop.index)
+                    else blk: {
+                        const decl_emit_h = try emit_h.allocated_emit_h.addOne(gpa);
+                        decl_emit_h.* = .{};
+                        break :blk decl_emit_h;
+                    };
 
                     std.debug.assert(emit_h.allocated_emit_h.len == emit_h.decl_table.count());
 
@@ -3441,6 +3446,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                         .gpa = gpa,
                         .zcu = module,
                         .decl = decl,
+                        .decl_index = decl_index,
                         .emit_h = decl_emit_h,
                         .error_msg = null,
                     };
