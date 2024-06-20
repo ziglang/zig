@@ -101,8 +101,11 @@ pub const TrackedInst = extern struct {
     }
     pub const Index = enum(u32) {
         _,
+        pub fn resolveFull(i: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+            return ip.tracked_insts.keys()[@intFromEnum(i)];
+        }
         pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
-            return ip.tracked_insts.keys()[@intFromEnum(i)].inst;
+            return i.resolveFull(ip).inst;
         }
         pub fn toOptional(i: TrackedInst.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -391,8 +394,27 @@ pub const RuntimeIndex = enum(u32) {
 
 pub const ComptimeAllocIndex = enum(u32) { _ };
 
-pub const DeclIndex = std.zig.DeclIndex;
-pub const OptionalDeclIndex = std.zig.OptionalDeclIndex;
+pub const DeclIndex = enum(u32) {
+    _,
+
+    pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(i));
+    }
+};
+
+pub const OptionalDeclIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn init(oi: ?DeclIndex) OptionalDeclIndex {
+        return @enumFromInt(@intFromEnum(oi orelse return .none));
+    }
+
+    pub fn unwrap(oi: OptionalDeclIndex) ?DeclIndex {
+        if (oi == .none) return null;
+        return @enumFromInt(@intFromEnum(oi));
+    }
+};
 
 pub const NamespaceIndex = enum(u32) {
     _,
@@ -6935,7 +6957,6 @@ fn finishFuncInstance(
     const decl_index = try ip.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
-        .src_node = fn_owner_decl.src_node,
         .src_line = fn_owner_decl.src_line,
         .has_tv = true,
         .owns_tv = true,

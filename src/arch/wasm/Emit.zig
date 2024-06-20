@@ -257,7 +257,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     const comp = emit.bin_file.base.comp;
     const zcu = comp.module.?;
     const gpa = comp.gpa;
-    emit.error_msg = try Module.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).srcLoc(zcu), format, args);
+    emit.error_msg = try Module.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).navSrcLoc(zcu).upgrade(zcu), format, args);
     return error.EmitFail;
 }
 
