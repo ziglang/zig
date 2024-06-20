@@ -6,20 +6,26 @@ pub fn build(b: *std.Build) void {
 
     const empty_c = b.addWriteFiles().add("empty.c", "");
 
-    const libfoo = b.addStaticLibrary(.{
-        .name = "foo",
+    const foo_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
     });
-    libfoo.addCSourceFile(.{ .file = empty_c });
+    foo_mod.addCSourceFile(.{ .file = empty_c });
 
-    const exe = b.addExecutable(.{
-        .name = "exe",
+    const foo_lib = b.addLibrary(.{
+        .name = "foo",
+        .root_module = foo_mod,
+        .linkage = .static,
+    });
+
+    const main_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
         .link_libc = true,
     });
-    exe.addCSourceFile(.{ .file = b.addWriteFiles().add("main.c",
+    main_mod.addCSourceFile(.{ .file = b.addWriteFiles().add("main.c",
         \\#include <stdio.h>
         \\#include <foo/a.h>
         \\#include <foo/sub_dir/b.h>
@@ -32,21 +38,26 @@ pub fn build(b: *std.Build) void {
         \\}
     ) });
 
-    libfoo.installHeadersDirectory(b.path("include"), "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
-    libfoo.installHeader(b.addWriteFiles().add("d.h",
+    const exe = b.addExecutable2(.{
+        .name = "exe",
+        .root_module = main_mod,
+    });
+
+    foo_lib.installHeadersDirectory(b.path("include"), "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
+    foo_lib.installHeader(b.addWriteFiles().add("d.h",
         \\#define FOO_D "D"
         \\
     ), "foo/d.h");
 
-    if (libfoo.installed_headers_include_tree != null) std.debug.panic("include tree step was created before linking", .{});
+    if (foo_lib.installed_headers_include_tree != null) std.debug.panic("include tree step was created before linking", .{});
 
     // Link before we have registered all headers for installation,
     // to verify that the lazily created write files step is properly taken into account.
-    exe.linkLibrary(libfoo);
+    main_mod.linkLibrary(foo_lib);
 
-    if (libfoo.installed_headers_include_tree == null) std.debug.panic("include tree step was not created after linking", .{});
+    if (foo_lib.installed_headers_include_tree == null) std.debug.panic("include tree step was not created after linking", .{});
 
-    libfoo.installConfigHeader(b.addConfigHeader(.{
+    foo_lib.installConfigHeader(b.addConfigHeader(.{
         .style = .blank,
         .include_path = "foo/config.h",
     }, .{
@@ -54,33 +65,43 @@ pub fn build(b: *std.Build) void {
         .FOO_CONFIG_2 = "2",
     }));
 
-    const libbar = b.addStaticLibrary(.{
-        .name = "bar",
+    const bar_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
     });
-    libbar.addCSourceFile(.{ .file = empty_c });
-    libbar.installHeader(b.addWriteFiles().add("bar.h",
+    bar_mod.addCSourceFile(.{ .file = empty_c });
+
+    const bar_lib = b.addLibrary(.{
+        .name = "bar",
+        .root_module = bar_mod,
+        .linkage = .static,
+    });
+    bar_lib.installHeader(b.addWriteFiles().add("bar.h",
         \\#define BAR_X "X"
         \\
     ), "bar.h");
-    libfoo.installLibraryHeaders(libbar);
+
+    foo_lib.installLibraryHeaders(bar_lib);
 
     const run_exe = b.addRunArtifact(exe);
     run_exe.expectStdOutEqual("ABD12X");
     test_step.dependOn(&run_exe.step);
 
-    const install_libfoo = b.addInstallArtifact(libfoo, .{
+    const install_foo_lib = b.addInstallArtifact(foo_lib, .{
         .dest_dir = .{ .override = .{ .custom = "custom" } },
         .h_dir = .{ .override = .{ .custom = "custom/include" } },
         .implib_dir = .disabled,
         .pdb_dir = .disabled,
     });
-    const check_exists = b.addExecutable(.{
+
+    const check_exists = b.addExecutable2(.{
         .name = "check_exists",
-        .root_source_file = b.path("check_exists.zig"),
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("check_exists.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+        }),
     });
     const run_check_exists = b.addRunArtifact(check_exists);
     run_check_exists.addArgs(&.{
@@ -94,6 +115,6 @@ pub fn build(b: *std.Build) void {
     });
     run_check_exists.setCwd(.{ .cwd_relative = b.getInstallPath(.prefix, "") });
     run_check_exists.expectExitCode(0);
-    run_check_exists.step.dependOn(&install_libfoo.step);
+    run_check_exists.step.dependOn(&install_foo_lib.step);
     test_step.dependOn(&run_check_exists.step);
 }

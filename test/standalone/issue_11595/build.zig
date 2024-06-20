@@ -5,41 +5,41 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
+    const optimize: std.builtin.OptimizeMode = .Debug;
 
     if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12419
         return;
     }
 
-    const exe = b.addExecutable(.{
-        .name = "zigtest",
+    const main_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    b.installArtifact(exe);
+    main_mod.addCSourceFile(.{
+        .file = b.path("test.c"),
+    });
 
-    const c_sources = [_][]const u8{
-        "test.c",
-    };
-
-    exe.addCSourceFiles(.{ .files = &c_sources });
-    exe.linkLibC();
-
-    var i: i32 = 0;
-    while (i < 1000) : (i += 1) {
-        exe.root_module.addCMacro("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    for (0..1000) |_| {
+        main_mod.addCMacro("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     }
 
-    exe.root_module.addCMacro("FOO", "42");
-    exe.root_module.addCMacro("BAR", "\"BAR\"");
-    exe.root_module.addCMacro("BAZ",
+    main_mod.addCMacro("FOO", "42");
+    main_mod.addCMacro("BAR", "\"BAR\"");
+    main_mod.addCMacro("BAZ",
         \\"\"BAZ\""
     );
-    exe.root_module.addCMacro("QUX", "\"Q\" \"UX\"");
-    exe.root_module.addCMacro("QUUX", "\"QU\\\"UX\"");
+    main_mod.addCMacro("QUX", "\"Q\" \"UX\"");
+    main_mod.addCMacro("QUUX", "\"QU\\\"UX\"");
+
+    const exe = b.addExecutable2(.{
+        .name = "zigtest",
+        .root_module = main_mod,
+    });
+    b.installArtifact(exe);
 
     b.default_step.dependOn(&exe.step);
 

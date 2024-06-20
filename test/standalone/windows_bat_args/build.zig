@@ -10,18 +10,22 @@ pub fn build(b: *std.Build) !void {
 
     if (builtin.os.tag != .windows) return;
 
-    const echo_args = b.addExecutable(.{
+    const echo_args = b.addExecutable2(.{
         .name = "echo-args",
-        .root_source_file = b.path("echo-args.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("echo-args.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    const test_exe = b.addExecutable(.{
+    const test_exe = b.addExecutable2(.{
         .name = "test",
-        .root_source_file = b.path("test.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const run = b.addRunArtifact(test_exe);
@@ -31,22 +35,24 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(&run.step);
 
-    const fuzz = b.addExecutable(.{
+    const fuzz = b.addExecutable2(.{
         .name = "fuzz",
-        .root_source_file = b.path("fuzz.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const fuzz_max_iterations = b.option(u64, "iterations", "The max fuzz iterations (default: 100)") orelse 100;
-    const fuzz_iterations_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_max_iterations}) catch @panic("oom");
+    const fuzz_iterations_arg = b.fmt("{}", .{fuzz_max_iterations});
 
     const fuzz_seed = b.option(u64, "seed", "Seed to use for the PRNG (default: random)") orelse seed: {
         var buf: [8]u8 = undefined;
         try std.posix.getrandom(&buf);
         break :seed std.mem.readInt(u64, &buf, builtin.cpu.arch.endian());
     };
-    const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
+    const fuzz_seed_arg = b.fmt("{}", .{fuzz_seed});
 
     const fuzz_run = b.addRunArtifact(fuzz);
     fuzz_run.addArtifactArg(echo_args);
