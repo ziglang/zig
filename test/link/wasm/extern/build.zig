@@ -13,15 +13,19 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const exe = b.addExecutable(.{
-        .name = "extern",
+    const mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
+        .optimize = optimize,
     });
-    exe.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &.{} });
-    exe.use_llvm = false;
-    exe.use_lld = false;
+    mod.addCSourceFile(.{ .file = b.path("foo.c") });
+
+    const exe = b.addExecutable2(.{
+        .name = "extern",
+        .root_module = mod,
+        .use_llvm = false,
+        .use_lld = false,
+    });
 
     const run = b.addRunArtifact(exe);
     run.skip_foreign_checks = true;
