@@ -1891,7 +1891,7 @@ pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
     const size = @sizeOf(cpu_set_t);
     const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
 
-    switch (std.os.errno(rc)) {
+    switch (std.posix.errno(rc)) {
         .SUCCESS => return,
         else => |err| return std.posix.unexpectedErrno(err),
     }
