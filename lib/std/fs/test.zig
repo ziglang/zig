@@ -592,6 +592,44 @@ test "Dir.Iterator but dir is deleted during iteration" {
     }
 }
 
+test "Dir.Iterator firmlinks" {
+    if (builtin.os.tag != .macos) return error.SkipZigTest;
+
+    {
+        var dir = try fs.openDirAbsolute("/", .{ .iterate = true });
+        defer dir.close();
+
+        var applications_kind = File.Kind.unknown;
+
+        var it = dir.iterate();
+        while (try it.next()) |entry| {
+            if (std.mem.eql(u8, entry.name, "Applications")) {
+                applications_kind = entry.kind;
+                break;
+            }
+        }
+
+        try testing.expectEqual(File.Kind.firm_link, applications_kind);
+    }
+
+    {
+        var dir = try fs.openDirAbsolute("/System/Volumes/Data", .{ .iterate = true });
+        defer dir.close();
+
+        var applications_kind = File.Kind.unknown;
+
+        var it = dir.iterate();
+        while (try it.next()) |entry| {
+            if (std.mem.eql(u8, entry.name, "Applications")) {
+                applications_kind = entry.kind;
+                break;
+            }
+        }
+
+        try testing.expectEqual(File.Kind.directory, applications_kind);
+    }
+}
+
 fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }

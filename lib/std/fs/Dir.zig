@@ -19,9 +19,14 @@ const IteratorError = error{
 } || posix.UnexpectedError;
 
 pub const Iterator = switch (native_os) {
-    .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
+    .freebsd,
+    .netbsd,
+    .dragonfly,
+    .openbsd,
+    .solaris,
+    .illumos,
+    => struct {
         dir: Dir,
-        seek: i64,
         buf: [1024]u8, // TODO align(@alignOf(posix.system.dirent)),
         index: usize,
         end_index: usize,
@@ -35,64 +40,9 @@ pub const Iterator = switch (native_os) {
         /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
         pub fn next(self: *Self) Error!?Entry {
             switch (native_os) {
-                .macos, .ios => return self.nextDarwin(),
                 .freebsd, .netbsd, .dragonfly, .openbsd => return self.nextBsd(),
                 .solaris, .illumos => return self.nextSolaris(),
                 else => @compileError("unimplemented"),
-            }
-        }
-
-        fn nextDarwin(self: *Self) !?Entry {
-            start_over: while (true) {
-                if (self.index >= self.end_index) {
-                    if (self.first_iter) {
-                        posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
-                        self.first_iter = false;
-                    }
-                    const rc = posix.system.getdirentries(
-                        self.dir.fd,
-                        &self.buf,
-                        self.buf.len,
-                        &self.seek,
-                    );
-                    if (rc == 0) return null;
-                    if (rc < 0) {
-                        switch (posix.errno(rc)) {
-                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                            .FAULT => unreachable,
-                            .NOTDIR => unreachable,
-                            .INVAL => unreachable,
-                            else => |err| return posix.unexpectedErrno(err),
-                        }
-                    }
-                    self.index = 0;
-                    self.end_index = @as(usize, @intCast(rc));
-                }
-                const darwin_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + darwin_entry.reclen;
-                self.index = next_index;
-
-                const name = @as([*]u8, @ptrCast(&darwin_entry.name))[0..darwin_entry.namlen];
-
-                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.ino == 0)) {
-                    continue :start_over;
-                }
-
-                const entry_kind: Entry.Kind = switch (darwin_entry.type) {
-                    posix.DT.BLK => .block_device,
-                    posix.DT.CHR => .character_device,
-                    posix.DT.DIR => .directory,
-                    posix.DT.FIFO => .named_pipe,
-                    posix.DT.LNK => .sym_link,
-                    posix.DT.REG => .file,
-                    posix.DT.SOCK => .unix_domain_socket,
-                    posix.DT.WHT => .whiteout,
-                    else => .unknown,
-                };
-                return Entry{
-                    .name = name,
-                    .kind = entry_kind,
-                };
             }
         }
 
@@ -203,6 +153,122 @@ pub const Iterator = switch (native_os) {
                     posix.DT.REG => .file,
                     posix.DT.SOCK => .unix_domain_socket,
                     posix.DT.WHT => .whiteout,
+                    else => .unknown,
+                };
+                return Entry{
+                    .name = name,
+                    .kind = entry_kind,
+                };
+            }
+        }
+
+        pub fn reset(self: *Self) void {
+            self.index = 0;
+            self.end_index = 0;
+            self.first_iter = true;
+        }
+    },
+    .macos,
+    .ios,
+    => struct {
+        dir: Dir,
+        buf: [@sizeOf(Attributes) + posix.PATH_MAX]u8 align(@alignOf(Attributes)),
+        offset: usize,
+        index: usize,
+        end_index: usize,
+        first_iter: bool,
+
+        const Attributes = struct {
+            length: u32,
+            returned: c.attribute_set_t,
+            name: c.attrreference_t,
+            obj_type: c.fsobj_type_t,
+            flags: u32,
+        };
+
+        const Self = @This();
+
+        pub const Error = IteratorError;
+
+        pub fn next(self: *Self) Error!?Entry {
+            start_over: while (true) {
+                if (self.index >= self.end_index) {
+                    if (self.first_iter) {
+                        posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                        self.first_iter = false;
+                    }
+                    var attr_list = c.attrlist{
+                        .bitmapcount = c.ATTR.BIT_MAP_COUNT,
+                        .reserved = 0,
+                        .commonattr = c.ATTR.CMN.RETURNED_ATTRS | c.ATTR.CMN.NAME | c.ATTR.CMN.OBJTYPE | c.ATTR.CMN.FLAGS,
+                        .volattr = 0,
+                        .dirattr = 0,
+                        .fileattr = 0,
+                        .forkattr = 0,
+                    };
+                    const rc = c.getattrlistbulk(
+                        self.dir.fd,
+                        &attr_list,
+                        &self.buf,
+                        self.buf.len,
+                        c.FSOPT.PACK_INVAL_ATTRS,
+                    );
+                    if (rc == 0) return null;
+                    if (rc < 0) {
+                        switch (posix.errno(rc)) {
+                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            else => |err| return posix.unexpectedErrno(err),
+                        }
+                    }
+                    self.offset = 0;
+                    self.index = 0;
+                    self.end_index = @intCast(rc);
+                }
+                const attrs = @as(*Attributes, @alignCast(@ptrCast(&self.buf[self.offset])));
+                self.offset += attrs.length;
+                self.index += 1;
+
+                if (attrs.returned.commonattr & c.ATTR.CMN.NAME == 0) {
+                    continue :start_over;
+                }
+
+                const name = blk: {
+                    const offset = attrs.name.attr_dataoffset;
+                    const raw = if (offset < 0)
+                        @intFromPtr(&attrs.name) - @abs(offset)
+                    else
+                        @intFromPtr(&attrs.name) + @abs(offset);
+
+                    const ptr = @as([*]u8, @ptrFromInt(raw));
+                    const length = @as(usize, @intCast(attrs.name.attr_length));
+                    break :blk ptr[0 .. length - 1 :0];
+                };
+
+                if (attrs.returned.commonattr & c.ATTR.CMN.FLAGS != 0 and attrs.flags & c.SF.FIRMLINK != 0) {
+                    return Entry{
+                        .name = name,
+                        .kind = .firm_link,
+                    };
+                }
+
+                if (attrs.returned.commonattr & c.ATTR.CMN.OBJTYPE == 0) {
+                    return Entry{
+                        .name = name,
+                        .kind = .unknown,
+                    };
+                }
+
+                const entry_kind: Entry.Kind = switch (@as(c.vtype, @enumFromInt(attrs.obj_type))) {
+                    .VBLK => .block_device,
+                    .VCHR => .character_device,
+                    .VDIR => .directory,
+                    .VFIFO => .named_pipe,
+                    .VLNK => .sym_link,
+                    .VREG => .file,
+                    .VSOCK => .unix_domain_socket,
                     else => .unknown,
                 };
                 return Entry{
@@ -597,6 +663,14 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
     switch (native_os) {
         .macos,
         .ios,
+        => return Iterator{
+            .dir = self,
+            .offset = 0,
+            .index = 0,
+            .end_index = 0,
+            .buf = undefined,
+            .first_iter = first_iter_start_value,
+        },
         .freebsd,
         .netbsd,
         .dragonfly,
@@ -605,7 +679,6 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
         .illumos,
         => return Iterator{
             .dir = self,
-            .seek = 0,
             .index = 0,
             .end_index = 0,
             .buf = undefined,
@@ -2699,4 +2772,5 @@ const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const windows = std.os.windows;
+const c = std.c;
 const native_os = builtin.os.tag;
