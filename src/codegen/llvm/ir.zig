@@ -797,6 +797,7 @@ pub const MetadataBlock = struct {
         BasicType,
         CompositeType,
         DerivedType,
+        ImportedEntity,
         SubroutineType,
         Enumerator,
         Subrange,
@@ -854,7 +855,7 @@ pub const MetadataBlock = struct {
             .{ .literal = 0 }, // retained types
             .{ .literal = 0 }, // subprograms
             MetadataAbbrev, // globals
-            .{ .literal = 0 }, // imported entities
+            MetadataAbbrev, // imported entities
             .{ .literal = 0 }, // DWO ID
             .{ .literal = 0 }, // macros
             .{ .literal = 0 }, // split debug inlining
@@ -870,6 +871,7 @@ pub const MetadataBlock = struct {
         is_optimized: bool,
         enums: Builder.Metadata,
         globals: Builder.Metadata,
+        imports: Builder.Metadata,
     };
 
     pub const Subprogram = struct {
@@ -1025,6 +1027,27 @@ pub const MetadataBlock = struct {
         align_in_bits: u64,
         offset_in_bits: u64,
         flags: Builder.Metadata.DIFlags,
+    };
+
+    pub const ImportedEntity = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 31 },
+            .{ .literal = 0 }, // is distinct
+            .{ .fixed = 32 }, // tag
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // entity
+            LineAbbrev, // line
+            MetadataAbbrev, // name
+            MetadataAbbrev, // file
+            .{ .literal = 0 }, // elements
+        };
+
+        tag: u32,
+        scope: Builder.Metadata,
+        entity: Builder.Metadata,
+        line: u32,
+        name: Builder.MetadataString,
+        file: Builder.Metadata,
     };
 
     pub const SubroutineType = struct {
