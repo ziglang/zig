@@ -184,6 +184,50 @@ pub fn enableTestRunnerMode(run: *Run) void {
     run.addArgs(&.{"--listen=-"});
 }
 
+pub const CoverageOptions = struct {
+    runner: []const []const u8 = &.{
+        "kcov", "--title=zig kcov",
+    },
+    exclude_zig_lib: bool = true,
+};
+
+pub fn getEmittedCoverage(run: *Run, opt: CoverageOptions) std.Build.LazyPath {
+    const b = run.step.owner;
+    const allocator = b.allocator;
+    const old_argv = run.argv.toOwnedSlice(allocator) catch @panic("OOM");
+    defer allocator.free(old_argv);
+
+    run.addArgs(opt.runner);
+    var exclude: []const u8 = undefined;
+    defer allocator.free(exclude);
+
+    if (opt.exclude_zig_lib) {
+        if (b.zig_lib_dir) |zig_lib_dir| {
+            exclude = std.mem.join(allocator, "", &.{
+                "--exclude-path=",
+                zig_lib_dir.getPath(b),
+                ",",
+                run.step.owner.exe_dir,
+            }) catch @panic("OOM");
+        } else {
+            exclude = std.mem.join(allocator, "", &.{
+                "--exclude-path=",
+                run.step.owner.exe_dir,
+            }) catch @panic("OOM");
+        }
+    } else {
+        exclude = std.mem.join(allocator, "", &.{
+            "--exclude-path=",
+            run.step.owner.exe_dir,
+        }) catch @panic("OOM");
+    }
+    run.addArg(exclude);
+
+    const cov_dir = run.addOutputDirectoryArg("coverage");
+    run.argv.appendSlice(allocator, old_argv) catch @panic("OOM");
+    return cov_dir;
+}
+
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {
     const b = run.step.owner;
     const bin_file = artifact.getEmittedBin();
