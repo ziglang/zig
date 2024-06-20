@@ -4014,7 +4014,6 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, zcu: *Zcu) Allocator.
     return ptr_val.pointerDerivationAdvanced(arena, zcu, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.AnalysisFail,
-        error.NeededSourceLocation,
         error.GenericPoison,
         error.ComptimeReturn,
         error.ComptimeBreak,

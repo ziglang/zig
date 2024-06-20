@@ -1074,7 +1074,7 @@ pub fn updateFunc(
     const res = if (decl_state) |*ds|
         try codegen.generateFunction(
             &elf_file.base,
-            decl.srcLoc(mod),
+            decl.navSrcLoc(mod).upgrade(mod),
             func_index,
             air,
             liveness,
@@ -1084,7 +1084,7 @@ pub fn updateFunc(
     else
         try codegen.generateFunction(
             &elf_file.base,
-            decl.srcLoc(mod),
+            decl.navSrcLoc(mod).upgrade(mod),
             func_index,
             air,
             liveness,
@@ -1158,13 +1158,13 @@ pub fn updateDecl(
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), decl_val, &code_buffer, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{
             .dwarf = ds,
         }, .{
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), decl_val, &code_buffer, .none, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .none, .{
             .parent_atom_index = sym_index,
         });
 
@@ -1221,12 +1221,12 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.srcLocOrNull(mod)) |src|
+        src.upgrade(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
-            .parent_decl_node = undefined,
+            .base_node = undefined,
             .lazy = .unneeded,
         };
     const res = try codegen.generateLazySymbol(
@@ -1306,7 +1306,7 @@ pub fn lowerUnnamedConst(
         val,
         ty.abiAlignment(mod),
         elf_file.zig_data_rel_ro_section_index.?,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {

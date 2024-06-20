@@ -32,7 +32,7 @@ pub fn format(
     return print(ctx.val, writer, ctx.depth, ctx.mod, ctx.opt_sema) catch |err| switch (err) {
         error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
         error.ComptimeBreak, error.ComptimeReturn => unreachable,
-        error.AnalysisFail, error.NeededSourceLocation => unreachable, // TODO: re-evaluate when we use `opt_sema` more fully
+        error.AnalysisFail => unreachable, // TODO: re-evaluate when we use `opt_sema` more fully
         else => |e| return e,
     };
 }
