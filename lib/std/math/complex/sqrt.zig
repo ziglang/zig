@@ -8,6 +8,9 @@ const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 
+// TODO: this seems to have ported over musl's gcc-specific
+// workaround for incorrectly handled special cases in
+// complex multiplications. Do we still need this in Zig?
 pub fn sqrt32(x: f32, y: f32) [2]f32 {
     if (x == 0 and y == 0) return .{ 0, y };
 
@@ -24,7 +27,7 @@ pub fn sqrt32(x: f32, y: f32) [2]f32 {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         return if (math.signbit(x)) .{
-            @abs(x - y),
+            @abs(y - y),
             math.copysign(x, y),
         } else .{
             x,
@@ -75,7 +78,7 @@ pub fn sqrt64(z_re: f64, z_im: f64) [2]f64 {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         return if (math.signbit(x)) .{
-            @abs(x - y),
+            @abs(y - y),
             math.copysign(x, y),
         } else .{
             x,
@@ -137,4 +140,14 @@ test sqrt64 {
     const im: f64 = 0.6445742373246469;
     try testing.expect(math.approxEqAbs(f64, z[0], re, @sqrt(math.floatEpsAt(f64, re))));
     try testing.expect(math.approxEqAbs(f64, z[1], im, @sqrt(math.floatEpsAt(f64, im))));
+}
+
+test sqrtFallback {
+    const re = 2.3271175190399496;
+    const im = 0.6445742373246469;
+    inline for (.{ f16, f32, f64, f128 }) |F| {
+        const z = sqrtFallback(F, 5, 3);
+        try testing.expect(math.approxEqAbs(F, z[0], re, @sqrt(math.floatEpsAt(F, re))));
+        try testing.expect(math.approxEqAbs(F, z[1], im, @sqrt(math.floatEpsAt(F, im))));
+    }
 }
