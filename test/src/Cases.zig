@@ -658,33 +658,36 @@ pub fn lowerToBuildSteps(
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+            .link_libc = case.link_libc,
+        });
+        for (case.deps.items) |dep| {
+            mod.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
+            });
+        }
+
+        const artifact = if (case.is_test) b.addTest2(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
-            .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
+            .Obj => b.addObject2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+            .Lib => b.addLibrary(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
+                .linkage = .static,
             }),
-            .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
+            .Exe => b.addExecutable2(.{
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
-
-        if (case.link_libc) artifact.linkLibC();
 
         switch (case.backend) {
             .stage1 => continue,
@@ -695,12 +698,6 @@ pub fn lowerToBuildSteps(
             .llvm => {
                 artifact.use_llvm = true;
             },
-        }
-
-        for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
-                .root_source_file = file_sources.get(dep.path).?,
-            });
         }
 
         switch (update.case) {
