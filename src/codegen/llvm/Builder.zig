@@ -7651,6 +7651,7 @@ pub const Metadata = enum(u32) {
         composite_vector_type,
         derived_pointer_type,
         derived_member_type,
+        derived_static_member_type,
         subroutine_type,
         enumerator_unsigned,
         enumerator_signed_positive,
@@ -7663,6 +7664,7 @@ pub const Metadata = enum(u32) {
         parameter,
         global_var,
         @"global_var local",
+        @"global_var decl",
         global_var_expression,
         constant,
 
@@ -7696,6 +7698,7 @@ pub const Metadata = enum(u32) {
                 .composite_vector_type,
                 .derived_pointer_type,
                 .derived_member_type,
+                .derived_static_member_type,
                 .subroutine_type,
                 .enumerator_unsigned,
                 .enumerator_signed_positive,
@@ -7707,6 +7710,7 @@ pub const Metadata = enum(u32) {
                 .parameter,
                 .global_var,
                 .@"global_var local",
+                .@"global_var decl",
                 .global_var_expression,
                 => false,
             };
@@ -7860,6 +7864,7 @@ pub const Metadata = enum(u32) {
             }
         };
 
+        scope: Metadata,
         file: Metadata,
         name: MetadataString,
         linkage_name: MetadataString,
@@ -7990,8 +7995,10 @@ pub const Metadata = enum(u32) {
     };
 
     pub const GlobalVar = struct {
-        pub const Options = struct {
-            local: bool,
+        pub const Options = enum {
+            internal,
+            internal_decl,
+            external,
         };
 
         name: MetadataString,
@@ -8001,6 +8008,7 @@ pub const Metadata = enum(u32) {
         line: u32,
         ty: Metadata,
         variable: Variable.Index,
+        declaration: Metadata,
     };
 
     pub const GlobalVarExpression = struct {
@@ -9985,7 +9993,7 @@ pub fn printUnbuffered(
                     try metadata_formatter.specialized(.@"distinct !", .DISubprogram, .{
                         .name = extra.name,
                         .linkageName = extra.linkage_name,
-                        .scope = extra.file,
+                        .scope = extra.scope,
                         .file = extra.file,
                         .line = extra.line,
                         .type = extra.ty,
@@ -10079,8 +10087,8 @@ pub fn printUnbuffered(
                             else => extra.name,
                         },
                         .scope = extra.scope,
-                        .file = null,
-                        .line = null,
+                        .file = extra.file,
+                        .line = extra.line,
                         .baseType = extra.underlying_type,
                         .size = extra.bitSize(),
                         .@"align" = extra.bitAlign(),
@@ -10101,6 +10109,7 @@ pub fn printUnbuffered(
                 },
                 .derived_pointer_type,
                 .derived_member_type,
+                .derived_static_member_type,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIDerivedType, .{
@@ -10109,7 +10118,8 @@ pub fn printUnbuffered(
                             DW_TAG_member,
                         }, switch (kind) {
                             .derived_pointer_type => .DW_TAG_pointer_type,
-                            .derived_member_type => .DW_TAG_member,
+                            .derived_member_type,
+                            .derived_static_member_type => .DW_TAG_member,
                             else => unreachable,
                         }),
                         .name = switch (extra.name) {
@@ -10126,7 +10136,7 @@ pub fn printUnbuffered(
                             0 => null,
                             else => |bit_offset| bit_offset,
                         },
-                        .flags = null,
+                        .flags = null, // TODO staticness
                         .extraData = null,
                         .dwarfAddressSpace = null,
                         .annotations = null,
@@ -10246,6 +10256,7 @@ pub fn printUnbuffered(
                 },
                 .global_var,
                 .@"global_var local",
+                .@"global_var decl",
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.GlobalVar, metadata_item.data);
                     try metadata_formatter.specialized(.@"distinct !", .DIGlobalVariable, .{
@@ -10255,12 +10266,8 @@ pub fn printUnbuffered(
                         .file = extra.file,
                         .line = extra.line,
                         .type = extra.ty,
-                        .isLocal = switch (kind) {
-                            .global_var => false,
-                            .@"global_var local" => true,
-                            else => unreachable,
-                        },
-                        .isDefinition = true,
+                        .isLocal = kind != .global_var,
+                        .isDefinition = kind != .@"global_var decl",
                         .declaration = null,
                         .templateParams = null,
                         .@"align" = null,
@@ -11749,6 +11756,7 @@ pub fn debugCompileUnit(
 pub fn debugSubprogram(
     self: *Builder,
     file: Metadata,
+    scope: Metadata,
     name: MetadataString,
     linkage_name: MetadataString,
     line: u32,
@@ -11760,6 +11768,7 @@ pub fn debugSubprogram(
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
     return self.debugSubprogramAssumeCapacity(
         file,
+        scope,
         name,
         linkage_name,
         line,
@@ -11949,6 +11958,28 @@ pub fn debugPointerType(
     );
 }
 
+pub fn debugStaticMemberType(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
+    return self.debugMemberTypeAssumeCapacity(
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        0,
+        0,
+        0,
+        true,
+    );
+}
+
 pub fn debugMemberType(
     self: *Builder,
     name: MetadataString,
@@ -11970,6 +12001,7 @@ pub fn debugMemberType(
         size_in_bits,
         align_in_bits,
         offset_in_bits,
+        false,
     );
 }
 
@@ -12063,6 +12095,7 @@ pub fn debugGlobalVar(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
+    declaration: Metadata,
     options: Metadata.GlobalVar.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVar, 0);
@@ -12074,6 +12107,7 @@ pub fn debugGlobalVar(
         line,
         ty,
         variable,
+        declaration,
         options,
     );
 }
@@ -12224,6 +12258,7 @@ pub fn debugCompileUnitAssumeCapacity(
 fn debugSubprogramAssumeCapacity(
     self: *Builder,
     file: Metadata,
+    scope: Metadata,
     name: MetadataString,
     linkage_name: MetadataString,
     line: u32,
@@ -12237,6 +12272,7 @@ fn debugSubprogramAssumeCapacity(
         @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
     return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
         .file = file,
+        .scope = scope,
         .name = name,
         .linkage_name = linkage_name,
         .line = line,
@@ -12499,21 +12535,25 @@ fn debugMemberTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
+    static: bool,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
-        .name = name,
-        .file = file,
-        .scope = scope,
-        .line = line,
-        .underlying_type = underlying_type,
-        .size_in_bits_lo = @truncate(size_in_bits),
-        .size_in_bits_hi = @truncate(size_in_bits >> 32),
-        .align_in_bits_lo = @truncate(align_in_bits),
-        .align_in_bits_hi = @truncate(align_in_bits >> 32),
-        .offset_in_bits_lo = @truncate(offset_in_bits),
-        .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
-    });
+    return self.metadataSimpleAssumeCapacity(
+        if (static) .derived_static_member_type else .derived_member_type,
+        Metadata.DerivedType{
+            .name = name,
+            .file = file,
+            .scope = scope,
+            .line = line,
+            .underlying_type = underlying_type,
+            .size_in_bits_lo = @truncate(size_in_bits),
+            .size_in_bits_hi = @truncate(size_in_bits >> 32),
+            .align_in_bits_lo = @truncate(align_in_bits),
+            .align_in_bits_hi = @truncate(align_in_bits >> 32),
+            .offset_in_bits_lo = @truncate(offset_in_bits),
+            .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
+        }
+    );
 }
 
 fn debugSubroutineTypeAssumeCapacity(
@@ -12769,11 +12809,16 @@ fn debugGlobalVarAssumeCapacity(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
+    declaration: Metadata,
     options: Metadata.GlobalVar.Options,
 ) Metadata {
     assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(
-        if (options.local) .@"global_var local" else .global_var,
+        switch (options) {
+            .internal => .@"global_var local",
+            .internal_decl => .@"global_var decl",
+            .external => .global_var,
+        },
         Metadata.GlobalVar{
             .name = name,
             .linkage_name = linkage_name,
@@ -12782,6 +12827,7 @@ fn debugGlobalVarAssumeCapacity(
             .line = line,
             .ty = ty,
             .variable = variable,
+            .declaration = declaration,
         },
     );
 }
@@ -13818,7 +13864,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         const extra = self.metadataExtraData(Metadata.Subprogram, data);
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Subprogram{
-                            .scope = extra.file,
+                            .scope = extra.scope,
                             .name = extra.name,
                             .linkage_name = extra.linkage_name,
                             .file = extra.file,
@@ -13898,12 +13944,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     },
                     .derived_pointer_type,
                     .derived_member_type,
+                    .derived_static_member_type,
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.DerivedType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
                             .tag = switch (kind) {
                                 .derived_pointer_type => DW.TAG.pointer_type,
-                                .derived_member_type => DW.TAG.member,
+                                .derived_member_type,
+                                .derived_static_member_type => DW.TAG.member,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -13914,6 +13962,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .size_in_bits = extra.bitSize(),
                             .align_in_bits = extra.bitAlign(),
                             .offset_in_bits = extra.bitOffset(),
+                            .flags = .{
+                                .StaticMember = kind == .derived_static_member_type,
+                            },
                         }, metadata_adapter);
                     },
                     .subroutine_type => {
@@ -14041,6 +14092,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     },
                     .global_var,
                     .@"global_var local",
+                    .@"global_var decl",
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.GlobalVar, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.GlobalVar{
@@ -14051,6 +14103,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .line = extra.line,
                             .ty = extra.ty,
                             .local = kind == .@"global_var local",
+                            .defined = kind != .@"global_var decl",
+                            .declaration = extra.declaration,
                         }, metadata_adapter);
                     },
                     .global_var_expression => {
