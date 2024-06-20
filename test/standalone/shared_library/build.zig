@@ -9,27 +9,37 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
-    const lib = b.addSharedLibrary(.{
-        .name = "mathtest",
+    const optimize: std.builtin.OptimizeMode = .Debug;
+
+    const lib_mod = b.createModule(.{
         .root_source_file = b.path("mathtest.zig"),
-        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .target = target,
         .optimize = optimize,
+    });
+    const lib = b.addLibrary(.{
+        .name = "mathtest",
+        .root_module = lib_mod,
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+        .linkage = .dynamic,
     });
 
-    const exe = b.addExecutable(.{
-        .name = "test",
+    const exe_mod = b.createModule(.{
+        .root_source_file = null,
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    exe.addCSourceFile(.{
+    exe_mod.addCSourceFile(.{
         .file = b.path("test.c"),
-        .flags = &[_][]const u8{"-std=c99"},
+        .flags = &.{"-std=c99"},
     });
-    exe.linkLibrary(lib);
-    exe.linkSystemLibrary("c");
+    exe_mod.linkLibrary(lib);
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = exe_mod,
+    });
 
     const run_cmd = b.addRunArtifact(exe);
     test_step.dependOn(&run_cmd.step);

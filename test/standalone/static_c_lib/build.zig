@@ -6,20 +6,31 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const foo = b.addStaticLibrary(.{
-        .name = "foo",
-        .optimize = optimize,
+    const c_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.graph.host,
-    });
-    foo.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &[_][]const u8{} });
-    foo.addIncludePath(b.path("."));
-
-    const test_exe = b.addTest(.{
-        .root_source_file = b.path("foo.zig"),
         .optimize = optimize,
     });
-    test_exe.linkLibrary(foo);
-    test_exe.addIncludePath(b.path("."));
+    c_mod.addIncludePath(b.path("."));
+    c_mod.addCSourceFile(.{ .file = b.path("foo.c") });
+
+    const c_lib = b.addLibrary(.{
+        .name = "foo",
+        .root_module = c_mod,
+        .linkage = .static,
+    });
+
+    const test_mod = b.createModule(.{
+        .root_source_file = b.path("foo.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    test_mod.addIncludePath(b.path("."));
+    test_mod.linkLibrary(c_lib);
+
+    const test_exe = b.addTest2(.{
+        .root_module = test_mod,
+    });
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

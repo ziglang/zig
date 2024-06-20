@@ -17,13 +17,15 @@ pub fn build(b: *std.Build) void {
     //     - x86_64: RBP_FRAME
     //     - aarch64: FRAME, DWARF
     {
-        const exe = b.addExecutable(.{
+        const exe = b.addExecutable2(.{
             .name = "unwind_fp",
-            .root_source_file = b.path("unwind.zig"),
-            .target = target,
-            .optimize = optimize,
-            .unwind_tables = if (target.result.isDarwin()) true else null,
-            .omit_frame_pointer = false,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("unwind.zig"),
+                .target = target,
+                .optimize = optimize,
+                .unwind_tables = if (target.result.isDarwin()) true else null,
+                .omit_frame_pointer = false,
+            }),
         });
 
         const run_cmd = b.addRunArtifact(exe);
@@ -40,13 +42,15 @@ pub fn build(b: *std.Build) void {
     //     - x86_64: STACK_IMMD, STACK_IND
     //     - aarch64: FRAMELESS, DWARF
     {
-        const exe = b.addExecutable(.{
+        const exe = b.addExecutable2(.{
             .name = "unwind_nofp",
-            .root_source_file = b.path("unwind.zig"),
-            .target = target,
-            .optimize = optimize,
-            .unwind_tables = true,
-            .omit_frame_pointer = true,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("unwind.zig"),
+                .target = target,
+                .optimize = optimize,
+                .unwind_tables = true,
+                .omit_frame_pointer = true,
+            }),
         });
 
         const run_cmd = b.addRunArtifact(exe);
@@ -63,32 +67,39 @@ pub fn build(b: *std.Build) void {
     //     - x86_64: STACK_IMMD, STACK_IND
     //     - aarch64: FRAMELESS, DWARF
     {
-        const c_shared_lib = b.addSharedLibrary(.{
-            .name = "c_shared_lib",
+        const c_mod = b.createModule(.{
+            .root_source_file = null,
             .target = target,
             .optimize = optimize,
             .strip = false,
+            .link_libc = true,
         });
-
         if (target.result.os.tag == .windows)
-            c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
-
-        c_shared_lib.addCSourceFile(.{
+            c_mod.addCMacro("LIB_API", "__declspec(dllexport)");
+        c_mod.addCSourceFile(.{
             .file = b.path("shared_lib.c"),
             .flags = &.{"-fomit-frame-pointer"},
         });
-        c_shared_lib.linkLibC();
 
-        const exe = b.addExecutable(.{
-            .name = "shared_lib_unwind",
+        const c_shared_lib = b.addLibrary(.{
+            .name = "c_shared_lib",
+            .root_module = c_mod,
+            .linkage = .dynamic,
+        });
+
+        const main_mod = b.createModule(.{
             .root_source_file = b.path("shared_lib_unwind.zig"),
             .target = target,
             .optimize = optimize,
             .unwind_tables = if (target.result.isDarwin()) true else null,
             .omit_frame_pointer = true,
         });
+        main_mod.linkLibrary(c_shared_lib);
 
-        exe.linkLibrary(c_shared_lib);
+        const exe = b.addExecutable2(.{
+            .name = "shared_lib_unwind",
+            .root_module = main_mod,
+        });
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);

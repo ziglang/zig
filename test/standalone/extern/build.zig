@@ -3,15 +3,21 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const obj = b.addObject(.{
+    const obj = b.addObject2(.{
         .name = "exports",
-        .root_source_file = b.path("exports.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("exports.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
-    const main = b.addTest(.{
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
+
+    const main = b.addTest2(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     main.addObject(obj);
 

@@ -10,18 +10,22 @@ pub fn build(b: *std.Build) void {
 
     if (builtin.os.tag != .windows) return;
 
-    const hello = b.addExecutable(.{
+    const hello = b.addExecutable2(.{
         .name = "hello",
-        .root_source_file = b.path("hello.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("hello.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    const main = b.addExecutable(.{
+    const main = b.addExecutable2(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const run = b.addRunArtifact(main);
