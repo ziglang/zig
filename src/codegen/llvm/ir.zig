@@ -842,7 +842,7 @@ pub const MetadataBlock = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = @intFromEnum(MetadataCode.COMPILE_UNIT) },
             .{ .literal = 1 }, // is distinct
-            .{ .literal = std.dwarf.LANG.C99 }, // source language
+            .{ .literal = std.dwarf.LANG.C_plus_plus_11 }, // source language
             MetadataAbbrev, // file
             MetadataAbbrev, // producer
             .{ .fixed = 1 }, // isOptimized
@@ -1011,7 +1011,7 @@ pub const MetadataBlock = struct {
             .{ .vbr = 6 }, // size in bits
             .{ .vbr = 6 }, // align in bits
             .{ .vbr = 6 }, // offset in bits
-            .{ .literal = 0 }, // flags
+            .{ .fixed = 32 }, // flags
             .{ .literal = 0 }, // extra data
         };
 
@@ -1024,6 +1024,7 @@ pub const MetadataBlock = struct {
         size_in_bits: u64,
         align_in_bits: u64,
         offset_in_bits: u64,
+        flags: Builder.Metadata.DIFlags,
     };
 
     pub const SubroutineType = struct {
@@ -1150,8 +1151,8 @@ pub const MetadataBlock = struct {
             LineAbbrev, // line
             MetadataAbbrev, // type
             .{ .fixed = 1 }, // local
-            .{ .literal = 1 }, // defined
-            .{ .literal = 0 }, // static data members declaration
+            .{ .fixed = 1 }, // defined
+            MetadataAbbrev, // static data members declaration
             .{ .literal = 0 }, // template params
             .{ .literal = 0 }, // align in bits
             .{ .literal = 0 }, // annotations
@@ -1164,6 +1165,8 @@ pub const MetadataBlock = struct {
         line: u32,
         ty: Builder.Metadata,
         local: bool,
+        defined: bool,
+        declaration: Builder.Metadata,
     };
 
     pub const GlobalVarExpression = struct {
