@@ -4,33 +4,42 @@ pub const requires_stage2 = true;
 
 pub fn build(b: *std.Build) void {
     // Wasm Object file which we will use to infer the features from
-    const c_obj = b.addObject(.{
-        .name = "c_obj",
-        .optimize = .Debug,
+    const c_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.bleeding_edge },
             .os_tag = .freestanding,
         }),
+        .optimize = .Debug,
     });
-    c_obj.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &.{} });
+    c_mod.addCSourceFile(.{ .file = b.path("foo.c") });
+
+    const c_obj = b.addObject2(.{
+        .name = "c_obj",
+        .root_module = c_mod,
+    });
 
     // Wasm library that doesn't have any features specified. This will
     // infer its featureset from other linked object files.
-    const lib = b.addExecutable(.{
-        .name = "lib",
+    const lib_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = .Debug,
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .wasm32,
             .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
             .os_tag = .freestanding,
         }),
+        .optimize = .Debug,
+    });
+    lib_mod.addObject(c_obj);
+
+    const lib = b.addExecutable2(.{
+        .name = "lib",
+        .root_module = lib_mod,
+        .use_llvm = false,
+        .use_lld = false,
     });
     lib.entry = .disabled;
-    lib.use_llvm = false;
-    lib.use_lld = false;
-    lib.addObject(c_obj);
 
     // Verify the result contains the features from the C Object file.
     const check = lib.checkObject();

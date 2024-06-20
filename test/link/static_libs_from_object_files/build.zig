@@ -55,16 +55,19 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
     // all files at once
     {
-        const exe = b.addExecutable(.{
-            .name = "test1",
+        const mod = b.createModule(.{
             .root_source_file = b.path("main.zig"),
-            .optimize = optimize,
             .target = b.graph.host,
+            .optimize = optimize,
         });
-
         for (files) |file| {
-            exe.addCSourceFile(.{ .file = file, .flags = &flags });
+            mod.addCSourceFile(.{ .file = file, .flags = &flags });
         }
+
+        const exe = b.addExecutable2(.{
+            .name = "test1",
+            .root_module = mod,
+        });
 
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.skip_foreign_checks = true;
@@ -75,30 +78,44 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
     // using static librairies
     {
-        const lib_a = b.addStaticLibrary(.{
-            .name = "test2_a",
+        const a_mod = b.createModule(.{
+            .root_source_file = null,
             .target = b.graph.host,
             .optimize = optimize,
         });
-        const lib_b = b.addStaticLibrary(.{
-            .name = "test2_b",
+        const b_mod = b.createModule(.{
+            .root_source_file = null,
             .target = b.graph.host,
             .optimize = optimize,
         });
-
         for (files, 1..) |file, i| {
-            const lib = if (i & 1 == 0) lib_a else lib_b;
-            lib.addCSourceFile(.{ .file = file, .flags = &flags });
+            const lib_mod = if (i & 1 == 0) a_mod else b_mod;
+            lib_mod.addCSourceFile(.{ .file = file, .flags = &flags });
         }
 
-        const exe = b.addExecutable(.{
-            .name = "test2",
+        const a_lib = b.addLibrary(.{
+            .name = "test2_a",
+            .root_module = a_mod,
+            .linkage = .static,
+        });
+        const b_lib = b.addLibrary(.{
+            .name = "test2_b",
+            .root_module = b_mod,
+            .linkage = .static,
+        });
+
+        const main_mod = b.createModule(.{
             .root_source_file = b.path("main.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         });
-        exe.linkLibrary(lib_a);
-        exe.linkLibrary(lib_b);
+        main_mod.linkLibrary(a_lib);
+        main_mod.linkLibrary(b_lib);
+
+        const exe = b.addExecutable2(.{
+            .name = "test2",
+            .root_module = main_mod,
+        });
 
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.skip_foreign_checks = true;
@@ -109,37 +126,56 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
     // using static librairies and object files
     {
-        const lib_a = b.addStaticLibrary(.{
-            .name = "test3_a",
+        const a_mod = b.createModule(.{
+            .root_source_file = null,
             .target = b.graph.host,
             .optimize = optimize,
         });
-        const lib_b = b.addStaticLibrary(.{
-            .name = "test3_b",
+        const b_mod = b.createModule(.{
+            .root_source_file = null,
             .target = b.graph.host,
             .optimize = optimize,
         });
-
         for (files, 1..) |file, i| {
-            const obj = b.addObject(.{
-                .name = b.fmt("obj_{}", .{i}),
+            const obj_mod = b.createModule(.{
+                .root_source_file = null,
                 .target = b.graph.host,
                 .optimize = optimize,
             });
-            obj.addCSourceFile(.{ .file = file, .flags = &flags });
+            obj_mod.addCSourceFile(.{ .file = file, .flags = &flags });
 
-            const lib = if (i & 1 == 0) lib_a else lib_b;
-            lib.addObject(obj);
+            const obj = b.addObject2(.{
+                .name = b.fmt("obj_{}", .{i}),
+                .root_module = obj_mod,
+            });
+
+            const lib_mod = if (i & 1 == 0) a_mod else b_mod;
+            lib_mod.addObject(obj);
         }
 
-        const exe = b.addExecutable(.{
-            .name = "test3",
+        const a_lib = b.addLibrary(.{
+            .name = "test3_a",
+            .root_module = a_mod,
+            .linkage = .static,
+        });
+        const b_lib = b.addLibrary(.{
+            .name = "test3_b",
+            .root_module = b_mod,
+            .linkage = .static,
+        });
+
+        const main_mod = b.createModule(.{
             .root_source_file = b.path("main.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         });
-        exe.linkLibrary(lib_a);
-        exe.linkLibrary(lib_b);
+        main_mod.linkLibrary(a_lib);
+        main_mod.linkLibrary(b_lib);
+
+        const exe = b.addExecutable2(.{
+            .name = "test3",
+            .root_module = main_mod,
+        });
 
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.skip_foreign_checks = true;
