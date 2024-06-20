@@ -14,16 +14,18 @@ pub fn build(b: *std.Build) void {
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode, is_safe: bool) void {
     {
-        const lib = b.addExecutable(.{
+        const lib = b.addExecutable2(.{
             .name = "lib",
-            .root_source_file = b.path("lib.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-            .optimize = optimize_mode,
-            .strip = false,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("lib.zig"),
+                .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+                .optimize = optimize_mode,
+                .strip = false,
+            }),
+            .use_llvm = false,
+            .use_lld = false,
         });
         lib.entry = .disabled;
-        lib.use_llvm = false;
-        lib.use_lld = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
         lib.link_gc_sections = false;
@@ -62,16 +64,18 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
 
     // verify zero'd declaration is stored in bss for all optimization modes.
     {
-        const lib = b.addExecutable(.{
+        const lib = b.addExecutable2(.{
             .name = "lib",
-            .root_source_file = b.path("lib2.zig"),
-            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-            .optimize = optimize_mode,
-            .strip = false,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("lib2.zig"),
+                .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+                .optimize = optimize_mode,
+                .strip = false,
+            }),
+            .use_llvm = false,
+            .use_lld = false,
         });
         lib.entry = .disabled;
-        lib.use_llvm = false;
-        lib.use_lld = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
         lib.link_gc_sections = false;
