@@ -992,11 +992,16 @@ fn analyzeBodyInner(
     while (true) {
         crash_info.setBodyIndex(i);
         const inst = body[i];
-        std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
-            const path_digest = block.src_base_inst.resolveFull(&mod.intern_pool).path_digest;
-            const index = mod.path_digest_map.getIndex(path_digest).?;
-            break :sub_file_path mod.import_table.values()[index].sub_file_path;
-        }, inst });
+
+        // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
+        if (build_options.enable_logging) {
+            std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
+                const path_digest = block.src_base_inst.resolveFull(&mod.intern_pool).path_digest;
+                const index = mod.path_digest_map.getIndex(path_digest).?;
+                break :sub_file_path mod.import_table.values()[index].sub_file_path;
+            }, inst });
+        }
+
         const air_inst: Air.Inst.Ref = switch (tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
