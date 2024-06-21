@@ -347,10 +347,6 @@ pub const Decl = struct {
     /// there is no parent.
     src_namespace: Namespace.Index,
 
-    /// Line number corresponding to `src_node`. Stored separately so that source files
-    /// do not need to be loaded into memory in order to compute debug line numbers.
-    /// This value is absolute.
-    src_line: u32,
     /// Index of the ZIR `declaration` instruction from which this `Decl` was created.
     /// For the root `Decl` of a `File` and legacy anonymous decls, this is `.none`.
     zir_decl_index: InternPool.TrackedInst.Index.Optional,
@@ -563,6 +559,33 @@ pub const Decl = struct {
             },
             .offset = LazySrcLoc.Offset.nodeOffset(0),
         };
+    }
+
+    pub fn navSrcLine(decl: Decl, zcu: *Zcu) u32 {
+        const tracked = decl.zir_decl_index.unwrap() orelse inst: {
+            // generic instantiation
+            assert(decl.has_tv);
+            assert(decl.owns_tv);
+            const generic_owner_func = switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
+                .func => |func| func.generic_owner,
+                else => return 0, // TODO: this is probably a `variable` or something; figure this out when we finish sorting out `Decl`.
+            };
+            const generic_owner_decl = zcu.declPtr(zcu.funcInfo(generic_owner_func).owner_decl);
+            break :inst generic_owner_decl.zir_decl_index.unwrap().?;
+        };
+        const info = tracked.resolveFull(&zcu.intern_pool);
+        const file = zcu.import_table.values()[zcu.path_digest_map.getIndex(info.path_digest).?];
+        assert(file.zir_loaded);
+        const zir = file.zir;
+        const inst = zir.instructions.get(@intFromEnum(info.inst));
+        assert(inst.tag == .declaration);
+        return zir.extraData(Zir.Inst.Declaration, inst.data.declaration.payload_index).data.src_line;
+    }
+
+    pub fn typeSrcLine(decl: Decl, zcu: *Zcu) u32 {
+        assert(decl.has_tv);
+        assert(decl.owns_tv);
+        return decl.val.toType().typeDeclSrcLine(zcu).?;
     }
 };
 
@@ -3944,7 +3967,6 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
 
     new_decl.name = try file.fullyQualifiedName(mod);
     new_decl.name_fully_qualified = true;
-    new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.alignment = .none;
@@ -4762,8 +4784,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     const extra = zir.extraData(Zir.Inst.Declaration, inst_data.payload_index);
     const declaration = extra.data;
 
-    const line = iter.parent_decl.src_line + declaration.line_offset;
-
     // Every Decl needs a name.
     const decl_name: InternPool.NullTerminatedString, const kind: Decl.Kind, const is_named_test: bool = switch (declaration.name) {
         .@"comptime" => info: {
@@ -4850,7 +4870,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const was_exported = decl.is_exported;
         assert(decl.kind == kind); // ZIR tracking should preserve this
         decl.name = decl_name;
-        decl.src_line = line;
         decl.is_pub = declaration.flags.is_pub;
         decl.is_exported = declaration.flags.is_export;
         break :decl_index .{ was_exported, decl_index };
@@ -4860,7 +4879,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
-        new_decl.src_line = line;
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
         new_decl.zir_decl_index = tracked_inst.toOptional();
@@ -5263,7 +5281,6 @@ pub fn allocateNewDecl(zcu: *Zcu, namespace: Namespace.Index) !Decl.Index {
     const decl_index = try zcu.intern_pool.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = namespace,
-        .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
         .val = undefined,
@@ -5311,14 +5328,12 @@ pub fn errorSetBits(mod: *Module) u16 {
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
-    src_line: u32,
     val: Value,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
     const new_decl = mod.declPtr(new_decl_index);
 
     new_decl.name = name;
-    new_decl.src_line = src_line;
     new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;

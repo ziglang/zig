@@ -6958,7 +6958,6 @@ fn finishFuncInstance(
     const decl_index = try ip.createDecl(gpa, .{
         .name = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
-        .src_line = fn_owner_decl.src_line,
         .has_tv = true,
         .owns_tv = true,
         .val = @import("Value.zig").fromInterned(func_index),

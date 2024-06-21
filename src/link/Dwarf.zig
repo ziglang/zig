@@ -948,8 +948,8 @@ pub const DeclState = struct {
             leb128.writeUnsignedFixed(4, self.dbg_line.addManyAsArrayAssumeCapacity(4), new_file);
         }
 
-        const old_src_line: i33 = self.mod.declPtr(old_func_info.owner_decl).src_line;
-        const new_src_line: i33 = self.mod.declPtr(new_func_info.owner_decl).src_line;
+        const old_src_line: i33 = self.mod.declPtr(old_func_info.owner_decl).navSrcLine(self.mod);
+        const new_src_line: i33 = self.mod.declPtr(new_func_info.owner_decl).navSrcLine(self.mod);
         if (new_src_line != old_src_line) {
             self.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
             leb128.writeSignedFixed(5, self.dbg_line.addManyAsArrayAssumeCapacity(5), new_src_line - old_src_line);
@@ -1116,11 +1116,11 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             decl_state.dbg_line_func = decl.val.toIntern();
             const func = decl.val.getFunction(mod).?;
             log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-                decl.src_line,
+                decl.navSrcLine(mod),
                 func.lbrace_line,
                 func.rbrace_line,
             });
-            const line: u28 = @intCast(decl.src_line + func.lbrace_line);
+            const line: u28 = @intCast(decl.navSrcLine(mod) + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&.{
                 DW.LNS.extended_op,
@@ -1702,11 +1702,11 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: InternPool.D
     const decl = mod.declPtr(decl_index);
     const func = decl.val.getFunction(mod).?;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-        decl.src_line,
+        decl.navSrcLine(mod),
         func.lbrace_line,
         func.rbrace_line,
     });
-    const line: u28 = @intCast(decl.src_line + func.lbrace_line);
+    const line: u28 = @intCast(decl.navSrcLine(mod) + func.lbrace_line);
     var data: [4]u8 = undefined;
     leb128.writeUnsignedFixed(4, &data, line);
 

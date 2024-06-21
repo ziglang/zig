@@ -11,6 +11,7 @@ const target_util = @import("target.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
+const Zir = std.zig.Zir;
 
 /// Both types and values are canonically represented by a single 32-bit integer
 /// which is an index into an `InternPool` data structure.
@@ -3340,7 +3341,7 @@ pub const Type = struct {
                 .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
                     .declared => |d| d.zir_index,
                     .reified => |r| r.zir_index,
-                    .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index, // must be declared since we can't generate tags when reifying
+                    .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
                     .empty_struct => return null,
                 },
                 else => return null,
@@ -3437,6 +3438,33 @@ pub const Type = struct {
             .enum_type => ip.loadEnumType(ty.toIntern()).zir_index.unwrap(),
             .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
             else => null,
+        };
+    }
+
+    pub fn typeDeclSrcLine(ty: Type, zcu: *const Zcu) ?u32 {
+        const ip = &zcu.intern_pool;
+        const tracked = switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
+                .declared => |d| d.zir_index,
+                .reified => |r| r.zir_index,
+                .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
+                .empty_struct => return null,
+            },
+            else => return null,
+        };
+        const info = tracked.resolveFull(&zcu.intern_pool);
+        const file = zcu.import_table.values()[zcu.path_digest_map.getIndex(info.path_digest).?];
+        assert(file.zir_loaded);
+        const zir = file.zir;
+        const inst = zir.instructions.get(@intFromEnum(info.inst));
+        assert(inst.tag == .extended);
+        return switch (inst.data.extended.opcode) {
+            .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_line,
+            .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
+            .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
+            .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
+            .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            else => unreachable,
         };
     }
 
