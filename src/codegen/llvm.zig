@@ -1642,17 +1642,19 @@ pub const Object = struct {
 
         const file, const subprogram = if (!wip.strip) debug_info: {
             const file = try o.getDebugFile(file_scope);
-            const scope = try o.namespaceToDebugScope(decl.src_namespace);
+            const scope = try o.lowerDebugType(zcu.declPtr(namespace.decl_index).val.toType(), false);
 
             const line_number = decl.navSrcLine(zcu) + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null;
             const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu), true);
+            const decl_name = try o.builder.metadataString(decl.name.toSlice(ip));
+            const link_name = try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder));
 
             const subprogram = try o.builder.debugSubprogram(
                 file,
                 scope,
-                try o.builder.metadataString(decl.name.toSlice(ip)),
-                try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder)),
+                decl_name,
+                link_name,
                 line_number,
                 line_number + func.lbrace_line,
                 debug_decl_type,
@@ -1669,6 +1671,7 @@ pub const Object = struct {
                 },
                 o.debug_compile_unit,
             );
+
             function_index.setSubprogram(subprogram, &o.builder);
             break :debug_info .{ file, subprogram };
         } else .{.none} ** 2;
