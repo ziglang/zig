@@ -1793,12 +1793,14 @@ pub const Object = struct {
             const line_number = zcu.navSrcLine(func.owner_nav) + 1;
             const is_internal_linkage = ip.indexToKey(nav.status.resolved.val) != .@"extern";
             const debug_decl_type = try o.lowerDebugType(fn_ty, true);
+            const decl_name = try o.builder.metadataString(nav.name.toSlice(ip));
+            const link_name = try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder));
 
             const subprogram = try o.builder.debugSubprogram(
                 file,
                 scope,
-                try o.builder.metadataString(nav.name.toSlice(ip)),
-                try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder)),
+                decl_name,
+                link_name,
                 line_number,
                 line_number + func.lbrace_line,
                 debug_decl_type,
@@ -1815,6 +1817,7 @@ pub const Object = struct {
                 },
                 o.debug_compile_unit,
             );
+
             function_index.setSubprogram(subprogram, &o.builder);
             break :debug_info .{ file, subprogram };
         } else .{.none} ** 2;
