@@ -19,12 +19,12 @@ pub fn main() !void {
     var single_threaded_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer single_threaded_arena.deinit();
 
+    const args = try process.argsAlloc(single_threaded_arena.allocator());
+
     var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
         .child_allocator = single_threaded_arena.allocator(),
     };
     const arena = thread_safe_arena.allocator();
-
-    const args = try process.argsAlloc(arena);
 
     // skip my own exe name
     var arg_idx: usize = 1;
@@ -91,7 +91,9 @@ pub fn main() !void {
 
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
-    var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
+    var thread_pool_options: std.zig.ThreadPoolOptions = .{
+        .cache_directory = local_cache_directory,
+    };
 
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
@@ -387,7 +389,7 @@ fn runStepNames(
     b: *std.Build,
     step_names: []const []const u8,
     parent_prog_node: std.Progress.Node,
-    thread_pool_options: std.Thread.Pool.Options,
+    thread_pool_options: std.zig.ThreadPoolOptions,
     run: *Run,
     seed: u32,
 ) !void {
@@ -446,8 +448,7 @@ fn runStepNames(
         }
     }
 
-    var thread_pool: std.Thread.Pool = undefined;
-    try thread_pool.init(thread_pool_options);
+    var thread_pool = try std.zig.initThreadPool(gpa, thread_pool_options);
     defer thread_pool.deinit();
 
     {

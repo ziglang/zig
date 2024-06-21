@@ -689,6 +689,7 @@ pub const EnvVar = enum {
     CLICOLOR_FORCE,
     XDG_CACHE_HOME,
     HOME,
+    JOBSERVER2,
 
     pub fn isSet(comptime ev: EnvVar) bool {
         return std.process.hasEnvVarConstant(@tagName(ev));
@@ -707,6 +708,68 @@ pub const EnvVar = enum {
         return std.posix.getenvZ(@tagName(ev));
     }
 };
+
+pub const ThreadPoolOptions = struct {
+    n_jobs: ?u32 = null,
+    cache_directory: std.Build.Cache.Directory,
+};
+
+pub const cache_tmp_basename = "tmp";
+
+pub fn initThreadPool(gpa: Allocator, options: ThreadPoolOptions) !std.Thread.Pool {
+    if (EnvVar.JOBSERVER2.getPosix()) |addr_string| {
+        return std.Thread.Pool.init(gpa, .{
+            .n_jobs = options.n_jobs,
+            .job_server = .{ .connect = try std.net.Address.initUnix(addr_string) },
+        });
+    }
+
+    const rand_int_string = hex64(std.crypto.random.int(u64));
+    const suffix = "/" ++ cache_tmp_basename ++ "/" ++ rand_int_string;
+
+    var addr: std.net.Address = .{
+        .un = .{
+            .family = std.posix.AF.UNIX,
+            .path = undefined,
+        },
+    };
+
+    const cache_dir = options.cache_directory.path orelse ".";
+
+    // Add 1 to ensure a terminating 0 is present in the path array for maximum portability.
+    if (cache_dir.len + suffix.len + 1 > addr.un.path.len)
+        return error.NameTooLong;
+
+    @memset(&addr.un.path, 0);
+    @memcpy(addr.un.path[0..cache_dir.len], cache_dir);
+    @memcpy(addr.un.path[cache_dir.len..][0..suffix.len], suffix);
+
+    return std.Thread.Pool.init(gpa, .{
+        .n_jobs = options.n_jobs,
+        .job_server = .{ .host = addr },
+    }) catch |err| switch (err) {
+        error.FileNotFound => {
+            try options.cache_directory.handle.makePath(cache_tmp_basename);
+            return std.Thread.Pool.init(gpa, .{
+                .n_jobs = options.n_jobs,
+                .job_server = .{ .host = addr },
+            });
+        },
+        else => |e| return e,
+    };
+}
+
+fn hex64(x: u64) [16]u8 {
+    const hex_charset = "0123456789abcdef";
+    var result: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
+}
 
 test {
     _ = Ast;
