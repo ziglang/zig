@@ -1229,7 +1229,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .file = b.path("test/c_abi/cfuncs.c"),
                 .flags = &.{"-std=c99"},
             });
-            for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);
+            for (c_abi_target.c_defines) |define| test_step.root_module.addCMacro(define, "1");
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
