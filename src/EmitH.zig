@@ -12,7 +12,7 @@ const Error = error{ OutOfMemory, AnalysisFail };
 gpa: std.mem.Allocator,
 zcu: *Zcu,
 decl: *Zcu.Decl,
-decl_index: std.zig.DeclIndex,
+decl_index: InternPool.DeclIndex,
 emit_h: *Zcu.EmitH,
 error_msg: ?*Zcu.ErrorMsg,
 
@@ -662,7 +662,7 @@ const TrailingSpace = enum {
 };
 
 fn fail(emitter: *EmitH, comptime format: []const u8, args: anytype) Error {
-    emitter.error_msg = Zcu.ErrorMsg.create(emitter.gpa, emitter.decl.srcLoc(emitter.zcu), format, args) catch |err| return err;
+    emitter.error_msg = Zcu.ErrorMsg.create(emitter.gpa, emitter.decl.navSrcLoc(emitter.zcu).upgrade(emitter.zcu), format, args) catch |err| return err;
     return error.AnalysisFail;
 }
 
