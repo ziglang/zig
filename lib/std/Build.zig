@@ -81,9 +81,6 @@ enable_wine: bool = false,
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
 glibc_runtimes_dir: ?[]const u8 = null,
 
-/// Deprecated. Use `b.graph.host`.
-host: ResolvedTarget,
-
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
@@ -297,7 +294,6 @@ pub fn create(
         .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
-        .host = graph.host,
         .modules = std.StringArrayHashMap(*Module).init(arena),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
         .initialized_deps = initialized_deps,
@@ -391,7 +387,6 @@ fn createChildOnly(
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
         .glibc_runtimes_dir = parent.glibc_runtimes_dir,
-        .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
