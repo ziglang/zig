@@ -219,6 +219,7 @@ pub fn getEmittedCoverage(run: *Run, opt: CoverageOptions) std.Build.LazyPath {
         run.addArg(exclude.items);
     }
 
+    run.addArg("--");
     const cov_dir = run.addOutputDirectoryArg("coverage");
     run.argv.appendSlice(allocator, old_argv) catch @panic("OOM");
     return cov_dir;
