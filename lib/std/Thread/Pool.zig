@@ -312,8 +312,8 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) void {
 
 fn worker(pool: *Pool) void {
     var trash_buf: [1]u8 = undefined;
-    var connection: ?std.net.Stream = null;
-    defer if (connection) |stream| stream.close();
+    var connection: ?std.posix.fd_t = null;
+    defer if (connection) |fd| std.posix.close(fd);
 
     pool.mutex.lock();
     defer pool.mutex.unlock();
@@ -326,11 +326,26 @@ fn worker(pool: *Pool) void {
 
             if (connection == null) switch (pool.job_server_options) {
                 .abstain => {},
-                .connect, .host => |addr| {
-                    if (std.net.tcpConnectToAddress(addr)) |stream| {
-                        connection = stream;
-                        _ = stream.readAll(&trash_buf) catch 1;
-                    } else |_| {}
+                .connect, .host => |addr| lock: {
+                    const sockfd = std.posix.socket(
+                        std.posix.AF.UNIX,
+                        std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC,
+                        0,
+                    ) catch |err| {
+                        std.log.debug("failed to make socket: {s}", .{@errorName(err)});
+                        break :lock;
+                    };
+                    connection = sockfd;
+
+                    std.posix.connect(sockfd, &addr.any, addr.getOsSockLen()) catch |err| {
+                        std.log.debug("failed to connect: {s}", .{@errorName(err)});
+                        break :lock;
+                    };
+
+                    _ = std.posix.read(sockfd, &trash_buf) catch |err| {
+                        std.log.debug("failed to read: {s}", .{@errorName(err)});
+                        break :lock;
+                    };
                 },
             };
 
@@ -342,8 +357,8 @@ fn worker(pool: *Pool) void {
         if (pool.end_flag)
             break;
 
-        if (connection) |stream| {
-            stream.close();
+        if (connection) |fd| {
+            std.posix.close(fd);
             connection = null;
         }
 
