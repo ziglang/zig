@@ -2883,6 +2883,11 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         /// Returns a slice of the current token, or null if tokenization is
         /// complete, and advances to the next token.
         pub fn next(self: *Self) ?[]const T {
+            // advance past delimiters
+            while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
+                .sequence => self.delimiter.len,
+                .any, .scalar => 1,
+            }) {}
             const result = self.peek() orelse return null;
             self.index += result.len;
             return result;
@@ -2890,13 +2895,14 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         /// Returns a slice of the current token, or null if tokenization is
         /// complete. Does not advance to the next token.
-        pub fn peek(self: *Self) ?[]const T {
+        pub fn peek(self: Self) ?[]const T {
             // move to beginning of token
-            while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
+            var index = self.index;
+            while (index < self.buffer.len and self.isDelimiter(index)) : (index += switch (delimiter_type) {
                 .sequence => self.delimiter.len,
                 .any, .scalar => 1,
             }) {}
-            const start = self.index;
+            const start = index;
             if (start == self.buffer.len) {
                 return null;
             }
@@ -2982,7 +2988,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         /// Returns a slice of the next field, or null if splitting is complete.
         /// This method does not alter self.index.
-        pub fn peek(self: *Self) ?[]const T {
+        pub fn peek(self: Self) ?[]const T {
             const start = self.index orelse return null;
             const end = if (switch (delimiter_type) {
                 .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
