@@ -5062,7 +5062,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 job_queue.thread_pool.spawnWg(&job_queue.wait_group, Package.Fetch.workerRun, .{
                     &fetch, "root",
                 });
-                job_queue.wait_group.wait();
+                job_queue.thread_pool.waitAndWork(&job_queue.wait_group);
 
                 try job_queue.consolidateErrors();
 

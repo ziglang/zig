@@ -222,9 +222,6 @@ emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
 
-work_queue_wait_group: WaitGroup = .{},
-astgen_wait_group: WaitGroup = .{},
-
 llvm_opt_bisect_limit: c_int,
 
 pub const Emit = struct {
@@ -3251,13 +3248,13 @@ pub fn performAllTheWork(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    comp.work_queue_wait_group.reset();
-    defer comp.work_queue_wait_group.wait();
+    var work_queue_wait_group: WaitGroup = .{};
+    defer comp.thread_pool.waitAndWork(&work_queue_wait_group);
 
     if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.docs_emit != null) {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerDocsCopy, .{comp});
-            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
+            work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
         }
     }
 
@@ -3268,8 +3265,8 @@ pub fn performAllTheWork(
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
 
-        comp.astgen_wait_group.reset();
-        defer comp.astgen_wait_group.wait();
+        var astgen_wait_group: WaitGroup = .{};
+        defer comp.thread_pool.waitAndWork(&astgen_wait_group);
 
         // builtin.zig is handled specially for two reasons:
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
@@ -3291,33 +3288,33 @@ pub fn performAllTheWork(
 
                 const file = mod.builtin_file orelse continue;
 
-                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerUpdateBuiltinZigFile, .{
+                comp.thread_pool.spawnWg(&astgen_wait_group, workerUpdateBuiltinZigFile, .{
                     comp, mod, file,
                 });
             }
         }
 
         while (comp.astgen_work_queue.readItem()) |file| {
-            comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerAstGenFile, .{
-                comp, file, zir_prog_node, &comp.astgen_wait_group, .root,
+            comp.thread_pool.spawnWg(&astgen_wait_group, workerAstGenFile, .{
+                comp, file, zir_prog_node, &astgen_wait_group, .root,
             });
         }
 
         while (comp.embed_file_work_queue.readItem()) |embed_file| {
-            comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerCheckEmbedFile, .{
+            comp.thread_pool.spawnWg(&astgen_wait_group, workerCheckEmbedFile, .{
                 comp, embed_file,
             });
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateCObject, .{
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         if (!build_options.only_core_functionality) {
             while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-                comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateWin32Resource, .{
+                comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateWin32Resource, .{
                     comp, win32_resource, main_progress_node,
                 });
             }
