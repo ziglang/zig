@@ -22,7 +22,6 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
-const LazySrcLoc = std.zig.LazySrcLoc;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -1732,6 +1731,7 @@ pub const Object = struct {
             .liveness = liveness,
             .dg = &dg,
             .wip = wip,
+            .is_naked = fn_info.cc == .Naked,
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
@@ -1975,7 +1975,7 @@ pub const Object = struct {
                 defer gpa.free(dir_path);
                 if (std.fs.path.isAbsolute(dir_path))
                     break :dir_path try o.builder.metadataString(dir_path);
-                var abs_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                var abs_buffer: [std.fs.max_path_bytes]u8 = undefined;
                 const abs_path = std.fs.realpath(dir_path, &abs_buffer) catch
                     break :dir_path try o.builder.metadataString(dir_path);
                 break :dir_path try o.builder.metadataString(abs_path);
@@ -2066,7 +2066,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.src_line + 1, // Line
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(mod) * 8,
                     (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
@@ -2236,7 +2236,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.src_line + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -4728,7 +4728,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = dg.decl.srcLoc(mod);
+        const src_loc = dg.decl.navSrcLoc(mod).upgrade(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -4801,6 +4801,7 @@ pub const FuncGen = struct {
     air: Air,
     liveness: Liveness,
     wip: Builder.WipFunction,
+    is_naked: bool,
 
     file: Builder.Metadata,
     scope: Builder.Metadata,
@@ -8846,7 +8847,8 @@ pub const FuncGen = struct {
         const arg_val = self.args[self.arg_index];
         self.arg_index += 1;
 
-        if (self.wip.strip) return arg_val;
+        // llvm does not support debug info for naked function arguments
+        if (self.wip.strip or self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
         if (needDbgVarWorkaround(o)) return arg_val;
@@ -11148,7 +11150,6 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             }
                             return o.builder.structType(.normal, types[0..types_len]);
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11406,7 +11407,6 @@ const ParamTypeIterator = struct {
                             it.llvm_index += it.types_len - 1;
                             return .multiple_llvm_types;
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures

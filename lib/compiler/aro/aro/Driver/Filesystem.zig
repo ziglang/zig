@@ -46,7 +46,7 @@ fn canExecuteFake(entries: []const Filesystem.Entry, path: []const u8) bool {
 
 fn existsFake(entries: []const Filesystem.Entry, path: []const u8) bool {
     @setCold(true);
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&buf);
     const resolved = std.fs.path.resolvePosix(fib.allocator(), &.{path}) catch return false;
     for (entries) |entry| {
@@ -181,7 +181,7 @@ pub const Filesystem = union(enum) {
     }
 
     pub fn joinedExists(fs: Filesystem, parts: []const []const u8) bool {
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         var fib = std.heap.FixedBufferAllocator.init(&buf);
         const joined = std.fs.path.join(fib.allocator(), parts) catch return false;
         return fs.exists(joined);

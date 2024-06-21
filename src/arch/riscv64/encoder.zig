@@ -11,12 +11,11 @@ pub const Instruction = struct {
 
     pub fn new(mnemonic: Encoding.Mnemonic, ops: []const Operand) !Instruction {
         const encoding = (try Encoding.findByMnemonic(mnemonic, ops)) orelse {
-            std.log.err("no encoding found for:  {s} {s} {s} {s} {s}", .{
+            std.log.err("no encoding found for:  {s} [{s} {s} {s}]", .{
                 @tagName(mnemonic),
                 @tagName(if (ops.len > 0) ops[0] else .none),
                 @tagName(if (ops.len > 1) ops[1] else .none),
                 @tagName(if (ops.len > 2) ops[2] else .none),
-                @tagName(if (ops.len > 3) ops[3] else .none),
             });
             return error.InvalidInstruction;
         };
@@ -32,6 +31,31 @@ pub const Instruction = struct {
 
     pub fn encode(inst: Instruction, writer: anytype) !void {
         try writer.writeInt(u32, inst.encoding.data.toU32(), .little);
+    }
+
+    pub fn format(
+        inst: Instruction,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        std.debug.assert(fmt.len == 0);
+
+        const encoding = inst.encoding;
+
+        try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
+
+        var i: u32 = 0;
+        while (i < inst.ops.len and inst.ops[i] != .none) : (i += 1) {
+            if (i != inst.ops.len and i != 0) try writer.writeAll(", ");
+
+            switch (@as(Instruction.Operand, inst.ops[i])) {
+                .none => unreachable, // it's sliced out above
+                .reg => |reg| try writer.writeAll(@tagName(reg)),
+                .imm => |imm| try writer.print("{d}", .{imm.asSigned(64)}),
+                .mem => unreachable, // there is no "mem" operand in the actual instructions
+            }
+        }
     }
 };
 

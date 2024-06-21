@@ -236,7 +236,6 @@ test "float equality" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const x: f64 = 0.012;
     const y: f64 = x + 1.0;
@@ -440,7 +439,6 @@ test "division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -530,7 +528,6 @@ test "division half-precision floats" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -595,8 +592,6 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testSignedNegationWrappingEval(minInt(i16));
     try comptime testSignedNegationWrappingEval(minInt(i16));
 }
@@ -607,8 +602,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testUnsignedNegationWrappingEval(1);
     try comptime testUnsignedNegationWrappingEval(1);
 }
@@ -669,8 +662,6 @@ test "bit shift a u1" {
 }
 
 test "truncating shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrTrunc(maxInt(u16));
     try comptime testShrTrunc(maxInt(u16));
 }
@@ -1031,6 +1022,60 @@ test "@mulWithOverflow bitsize > 32" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     {
+        var a: u40 = 3;
+        var b: u40 = 0x55_5555_5555;
+        var ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == 0xff_ffff_ffff);
+        try expect(ov[1] == 0);
+
+        // Check that overflow bits in the low-word of wide-multiplications are checked too.
+        // Intermediate result is less than 2**64
+        b = 0x55_5555_5556;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 2);
+        try expect(ov[1] == 1);
+
+        // Check that overflow bits in the high-word of wide-multiplications are checked too.
+        // Intermediate result is more than 2**64 and bits 40..64 are not set.
+        a = 0x10_0000_0000;
+        b = 0x10_0000_0000;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 0);
+        try expect(ov[1] == 1);
+    }
+
+    {
+        var a: i40 = 3;
+        var b: i40 = -0x2a_aaaa_aaaa;
+        var ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == -0x7f_ffff_fffe);
+        try expect(ov[1] == 0);
+
+        // Check that the sign bit is properly checked
+        b = -0x2a_aaaa_aaab;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == 0x7f_ffff_ffff);
+        try expect(ov[1] == 1);
+
+        // Check that the low-order bits above the sign are checked.
+        a = 6;
+        ov = @mulWithOverflow(a, b);
+        try expect(ov[0] == -2);
+        try expect(ov[1] == 1);
+
+        // Check that overflow bits in the high-word of wide-multiplications are checked too.
+        // high parts and sign of low-order bits are all 1.
+        a = 0x08_0000_0000;
+        b = -0x08_0000_0001;
+        ov = @mulWithOverflow(a, b);
+
+        try expect(ov[0] == -0x8_0000_0000);
+        try expect(ov[1] == 1);
+    }
+
+    {
         var a: u62 = 3;
         _ = &a;
         var b: u62 = 0x1555555555555555;
@@ -1384,8 +1429,6 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShlTrunc(maxInt(u16));
     try comptime testShlTrunc(maxInt(u16));
 }
@@ -1408,8 +1451,6 @@ fn testShlExact(x: u8) !void {
 }
 
 test "exact shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrExact(0b10110100);
     try comptime testShrExact(0b10110100);
 }
@@ -1419,8 +1460,6 @@ fn testShrExact(x: u8) !void {
 }
 
 test "shift left/right on u0 operand" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: u0 = 0;
@@ -1579,7 +1618,6 @@ test "@round f16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1591,7 +1629,6 @@ test "@round f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1771,7 +1808,6 @@ test "absFloat" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testAbsFloat();
     try comptime testAbsFloat();

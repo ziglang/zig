@@ -238,7 +238,6 @@ test "regular in irregular packed struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Irregular = packed struct {
         bar: Regular = Regular{},
@@ -494,7 +493,6 @@ test "@intFromPtr on a packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (native_endian != .little) return error.SkipZigTest;
 
     const S = struct {
@@ -518,7 +516,6 @@ test "@intFromPtr on a packed struct field unaligned and nested" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (native_endian != .little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
 
     const S1 = packed struct {
@@ -1191,7 +1188,6 @@ test "packed struct field pointer aligned properly" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Foo = packed struct {
         a: i32,
@@ -1306,6 +1302,8 @@ test "2-byte packed struct argument in C calling convention" {
 }
 
 test "packed struct contains optional pointer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const foo: packed struct {
         a: ?*@This() = null,
     } = .{};

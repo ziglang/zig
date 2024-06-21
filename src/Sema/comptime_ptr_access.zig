@@ -1025,18 +1025,18 @@ fn checkComptimeVarStore(
     if (@intFromEnum(runtime_index) < @intFromEnum(block.runtime_index)) {
         if (block.runtime_cond) |cond_src| {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "store to comptime variable depends on runtime condition", .{});
+                const msg = try sema.errMsg(src, "store to comptime variable depends on runtime condition", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.mod.errNoteNonLazy(cond_src, msg, "runtime condition here", .{});
+                try sema.errNote(cond_src, msg, "runtime condition here", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         }
         if (block.runtime_loop) |loop_src| {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "cannot store to comptime variable in non-inline loop", .{});
+                const msg = try sema.errMsg(src, "cannot store to comptime variable in non-inline loop", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.mod.errNoteNonLazy(loop_src, msg, "non-inline loop here", .{});
+                try sema.errNote(loop_src, msg, "non-inline loop here", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -1048,7 +1048,6 @@ fn checkComptimeVarStore(
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const LazySrcLoc = std.zig.LazySrcLoc;
 
 const InternPool = @import("../InternPool.zig");
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
@@ -1057,3 +1056,5 @@ const Block = Sema.Block;
 const MutableValue = @import("../mutable_value.zig").MutableValue;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
+const Zcu = @import("../Module.zig");
+const LazySrcLoc = Zcu.LazySrcLoc;

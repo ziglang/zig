@@ -101,7 +101,7 @@ resource_usage_statistics: ResourceUsageStatistics = .{},
 ///
 /// The child's progress tree will be grafted into the parent's progress tree,
 /// by substituting this node with the child's root node.
-progress_node: std.Progress.Node = .{ .index = .none },
+progress_node: std.Progress.Node = std.Progress.Node.none,
 
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
@@ -376,6 +376,7 @@ pub fn run(args: struct {
     env_map: ?*const EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
+    progress_node: std.Progress.Node = std.Progress.Node.none,
 }) RunError!RunResult {
     var child = ChildProcess.init(args.argv, args.allocator);
     child.stdin_behavior = .Ignore;
@@ -385,6 +386,7 @@ pub fn run(args: struct {
     child.cwd_dir = args.cwd_dir;
     child.env_map = args.env_map;
     child.expand_arg0 = args.expand_arg0;
+    child.progress_node = args.progress_node;
 
     var stdout = std.ArrayList(u8).init(args.allocator);
     var stderr = std.ArrayList(u8).init(args.allocator);

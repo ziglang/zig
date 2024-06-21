@@ -365,7 +365,7 @@ fn putFn(self: *Plan9, decl_index: InternPool.DeclIndex, out: FnDeclOutput) !voi
         try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         const full_path = try std.fs.path.join(arena, &.{
             file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
             file.mod.root.sub_path,
@@ -433,7 +433,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         func_index,
         air,
         liveness,
@@ -499,7 +499,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), val, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = new_atom_idx,
@@ -538,7 +538,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
@@ -1020,7 +1020,7 @@ fn addDeclExports(
             {
                 try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     gpa,
-                    mod.declPtr(decl_index).srcLoc(mod),
+                    mod.declPtr(decl_index).navSrcLoc(mod).upgrade(mod),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -1212,12 +1212,12 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     self.syms.items[self.getAtomPtr(atom_index).sym_index.?] = symbol;
 
     // generate the code
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.srcLocOrNull(mod)) |src|
+        src.upgrade(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
-            .parent_decl_node = undefined,
+            .base_node = undefined,
             .lazy = .unneeded,
         };
     const res = try codegen.generateLazySymbol(

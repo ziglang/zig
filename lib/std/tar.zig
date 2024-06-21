@@ -283,9 +283,9 @@ fn nullStr(str: []const u8) []const u8 {
 /// Options for iterator.
 /// Buffers should be provided by the caller.
 pub const IteratorOptions = struct {
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     file_name_buffer: []u8,
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     link_name_buffer: []u8,
     /// Collects error messages during unpacking
     diagnostics: ?*Diagnostics = null,
@@ -613,8 +613,8 @@ fn PaxIterator(comptime ReaderType: type) type {
 
 /// Saves tar file content to the file systems.
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var iter = iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
@@ -946,8 +946,8 @@ test iterator {
     var fbs = std.io.fixedBufferStream(data);
 
     // User provided buffers to the iterator
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     // Create iterator
     var iter = iterator(fbs.reader(), .{
         .file_name_buffer = &file_name_buffer,

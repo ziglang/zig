@@ -19,7 +19,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const exe = b.addExecutable(.{
         .name = "test",
         .root_source_file = b.path("main.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = optimize,
     });
     exe.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[_][]const u8{"-std=c11"} });

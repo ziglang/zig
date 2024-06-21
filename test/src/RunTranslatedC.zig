@@ -77,7 +77,7 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
     }
     const translate_c = b.addTranslateC(.{
         .root_source_file = write_src.files.items[0].getPath(),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = .Debug,
     });
 

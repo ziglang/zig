@@ -13,7 +13,6 @@ const Type = @import("../type.zig").Type;
 const C = link.File.C;
 const Decl = Zcu.Decl;
 const trace = @import("../tracy.zig").trace;
-const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
@@ -638,7 +637,7 @@ pub const DeclGen = struct {
         const zcu = dg.zcu;
         const decl_index = dg.pass.decl;
         const decl = zcu.declPtr(decl_index);
-        const src_loc = decl.srcLoc(zcu);
+        const src_loc = decl.navSrcLoc(zcu).upgrade(zcu);
         dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
