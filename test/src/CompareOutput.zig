@@ -87,19 +87,24 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
     switch (case.special) {
         Special.Asm => {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run assemble-and-link {s}", .{
+            const annotated_case_name = b.fmt("run assemble-and-link {s}", .{
                 case.name,
-            }) catch @panic("OOM");
+            });
             for (self.test_filters) |test_filter| {
                 if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (self.test_filters.len > 0) return;
 
-            const exe = b.addExecutable(.{
-                .name = "test",
+            const mod = b.createModule(.{
+                .root_source_file = null,
                 .target = b.graph.host,
                 .optimize = .Debug,
             });
-            exe.addAssemblyFile(write_src.files.items[0].getPath());
+            mod.addAssemblyFile(write_src.files.items[0].getPath());
+
+            const exe = b.addExecutable2(.{
+                .name = "test",
+                .root_module = mod,
+            });
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -110,22 +115,24 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
         },
         Special.None => {
             for (self.optimize_modes) |optimize| {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "run compare-output {s} ({s})", .{
+                const annotated_case_name = b.fmt("run compare-output {s} ({s})", .{
                     case.name, @tagName(optimize),
-                }) catch @panic("OOM");
+                });
                 for (self.test_filters) |test_filter| {
                     if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
                 } else if (self.test_filters.len > 0) return;
 
-                const exe = b.addExecutable(.{
-                    .name = "test",
+                const mod = b.createModule(.{
                     .root_source_file = write_src.files.items[0].getPath(),
-                    .optimize = optimize,
                     .target = b.graph.host,
+                    .optimize = optimize,
+                    .link_libc = case.link_libc,
                 });
-                if (case.link_libc) {
-                    exe.linkSystemLibrary("c");
-                }
+
+                const exe = b.addExecutable2(.{
+                    .name = "test",
+                    .root_module = mod,
+                });
 
                 const run = b.addRunArtifact(exe);
                 run.setName(annotated_case_name);
@@ -138,20 +145,21 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
         Special.RuntimeSafety => {
             // TODO iterate over self.optimize_modes and test this in both
             // debug and release safe mode
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run safety {s}", .{case.name}) catch @panic("OOM");
+            const annotated_case_name = b.fmt("run safety {s}", .{case.name});
             for (self.test_filters) |test_filter| {
                 if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (self.test_filters.len > 0) return;
 
-            const exe = b.addExecutable(.{
-                .name = "test",
+            const mod = b.createModule(.{
                 .root_source_file = write_src.files.items[0].getPath(),
                 .target = b.graph.host,
                 .optimize = .Debug,
+                .link_libc = case.link_libc,
             });
-            if (case.link_libc) {
-                exe.linkSystemLibrary("c");
-            }
+            const exe = b.addExecutable2(.{
+                .name = "test",
+                .root_module = mod,
+            });
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
