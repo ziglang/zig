@@ -198,30 +198,26 @@ pub fn getEmittedCoverage(run: *Run, opt: CoverageOptions) std.Build.LazyPath {
     defer allocator.free(old_argv);
 
     run.addArgs(opt.runner);
-    var exclude: []const u8 = undefined;
-    defer allocator.free(exclude);
+    {
+        const excludeArg = "--exclude-path=";
+        const excludeCapacity = excludeArg.len + b.exe_dir.len;
+        var exclude = std.ArrayListUnmanaged(u8).initCapacity(
+            allocator,
+            excludeCapacity,
+        ) catch @panic("OOM");
+        defer exclude.deinit(allocator);
 
-    if (opt.exclude_zig_lib) {
-        if (b.zig_lib_dir) |zig_lib_dir| {
-            exclude = std.mem.join(allocator, "", &.{
-                "--exclude-path=",
-                zig_lib_dir.getPath(b),
-                ",",
-                run.step.owner.exe_dir,
-            }) catch @panic("OOM");
-        } else {
-            exclude = std.mem.join(allocator, "", &.{
-                "--exclude-path=",
-                run.step.owner.exe_dir,
-            }) catch @panic("OOM");
+        exclude.appendSlice(allocator, excludeArg) catch @panic("OOM");
+        exclude.appendSlice(allocator, b.exe_dir) catch @panic("OOM");
+
+        if (opt.exclude_zig_lib) {
+            if (b.zig_lib_dir) |zig_lib_dir| {
+                exclude.appendSlice(allocator, ",") catch @panic("OOM");
+                exclude.appendSlice(allocator, zig_lib_dir.getPath(b)) catch @panic("OOM");
+            }
         }
-    } else {
-        exclude = std.mem.join(allocator, "", &.{
-            "--exclude-path=",
-            run.step.owner.exe_dir,
-        }) catch @panic("OOM");
+        run.addArg(exclude.items);
     }
-    run.addArg(exclude);
 
     const cov_dir = run.addOutputDirectoryArg("coverage");
     run.argv.appendSlice(allocator, old_argv) catch @panic("OOM");
