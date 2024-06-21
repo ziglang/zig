@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    if (b.graph.host.result.abi == .msvc) shared.defineCMacro("API", "__declspec(dllexport)");
+    if (b.graph.host.result.abi == .msvc) shared.root_module.addCMacro("API", "__declspec(dllexport)");
     shared.addCSourceFile(.{ .file = b.path("shared.c"), .flags = &.{} });
     const test_exe = b.addTest(.{
         .root_source_file = b.path("main.zig"),

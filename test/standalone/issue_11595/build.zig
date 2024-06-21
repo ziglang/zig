@@ -30,16 +30,16 @@ pub fn build(b: *std.Build) void {
 
     var i: i32 = 0;
     while (i < 1000) : (i += 1) {
-        exe.defineCMacro("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        exe.root_module.addCMacro("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     }
 
-    exe.defineCMacro("FOO", "42");
-    exe.defineCMacro("BAR", "\"BAR\"");
-    exe.defineCMacro("BAZ",
+    exe.root_module.addCMacro("FOO", "42");
+    exe.root_module.addCMacro("BAR", "\"BAR\"");
+    exe.root_module.addCMacro("BAZ",
         \\"\"BAZ\""
     );
-    exe.defineCMacro("QUX", "\"Q\" \"UX\"");
-    exe.defineCMacro("QUUX", "\"QU\\\"UX\"");
+    exe.root_module.addCMacro("QUX", "\"Q\" \"UX\"");
+    exe.root_module.addCMacro("QUUX", "\"QU\\\"UX\"");
 
     b.default_step.dependOn(&exe.step);
 

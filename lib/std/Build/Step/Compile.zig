@@ -583,9 +583,6 @@ pub fn checkObject(compile: *Compile) *Step.CheckObject {
     return Step.CheckObject.create(compile.step.owner, compile.getEmittedBin(), compile.rootModuleTarget().ofmt);
 }
 
-/// deprecated: use `setLinkerScript`
-pub const setLinkerScriptPath = setLinkerScript;
-
 pub fn setLinkerScript(compile: *Compile, source: LazyPath) void {
     const b = compile.step.owner;
     compile.linker_script = source.dupe(b);
@@ -673,11 +670,6 @@ pub fn linkLibC(compile: *Compile) void {
 
 pub fn linkLibCpp(compile: *Compile) void {
     compile.root_module.link_libcpp = true;
-}
-
-/// Deprecated. Use `c.root_module.addCMacro`.
-pub fn defineCMacro(c: *Compile, name: []const u8, value: ?[]const u8) void {
-    c.root_module.addCMacro(name, value orelse "1");
 }
 
 const PkgConfigResult = struct {
@@ -803,16 +795,6 @@ pub fn linkSystemLibrary2(
 
 pub fn linkFramework(c: *Compile, name: []const u8) void {
     c.root_module.linkFramework(name, .{});
-}
-
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkNeeded(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .needed = true });
-}
-
-/// Deprecated. Use `c.root_module.linkFramework`.
-pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
-    c.root_module.linkFramework(name, .{ .weak = true });
 }
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.

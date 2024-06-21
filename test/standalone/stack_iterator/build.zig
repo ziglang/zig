@@ -72,7 +72,7 @@ pub fn build(b: *std.Build) void {
         });
 
         if (target.result.os.tag == .windows)
-            c_shared_lib.defineCMacro("LIB_API", "__declspec(dllexport)");
+            c_shared_lib.root_module.addCMacro("LIB_API", "__declspec(dllexport)");
 
         c_shared_lib.addCSourceFile(.{
             .file = b.path("shared_lib.c"),
