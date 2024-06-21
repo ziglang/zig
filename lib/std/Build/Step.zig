@@ -283,15 +283,17 @@ pub fn captureChildProcess(
     progress_node: std.Progress.Node,
     argv: []const []const u8,
 ) !std.process.Child.RunResult {
-    const arena = s.owner.allocator;
+    const b = s.owner;
+    const arena = b.allocator;
 
     try handleChildProcUnsupported(s, null, argv);
-    try handleVerbose(s.owner, null, argv);
+    try handleVerbose(b, null, argv);
 
     const result = std.process.Child.run(.{
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
+        .thread_pool = &b.graph.thread_pool,
     }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
@@ -334,6 +336,7 @@ pub fn evalZigProcess(
     child.stderr_behavior = .Pipe;
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
+    child.thread_pool = &b.graph.thread_pool;
 
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),

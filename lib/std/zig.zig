@@ -689,7 +689,7 @@ pub const EnvVar = enum {
     CLICOLOR_FORCE,
     XDG_CACHE_HOME,
     HOME,
-    JOBSERVER2,
+    JOBSERVERV2,
 
     pub fn isSet(comptime ev: EnvVar) bool {
         return std.process.hasEnvVarConstant(@tagName(ev));
@@ -710,15 +710,17 @@ pub const EnvVar = enum {
 };
 
 pub const ThreadPoolOptions = struct {
+    allocator: Allocator,
     n_jobs: ?u32 = null,
     cache_directory: std.Build.Cache.Directory,
 };
 
 pub const cache_tmp_basename = "tmp";
 
-pub fn initThreadPool(gpa: Allocator, options: ThreadPoolOptions) !std.Thread.Pool {
-    if (EnvVar.JOBSERVER2.getPosix()) |addr_string| {
-        return std.Thread.Pool.init(gpa, .{
+pub fn initThreadPool(thread_pool: *std.Thread.Pool, options: ThreadPoolOptions) !void {
+    if (EnvVar.JOBSERVERV2.getPosix()) |addr_string| {
+        return std.Thread.Pool.init(thread_pool, .{
+            .allocator = options.allocator,
             .n_jobs = options.n_jobs,
             .job_server = .{ .connect = try std.net.Address.initUnix(addr_string) },
         });
@@ -744,13 +746,15 @@ pub fn initThreadPool(gpa: Allocator, options: ThreadPoolOptions) !std.Thread.Po
     @memcpy(addr.un.path[0..cache_dir.len], cache_dir);
     @memcpy(addr.un.path[cache_dir.len..][0..suffix.len], suffix);
 
-    return std.Thread.Pool.init(gpa, .{
+    return std.Thread.Pool.init(thread_pool, .{
+        .allocator = options.allocator,
         .n_jobs = options.n_jobs,
         .job_server = .{ .host = addr },
     }) catch |err| switch (err) {
         error.FileNotFound => {
             try options.cache_directory.handle.makePath(cache_tmp_basename);
-            return std.Thread.Pool.init(gpa, .{
+            return std.Thread.Pool.init(thread_pool, .{
+                .allocator = options.allocator,
                 .n_jobs = options.n_jobs,
                 .job_server = .{ .host = addr },
             });

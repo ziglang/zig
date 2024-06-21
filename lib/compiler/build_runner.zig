@@ -74,6 +74,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .thread_pool = undefined,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -92,6 +93,7 @@ pub fn main() !void {
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
     var thread_pool_options: std.zig.ThreadPoolOptions = .{
+        .allocator = arena,
         .cache_directory = local_cache_directory,
     };
 
@@ -448,7 +450,8 @@ fn runStepNames(
         }
     }
 
-    var thread_pool = try std.zig.initThreadPool(gpa, thread_pool_options);
+    const thread_pool = &b.graph.thread_pool;
+    try std.zig.initThreadPool(thread_pool, thread_pool_options);
     defer thread_pool.deinit();
 
     {
@@ -469,7 +472,7 @@ fn runStepNames(
             if (step.state == .skipped_oom) continue;
 
             thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
-                &wait_group, &thread_pool, b, step, step_prog, run,
+                &wait_group, b, step, step_prog, run,
             });
         }
     }
@@ -890,12 +893,13 @@ fn constructGraphAndCheckForDependencyLoop(
 
 fn workerMakeOneStep(
     wg: *std.Thread.WaitGroup,
-    thread_pool: *std.Thread.Pool,
     b: *std.Build,
     s: *Step,
     prog_node: std.Progress.Node,
     run: *Run,
 ) void {
+    const thread_pool = &b.graph.thread_pool;
+
     // First, check the conditions for running this step. If they are not met,
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
@@ -975,7 +979,7 @@ fn workerMakeOneStep(
         // Successful completion of a step, so we queue up its dependants as well.
         for (s.dependants.items) |dep| {
             thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                wg, thread_pool, b, dep, prog_node, run,
+                wg, b, dep, prog_node, run,
             });
         }
     }
@@ -1000,7 +1004,7 @@ fn workerMakeOneStep(
                 remaining -= dep.max_rss;
 
                 thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                    wg, thread_pool, b, dep, prog_node, run,
+                    wg, b, dep, prog_node, run,
                 });
             } else {
                 run.memory_blocked_steps.items[i] = dep;

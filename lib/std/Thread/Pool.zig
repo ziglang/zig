@@ -7,11 +7,9 @@ const assert = std.debug.assert;
 mutex: std.Thread.Mutex,
 cond: std.Thread.Condition,
 run_queue: RunQueue,
-run_queue_len: usize,
 end_flag: bool,
 allocator: std.mem.Allocator,
-threads_buffer: []std.Thread,
-threads_len: usize,
+threads: []std.Thread,
 job_server_options: Options.JobServer,
 job_server: ?*JobServer,
 
@@ -23,6 +21,9 @@ const Runnable = struct {
 const RunProto = *const fn (*Runnable) void;
 
 pub const Options = struct {
+    /// Not required to be thread-safe; protected by the pool's mutex.
+    allocator: std.mem.Allocator,
+
     /// Max number of threads to be actively working at the same time.
     ///
     /// `null` means to use the logical core count, leaving the main thread to
@@ -49,22 +50,16 @@ pub const Options = struct {
     };
 };
 
-/// After initializing the thread pool and spawning work, the main thread must
-/// call `waitAndWork`.
-pub fn init(
-    /// Not required to be thread-safe; protected by the pool's mutex.
-    allocator: std.mem.Allocator,
-    options: Options,
-) !Pool {
-    var pool: Pool = .{
+pub fn init(pool: *Pool, options: Options) !void {
+    const allocator = options.allocator;
+
+    pool.* = .{
         .mutex = .{},
         .cond = .{},
         .run_queue = .{},
-        .run_queue_len = 0,
         .end_flag = false,
         .allocator = allocator,
-        .threads_buffer = &.{},
-        .threads_len = 0,
+        .threads = &.{},
         .job_server_options = options.job_server,
         .job_server = null,
     };
@@ -75,8 +70,15 @@ pub fn init(
     const thread_count = options.n_jobs orelse @max(1, std.Thread.getCpuCount() catch 1);
     assert(thread_count > 0);
 
-    pool.threads_buffer = try allocator.alloc(std.Thread, thread_count);
-    errdefer allocator.free(pool.threads_buffer);
+    // Kill and join any threads we spawned and free memory on error.
+    pool.threads = try allocator.alloc(std.Thread, thread_count);
+    var spawned: usize = 0;
+    errdefer pool.join(spawned);
+
+    for (pool.threads) |*thread| {
+        thread.* = try std.Thread.spawn(.{}, worker, .{pool});
+        spawned += 1;
+    }
 
     switch (options.job_server) {
         .abstain, .connect => {},
@@ -84,7 +86,7 @@ pub fn init(
             var server = try addr.listen(.{});
             errdefer server.deinit();
 
-            const pollfds = try allocator.alloc(std.posix.pollfd, thread_count);
+            const pollfds = try allocator.alloc(std.posix.pollfd, thread_count + 1);
             errdefer allocator.free(pollfds);
 
             const job_server = try allocator.create(JobServer);
@@ -99,11 +101,14 @@ pub fn init(
             pool.job_server = job_server;
         },
     }
-
-    return pool;
 }
 
 pub fn deinit(pool: *Pool) void {
+    pool.join(pool.threads.len);
+    pool.* = undefined;
+}
+
+fn join(pool: *Pool, spawned: usize) void {
     if (builtin.single_threaded)
         return;
 
@@ -127,15 +132,10 @@ pub fn deinit(pool: *Pool) void {
         job_server.thread.join();
     }
 
-    // Since we set end_flag with the mutex locked, no more threads could have
-    // been created.
-    const threads = pool.threads_buffer[0..pool.threads_len];
-
-    for (threads) |thread|
+    for (pool.threads[0..spawned]) |thread|
         thread.join();
 
-    pool.allocator.free(pool.threads_buffer);
-    pool.* = undefined;
+    pool.allocator.free(pool.threads);
 }
 
 pub const JobServer = struct {
@@ -256,22 +256,6 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
         };
 
         pool.run_queue.prepend(&closure.run_node);
-        pool.run_queue_len += 1;
-
-        // If there was already any queued work, spawn a new thread if we are
-        // under the max.
-        if (pool.run_queue_len > 1 and pool.threads_len < pool.threads_buffer.len) {
-            if (std.Thread.spawn(.{}, worker, .{pool})) |new_thread| {
-                pool.threads_buffer[pool.threads_len] = new_thread;
-                pool.threads_len += 1;
-            } else |_| if (pool.threads_len == 0) {
-                pool.mutex.unlock();
-                @call(.auto, func, args);
-                wait_group.finish();
-                return;
-            }
-        }
-
         pool.mutex.unlock();
     }
 
@@ -319,21 +303,6 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) void {
         };
 
         pool.run_queue.prepend(&closure.run_node);
-        pool.run_queue_len += 1;
-
-        // If there was already any queued work, spawn a new thread if we are
-        // under the max.
-        if (pool.run_queue_len > 1 and pool.threads_len < pool.threads_buffer.len) {
-            if (std.Thread.spawn(.{}, worker, .{pool})) |new_thread| {
-                pool.threads_buffer[pool.threads_len] = new_thread;
-                pool.threads_len += 1;
-            } else |_| if (pool.threads_len == 0) {
-                pool.mutex.unlock();
-                @call(.auto, func, args);
-                return;
-            }
-        }
-
         pool.mutex.unlock();
     }
 
@@ -351,8 +320,6 @@ fn worker(pool: *Pool) void {
 
     while (true) {
         while (pool.run_queue.popFirst()) |run_node| {
-            pool.run_queue_len -= 1;
-
             // Temporarily unlock the mutex in order to execute the run_node.
             pool.mutex.unlock();
             defer pool.mutex.lock();
@@ -391,7 +358,6 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
             defer pool.mutex.unlock();
             break :blk pool.run_queue.popFirst();
         }) |run_node| {
-            pool.run_queue_len -= 1;
             run_node.data.runFn(&run_node.data);
             continue;
         }

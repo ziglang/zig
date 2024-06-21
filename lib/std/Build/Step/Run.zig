@@ -1246,6 +1246,7 @@ fn spawnChildAndCollect(
     if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
         child.progress_node = prog_node;
     }
+    child.thread_pool = &b.graph.thread_pool;
 
     const term, const result, const elapsed_ns = t: {
         if (inherit) std.debug.lockStdErr();

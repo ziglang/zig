@@ -4604,6 +4604,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         };
         if (std.process.can_spawn) {
             var child = std.process.Child.init(argv.items, arena);
+            child.thread_pool = comp.thread_pool;
             if (comp.clang_passthrough_mode) {
                 child.stdin_behavior = .Inherit;
                 child.stdout_behavior = .Inherit;
@@ -4964,6 +4965,7 @@ fn spawnZigRc(
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     child.progress_node = child_progress_node;
+    child.thread_pool = comp.thread_pool;
 
     child.spawn() catch |err| {
         return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv[0], @errorName(err) });
