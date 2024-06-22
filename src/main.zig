@@ -2285,7 +2285,7 @@ fn buildOutputType(
                     linker_print_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--print-icf-sections") or mem.eql(u8, arg, "-print-icf-sections")) {
                     linker_print_icf_sections = true;
-                } else if (mem.eql(u8, arg, "--print-map")) {
+                } else if (mem.eql(u8, arg, "--print-map") or mem.eql(u8, arg, "-print-map")) {
                     linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
