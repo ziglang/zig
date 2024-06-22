@@ -2421,11 +2421,15 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--export-all-symbols") or mem.eql(u8, arg, "-export-all-symbols")) {
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "--color-diagnostics") or
-                    mem.eql(u8, arg, "--color-diagnostics=always"))
+                    mem.eql(u8, arg, "-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=always") or
+                    mem.eql(u8, arg, "-color-diagnostics=always"))
                 {
                     color = .on;
                 } else if (mem.eql(u8, arg, "--no-color-diagnostics") or
-                    mem.eql(u8, arg, "--color-diagnostics=never"))
+                    mem.eql(u8, arg, "-no-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=never") or
+                    mem.eql(u8, arg, "-color-diagnostics=never"))
                 {
                     color = .off;
                 } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or mem.eql(u8, arg, "-strip-all") or
