@@ -1999,6 +1999,7 @@ fn buildOutputType(
                                 must_link = false;
                             } else if (mem.eql(u8, linker_arg, "--Bdynamic") or
                                 mem.eql(u8, linker_arg, "-Bdynamic") or
+                                mem.eql(u8, linker_arg, "--dy") or
                                 mem.eql(u8, linker_arg, "-dy") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
@@ -2006,6 +2007,7 @@ fn buildOutputType(
                                 lib_preferred_mode = .dynamic;
                             } else if (mem.eql(u8, linker_arg, "--Bstatic") or
                                 mem.eql(u8, linker_arg, "-Bstatic") or
+                                mem.eql(u8, linker_arg, "--dn") or
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
