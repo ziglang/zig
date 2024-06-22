@@ -1954,9 +1954,9 @@ fn buildOutputType(
                             }
                             if (mem.eql(u8, linker_arg, "--build-id")) {
                                 build_id = .fast;
-                            } else if (mem.eql(u8, linker_arg, "--as-needed")) {
+                            } else if (mem.eql(u8, linker_arg, "--as-needed") or mem.eql(u8, linker_arg, "-as-needed")) {
                                 needed = false;
-                            } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
+                            } else if (mem.eql(u8, linker_arg, "--no-as-needed") or mem.eql(u8, linker_arg, "-no-as-needed")) {
                                 needed = true;
                             } else if (mem.eql(u8, linker_arg, "--no-pie") or mem.eql(u8, linker_arg, "-no-pie")) {
                                 create_module.opts.pie = false;
