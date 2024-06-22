@@ -1226,9 +1226,9 @@ fn buildOutputType(
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--undefined-version")) {
+                    } else if (mem.eql(u8, arg, "--undefined-version") or mem.eql(u8, arg, "-undefined-version")) {
                         linker_allow_undefined_version = true;
-                    } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                    } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                         linker_allow_undefined_version = false;
                     } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
                         linker_enable_new_dtags = true;
@@ -2240,9 +2240,9 @@ fn buildOutputType(
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
-                } else if (mem.eql(u8, arg, "--undefined-version")) {
+                } else if (mem.eql(u8, arg, "--undefined-version") or mem.eql(u8, arg, "-undefined-version")) {
                     linker_allow_undefined_version = true;
-                } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                     linker_allow_undefined_version = false;
                 } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
                     linker_enable_new_dtags = true;
