@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/arm64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -104,6 +105,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86_64 => syscalls.X64,
     .aarch64, .aarch64_be => syscalls.Arm64,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
     .sparc64 => syscalls.Sparc64,
     .mips, .mipsel => syscalls.Mips,
@@ -163,7 +165,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .riscv64 => packed struct(u32) {
+    .riscv32, .riscv64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -268,7 +270,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .x86, .riscv64 => packed struct(u32) {
+    .x86, .riscv32, .riscv64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -1840,7 +1842,11 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (@hasField(SYS, "fstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
     } else {
         return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
@@ -1848,7 +1854,11 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "stat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No stat syscall on this architecture.");
+    } else if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1856,7 +1866,11 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "lstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No lstat syscall on this architecture.");
+    } else if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1864,7 +1878,11 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (@hasField(SYS, "fstatat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstatat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     } else {
         return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
@@ -7352,6 +7370,7 @@ pub const AUDIT = struct {
             .x86_64 => .X86_64,
             .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
+            .riscv32 => .RISCV32,
             .riscv64 => .RISCV64,
             .sparc64 => .SPARC64,
             .mips => .MIPS,
