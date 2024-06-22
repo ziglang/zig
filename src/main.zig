@@ -1300,7 +1300,7 @@ fn buildOutputType(
                         target_mcpu = arg["-mcpu=".len..];
                     } else if (mem.startsWith(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(arg["-O".len..]);
-                    } else if (mem.eql(u8, arg, "--dynamic-linker")) {
+                    } else if (mem.eql(u8, arg, "--dynamic-linker") or mem.eql(u8, arg, "-dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
