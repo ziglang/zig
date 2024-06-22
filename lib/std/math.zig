@@ -337,6 +337,7 @@ pub inline fn exp2(value: anytype) @TypeOf(value) {
     return @exp2(value);
 }
 
+pub const series = @import("math/series.zig");
 pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
 
