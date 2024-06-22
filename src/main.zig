@@ -2287,7 +2287,7 @@ fn buildOutputType(
                     linker_print_icf_sections = true;
                 } else if (mem.eql(u8, arg, "--print-map") or mem.eql(u8, arg, "-print-map")) {
                     linker_print_map = true;
-                } else if (mem.eql(u8, arg, "--sort-section")) {
+                } else if (mem.eql(u8, arg, "--sort-section") or mem.eql(u8, arg, "-sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
                     linker_sort_section = std.meta.stringToEnum(link.File.Elf.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
