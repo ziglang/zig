@@ -282,6 +282,13 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .riscv32 =>
+            \\ li s0, 0
+            \\ li ra, 0
+            \\ sw sp, %[argc_argv_ptr]
+            \\ andi sp, sp, -16
+            \\ tail %[posixCallMainAndExit]@plt
+            ,
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
