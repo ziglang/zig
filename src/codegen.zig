@@ -16,7 +16,8 @@ const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const InternPool = @import("InternPool.zig");
 const Liveness = @import("Liveness.zig");
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
 const Module = Zcu;
 const Target = std.Target;
 const Type = @import("type.zig").Type;

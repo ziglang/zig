@@ -4,7 +4,8 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
 const Module = Zcu;
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");

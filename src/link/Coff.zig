@@ -2740,7 +2740,9 @@ const Compilation = @import("../Compilation.zig");
 const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");

@@ -10,7 +10,9 @@ const wasm = std.wasm;
 const log = std.log.scoped(.codegen);
 
 const codegen = @import("../../codegen.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;

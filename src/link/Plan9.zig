@@ -3,7 +3,9 @@
 
 const Plan9 = @This();
 const link = @import("../link.zig");
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
@@ -1046,8 +1048,6 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.comp.gpa;
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
-    // However that is planned to change, see the TODO comment in Module.zig
-    // in the deleteUnusedDecl function.
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = decl.val.isFuncBody(mod);

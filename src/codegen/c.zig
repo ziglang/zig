@@ -5,7 +5,7 @@ const mem = std.mem;
 const log = std.log.scoped(.c);
 
 const link = @import("../link.zig");
-const Zcu = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const Module = @import("../Package/Module.zig");
 const Compilation = @import("../Compilation.zig");
 const Value = @import("../Value.zig");

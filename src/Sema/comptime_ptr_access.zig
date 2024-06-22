@@ -1056,5 +1056,5 @@ const Block = Sema.Block;
 const MutableValue = @import("../mutable_value.zig").MutableValue;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
-const Zcu = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const LazySrcLoc = Zcu.LazySrcLoc;

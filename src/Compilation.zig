@@ -28,7 +28,7 @@ const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 /// Deprecated; use `Zcu`.
 const Module = Zcu;
 const InternPool = @import("InternPool.zig");

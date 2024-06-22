@@ -522,6 +522,8 @@ const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
 const ErrorMsg = Module.ErrorMsg;
 const Mir = @import("Mir.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Instruction = encoder.Instruction;
 const Immediate = bits.Immediate;

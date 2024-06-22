@@ -10,7 +10,9 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Value = @import("../../Value.zig");
 const ErrorMsg = Module.ErrorMsg;

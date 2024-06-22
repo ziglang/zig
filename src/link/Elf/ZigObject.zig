@@ -1648,7 +1648,9 @@ const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");

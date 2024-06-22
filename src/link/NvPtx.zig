@@ -12,7 +12,9 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");

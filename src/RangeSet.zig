@@ -5,9 +5,11 @@ const Order = std.math.Order;
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const RangeSet = @This();
-const LazySrcLoc = @import("Module.zig").LazySrcLoc;
+const LazySrcLoc = Zcu.LazySrcLoc;
 
 ranges: std.ArrayList(Range),
 module: *Module,

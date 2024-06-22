@@ -26,8 +26,9 @@ const Liveness = @import("../../Liveness.zig");
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const Package = @import("../../Package.zig");
-const Module = @import("../../Module.zig");
-const Zcu = Module;
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Target = std.Target;

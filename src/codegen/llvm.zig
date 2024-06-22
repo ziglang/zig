@@ -14,8 +14,9 @@ else
 const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const Module = @import("../Module.zig");
-const Zcu = Module;
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");

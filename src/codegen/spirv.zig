@@ -5,7 +5,9 @@ const log = std.log.scoped(.codegen);
 const assert = std.debug.assert;
 const Signedness = std.builtin.Signedness;
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
