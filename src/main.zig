@@ -2333,8 +2333,6 @@ fn buildOutputType(
                     have_version = true;
                 } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry") or mem.eql(u8, arg, "-entry")) {
                     entry = .{ .named = linker_args_it.nextOrFatal() };
-                } else if (mem.eql(u8, arg, "-u") or mem.eql(u8, arg, "--undefined")) {
-                    try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base") or mem.eql(u8, arg, "-image-base")) {
@@ -2462,8 +2460,20 @@ fn buildOutputType(
                     } else if (mem.eql(u8, "error", lookup_type)) {
                         linker_allow_shlib_undefined = false;
                     } else {
-                        fatal("unsupported -undefined option '{s}'", .{lookup_type});
+                        // There is an ambiguity here: ld on Linux uses `-(-)undefined <symbol>` to force a symbol to
+                        // be undefined during linking. Meanwhile, macOS ld uses it as the equivalent of Linux ld's
+                        // `-(-)(no-)allow-shlib-undefined` option.
+                        //
+                        // There are no great options here. For now, we allow the option to be used in both ways and
+                        // hope that no one is going to try to undefine a symbol called `dynamic_lookup` or `error`.
+                        //
+                        // Note that this ambiguity only exists for the linker option; the Clang option is explicitly
+                        // macOS-specific.
+                        try force_undefined_symbols.put(arena, lookup_type, {});
                     }
+                } else if (mem.eql(u8, arg, "-u") or mem.eql(u8, arg, "--undefined")) {
+                    // The above ambiguity does not exist for these variants of the option.
+                    try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "-install_name")) {
                     install_name = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-force_load")) {
