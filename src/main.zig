@@ -1605,7 +1605,7 @@ fn buildOutputType(
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                     } else if (mem.startsWith(u8, arg, "--export=")) {
                         try linker_export_symbol_names.append(arena, arg["--export=".len..]);
-                    } else if (mem.eql(u8, arg, "-Bsymbolic")) {
+                    } else if (mem.eql(u8, arg, "--Bsymbolic") or mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
                     } else if (mem.eql(u8, arg, "--gc-sections") or mem.eql(u8, arg, "-gc-sections")) {
                         linker_gc_sections = true;
@@ -2245,7 +2245,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "-no-allow-shlib-undefined"))
                 {
                     linker_allow_shlib_undefined = false;
-                } else if (mem.eql(u8, arg, "-Bsymbolic")) {
+                } else if (mem.eql(u8, arg, "--Bsymbolic") or mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     create_module.opts.import_memory = true;
