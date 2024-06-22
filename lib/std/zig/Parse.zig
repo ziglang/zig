@@ -1678,6 +1678,8 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
     }
 
     var banned_prec: i8 = -1;
+    var prev_op: Token.Tag = .invalid;
+    var prev_prec: i8 = -1;
 
     while (true) {
         const tok_tag = p.token_tags[p.tok_i];
@@ -1687,6 +1689,26 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!Node.Index {
         }
         if (info.prec == banned_prec) {
             return p.fail(.chained_comparison_operators);
+        }
+        if (info.prec > 0) {
+            if (tok_tag != prev_op and info.prec == prev_prec) blk: {
+                if (prev_op == .plus and tok_tag == .minus) break :blk;
+                if (prev_op == .minus and tok_tag == .plus) break :blk;
+                if (prev_op == .plus_percent and tok_tag == .minus_percent) break :blk;
+                if (prev_op == .minus_percent and tok_tag == .plus_percent) break :blk;
+                if (prev_op == .plus_pipe and tok_tag == .minus_pipe) break :blk;
+                if (prev_op == .minus_pipe and tok_tag == .plus_pipe) break :blk;
+
+                if (prev_op == .asterisk and tok_tag == .slash) break :blk;
+                if (prev_op == .slash and tok_tag == .asterisk) break :blk;
+
+                if (prev_op == .keyword_catch and tok_tag == .keyword_orelse) break :blk;
+                if (prev_op == .keyword_orelse and tok_tag == .keyword_catch) break :blk;
+
+                return p.fail(.ambiguous_operator_precedence);
+            }
+            prev_op = tok_tag;
+            prev_prec = info.prec;
         }
 
         const oper_token = p.nextToken();
