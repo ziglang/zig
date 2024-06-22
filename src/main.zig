@@ -2388,7 +2388,7 @@ fn buildOutputType(
                     have_version = true;
                 } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry") or mem.eql(u8, arg, "-entry")) {
                     entry = .{ .named = linker_args_it.nextOrFatal() };
-                } else if (mem.eql(u8, arg, "-u")) {
+                } else if (mem.eql(u8, arg, "-u") or mem.eql(u8, arg, "--undefined")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
