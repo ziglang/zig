@@ -2386,7 +2386,7 @@ fn buildOutputType(
                         fatal("unable to parse minor image version '{s}': {s}", .{ minor, @errorName(err) });
                     };
                     have_version = true;
-                } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
+                } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry") or mem.eql(u8, arg, "-entry")) {
                     entry = .{ .named = linker_args_it.nextOrFatal() };
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
