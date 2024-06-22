@@ -11,7 +11,6 @@ pub const ArchOsAbi = struct {
 pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64_be, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64_be, .os = .linux, .abi = .musl },
-    .{ .arch = .aarch64_be, .os = .windows, .abi = .gnu },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
@@ -20,7 +19,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .armeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabi },
     .{ .arch = .armeb, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .armeb, .os = .windows, .abi = .gnu },
     .{ .arch = .arm, .os = .linux, .abi = .gnueabi },
     .{ .arch = .arm, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .arm, .os = .linux, .abi = .musleabi },
