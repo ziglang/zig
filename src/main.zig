@@ -1630,9 +1630,9 @@ fn buildOutputType(
                         try linker_export_symbol_names.append(arena, arg["--export=".len..]);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
-                    } else if (mem.eql(u8, arg, "--gc-sections")) {
+                    } else if (mem.eql(u8, arg, "--gc-sections") or mem.eql(u8, arg, "-gc-sections")) {
                         linker_gc_sections = true;
-                    } else if (mem.eql(u8, arg, "--no-gc-sections")) {
+                    } else if (mem.eql(u8, arg, "--no-gc-sections") or mem.eql(u8, arg, "-no-gc-sections")) {
                         linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--build-id")) {
                         build_id = .fast;
@@ -2277,11 +2277,11 @@ fn buildOutputType(
                     force_load_objc = true;
                 } else if (mem.eql(u8, arg, "--no-undefined") or mem.eql(u8, arg, "-no-undefined")) {
                     linker_z_defs = true;
-                } else if (mem.eql(u8, arg, "--gc-sections")) {
+                } else if (mem.eql(u8, arg, "--gc-sections") or mem.eql(u8, arg, "-gc-sections")) {
                     linker_gc_sections = true;
-                } else if (mem.eql(u8, arg, "--no-gc-sections")) {
+                } else if (mem.eql(u8, arg, "--no-gc-sections") or mem.eql(u8, arg, "-no-gc-sections")) {
                     linker_gc_sections = false;
-                } else if (mem.eql(u8, arg, "--print-gc-sections")) {
+                } else if (mem.eql(u8, arg, "--print-gc-sections") or mem.eql(u8, arg, "-print-gc-sections")) {
                     linker_print_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--print-icf-sections")) {
                     linker_print_icf_sections = true;
