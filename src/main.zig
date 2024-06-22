@@ -1222,9 +1222,9 @@ fn buildOutputType(
                         linker_allow_undefined_version = true;
                     } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                         linker_allow_undefined_version = false;
-                    } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                    } else if (mem.eql(u8, arg, "--enable-new-dtags") or mem.eql(u8, arg, "-enable-new-dtags")) {
                         linker_enable_new_dtags = true;
-                    } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                    } else if (mem.eql(u8, arg, "--disable-new-dtags") or mem.eql(u8, arg, "-disable-new-dtags")) {
                         linker_enable_new_dtags = false;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc
@@ -2189,9 +2189,9 @@ fn buildOutputType(
                     linker_allow_undefined_version = true;
                 } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                     linker_allow_undefined_version = false;
-                } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                } else if (mem.eql(u8, arg, "--enable-new-dtags") or mem.eql(u8, arg, "-enable-new-dtags")) {
                     linker_enable_new_dtags = true;
-                } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                } else if (mem.eql(u8, arg, "--disable-new-dtags") or mem.eql(u8, arg, "-disable-new-dtags")) {
                     linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
