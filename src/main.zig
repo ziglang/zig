@@ -1517,7 +1517,7 @@ fn buildOutputType(
                         create_module.opts.link_mode = .dynamic;
                         lib_preferred_mode = .dynamic;
                         lib_search_strategy = .mode_first;
-                    } else if (mem.eql(u8, arg, "-static")) {
+                    } else if (mem.eql(u8, arg, "--static") or mem.eql(u8, arg, "-static")) {
                         create_module.opts.link_mode = .static;
                         lib_preferred_mode = .static;
                         lib_search_strategy = .no_fallback;
@@ -2012,6 +2012,7 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "--non_shared") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
+                                mem.eql(u8, linker_arg, "--static") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 lib_search_strategy = .no_fallback;
