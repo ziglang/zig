@@ -2388,6 +2388,8 @@ fn buildOutputType(
                     mem.eql(u8, arg, "-disable-auto-image-base"))
                 {
                     // These are ignored by LLD, but are used by Libtool for MinGW triples.
+                } else if (mem.eql(u8, arg, "--full-shutdown")) {
+                    // This is ignored by LLD.
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
