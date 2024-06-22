@@ -1577,9 +1577,16 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
         return open(mem.sliceTo(file_path, 0), flags, perm);
     }
 
+    var final_flags = flags;
+    if (@hasField(O, "TMPFILE")) {
+        if (flags.TMPFILE) {
+            final_flags.DIRECTORY = true;
+        }
+    }
+
     const open_sym = if (lfs64_abi) system.open64 else system.open;
     while (true) {
-        const rc = open_sym(file_path, flags, perm);
+        const rc = open_sym(file_path, final_flags, perm);
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -1746,9 +1753,16 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
+    var final_flags = flags;
+    if (@hasField(O, "TMPFILE")) {
+        if (flags.TMPFILE) {
+            final_flags.DIRECTORY = true;
+        }
+    }
+
     const openat_sym = if (lfs64_abi) system.openat64 else system.openat;
     while (true) {
-        const rc = openat_sym(dir_fd, file_path, flags, mode);
+        const rc = openat_sym(dir_fd, file_path, final_flags, mode);
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
