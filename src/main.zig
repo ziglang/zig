@@ -1981,7 +1981,10 @@ fn buildOutputType(
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
-                            } else if (mem.eql(u8, linker_arg, "--no-pie") or mem.eql(u8, linker_arg, "-no-pie")) {
+                            } else if (mem.eql(u8, linker_arg, "--no-pie") or
+                                mem.eql(u8, linker_arg, "-no-pie") or
+                                mem.eql(u8, linker_arg, "-no_pie"))
+                            {
                                 create_module.opts.pie = false;
                             } else if (mem.eql(u8, linker_arg, "--sort-common")) {
                                 // from ld.lld(1): --sort-common is ignored for GNU compatibility,
