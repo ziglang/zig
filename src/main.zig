@@ -2001,6 +2001,7 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-Bdynamic") or
                                 mem.eql(u8, linker_arg, "--dy") or
                                 mem.eql(u8, linker_arg, "-dy") or
+                                mem.eql(u8, linker_arg, "--call_shared") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
                                 lib_search_strategy = .no_fallback;
@@ -2009,6 +2010,7 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-Bstatic") or
                                 mem.eql(u8, linker_arg, "--dn") or
                                 mem.eql(u8, linker_arg, "-dn") or
+                                mem.eql(u8, linker_arg, "--non_shared") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
