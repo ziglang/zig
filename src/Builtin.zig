@@ -296,6 +296,6 @@ const build_options = @import("build_options");
 const Module = @import("Package/Module.zig");
 const assert = std.debug.assert;
 const AstGen = std.zig.AstGen;
-const File = @import("Module.zig").File;
+const File = @import("Zcu.zig").File;
 const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.builtin);

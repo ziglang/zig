@@ -6,7 +6,7 @@ const Ast = std.zig.Ast;
 const InternPool = @import("InternPool.zig");
 
 const Zir = std.zig.Zir;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const Module = Zcu;
 const LazySrcLoc = Zcu.LazySrcLoc;
 

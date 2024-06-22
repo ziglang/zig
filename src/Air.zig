@@ -11,7 +11,9 @@ const Air = @This();
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.

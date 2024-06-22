@@ -1587,7 +1587,9 @@ const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");

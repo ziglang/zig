@@ -6,7 +6,8 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
 const Module = Zcu;
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");

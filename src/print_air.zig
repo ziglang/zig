@@ -2,14 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 const InternPool = @import("InternPool.zig");
 
-pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
+pub fn write(stream: anytype, module: *Zcu, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -55,7 +55,7 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
 pub fn writeInst(
     stream: anytype,
     inst: Air.Inst.Index,
-    module: *Module,
+    module: *Zcu,
     air: Air,
     liveness: ?Liveness,
 ) void {
@@ -70,16 +70,16 @@ pub fn writeInst(
     writer.writeInst(stream, inst) catch return;
 }
 
-pub fn dump(module: *Module, air: Air, liveness: ?Liveness) void {
+pub fn dump(module: *Zcu, air: Air, liveness: ?Liveness) void {
     write(std.io.getStdErr().writer(), module, air, liveness);
 }
 
-pub fn dumpInst(inst: Air.Inst.Index, module: *Module, air: Air, liveness: ?Liveness) void {
+pub fn dumpInst(inst: Air.Inst.Index, module: *Zcu, air: Air, liveness: ?Liveness) void {
     writeInst(std.io.getStdErr().writer(), inst, module, air, liveness);
 }
 
 const Writer = struct {
-    module: *Module,
+    module: *Zcu,
     gpa: Allocator,
     air: Air,
     liveness: ?Liveness,

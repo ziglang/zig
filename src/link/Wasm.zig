@@ -28,7 +28,9 @@ const File = @import("Wasm/file.zig").File;
 const InternPool = @import("../InternPool.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../type.zig").Type;

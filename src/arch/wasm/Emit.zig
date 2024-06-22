@@ -5,7 +5,9 @@ const Emit = @This();
 const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;

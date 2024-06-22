@@ -2964,7 +2964,9 @@ const File = link.File;
 const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;

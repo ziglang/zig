@@ -2,7 +2,7 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
-const Feature = @import("Module.zig").Feature;
+const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 

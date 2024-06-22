@@ -4,7 +4,9 @@ const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 
 pub const Class = union(enum) {
     memory,
