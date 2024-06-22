@@ -20,26 +20,19 @@ fn redupif32(x: f32) f32 {
         t -= 0.5;
     }
 
-    const u = @as(f32, @floatFromInt(@as(i32, @intFromFloat(t))));
-    return ((x - u * DP1) - u * DP2) - t * DP3;
+    const u = @trunc(t);
+    return ((x - u * DP1) - u * DP2) - u * DP3;
 }
 
 pub fn atan32(x: f32, y: f32) [2]f32 {
-    const maxnum = 1.0e38;
-    const overflow = .{ maxnum, maxnum };
-
-    if ((x == 0.0) and (y > 1.0)) return overflow;
-
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) return overflow;
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif32(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) return overflow;
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
@@ -58,26 +51,19 @@ fn redupif64(x: f64) f64 {
         t -= 0.5;
     }
 
-    const u = @as(f64, @floatFromInt(@as(i64, @intFromFloat(t))));
-    return ((x - u * DP1) - u * DP2) - t * DP3;
+    const u: f64 = @trunc(t);
+    return ((x - u * DP1) - u * DP2) - u * DP3;
 }
 
 pub fn atan64(x: f64, y: f64) [2]f64 {
-    const maxnum = 1.0e308;
-    const overflow = .{ maxnum, maxnum };
-
-    if ((x == 0.0) and (y > 1.0)) return overflow;
-
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) return overflow;
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif64(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) return overflow;
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
