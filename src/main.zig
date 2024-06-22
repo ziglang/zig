@@ -2428,11 +2428,11 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--color-diagnostics=never"))
                 {
                     color = .off;
-                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
-                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
+                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or mem.eql(u8, arg, "-strip-all") or
+                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug") or mem.eql(u8, arg, "-strip-debug"))
                 {
-                    // -s, --strip-all             Strip all symbols
-                    // -S, --strip-debug           Strip debugging symbols
+                    // -s, -(-)strip-all             Strip all symbols
+                    // -S, -(-)strip-debug           Strip debugging symbols
                     mod_opts.strip = true;
                 } else if (mem.eql(u8, arg, "--start-group") or
                     mem.eql(u8, arg, "-start-group") or
