@@ -324,28 +324,89 @@ pub fn addImport(m: *Module, name: []const u8, module: *Module) void {
 /// dependencies on `m`'s `depending_steps`.
 fn addShallowDependencies(m: *Module, dependee: *Module) void {
     if (dependee.root_source_file) |lazy_path| addLazyPathDependencies(m, dependee, lazy_path);
-    for (dependee.lib_paths.items) |lib_path| addLazyPathDependencies(m, dependee, lib_path);
+
+    // Note: all code below should be synced with respective functions
+    // in regards to lazy path and step dependencies.
+    //
+    // With old API (`b.addExecutable` etc.), root module was created
+    // during `Step.Compile.create` call, and this function was immediately
+    // called with `depending_steps` > 0. Even if the logic here is de-synced,
+    // user can still call `addCSourceFile`, `addIncludePath` etc. peacefully
+    // since they are called later that this function and add required
+    // dependencies by themselves.
+    //
+    // Now, with the new API (`b.addExecutable2` etc.), root module is created
+    // by user before creating artifact, and in between these 2 moments
+    // they can call same `addCSourceFile` etc. functions. But this time,
+    // this function is called both earlier and later that them:
+    // during module creation (`depending_steps` == 0), and during artifact
+    // creation (`depending_steps` > 0). Which means not all dependencies will be
+    // added.
+    for (dependee.include_dirs.items) |include_dir| switch (include_dir) {
+        // Sync with:
+        // * `addIncludePath`,
+        // * `addAfterIncludePath`,
+        // * `addSystemIncludePath`,
+        // * `addFrameworkPath`,
+        // * and `addSystemFrameworkPath`.
+        .path,
+        .path_after,
+        .path_system,
+        .framework_path,
+        .framework_path_system,
+        => |lp| addLazyPathDependencies(m, dependee, lp),
+
+        // Sync with `link_objects` for-loop below and `linkLibraryOrObject`.
+        .other_step => |compile| {
+            addStepDependencies(m, dependee, &compile.step);
+            // We don't need to depend on
+            addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
+        },
+
+        // Sync with `addConfigHeader`.
+        .config_header_step => |config_header| addStepDependencies(m, dependee, &config_header.step),
+    };
+
+    for (dependee.lib_paths.items) |directory_path|
+        // Sync with `addLibraryPath`.
+        addLazyPathDependencies(m, dependee, directory_path);
+
     for (dependee.rpaths.items) |rpath| switch (rpath) {
+        // Sync with `addRPath`.
         .lazy_path => |lp| addLazyPathDependencies(m, dependee, lp),
+
+        // Sync with `addRPathSpecial`.
         .special => {},
     };
 
     for (dependee.link_objects.items) |link_object| switch (link_object) {
-        .other_step => |compile| {
-            addStepDependencies(m, dependee, &compile.step);
-            addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
+        // Sync with `addObjectFile`.
+        .static_path => |lp| addLazyPathDependencies(m, dependee, lp),
+
+        // Sync with `include_paths` for-loop above and `linkLibraryOrObject`.
+        .other_step => |_| {
+            // Dependency on the compile step and `compile.getEmittedIncludeTree()`
+            // is already added by mentioned for-loop.
         },
 
-        .static_path,
-        .assembly_file,
-        => |lp| addLazyPathDependencies(m, dependee, lp),
+        // Sync with `linkSystemLibrary`.
+        .system_lib => {},
 
-        .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
-        .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
+        // Sync with `addAssemblyFile`.
+        .assembly_file => |lp| addLazyPathDependencies(m, dependee, lp),
 
-        .c_source_files,
-        .system_lib,
-        => {},
+        // Sync with `addCSourceFile`.
+        .c_source_file => |source| addLazyPathDependencies(m, dependee, source.file),
+        // Sync with `addCSourceFiles`.
+        .c_source_files => |source_files| addLazyPathDependencies(m, dependee, source_files.root),
+
+        // Sync with `addWin32ResourceFile`.
+        .win32_resource_file => |source| {
+            addLazyPathDependencies(m, dependee, source.file);
+            for (source.include_paths) |include_path| {
+                addLazyPathDependencies(m, dependee, include_path);
+            }
+        },
     };
 }
 
