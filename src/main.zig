@@ -1560,7 +1560,7 @@ fn buildOutputType(
                         const next_arg = arg["-fopt-bisect-limit=".len..];
                         llvm_opt_bisect_limit = std.fmt.parseInt(c_int, next_arg, 0) catch |err|
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
-                    } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    } else if (mem.eql(u8, arg, "--eh-frame-hdr") or mem.eql(u8, arg, "-eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
                         linker_dynamicbase = true;
@@ -2404,9 +2404,9 @@ fn buildOutputType(
                     // This is ignored by LLD.
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script") or mem.eql(u8, arg, "-script")) {
                     linker_script = linker_args_it.nextOrFatal();
-                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr") or mem.eql(u8, arg, "-eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
-                } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
+                } else if (mem.eql(u8, arg, "--no-eh-frame-hdr") or mem.eql(u8, arg, "-no-eh-frame-hdr")) {
                     link_eh_frame_hdr = false;
                 } else if (mem.eql(u8, arg, "--tsaware")) {
                     linker_tsaware = true;
