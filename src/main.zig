@@ -2435,7 +2435,9 @@ fn buildOutputType(
                     // -S, --strip-debug           Strip debugging symbols
                     mod_opts.strip = true;
                 } else if (mem.eql(u8, arg, "--start-group") or
-                    mem.eql(u8, arg, "--end-group"))
+                    mem.eql(u8, arg, "-start-group") or
+                    mem.eql(u8, arg, "--end-group") or
+                    mem.eql(u8, arg, "-end-group"))
                 {
                     // We don't need to care about these because these args are
                     // for resolving circular dependencies but our linker takes
