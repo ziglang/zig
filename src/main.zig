@@ -2410,7 +2410,7 @@ fn buildOutputType(
                     link_eh_frame_hdr = false;
                 } else if (mem.eql(u8, arg, "--tsaware") or mem.eql(u8, arg, "-tsaware")) {
                     linker_tsaware = true;
-                } else if (mem.eql(u8, arg, "--nxcompat")) {
+                } else if (mem.eql(u8, arg, "--nxcompat") or mem.eql(u8, arg, "-nxcompat")) {
                     linker_nxcompat = true;
                 } else if (mem.eql(u8, arg, "--dynamicbase") or mem.eql(u8, arg, "-dynamicbase")) {
                     linker_dynamicbase = true;
