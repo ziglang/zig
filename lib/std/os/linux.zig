@@ -474,7 +474,7 @@ pub fn dup2(old: i32, new: i32) usize {
     } else {
         if (old == new) {
             if (std.debug.runtime_safety) {
-                const rc = syscall2(.fcntl, @as(usize, @bitCast(@as(isize, old))), F.GETFD);
+                const rc = fcntl(F.GETFD, @as(fd_t, old), 0);
                 if (@as(isize, @bitCast(rc)) < 0) return rc;
             }
             return @as(usize, @intCast(old));
@@ -1211,7 +1211,7 @@ pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
     // NOTE: The offset parameter splitting is independent from the target
     // endianness.
     return syscall5(
-        ._llseek,
+        .llseek,
         @as(usize, @bitCast(@as(isize, fd))),
         @as(usize, @truncate(offset >> 32)),
         @as(usize, @truncate(offset)),
@@ -1370,7 +1370,11 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
 }
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
-    return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    if (@hasField(SYS, "fcntl64")) {
+        return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    } else {
+        return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    }
 }
 
 pub fn flock(fd: fd_t, operation: i32) usize {
@@ -2198,8 +2202,24 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        // MIPS requires a 7 argument syscall
+    if (comptime native_arch.isARM() or native_arch.isPPC()) {
+        // These architectures reorder the arguments so that a register is not skipped to align the
+        // register number that `offset` is passed in.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @as(usize, @bitCast(@as(isize, fd))),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+        // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2214,24 +2234,8 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[1],
             advice,
         );
-    } else if (comptime builtin.cpu.arch.isARM()) {
-        // ARM reorders the arguments
-
-        const offset_halves = splitValue64(offset);
-        const length_halves = splitValue64(len);
-
-        return syscall6(
-            .fadvise64_64,
-            @as(usize, @bitCast(@as(isize, fd))),
-            advice,
-            offset_halves[0],
-            offset_halves[1],
-            length_halves[0],
-            length_halves[1],
-        );
-    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
-        // The extra usize check is needed to avoid SPARC64 because it provides both
-        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
+    } else if (comptime usize_bits < 64) {
+        // Other 32-bit architectures do not require register alignment.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2246,8 +2250,18 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             advice,
         );
     } else {
+        // On 64-bit architectures, fadvise64_64 and fadvise64 are the same. Generally, older ports
+        // call it fadvise64 (x86, PowerPC, etc), while newer ports call it fadvise64_64 (RISC-V,
+        // LoongArch, etc). SPARC is the odd one out because it has both.
         return syscall4(
-            .fadvise64,
+            // 64-bit SPARC (apparently?) has a broken fadvise64_64, so use its fadvise64 instead.
+            // TODO: I can't make sense of this. They go to the same code in the kernel, and there
+            // is no special-casing for SPARC in glibc and musl. I suspect a QEMU bug, which is
+            // really not our responsibility.
+            if (@hasField(SYS, "fadvise64_64") and native_arch != .sparc64)
+                .fadvise64_64
+            else
+                .fadvise64,
             @as(usize, @bitCast(@as(isize, fd))),
             @as(usize, @bitCast(offset)),
             @as(usize, @bitCast(len)),
