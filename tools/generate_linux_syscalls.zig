@@ -298,6 +298,73 @@ pub fn main() !void {
     }
     {
         try writer.writeAll(
+            \\pub const RiscV32 = enum(usize) {
+            \\    pub const arch_specific_syscall = 244;
+            \\
+            \\
+        );
+
+        const child_args = [_][]const u8{
+            zig_exe,
+            "cc",
+            "-target",
+            "riscv32-linux-gnuilp32",
+            "-E",
+            "-dD",
+            "-P",
+            "-nostdinc",
+            "-Iinclude",
+            "-Iinclude/uapi",
+            "arch/riscv/include/uapi/asm/unistd.h",
+        };
+
+        const child_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &child_args,
+            .cwd = linux_path,
+            .cwd_dir = linux_dir,
+        });
+        if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
+
+        const defines = switch (child_result.term) {
+            .Exited => |code| if (code == 0) child_result.stdout else {
+                std.debug.print("zig cc exited with code {d}\n", .{code});
+                std.process.exit(1);
+            },
+            else => {
+                std.debug.print("zig cc crashed\n", .{});
+                std.process.exit(1);
+            },
+        };
+
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
+        loop: while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const cmd = fields.next() orelse return error.Incomplete;
+            if (!mem.eql(u8, cmd, "#define")) continue;
+            const define = fields.next() orelse return error.Incomplete;
+            const number = fields.next() orelse continue;
+
+            if (!std.ascii.isDigit(number[0])) continue;
+            if (!mem.startsWith(u8, define, "__NR")) continue;
+            const name = mem.trimLeft(u8, mem.trimLeft(u8, define, "__NR3264_"), "__NR_");
+            if (mem.eql(u8, name, "arch_specific_syscall")) continue;
+            if (mem.eql(u8, name, "syscalls")) break :loop;
+
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll(
+            \\
+            \\    riscv_flush_icache = arch_specific_syscall + 15,
+            \\    riscv_hwprobe = arch_specific_syscall + 14,
+            \\};
+            \\
+        );
+    }
+    {
+        try writer.writeAll(
             \\pub const RiscV64 = enum(usize) {
             \\    pub const arch_specific_syscall = 244;
             \\
