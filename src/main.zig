@@ -1149,7 +1149,7 @@ fn buildOutputType(
                             fatal("number of jobs must be at least 1\n", .{});
                         }
                         n_jobs = num;
-                    } else if (mem.eql(u8, arg, "--subsystem")) {
+                    } else if (mem.eql(u8, arg, "--subsystem") or mem.eql(u8, arg, "-subsystem")) {
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
@@ -2226,7 +2226,7 @@ fn buildOutputType(
                     create_module.opts.pie = true;
                 } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                     try create_module.rpath_list.append(arena, linker_args_it.nextOrFatal());
-                } else if (mem.eql(u8, arg, "--subsystem")) {
+                } else if (mem.eql(u8, arg, "--subsystem") or mem.eql(u8, arg, "-subsystem")) {
                     subsystem = try parseSubSystem(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
