@@ -1562,9 +1562,9 @@ fn buildOutputType(
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr") or mem.eql(u8, arg, "-eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
-                    } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                    } else if (mem.eql(u8, arg, "--dynamicbase") or mem.eql(u8, arg, "-dynamicbase")) {
                         linker_dynamicbase = true;
-                    } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                    } else if (mem.eql(u8, arg, "--no-dynamicbase") or mem.eql(u8, arg, "-no-dynamicbase")) {
                         linker_dynamicbase = false;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
@@ -2412,9 +2412,9 @@ fn buildOutputType(
                     linker_tsaware = true;
                 } else if (mem.eql(u8, arg, "--nxcompat")) {
                     linker_nxcompat = true;
-                } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                } else if (mem.eql(u8, arg, "--dynamicbase") or mem.eql(u8, arg, "-dynamicbase")) {
                     linker_dynamicbase = true;
-                } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                } else if (mem.eql(u8, arg, "--no-dynamicbase") or mem.eql(u8, arg, "-no-dynamicbase")) {
                     linker_dynamicbase = false;
                 } else if (mem.eql(u8, arg, "--high-entropy-va") or mem.eql(u8, arg, "-high-entropy-va")) {
                     // This option does not do anything.
