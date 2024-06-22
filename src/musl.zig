@@ -301,6 +301,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
 pub fn needsCrtiCrtn(target: std.Target) bool {
     // zig fmt: off
     return switch (target.cpu.arch) {
+        .riscv32,
         .riscv64,
         .wasm32, .wasm64 => return false,
         else => true,
