@@ -2435,6 +2435,7 @@ fn buildOutputType(
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--out-implib") or
                     mem.eql(u8, arg, "-out-implib") or
+                    mem.eql(u8, arg, "--implib") or
                     mem.eql(u8, arg, "-implib"))
                 {
                     emit_implib = .{ .yes = linker_args_it.nextOrFatal() };
