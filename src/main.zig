@@ -1965,7 +1965,7 @@ fn buildOutputType(
                                             });
                                         };
                                         continue;
-                                    } else if (mem.eql(u8, key, "--sort-common")) {
+                                    } else if (mem.eql(u8, key, "--sort-common") or mem.eql(u8, key, "-sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common
                                         // is done below.
                                         continue;
@@ -1986,7 +1986,7 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-no_pie"))
                             {
                                 create_module.opts.pie = false;
-                            } else if (mem.eql(u8, linker_arg, "--sort-common")) {
+                            } else if (mem.eql(u8, linker_arg, "--sort-common") or mem.eql(u8, linker_arg, "-sort-common")) {
                                 // from ld.lld(1): --sort-common is ignored for GNU compatibility,
                                 // this ignores plain --sort-common
                             } else if (mem.eql(u8, linker_arg, "--whole-archive") or
