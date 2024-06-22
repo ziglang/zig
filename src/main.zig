@@ -2217,6 +2217,8 @@ fn buildOutputType(
                         }
                     }
                     provided_name = name[prefix..end];
+                } else if (mem.eql(u8, arg, "--pic-executable") or mem.eql(u8, arg, "-pic-executable")) {
+                    create_module.opts.pie = true;
                 } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                     try create_module.rpath_list.append(arena, linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--subsystem")) {
