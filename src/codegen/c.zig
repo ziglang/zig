@@ -3080,25 +3080,6 @@ pub fn genDeclValue(
     try w.writeAll(";\n");
 }
 
-pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const zcu = dg.zcu;
-    const decl_index = dg.pass.decl;
-    const decl = zcu.declPtr(decl_index);
-    const writer = dg.fwdDeclWriter();
-
-    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
-        .Fn => if (dg.declIsGlobal(decl.val)) {
-            try writer.writeAll("zig_extern ");
-            try dg.renderFunctionSignature(writer, dg.pass.decl, .complete, .{ .export_index = 0 });
-            try dg.fwd_decl.appendSlice(";\n");
-        },
-        else => {},
-    }
-}
-
 /// Generate code for an entire body which ends with a `noreturn` instruction. The states of
 /// `value_map` and `free_locals_map` are undefined after the generation, and new locals may not
 /// have been added to `free_locals_map`. For a version of this function that restores this state,

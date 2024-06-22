@@ -410,7 +410,7 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
     }
 
     // This code path happens exclusively with -ofmt=c. The flush logic for
-    // emit-h is in `flushEmitH` below.
+    // emit-h is in `flushEmitH`.
 
     var f: Flush = .{
         .ctype_pool = codegen.CType.Pool.empty,
@@ -732,49 +732,6 @@ fn flushDeclBlock(
         }
         f.appendBufAssumeCapacity(self.getString(decl_block.fwd_decl));
     }
-}
-
-pub fn flushEmitH(zcu: *Zcu) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const emit_h = zcu.emit_h orelse return;
-
-    // We collect a list of buffers to write, and write them all at once with pwritev 😎
-    const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
-    defer all_buffers.deinit();
-
-    var file_size: u64 = zig_h.len;
-    if (zig_h.len != 0) {
-        all_buffers.appendAssumeCapacity(.{
-            .base = zig_h,
-            .len = zig_h.len,
-        });
-    }
-
-    for (emit_h.decl_table.keys()) |decl_index| {
-        const decl_emit_h = emit_h.declPtr(decl_index);
-        const buf = decl_emit_h.fwd_decl.items;
-        if (buf.len != 0) {
-            all_buffers.appendAssumeCapacity(.{
-                .base = buf.ptr,
-                .len = buf.len,
-            });
-            file_size += buf.len;
-        }
-    }
-
-    const directory = emit_h.loc.directory orelse zcu.comp.local_cache_directory;
-    const file = try directory.handle.createFile(emit_h.loc.basename, .{
-        // We set the end position explicitly below; by not truncating the file, we possibly
-        // make it easier on the file system by doing 1 reallocation instead of two.
-        .truncate = false,
-    });
-    defer file.close();
-
-    try file.setEndPos(file_size);
-    try file.pwritevAll(all_buffers.items, 0);
 }
 
 pub fn updateExports(

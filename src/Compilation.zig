@@ -38,6 +38,7 @@ const libtsan = @import("libtsan.zig");
 const Zir = std.zig.Zir;
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
+const EmitH = @import("EmitH.zig");
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -2267,7 +2268,7 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: std.Progress.Node) !vo
     }
 
     if (comp.module) |zcu| {
-        try link.File.C.flushEmitH(zcu);
+        try EmitH.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
             if (build_options.only_c) unreachable;
@@ -3425,37 +3426,34 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     const gpa = comp.gpa;
                     const emit_h = module.emit_h.?;
-                    _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
-                    const decl_emit_h = emit_h.declPtr(decl_index);
-                    const fwd_decl = &decl_emit_h.fwd_decl;
-                    fwd_decl.shrinkRetainingCapacity(0);
-                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer ctypes_arena.deinit();
 
-                    var dg: c_codegen.DeclGen = .{
+                    const gop = try emit_h.decl_table.getOrPut(gpa, decl_index);
+
+                    // TODO: Remove the line below once dependency loops are properly handled
+                    if (gop.found_existing) return;
+
+                    const decl_emit_h = if (gop.found_existing)
+                        emit_h.allocated_emit_h.at(gop.index)
+                    else blk: {
+                        const decl_emit_h = try emit_h.allocated_emit_h.addOne(gpa);
+                        decl_emit_h.* = .{};
+                        break :blk decl_emit_h;
+                    };
+
+                    std.debug.assert(emit_h.allocated_emit_h.len == emit_h.decl_table.count());
+
+                    var emitter = EmitH{
                         .gpa = gpa,
                         .zcu = module,
-                        .mod = module.namespacePtr(decl.src_namespace).file_scope.mod,
+                        .decl = decl,
+                        .decl_index = decl_index,
+                        .emit_h = decl_emit_h,
                         .error_msg = null,
-                        .pass = .{ .decl = decl_index },
-                        .is_naked_fn = false,
-                        .fwd_decl = fwd_decl.toManaged(gpa),
-                        .ctype_pool = c_codegen.CType.Pool.empty,
-                        .scratch = .{},
-                        .anon_decl_deps = .{},
-                        .aligned_anon_decls = .{},
                     };
-                    defer {
-                        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                        fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
-                        dg.ctype_pool.deinit(gpa);
-                        dg.scratch.deinit(gpa);
-                    }
-                    try dg.ctype_pool.init(gpa);
 
-                    c_codegen.genHeader(&dg) catch |err| switch (err) {
+                    emitter.renderDecl() catch |err| switch (err) {
                         error.AnalysisFail => {
-                            try emit_h.failed_decls.put(gpa, decl_index, dg.error_msg.?);
+                            try emit_h.failed_decls.put(gpa, decl_index, emitter.error_msg.?);
                             return;
                         },
                         else => |e| return e,
