@@ -2418,7 +2418,7 @@ fn buildOutputType(
                     linker_dynamicbase = false;
                 } else if (mem.eql(u8, arg, "--high-entropy-va")) {
                     // This option does not do anything.
-                } else if (mem.eql(u8, arg, "--export-all-symbols")) {
+                } else if (mem.eql(u8, arg, "--export-all-symbols") or mem.eql(u8, arg, "-export-all-symbols")) {
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "--color-diagnostics") or
                     mem.eql(u8, arg, "--color-diagnostics=always"))
