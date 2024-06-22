@@ -170,7 +170,7 @@ pub fn setThreadPointer(addr: usize) void {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
             assert(rc == 0);
         },
-        .riscv64 => {
+        .riscv32, .riscv64 => {
             asm volatile (
                 \\ mv tp, %[addr]
                 :
