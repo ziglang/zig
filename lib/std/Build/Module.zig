@@ -289,7 +289,12 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
         => |lp| addLazyPathDependencies(m, dependee, lp),
 
         .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
-        .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
+        .win32_resource_file => |x| {
+            addLazyPathDependencies(m, dependee, x.file);
+            for (x.include_paths) |include_path| {
+                addLazyPathDependencies(m, dependee, include_path);
+            }
+        },
 
         .c_source_files,
         .system_lib,
