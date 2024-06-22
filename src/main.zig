@@ -1222,7 +1222,7 @@ fn buildOutputType(
                         dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-ObjC")) {
                         force_load_objc = true;
-                    } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
+                    } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script") or mem.eql(u8, arg, "-script")) {
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
@@ -2402,7 +2402,7 @@ fn buildOutputType(
                     // These are ignored by LLD, but are used by Libtool for MinGW triples.
                 } else if (mem.eql(u8, arg, "--full-shutdown")) {
                     // This is ignored by LLD.
-                } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
+                } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script") or mem.eql(u8, arg, "-script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
