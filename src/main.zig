@@ -1159,7 +1159,7 @@ fn buildOutputType(
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
                     } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack")) {
                         stack_size = parseStackSize(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "--image-base")) {
+                    } else if (mem.eql(u8, arg, "--image-base") or mem.eql(u8, arg, "-image-base")) {
                         image_base = parseImageBase(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--name")) {
                         provided_name = args_iter.nextOrFatal();
@@ -2392,7 +2392,7 @@ fn buildOutputType(
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
-                } else if (mem.eql(u8, arg, "--image-base")) {
+                } else if (mem.eql(u8, arg, "--image-base") or mem.eql(u8, arg, "-image-base")) {
                     image_base = parseImageBase(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--enable-auto-image-base") or
                     mem.eql(u8, arg, "-enable-auto-image-base") or
