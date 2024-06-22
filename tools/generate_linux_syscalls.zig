@@ -358,6 +358,7 @@ pub fn main() !void {
         try writer.writeAll(
             \\
             \\    riscv_flush_icache = arch_specific_syscall + 15,
+            \\    riscv_hwprobe = arch_specific_syscall + 14,
             \\};
             \\
         );
