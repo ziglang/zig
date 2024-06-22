@@ -1997,13 +1997,15 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-no-whole-archive"))
                             {
                                 must_link = false;
-                            } else if (mem.eql(u8, linker_arg, "-Bdynamic") or
+                            } else if (mem.eql(u8, linker_arg, "--Bdynamic") or
+                                mem.eql(u8, linker_arg, "-Bdynamic") or
                                 mem.eql(u8, linker_arg, "-dy") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
                                 lib_search_strategy = .no_fallback;
                                 lib_preferred_mode = .dynamic;
-                            } else if (mem.eql(u8, linker_arg, "-Bstatic") or
+                            } else if (mem.eql(u8, linker_arg, "--Bstatic") or
+                                mem.eql(u8, linker_arg, "-Bstatic") or
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
