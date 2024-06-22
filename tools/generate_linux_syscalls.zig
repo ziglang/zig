@@ -315,6 +315,7 @@ pub fn main() !void {
             "-nostdinc",
             "-Iinclude",
             "-Iinclude/uapi",
+            "-Iarch/riscv/include/uapi",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
 
@@ -382,6 +383,7 @@ pub fn main() !void {
             "-nostdinc",
             "-Iinclude",
             "-Iinclude/uapi",
+            "-Iarch/riscv/include/uapi",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
 
