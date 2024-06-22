@@ -2540,6 +2540,8 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "--wrap") or mem.eql(u8, arg, "-wrap")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     try symbol_wrap_set.put(arena, next_arg, {});
+                } else if (mem.eql(u8, arg, "--stats") or mem.eql(u8, arg, "-stats")) {
+                    warn("ignoring request for linker statistics: unimplemented", .{});
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     subsystem = try parseSubSystem(split_it.first());
