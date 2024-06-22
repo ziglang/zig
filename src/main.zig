@@ -2275,7 +2275,7 @@ fn buildOutputType(
                     dead_strip_dylibs = true;
                 } else if (mem.eql(u8, arg, "-ObjC")) {
                     force_load_objc = true;
-                } else if (mem.eql(u8, arg, "--no-undefined")) {
+                } else if (mem.eql(u8, arg, "--no-undefined") or mem.eql(u8, arg, "-no-undefined")) {
                     linker_z_defs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
