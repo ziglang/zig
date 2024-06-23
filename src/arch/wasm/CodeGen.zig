@@ -10,7 +10,9 @@ const wasm = std.wasm;
 const log = std.log.scoped(.codegen);
 
 const codegen = @import("../../codegen.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
@@ -1841,7 +1843,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .bit_or => func.airBinOp(inst, .@"or"),
         .bool_and => func.airBinOp(inst, .@"and"),
         .bool_or => func.airBinOp(inst, .@"or"),
-        .rem => func.airBinOp(inst, .rem),
+        .rem => func.airRem(inst),
         .mod => func.airMod(inst),
         .shl => func.airWrapBinOp(inst, .shl),
         .shl_exact => func.airBinOp(inst, .shl),
@@ -6917,11 +6919,52 @@ fn divSigned(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type) InnerError!WVal
         try func.emitWValue(lhs);
         try func.emitWValue(rhs);
     }
-    try func.addTag(.i32_div_s);
+    switch (wasm_bits) {
+        32 => try func.addTag(.i32_div_s),
+        64 => try func.addTag(.i64_div_s),
+        else => unreachable,
+    }
+    _ = try func.wrapOperand(.stack, ty);
 
     const result = try func.allocLocal(ty);
     try func.addLabel(.local_set, result.local.value);
     return result;
+}
+
+fn airRem(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    const mod = func.bin_file.base.comp.module.?;
+    const ty = func.typeOfIndex(inst);
+    const lhs = try func.resolveInst(bin_op.lhs);
+    const rhs = try func.resolveInst(bin_op.rhs);
+
+    const result = if (ty.isSignedInt(mod)) result: {
+        const int_bits = ty.intInfo(mod).bits;
+        const wasm_bits = toWasmBits(int_bits) orelse {
+            return func.fail("TODO: `@rem` for signed integers larger than 128 bits ({d} bits requested)", .{int_bits});
+        };
+
+        if (wasm_bits > 64) {
+            return func.fail("TODO: `@rem` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+        }
+
+        const lhs_wasm = if (wasm_bits != int_bits)
+            try (try func.signExtendInt(lhs, ty)).toLocal(func, ty)
+        else
+            lhs;
+
+        const rhs_wasm = if (wasm_bits != int_bits)
+            try (try func.signExtendInt(rhs, ty)).toLocal(func, ty)
+        else
+            rhs;
+
+        _ = try func.binOp(lhs_wasm, rhs_wasm, ty, .rem);
+        break :result try func.wrapOperand(.stack, ty);
+    } else try func.binOp(lhs, rhs, ty, .rem);
+
+    const return_local = try result.toLocal(func, ty);
+    func.finishAir(inst, return_local, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 /// Remainder after floor division, defined by:
@@ -7331,7 +7374,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     var writer = body_list.writer();
 
     // The locals of the function body (always 0)
-    try leb.writeULEB128(writer, @as(u32, 0));
+    try leb.writeUleb128(writer, @as(u32, 0));
 
     // outer block
     try writer.writeByte(std.wasm.opcode(.block));
@@ -7365,7 +7408,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
         // get actual tag value (stored in 2nd parameter);
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
         const tag_value = try func.lowerConstant(tag_val, enum_ty);
@@ -7373,26 +7416,26 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         switch (tag_value) {
             .imm32 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i32_const));
-                try leb.writeILEB128(writer, @as(i32, @bitCast(value)));
+                try leb.writeIleb128(writer, @as(i32, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i32_ne));
             },
             .imm64 => |value| {
                 try writer.writeByte(std.wasm.opcode(.i64_const));
-                try leb.writeILEB128(writer, @as(i64, @bitCast(value)));
+                try leb.writeIleb128(writer, @as(i64, @bitCast(value)));
                 try writer.writeByte(std.wasm.opcode(.i64_ne));
             },
             else => unreachable,
         }
         // if they're not equal, break out of current branch
         try writer.writeByte(std.wasm.opcode(.br_if));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
 
         // store the address of the tagname in the pointer field of the slice
         // get the address twice so we can also store the length.
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
 
         // get address of tagname and emit a relocation to it
         if (func.arch() == .wasm32) {
@@ -7407,15 +7450,15 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 0));
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, @intCast(tag_name_len)));
+            try leb.writeUleb128(writer, @as(u32, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i32_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 4));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 4));
         } else {
             const encoded_alignment = @ctz(@as(u32, 8));
             try writer.writeByte(std.wasm.opcode(.i64_const));
@@ -7428,20 +7471,20 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
             // store pointer
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 0));
 
             // store length
             try writer.writeByte(std.wasm.opcode(.i64_const));
-            try leb.writeULEB128(writer, @as(u64, @intCast(tag_name_len)));
+            try leb.writeUleb128(writer, @as(u64, @intCast(tag_name_len)));
             try writer.writeByte(std.wasm.opcode(.i64_store));
-            try leb.writeULEB128(writer, encoded_alignment);
-            try leb.writeULEB128(writer, @as(u32, 8));
+            try leb.writeUleb128(writer, encoded_alignment);
+            try leb.writeUleb128(writer, @as(u32, 8));
         }
 
         // break outside blocks
         try writer.writeByte(std.wasm.opcode(.br));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         // end the block for this case
         try writer.writeByte(std.wasm.opcode(.end));

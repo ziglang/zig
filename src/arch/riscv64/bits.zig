@@ -4,7 +4,9 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const Target = std.Target;
 
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Encoding = @import("Encoding.zig");
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");

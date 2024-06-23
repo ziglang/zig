@@ -6466,7 +6466,9 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const MergeSection = merge_section.MergeSection;
 const MergeSubsection = merge_section.MergeSubsection;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
 const PltSection = synthetic_sections.PltSection;

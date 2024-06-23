@@ -765,7 +765,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const Sema = @import("../Sema.zig");
-const Zcu = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");

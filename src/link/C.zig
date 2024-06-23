@@ -6,7 +6,7 @@ const fs = std.fs;
 
 const C = @This();
 const build_options = @import("build_options");
-const Zcu = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const Module = @import("../Package/Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;

@@ -8,11 +8,11 @@ const windows = std.os.windows;
 const posix = std.posix;
 const native_os = builtin.os.tag;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
-const Decl = Module.Decl;
+const Decl = Zcu.Decl;
 
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
@@ -78,7 +78,7 @@ fn dumpStatusReport() !void {
     const block: *Sema.Block = anal.block;
     const mod = anal.sema.mod;
 
-    const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +104,7 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Module.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
@@ -128,7 +128,7 @@ fn dumpStatusReport() !void {
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Module.File, writer: anytype) !void {
+fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     if (file.mod.root.root_dir.path) |path| {
         try writer.writeAll(path);
         try writer.writeAll(std.fs.path.sep_str);

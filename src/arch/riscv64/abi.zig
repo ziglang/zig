@@ -4,7 +4,9 @@ const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const InternPool = @import("../../InternPool.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const assert = std.debug.assert;
 
 pub const Class = enum { memory, byval, integer, double_integer, fields };

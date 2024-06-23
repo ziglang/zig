@@ -3,8 +3,9 @@ const builtin = @import("builtin");
 const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
-const Module = @import("Module.zig");
-const Zcu = Module;
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const Sema = @import("Sema.zig");

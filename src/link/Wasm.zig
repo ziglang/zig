@@ -28,7 +28,9 @@ const File = @import("Wasm/file.zig").File;
 const InternPool = @import("../InternPool.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../type.zig").Type;
@@ -950,7 +952,7 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
 /// Writes an unsigned 32-bit integer as a LEB128-encoded 'i32.const' value.
 fn writeI32Const(writer: anytype, val: u32) !void {
     try writer.writeByte(std.wasm.opcode(.i32_const));
-    try leb.writeILEB128(writer, @as(i32, @bitCast(val)));
+    try leb.writeIleb128(writer, @as(i32, @bitCast(val)));
 }
 
 fn setupInitMemoryFunction(wasm: *Wasm) !void {
@@ -982,7 +984,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     const writer = function_body.writer();
 
     // we have 0 locals
-    try leb.writeULEB128(writer, @as(u32, 0));
+    try leb.writeUleb128(writer, @as(u32, 0));
 
     if (shared_memory) {
         // destination blocks
@@ -1001,16 +1003,16 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         try writeI32Const(writer, 0);
         try writeI32Const(writer, 1);
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
-        try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.i32_atomic_rmw_cmpxchg));
-        try leb.writeULEB128(writer, @as(u32, 2)); // alignment
-        try leb.writeULEB128(writer, @as(u32, 0)); // offset
+        try leb.writeUleb128(writer, std.wasm.atomicsOpcode(.i32_atomic_rmw_cmpxchg));
+        try leb.writeUleb128(writer, @as(u32, 2)); // alignment
+        try leb.writeUleb128(writer, @as(u32, 0)); // offset
 
         // based on the value from the atomic check, jump to the label.
         try writer.writeByte(std.wasm.opcode(.br_table));
-        try leb.writeULEB128(writer, @as(u32, 2)); // length of the table (we have 3 blocks but because of the mandatory default the length is 2).
-        try leb.writeULEB128(writer, @as(u32, 0)); // $init
-        try leb.writeULEB128(writer, @as(u32, 1)); // $wait
-        try leb.writeULEB128(writer, @as(u32, 2)); // $drop
+        try leb.writeUleb128(writer, @as(u32, 2)); // length of the table (we have 3 blocks but because of the mandatory default the length is 2).
+        try leb.writeUleb128(writer, @as(u32, 0)); // $init
+        try leb.writeUleb128(writer, @as(u32, 1)); // $wait
+        try leb.writeUleb128(writer, @as(u32, 2)); // $drop
         try writer.writeByte(std.wasm.opcode(.end));
     }
 
@@ -1032,7 +1034,7 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
                 try writeI32Const(writer, segment.offset);
                 try writer.writeByte(std.wasm.opcode(.global_set));
                 const loc = wasm.findGlobalSymbol("__tls_base").?;
-                try leb.writeULEB128(writer, loc.getSymbol(wasm).index);
+                try leb.writeUleb128(writer, loc.getSymbol(wasm).index);
             }
 
             try writeI32Const(writer, 0);
@@ -1040,11 +1042,11 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
             try writer.writeByte(std.wasm.opcode(.misc_prefix));
             if (std.mem.eql(u8, entry.key_ptr.*, ".bss")) {
                 // fill bss segment with zeroes
-                try leb.writeULEB128(writer, std.wasm.miscOpcode(.memory_fill));
+                try leb.writeUleb128(writer, std.wasm.miscOpcode(.memory_fill));
             } else {
                 // initialize the segment
-                try leb.writeULEB128(writer, std.wasm.miscOpcode(.memory_init));
-                try leb.writeULEB128(writer, segment_index);
+                try leb.writeUleb128(writer, std.wasm.miscOpcode(.memory_init));
+                try leb.writeUleb128(writer, segment_index);
             }
             try writer.writeByte(0); // memory index immediate
         }
@@ -1055,34 +1057,34 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
         try writeI32Const(writer, flag_address);
         try writeI32Const(writer, 2);
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
-        try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.i32_atomic_store));
-        try leb.writeULEB128(writer, @as(u32, 2)); // alignment
-        try leb.writeULEB128(writer, @as(u32, 0)); // offset
+        try leb.writeUleb128(writer, std.wasm.atomicsOpcode(.i32_atomic_store));
+        try leb.writeUleb128(writer, @as(u32, 2)); // alignment
+        try leb.writeUleb128(writer, @as(u32, 0)); // offset
 
         // notify any waiters for segment initialization completion
         try writeI32Const(writer, flag_address);
         try writer.writeByte(std.wasm.opcode(.i32_const));
-        try leb.writeILEB128(writer, @as(i32, -1)); // number of waiters
+        try leb.writeIleb128(writer, @as(i32, -1)); // number of waiters
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
-        try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.memory_atomic_notify));
-        try leb.writeULEB128(writer, @as(u32, 2)); // alignment
-        try leb.writeULEB128(writer, @as(u32, 0)); // offset
+        try leb.writeUleb128(writer, std.wasm.atomicsOpcode(.memory_atomic_notify));
+        try leb.writeUleb128(writer, @as(u32, 2)); // alignment
+        try leb.writeUleb128(writer, @as(u32, 0)); // offset
         try writer.writeByte(std.wasm.opcode(.drop));
 
         // branch and drop segments
         try writer.writeByte(std.wasm.opcode(.br));
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         // wait for thread to initialize memory segments
         try writer.writeByte(std.wasm.opcode(.end)); // end $wait
         try writeI32Const(writer, flag_address);
         try writeI32Const(writer, 1); // expected flag value
         try writer.writeByte(std.wasm.opcode(.i64_const));
-        try leb.writeILEB128(writer, @as(i64, -1)); // timeout
+        try leb.writeIleb128(writer, @as(i64, -1)); // timeout
         try writer.writeByte(std.wasm.opcode(.atomics_prefix));
-        try leb.writeULEB128(writer, std.wasm.atomicsOpcode(.memory_atomic_wait32));
-        try leb.writeULEB128(writer, @as(u32, 2)); // alignment
-        try leb.writeULEB128(writer, @as(u32, 0)); // offset
+        try leb.writeUleb128(writer, std.wasm.atomicsOpcode(.memory_atomic_wait32));
+        try leb.writeUleb128(writer, @as(u32, 2)); // alignment
+        try leb.writeUleb128(writer, @as(u32, 0)); // offset
         try writer.writeByte(std.wasm.opcode(.drop));
 
         try writer.writeByte(std.wasm.opcode(.end)); // end $drop
@@ -1103,8 +1105,8 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
             }
 
             try writer.writeByte(std.wasm.opcode(.misc_prefix));
-            try leb.writeULEB128(writer, std.wasm.miscOpcode(.data_drop));
-            try leb.writeULEB128(writer, segment_index);
+            try leb.writeUleb128(writer, std.wasm.miscOpcode(.data_drop));
+            try leb.writeUleb128(writer, segment_index);
         }
     }
 
@@ -1145,18 +1147,18 @@ fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
         if (sym.tag == .data and sym.isDefined()) {
             // get __tls_base
             try writer.writeByte(std.wasm.opcode(.global_get));
-            try leb.writeULEB128(writer, wasm.findGlobalSymbol("__tls_base").?.getSymbol(wasm).index);
+            try leb.writeUleb128(writer, wasm.findGlobalSymbol("__tls_base").?.getSymbol(wasm).index);
 
             // add the virtual address of the symbol
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, sym.virtual_address);
+            try leb.writeUleb128(writer, sym.virtual_address);
         } else if (sym.tag == .function) {
             @panic("TODO: relocate GOT entry of function");
         } else continue;
 
         try writer.writeByte(std.wasm.opcode(.i32_add));
         try writer.writeByte(std.wasm.opcode(.global_set));
-        try leb.writeULEB128(writer, wasm.imported_globals_count + @as(u32, @intCast(wasm.wasm_globals.items.len + got_index)));
+        try leb.writeUleb128(writer, wasm.imported_globals_count + @as(u32, @intCast(wasm.wasm_globals.items.len + got_index)));
     }
     try writer.writeByte(std.wasm.opcode(.end));
 
@@ -1799,7 +1801,7 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
     // Create the function body
     {
         // Write locals count (we have none)
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
 
         // call constructors
         for (wasm.init_funcs.items) |init_func_loc| {
@@ -1809,7 +1811,7 @@ fn initializeCallCtorsFunction(wasm: *Wasm) !void {
 
             // Call function by its function index
             try writer.writeByte(std.wasm.opcode(.call));
-            try leb.writeULEB128(writer, symbol.index);
+            try leb.writeUleb128(writer, symbol.index);
 
             // drop all returned values from the stack as __wasm_call_ctors has no return value
             for (ty.returns) |_| {
@@ -1903,31 +1905,31 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
         const param_local: u32 = 0;
 
         try writer.writeByte(std.wasm.opcode(.local_get));
-        try leb.writeULEB128(writer, param_local);
+        try leb.writeUleb128(writer, param_local);
 
         const tls_base_loc = wasm.findGlobalSymbol("__tls_base").?;
         try writer.writeByte(std.wasm.opcode(.global_set));
-        try leb.writeULEB128(writer, tls_base_loc.getSymbol(wasm).index);
+        try leb.writeUleb128(writer, tls_base_loc.getSymbol(wasm).index);
 
         // load stack values for the bulk-memory operation
         {
             try writer.writeByte(std.wasm.opcode(.local_get));
-            try leb.writeULEB128(writer, param_local);
+            try leb.writeUleb128(writer, param_local);
 
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, 0)); //segment offset
+            try leb.writeUleb128(writer, @as(u32, 0)); //segment offset
 
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeULEB128(writer, @as(u32, segment.size)); //segment offset
+            try leb.writeUleb128(writer, @as(u32, segment.size)); //segment offset
         }
 
         // perform the bulk-memory operation to initialize the data segment
         try writer.writeByte(std.wasm.opcode(.misc_prefix));
-        try leb.writeULEB128(writer, std.wasm.miscOpcode(.memory_init));
+        try leb.writeUleb128(writer, std.wasm.miscOpcode(.memory_init));
         // segment immediate
-        try leb.writeULEB128(writer, @as(u32, @intCast(data_index)));
+        try leb.writeUleb128(writer, @as(u32, @intCast(data_index)));
         // memory index immediate (always 0)
-        try leb.writeULEB128(writer, @as(u32, 0));
+        try leb.writeUleb128(writer, @as(u32, 0));
     }
 
     // If we have to perform any TLS relocations, call the corresponding function
@@ -1935,7 +1937,7 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
     // generated by the linker.
     if (wasm.findGlobalSymbol("__wasm_apply_global_tls_relocs")) |loc| {
         try writer.writeByte(std.wasm.opcode(.call));
-        try leb.writeULEB128(writer, loc.getSymbol(wasm).index);
+        try leb.writeUleb128(writer, loc.getSymbol(wasm).index);
         loc.getSymbol(wasm).mark();
     }
 
@@ -2640,14 +2642,14 @@ fn writeToFile(
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         log.debug("Writing type section. Count: ({d})", .{wasm.func_types.items.len});
         for (wasm.func_types.items) |func_type| {
-            try leb.writeULEB128(binary_writer, std.wasm.function_type);
-            try leb.writeULEB128(binary_writer, @as(u32, @intCast(func_type.params.len)));
+            try leb.writeUleb128(binary_writer, std.wasm.function_type);
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(func_type.params.len)));
             for (func_type.params) |param_ty| {
-                try leb.writeULEB128(binary_writer, std.wasm.valtype(param_ty));
+                try leb.writeUleb128(binary_writer, std.wasm.valtype(param_ty));
             }
-            try leb.writeULEB128(binary_writer, @as(u32, @intCast(func_type.returns.len)));
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(func_type.returns.len)));
             for (func_type.returns) |ret_ty| {
-                try leb.writeULEB128(binary_writer, std.wasm.valtype(ret_ty));
+                try leb.writeUleb128(binary_writer, std.wasm.valtype(ret_ty));
             }
         }
 
@@ -2696,7 +2698,7 @@ fn writeToFile(
     if (wasm.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
         for (wasm.functions.values()) |function| {
-            try leb.writeULEB128(binary_writer, function.func.type_index);
+            try leb.writeUleb128(binary_writer, function.func.type_index);
         }
 
         try writeVecSectionHeader(
@@ -2714,7 +2716,7 @@ fn writeToFile(
         const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         for (wasm.tables.items) |table| {
-            try leb.writeULEB128(binary_writer, std.wasm.reftype(table.reftype));
+            try leb.writeUleb128(binary_writer, std.wasm.reftype(table.reftype));
             try emitLimits(binary_writer, table.limits);
         }
 
@@ -2769,17 +2771,17 @@ fn writeToFile(
 
         for (wasm.exports.items) |exp| {
             const name = wasm.string_table.get(exp.name);
-            try leb.writeULEB128(binary_writer, @as(u32, @intCast(name.len)));
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
-            try leb.writeULEB128(binary_writer, @intFromEnum(exp.kind));
-            try leb.writeULEB128(binary_writer, exp.index);
+            try leb.writeUleb128(binary_writer, @intFromEnum(exp.kind));
+            try leb.writeUleb128(binary_writer, exp.index);
         }
 
         if (export_memory) {
-            try leb.writeULEB128(binary_writer, @as(u32, @intCast("memory".len)));
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast("memory".len)));
             try binary_writer.writeAll("memory");
             try binary_writer.writeByte(std.wasm.externalKind(.memory));
-            try leb.writeULEB128(binary_writer, @as(u32, 0));
+            try leb.writeUleb128(binary_writer, @as(u32, 0));
         }
 
         try writeVecSectionHeader(
@@ -2811,21 +2813,21 @@ fn writeToFile(
         const table_sym = table_loc.getSymbol(wasm);
 
         const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
-        try leb.writeULEB128(binary_writer, flags);
+        try leb.writeUleb128(binary_writer, flags);
         if (flags == 0x02) {
-            try leb.writeULEB128(binary_writer, table_sym.index);
+            try leb.writeUleb128(binary_writer, table_sym.index);
         }
         try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
         if (flags == 0x02) {
-            try leb.writeULEB128(binary_writer, @as(u8, 0)); // represents funcref
+            try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
         }
-        try leb.writeULEB128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
+        try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.function_table.count())));
         var symbol_it = wasm.function_table.keyIterator();
         while (symbol_it.next()) |symbol_loc_ptr| {
             const sym = symbol_loc_ptr.getSymbol(wasm);
             std.debug.assert(sym.isAlive());
             std.debug.assert(sym.index < wasm.functions.count() + wasm.imported_functions_count);
-            try leb.writeULEB128(binary_writer, sym.index);
+            try leb.writeUleb128(binary_writer, sym.index);
         }
 
         try writeVecSectionHeader(
@@ -2866,7 +2868,7 @@ fn writeToFile(
                 atom.resolveRelocs(wasm);
             }
             atom.offset = @intCast(binary_bytes.items.len - start_offset);
-            try leb.writeULEB128(binary_writer, atom.size);
+            try leb.writeUleb128(binary_writer, atom.size);
             try binary_writer.writeAll(atom.code.items);
         }
 
@@ -2897,16 +2899,16 @@ fn writeToFile(
             segment_count += 1;
             var atom_index = wasm.atoms.get(segment_index).?;
 
-            try leb.writeULEB128(binary_writer, segment.flags);
+            try leb.writeUleb128(binary_writer, segment.flags);
             if (segment.flags & @intFromEnum(Wasm.Segment.Flag.WASM_DATA_SEGMENT_HAS_MEMINDEX) != 0) {
-                try leb.writeULEB128(binary_writer, @as(u32, 0)); // memory is always index 0 as we only have 1 memory entry
+                try leb.writeUleb128(binary_writer, @as(u32, 0)); // memory is always index 0 as we only have 1 memory entry
             }
             // when a segment is passive, it's initialized during runtime.
             if (!segment.isPassive()) {
                 try emitInit(binary_writer, .{ .i32_const = @as(i32, @bitCast(segment.offset)) });
             }
             // offset into data section
-            try leb.writeULEB128(binary_writer, segment.size);
+            try leb.writeUleb128(binary_writer, segment.size);
 
             // fill in the offset table and the data segments
             var current_offset: u32 = 0;
@@ -3056,7 +3058,7 @@ fn emitDebugSection(binary_bytes: *std.ArrayList(u8), data: []const u8, name: []
     if (data.len == 0) return;
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
 
     const start = binary_bytes.items.len - header_offset;
@@ -3075,10 +3077,10 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
 
     const writer = binary_bytes.writer();
     const producers = "producers";
-    try leb.writeULEB128(writer, @as(u32, @intCast(producers.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(producers.len)));
     try writer.writeAll(producers);
 
-    try leb.writeULEB128(writer, @as(u32, 2)); // 2 fields: Language + processed-by
+    try leb.writeUleb128(writer, @as(u32, 2)); // 2 fields: Language + processed-by
 
     // used for the Zig version
     var version_buf: [100]u8 = undefined;
@@ -3087,18 +3089,18 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     // language field
     {
         const language = "language";
-        try leb.writeULEB128(writer, @as(u32, @intCast(language.len)));
+        try leb.writeUleb128(writer, @as(u32, @intCast(language.len)));
         try writer.writeAll(language);
 
         // field_value_count (TODO: Parse object files for producer sections to detect their language)
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         // versioned name
         {
-            try leb.writeULEB128(writer, @as(u32, 3)); // len of "Zig"
+            try leb.writeUleb128(writer, @as(u32, 3)); // len of "Zig"
             try writer.writeAll("Zig");
 
-            try leb.writeULEB128(writer, @as(u32, @intCast(version.len)));
+            try leb.writeUleb128(writer, @as(u32, @intCast(version.len)));
             try writer.writeAll(version);
         }
     }
@@ -3106,18 +3108,18 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     // processed-by field
     {
         const processed_by = "processed-by";
-        try leb.writeULEB128(writer, @as(u32, @intCast(processed_by.len)));
+        try leb.writeUleb128(writer, @as(u32, @intCast(processed_by.len)));
         try writer.writeAll(processed_by);
 
         // field_value_count (TODO: Parse object files for producer sections to detect other used tools)
-        try leb.writeULEB128(writer, @as(u32, 1));
+        try leb.writeUleb128(writer, @as(u32, 1));
 
         // versioned name
         {
-            try leb.writeULEB128(writer, @as(u32, 3)); // len of "Zig"
+            try leb.writeUleb128(writer, @as(u32, 3)); // len of "Zig"
             try writer.writeAll("Zig");
 
-            try leb.writeULEB128(writer, @as(u32, @intCast(version.len)));
+            try leb.writeUleb128(writer, @as(u32, @intCast(version.len)));
             try writer.writeAll(version);
         }
     }
@@ -3134,11 +3136,11 @@ fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8), build_id: []const u8) !v
 
     const writer = binary_bytes.writer();
     const hdr_build_id = "build_id";
-    try leb.writeULEB128(writer, @as(u32, @intCast(hdr_build_id.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(hdr_build_id.len)));
     try writer.writeAll(hdr_build_id);
 
-    try leb.writeULEB128(writer, @as(u32, 1));
-    try leb.writeULEB128(writer, @as(u32, @intCast(build_id.len)));
+    try leb.writeUleb128(writer, @as(u32, 1));
+    try leb.writeUleb128(writer, @as(u32, @intCast(build_id.len)));
     try writer.writeAll(build_id);
 
     try writeCustomSectionHeader(
@@ -3153,17 +3155,17 @@ fn emitFeaturesSection(binary_bytes: *std.ArrayList(u8), enabled_features: []con
 
     const writer = binary_bytes.writer();
     const target_features = "target_features";
-    try leb.writeULEB128(writer, @as(u32, @intCast(target_features.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(target_features.len)));
     try writer.writeAll(target_features);
 
-    try leb.writeULEB128(writer, features_count);
+    try leb.writeUleb128(writer, features_count);
     for (enabled_features, 0..) |enabled, feature_index| {
         if (enabled) {
             const feature: types.Feature = .{ .prefix = .used, .tag = @as(types.Feature.Tag, @enumFromInt(feature_index)) };
-            try leb.writeULEB128(writer, @intFromEnum(feature.prefix));
+            try leb.writeUleb128(writer, @intFromEnum(feature.prefix));
             var buf: [100]u8 = undefined;
             const string = try std.fmt.bufPrint(&buf, "{}", .{feature.tag});
-            try leb.writeULEB128(writer, @as(u32, @intCast(string.len)));
+            try leb.writeUleb128(writer, @as(u32, @intCast(string.len)));
             try writer.writeAll(string);
         }
     }
@@ -3226,7 +3228,7 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
 
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @as(u32, @intCast("name".len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast("name".len)));
     try writer.writeAll("name");
 
     try wasm.emitNameSubsection(.function, funcs.values(), writer);
@@ -3248,25 +3250,25 @@ fn emitNameSubsection(wasm: *Wasm, section_id: std.wasm.NameSubsection, names: a
     defer section_list.deinit();
     const sub_writer = section_list.writer();
 
-    try leb.writeULEB128(sub_writer, @as(u32, @intCast(names.len)));
+    try leb.writeUleb128(sub_writer, @as(u32, @intCast(names.len)));
     for (names) |name| {
         log.debug("Emit symbol '{s}' type({s})", .{ name.name, @tagName(section_id) });
-        try leb.writeULEB128(sub_writer, name.index);
-        try leb.writeULEB128(sub_writer, @as(u32, @intCast(name.name.len)));
+        try leb.writeUleb128(sub_writer, name.index);
+        try leb.writeUleb128(sub_writer, @as(u32, @intCast(name.name.len)));
         try sub_writer.writeAll(name.name);
     }
 
     // From now, write to the actual writer
-    try leb.writeULEB128(writer, @intFromEnum(section_id));
-    try leb.writeULEB128(writer, @as(u32, @intCast(section_list.items.len)));
+    try leb.writeUleb128(writer, @intFromEnum(section_id));
+    try leb.writeUleb128(writer, @as(u32, @intCast(section_list.items.len)));
     try writer.writeAll(section_list.items);
 }
 
 fn emitLimits(writer: anytype, limits: std.wasm.Limits) !void {
     try writer.writeByte(limits.flags);
-    try leb.writeULEB128(writer, limits.min);
+    try leb.writeUleb128(writer, limits.min);
     if (limits.hasFlag(.WASM_LIMITS_FLAG_HAS_MAX)) {
-        try leb.writeULEB128(writer, limits.max);
+        try leb.writeUleb128(writer, limits.max);
     }
 }
 
@@ -3274,11 +3276,11 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
     switch (init_expr) {
         .i32_const => |val| {
             try writer.writeByte(std.wasm.opcode(.i32_const));
-            try leb.writeILEB128(writer, val);
+            try leb.writeIleb128(writer, val);
         },
         .i64_const => |val| {
             try writer.writeByte(std.wasm.opcode(.i64_const));
-            try leb.writeILEB128(writer, val);
+            try leb.writeIleb128(writer, val);
         },
         .f32_const => |val| {
             try writer.writeByte(std.wasm.opcode(.f32_const));
@@ -3290,7 +3292,7 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
         },
         .global_get => |val| {
             try writer.writeByte(std.wasm.opcode(.global_get));
-            try leb.writeULEB128(writer, val);
+            try leb.writeUleb128(writer, val);
         },
     }
     try writer.writeByte(std.wasm.opcode(.end));
@@ -3298,22 +3300,22 @@ fn emitInit(writer: anytype, init_expr: std.wasm.InitExpression) !void {
 
 fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     const module_name = wasm.string_table.get(import.module_name);
-    try leb.writeULEB128(writer, @as(u32, @intCast(module_name.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(module_name.len)));
     try writer.writeAll(module_name);
 
     const name = wasm.string_table.get(import.name);
-    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
 
     try writer.writeByte(@intFromEnum(import.kind));
     switch (import.kind) {
-        .function => |type_index| try leb.writeULEB128(writer, type_index),
+        .function => |type_index| try leb.writeUleb128(writer, type_index),
         .global => |global_type| {
-            try leb.writeULEB128(writer, std.wasm.valtype(global_type.valtype));
+            try leb.writeUleb128(writer, std.wasm.valtype(global_type.valtype));
             try writer.writeByte(@intFromBool(global_type.mutable));
         },
         .table => |table| {
-            try leb.writeULEB128(writer, std.wasm.reftype(table.reftype));
+            try leb.writeUleb128(writer, std.wasm.reftype(table.reftype));
             try emitLimits(writer, table.limits);
         },
         .memory => |limits| {
@@ -3765,11 +3767,11 @@ fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
     const writer = binary_bytes.writer();
     // emit "linking" custom section name
     const section_name = "linking";
-    try leb.writeULEB128(writer, section_name.len);
+    try leb.writeUleb128(writer, section_name.len);
     try writer.writeAll(section_name);
 
     // meta data version, which is currently '2'
-    try leb.writeULEB128(writer, @as(u32, 2));
+    try leb.writeUleb128(writer, @as(u32, 2));
 
     // For each subsection type (found in types.Subsection) we can emit a section.
     // Currently, we only support emitting segment info and the symbol table.
@@ -3783,7 +3785,7 @@ fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
 fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
     const writer = binary_bytes.writer();
 
-    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SYMBOL_TABLE));
+    try leb.writeUleb128(writer, @intFromEnum(types.SubsectionType.WASM_SYMBOL_TABLE));
     const table_offset = binary_bytes.items.len;
 
     var symbol_count: u32 = 0;
@@ -3793,30 +3795,30 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
         try symbol_table.putNoClobber(sym_loc, symbol_count);
         symbol_count += 1;
         log.debug("Emit symbol: {}", .{symbol});
-        try leb.writeULEB128(writer, @intFromEnum(symbol.tag));
-        try leb.writeULEB128(writer, symbol.flags);
+        try leb.writeUleb128(writer, @intFromEnum(symbol.tag));
+        try leb.writeUleb128(writer, symbol.flags);
 
         const sym_name = sym_loc.getName(wasm);
         switch (symbol.tag) {
             .data => {
-                try leb.writeULEB128(writer, @as(u32, @intCast(sym_name.len)));
+                try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
                 try writer.writeAll(sym_name);
 
                 if (symbol.isDefined()) {
-                    try leb.writeULEB128(writer, symbol.index);
+                    try leb.writeUleb128(writer, symbol.index);
                     const atom_index = wasm.symbol_atom.get(sym_loc).?;
                     const atom = wasm.getAtom(atom_index);
-                    try leb.writeULEB128(writer, @as(u32, atom.offset));
-                    try leb.writeULEB128(writer, @as(u32, atom.size));
+                    try leb.writeUleb128(writer, @as(u32, atom.offset));
+                    try leb.writeUleb128(writer, @as(u32, atom.size));
                 }
             },
             .section => {
-                try leb.writeULEB128(writer, symbol.index);
+                try leb.writeUleb128(writer, symbol.index);
             },
             else => {
-                try leb.writeULEB128(writer, symbol.index);
+                try leb.writeUleb128(writer, symbol.index);
                 if (symbol.isDefined()) {
-                    try leb.writeULEB128(writer, @as(u32, @intCast(sym_name.len)));
+                    try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
                     try writer.writeAll(sym_name);
                 }
             },
@@ -3831,20 +3833,20 @@ fn emitSymbolTable(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: 
 
 fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     const writer = binary_bytes.writer();
-    try leb.writeULEB128(writer, @intFromEnum(types.SubsectionType.WASM_SEGMENT_INFO));
+    try leb.writeUleb128(writer, @intFromEnum(types.SubsectionType.WASM_SEGMENT_INFO));
     const segment_offset = binary_bytes.items.len;
 
-    try leb.writeULEB128(writer, @as(u32, @intCast(wasm.segment_info.count())));
+    try leb.writeUleb128(writer, @as(u32, @intCast(wasm.segment_info.count())));
     for (wasm.segment_info.values()) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
             segment_info.name,
             segment_info.alignment,
             segment_info.flags,
         });
-        try leb.writeULEB128(writer, @as(u32, @intCast(segment_info.name.len)));
+        try leb.writeUleb128(writer, @as(u32, @intCast(segment_info.name.len)));
         try writer.writeAll(segment_info.name);
-        try leb.writeULEB128(writer, segment_info.alignment.toLog2Units());
-        try leb.writeULEB128(writer, segment_info.flags);
+        try leb.writeUleb128(writer, segment_info.alignment.toLog2Units());
+        try leb.writeUleb128(writer, segment_info.flags);
     }
 
     var buf: [5]u8 = undefined;
@@ -3852,7 +3854,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     try binary_bytes.insertSlice(segment_offset, &buf);
 }
 
-pub fn getULEB128Size(uint_value: anytype) u32 {
+pub fn getUleb128Size(uint_value: anytype) u32 {
     const T = @TypeOf(uint_value);
     const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
     var value = @as(U, @intCast(uint_value));
@@ -3877,9 +3879,9 @@ fn emitCodeRelocations(
 
     // write custom section information
     const name = "reloc.CODE";
-    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
-    try leb.writeULEB128(writer, section_index);
+    try leb.writeUleb128(writer, section_index);
     const reloc_start = binary_bytes.items.len;
 
     var count: u32 = 0;
@@ -3887,17 +3889,17 @@ fn emitCodeRelocations(
     // for each atom, we calculate the uleb size and append that
     var size_offset: u32 = 5; // account for code section size leb128
     while (true) {
-        size_offset += getULEB128Size(atom.size);
+        size_offset += getUleb128Size(atom.size);
         for (atom.relocs.items) |relocation| {
             count += 1;
             const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
             const symbol_index = symbol_table.get(sym_loc).?;
-            try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
+            try leb.writeUleb128(writer, @intFromEnum(relocation.relocation_type));
             const offset = atom.offset + relocation.offset + size_offset;
-            try leb.writeULEB128(writer, offset);
-            try leb.writeULEB128(writer, symbol_index);
+            try leb.writeUleb128(writer, offset);
+            try leb.writeUleb128(writer, symbol_index);
             if (relocation.relocation_type.addendIsPresent()) {
-                try leb.writeILEB128(writer, relocation.addend);
+                try leb.writeIleb128(writer, relocation.addend);
             }
             log.debug("Emit relocation: {}", .{relocation});
         }
@@ -3924,9 +3926,9 @@ fn emitDataRelocations(
 
     // write custom section information
     const name = "reloc.DATA";
-    try leb.writeULEB128(writer, @as(u32, @intCast(name.len)));
+    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
     try writer.writeAll(name);
-    try leb.writeULEB128(writer, section_index);
+    try leb.writeUleb128(writer, section_index);
     const reloc_start = binary_bytes.items.len;
 
     var count: u32 = 0;
@@ -3935,17 +3937,17 @@ fn emitDataRelocations(
     for (wasm.data_segments.values()) |segment_index| {
         var atom: *Atom = wasm.getAtomPtr(wasm.atoms.get(segment_index).?);
         while (true) {
-            size_offset += getULEB128Size(atom.size);
+            size_offset += getUleb128Size(atom.size);
             for (atom.relocs.items) |relocation| {
                 count += 1;
                 const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
                 const symbol_index = symbol_table.get(sym_loc).?;
-                try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
+                try leb.writeUleb128(writer, @intFromEnum(relocation.relocation_type));
                 const offset = atom.offset + relocation.offset + size_offset;
-                try leb.writeULEB128(writer, offset);
-                try leb.writeULEB128(writer, symbol_index);
+                try leb.writeUleb128(writer, offset);
+                try leb.writeUleb128(writer, symbol_index);
                 if (relocation.relocation_type.addendIsPresent()) {
-                    try leb.writeILEB128(writer, relocation.addend);
+                    try leb.writeIleb128(writer, relocation.addend);
                 }
                 log.debug("Emit relocation: {}", .{relocation});
             }

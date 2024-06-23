@@ -14,7 +14,9 @@ const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");

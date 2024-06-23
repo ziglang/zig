@@ -664,7 +664,9 @@ const Lower = @This();
 const Memory = Instruction.Memory;
 const Mir = @import("Mir.zig");
 const Mnemonic = Instruction.Mnemonic;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Operand = Instruction.Operand;
 const Prefix = Instruction.Prefix;
 const Register = bits.Register;

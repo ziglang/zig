@@ -344,8 +344,9 @@ const Limb = std.math.big.Limb;
 const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
-const Module = @import("Module.zig");
-const Zcu = Module;
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Zir = std.zig.Zir;
 
 const KeyAdapter = struct {
