@@ -187,7 +187,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
-        .coreclr => "coreclr",
         .simulator => "simulator",
         .macabi => "macabi",
         .pixel => "pixel",

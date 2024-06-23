@@ -742,7 +742,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
-        .coreclr => "coreclr",
         .simulator => "simulator",
         .macabi => "macabi",
         .pixel => "pixel",
