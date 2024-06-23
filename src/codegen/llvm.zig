@@ -2024,7 +2024,6 @@ pub const Object = struct {
             },
             .Int => {
                 const info = ty.intInfo(mod);
-                assert(info.bits != 0);
                 const int_name = try o.allocTypeName(ty);
                 defer gpa.free(int_name);
                 const builder_name = try o.builder.metadataString(int_name);
@@ -2206,7 +2205,6 @@ pub const Object = struct {
                 const debug_elem_type = switch (elem_ty.zigTypeTag(mod)) {
                     .Int => blk: {
                         const info = elem_ty.intInfo(mod);
-                        assert(info.bits != 0);
                         const vec_name = try o.allocTypeName(ty);
                         defer gpa.free(vec_name);
                         const builder_name = try o.builder.metadataString(vec_name);
@@ -2528,6 +2526,15 @@ pub const Object = struct {
                         // will not need to be typedef'd.
                         if (nested_type.getOwnerDeclOrNull(mod)) |owner| {
                             if (owner == decl_id) continue;
+                        }
+
+                        switch (nested_type.zigTypeTag(mod)) {
+                            // We still may want these for a Zig expression
+                            // evaluator in debuggers, but for now they are
+                            // completely useless.
+                            .ComptimeInt, .ComptimeFloat,
+                            .Type, .Undefined, .Null, .EnumLiteral => continue,
+                            else => {},
                         }
 
                         fields.appendAssumeCapacity(try o.builder.debugTypedef(
