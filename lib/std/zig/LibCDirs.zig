@@ -250,7 +250,6 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .msvc,
         .itanium,
         .cygnus,
-        .coreclr,
         .simulator,
         .macabi,
         => unreachable,

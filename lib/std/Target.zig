@@ -634,7 +634,6 @@ pub const Abi = enum {
     msvc,
     itanium,
     cygnus,
-    coreclr,
     simulator,
     macabi,
     pixel,
