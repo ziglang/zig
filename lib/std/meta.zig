@@ -1204,7 +1204,10 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .Pointer => |info| info.size != .Slice,
 
         .Optional => |info| switch (@typeInfo(info.child)) {
-            .Pointer => |ptr_info| ptr_info.size != .Slice,
+            .Pointer => |ptr| !ptr.is_allowzero and switch(ptr.size) {
+                .Slice, .C => false,
+                .One, .Many => true,
+            },
             else => false,
         },
 
