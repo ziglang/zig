@@ -11,12 +11,10 @@ const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
-const ErrorMsg = Module.ErrorMsg;
+const ErrorMsg = Zcu.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("../../tracy.zig").trace;
@@ -61,7 +59,7 @@ args: []MCValue,
 ret_mcv: InstTracking,
 fn_type: Type,
 arg_index: usize,
-src_loc: Module.SrcLoc,
+src_loc: Zcu.SrcLoc,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -543,13 +541,13 @@ const FrameAlloc = struct {
             .ref_count = 0,
         };
     }
-    fn initType(ty: Type, zcu: *Module) FrameAlloc {
+    fn initType(ty: Type, zcu: *Zcu) FrameAlloc {
         return init(.{
             .size = ty.abiSize(zcu),
             .alignment = ty.abiAlignment(zcu),
         });
     }
-    fn initSpill(ty: Type, zcu: *Module) FrameAlloc {
+    fn initSpill(ty: Type, zcu: *Zcu) FrameAlloc {
         const abi_size = ty.abiSize(zcu);
         const spill_size = if (abi_size < 8)
             math.ceilPowerOfTwoAssert(u64, abi_size)
@@ -698,7 +696,7 @@ const CallView = enum(u1) {
 
 pub fn generate(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Zcu.SrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -922,7 +920,7 @@ fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) 
 }
 
 const FormatDeclData = struct {
-    mod: *Module,
+    mod: *Zcu,
     decl_index: InternPool.DeclIndex,
 };
 fn formatDecl(
@@ -6636,7 +6634,7 @@ fn hasFeature(func: *Func, feature: Target.riscv.Feature) bool {
     return Target.riscv.featureSetHas(func.target.cpu.features, feature);
 }
 
-pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Module) u64 {
+pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) return 0;
     const payload_align = payload_ty.abiAlignment(zcu);
     const error_align = Type.anyerror.abiAlignment(zcu);
@@ -6647,7 +6645,7 @@ pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Module) u64 {
     }
 }
 
-pub fn errUnionErrorOffset(payload_ty: Type, zcu: *Module) u64 {
+pub fn errUnionErrorOffset(payload_ty: Type, zcu: *Zcu) u64 {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) return 0;
     const payload_align = payload_ty.abiAlignment(zcu);
     const error_align = Type.anyerror.abiAlignment(zcu);

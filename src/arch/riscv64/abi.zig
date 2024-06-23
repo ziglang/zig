@@ -5,13 +5,11 @@ const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const InternPool = @import("../../InternPool.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const assert = std.debug.assert;
 
 pub const Class = enum { memory, byval, integer, double_integer, fields };
 
-pub fn classifyType(ty: Type, mod: *Module) Class {
+pub fn classifyType(ty: Type, mod: *Zcu) Class {
     const target = mod.getTarget();
     std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
@@ -99,7 +97,7 @@ pub const SystemClass = enum { integer, float, memory, none };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystem(ty: Type, zcu: *Module) [8]SystemClass {
+pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
     var result = [1]SystemClass{.none} ** 8;
     const memory_class = [_]SystemClass{
         .memory, .none, .none, .none,
@@ -202,7 +200,7 @@ fn classifyStruct(
     result: *[8]Class,
     byte_offset: *u64,
     loaded_struct: InternPool.LoadedStructType,
-    zcu: *Module,
+    zcu: *Zcu,
 ) void {
     const ip = &zcu.intern_pool;
     var field_it = loaded_struct.iterateRuntimeOrder(ip);
