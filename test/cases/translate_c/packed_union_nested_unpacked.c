@@ -13,7 +13,7 @@ union Foo{
 // c_frontend=aro,clang
 //
 // const struct_unnamed_1 = extern struct {
-//     b: c_int = @import("std").mem.zeroes(c_int),
+//     b: c_int,
 // };
 // 
 // pub const union_Foo = extern union {

@@ -7,7 +7,7 @@ const char *struct_foo = "hello world";
 // c_frontend=clang
 //
 // pub const struct_foo_1 = extern struct {
-//     x: c_int = @import("std").mem.zeroes(c_int),
+//     x: c_int,
 // };
 // 
 // pub const foo = struct_foo_1;

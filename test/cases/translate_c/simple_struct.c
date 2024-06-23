@@ -6,7 +6,7 @@ struct Foo {
 // c_frontend=aro,clang
 //
 // const struct_Foo = extern struct {
-//     x: c_int = @import("std").mem.zeroes(c_int),
+//     x: c_int,
 // };
 // 
 // pub const Foo = struct_Foo;

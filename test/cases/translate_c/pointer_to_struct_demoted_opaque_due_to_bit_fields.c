@@ -11,5 +11,5 @@ struct Bar {
 // pub const struct_Foo = opaque {};
 // 
 // pub const struct_Bar = extern struct {
-//     foo: ?*struct_Foo = @import("std").mem.zeroes(?*struct_Foo),
+//     foo: ?*struct_Foo,
 // };

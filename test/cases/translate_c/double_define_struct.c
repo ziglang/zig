@@ -13,13 +13,13 @@ struct Bar {
 // c_frontend=clang
 //
 // pub const struct_Foo = extern struct {
-//     a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
+//     a: [*c]Foo,
 // };
 // 
 // pub const Foo = struct_Foo;
 // 
 // pub const struct_Bar = extern struct {
-//     a: [*c]Foo = @import("std").mem.zeroes([*c]Foo),
+//     a: [*c]Foo,
 // };
 // 
 // pub const Bar = struct_Bar;

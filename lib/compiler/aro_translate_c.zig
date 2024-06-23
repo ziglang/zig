@@ -417,19 +417,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
             else
                 null;
 
-            // C99 introduced designated initializers for structs. Omitted fields are implicitly
-            // initialized to zero. Some C APIs are designed with this in mind. Defaulting to zero
-            // values for translated struct fields permits Zig code to comfortably use such an API.
-            const default_value = if (container_kind == .@"struct")
-                try ZigTag.std_mem_zeroes.create(c.arena, field_type)
-            else
-                null;
-
             fields.appendAssumeCapacity(.{
                 .name = field_name,
                 .type = field_type,
                 .alignment = field_alignment,
-                .default_value = default_value,
             });
         }
 
