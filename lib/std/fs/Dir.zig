@@ -1159,6 +1159,13 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
                     // workaround for windows, see https://github.com/ziglang/zig/issues/16738
                     const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
                         error.IsDir => break :check_dir,
+                        error.FileNotFound => {
+                            // for paths like "first/../second/..", the libc implementation of mkdirat
+                            // causes PathAlreadyExists no matter if path components exist or not, so
+                            // there may be FileNotFound in case some of them are still to be created
+                            component = it.previous() orelse return stat_err;
+                            continue;
+                        },
                         else => |e| return e,
                     };
                     if (fstat.kind != .directory) return error.NotDir;
