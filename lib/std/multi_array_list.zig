@@ -93,6 +93,19 @@ pub fn MultiArrayList(comptime T: type) type {
                 }
             }
 
+            pub fn setRange(self: *Slice, index: usize, count: usize, elem: T) void {
+                const e = switch (@typeInfo(T)) {
+                    .Struct => elem,
+                    .Union => Elem.fromT(elem),
+                    else => unreachable,
+                };
+                inline for (fields, 0..) |field_info, i| {
+                    if (@sizeOf(field_info.type) != 0) {
+                        @memset(self.items(@as(Field, @enumFromInt(i)))[index..][0..count], @field(e, field_info.name));
+                    }
+                }
+            }
+
             pub fn get(self: Slice, index: usize) T {
                 var result: Elem = undefined;
                 inline for (fields, 0..) |field_info, i| {
@@ -122,6 +135,20 @@ pub fn MultiArrayList(comptime T: type) type {
                 var other = self.toMultiArrayList();
                 other.deinit(gpa);
                 self.* = undefined;
+            }
+
+            fn addManyAtAssumeCapacity(self: *Slice, index: usize, count: usize, old_len: usize) void {
+                inline for (fields, 0..) |field_info, i| {
+                    if (@sizeOf(field_info.type) != 0) {
+                        const field_array = self.items(@as(Field, @enumFromInt(i)));
+                        std.mem.copyBackwards(
+                            field_info.type,
+                            field_array[index + count ..],
+                            field_array[index..old_len],
+                        );
+                        @memset(field_array[index..][0..count], undefined);
+                    }
+                }
             }
 
             /// This function is used in the debugger pretty formatters in tools/ to fetch the
@@ -215,6 +242,12 @@ pub fn MultiArrayList(comptime T: type) type {
             slices.set(index, elem);
         }
 
+        /// Overwrite `n` array elements, starting at `index` with new data.
+        pub fn setRange(self: *Self, index: usize, n: usize, elem: T) void {
+            var slices = self.slice();
+            slices.setRange(index, n, elem);
+        }
+
         /// Obtain all the data for one array element.
         pub fn get(self: Self, index: usize) T {
             return self.slice().get(index);
@@ -234,6 +267,29 @@ pub fn MultiArrayList(comptime T: type) type {
             self.set(self.len - 1, elem);
         }
 
+        /// Append an element to the list `n` times.
+        /// Allocates more memory as necessary.
+        /// Invalidates element pointers if additional memory is needed.
+        /// The function is inline so that a comptime-known `elem` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimes(self: *Self, gpa: Allocator, elem: T, n: usize) !void {
+            try self.ensureUnusedCapacity(gpa, n);
+            self.appendNTimesAssumeCapacity(elem, n);
+        }
+
+        /// Append an element to the list `n` times.
+        /// Never invalidates element pointers.
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        /// Asserts that the list can hold the additional items.
+        pub inline fn appendNTimesAssumeCapacity(self: *Self, elem: T, n: usize) void {
+            const new_len = self.len + n;
+            const old_len = self.len;
+            assert(new_len <= self.capacity);
+            self.len = new_len;
+            self.setRange(old_len, n, elem);
+        }
+
         /// Extend the list by 1 element, returning the newly reserved
         /// index with uninitialized data.
         /// Allocates more memory as necesasry.
@@ -250,6 +306,57 @@ pub fn MultiArrayList(comptime T: type) type {
             const index = self.len;
             self.len += 1;
             return index;
+        }
+
+        /// Add `count` new elements at position `index`, which have undefined values.
+        pub fn addManyAt(self: *Self, allocator: Allocator, index: usize, count: usize) Allocator.Error!void {
+            const new_len = self.len + count;
+            const new_capacity = growCapacity(self.capacity, new_len);
+
+            if (self.capacity >= new_capacity)
+                return self.addManyAtAssumeCapacity(index, count);
+
+            const old_memory = self.allocatedBytes();
+
+            // Make a new allocation, avoiding `ensureTotalCapacity` in order
+            // to avoid extra memory copies.
+            const new_memory = try allocator.alignedAlloc(
+                u8,
+                @alignOf(Elem),
+                capacityInBytes(new_capacity),
+            );
+            var new_self = Self{
+                .bytes = new_memory.ptr,
+                .capacity = new_capacity,
+                .len = new_len,
+            };
+            var new_slices: Slice = new_self.slice();
+            const old_slices = self.slice();
+            inline for (fields, 0..) |field_info, field_index| {
+                if (@sizeOf(field_info.type) != 0) {
+                    const field = @as(Field, @enumFromInt(field_index));
+                    const new_fields = new_slices.items(field);
+                    const old_fields = old_slices.items(field);
+                    const to_move = old_fields[index..];
+                    @memcpy(new_fields[0..index], old_fields[0..index]);
+                    @memcpy(new_fields[index + count ..][0..to_move.len], to_move);
+                    // The inserted elements at `new_memory[index..][0..count]` have
+                    // already been set to `undefined` by memory allocation.
+                }
+            }
+            allocator.free(old_memory);
+            self.* = new_self;
+        }
+
+        /// Add `count` new elements at position `index`, which have undefined values.
+        /// Asserts that there is enough capacity for the new elements.
+        pub fn addManyAtAssumeCapacity(self: *Self, index: usize, count: usize) void {
+            const new_len = self.len + count;
+            const old_len = self.len;
+            assert(new_len <= self.capacity);
+            self.len = new_len;
+            var slices = self.slice();
+            slices.addManyAtAssumeCapacity(index, count, old_len);
         }
 
         /// Remove and return the last element from the list.
@@ -393,17 +500,23 @@ pub fn MultiArrayList(comptime T: type) type {
             self.len = new_len;
         }
 
-        /// Modify the array so that it can hold at least `new_capacity` items.
-        /// Implements super-linear growth to achieve amortized O(1) append operations.
-        /// Invalidates pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
-            var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
-
+        /// Called when memory growth is necessary. Returns a capacity larger than
+        /// minimum that grows super-linearly.
+        fn growCapacity(old_capacity: usize, new_capacity: usize) usize {
+            var better_capacity = old_capacity;
             while (true) {
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
+            return better_capacity;
+        }
+
+        /// Modify the array so that it can hold at least `new_capacity` items.
+        /// Implements super-linear growth to achieve amortized O(1) append operations.
+        /// Invalidates pointers if additional memory is needed.
+        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
+            if (self.capacity >= new_capacity) return;
+            const better_capacity = growCapacity(self.capacity, new_capacity);
 
             return self.setCapacity(gpa, better_capacity);
         }
@@ -632,8 +745,7 @@ test "basic usage" {
     try testing.expectEqualStrings("fizzbuzz", list.items(.b)[2]);
 
     // Add 6 more things to force a capacity increase.
-    var i: usize = 0;
-    while (i < 6) : (i += 1) {
+    for (0..6) |i| {
         try list.append(ally, .{
             .a = @as(u32, @intCast(4 + i)),
             .b = "whatever",
@@ -672,6 +784,92 @@ test "basic usage" {
     try testing.expectEqual(@as(u32, 2), list.pop().a);
     try testing.expectEqual(@as(u8, 'a'), list.pop().c);
     try testing.expectEqual(@as(?Foo, null), list.popOrNull());
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    for (0..10) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    list.shrinkAndFree(ally, 0);
+
+    try list.appendNTimes(ally, .{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    for (0..10) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    list.addManyAtAssumeCapacity(3, 3);
+    for (0..2) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+    for (6..13) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 13);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    try list.addManyAt(ally, 3, 3);
+    for (0..2) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+    for (6..13) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+
+    // case where addManyAt needs to reallocate
+
+    list.shrinkAndFree(ally, 0);
+    try list.setCapacity(ally, 10);
+    list.appendNTimesAssumeCapacity(.{
+        .a = 1,
+        .b = "foobar",
+        .c = 'a',
+    }, 10);
+    try list.addManyAt(ally, 3, 3);
+    for (0..2) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
+    for (6..13) |i| {
+        try testing.expectEqual(@as(u32, 1), list.items(.a)[i]);
+        try testing.expectEqualStrings("foobar", list.items(.b)[i]);
+        try testing.expectEqual(@as(u8, 'a'), list.items(.c)[i]);
+    }
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
