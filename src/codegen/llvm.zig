@@ -1950,7 +1950,6 @@ pub const Object = struct {
             },
             .Int => {
                 const info = ty.intInfo(zcu);
-                assert(info.bits != 0);
                 const int_name = try o.allocTypeName(ty);
                 defer gpa.free(int_name);
                 const builder_name = try o.builder.metadataString(int_name);
@@ -2132,7 +2131,6 @@ pub const Object = struct {
                 const debug_elem_type = switch (elem_ty.zigTypeTag(zcu)) {
                     .Int => blk: {
                         const info = elem_ty.intInfo(zcu);
-                        assert(info.bits != 0);
                         const vec_name = try o.allocTypeName(ty);
                         defer gpa.free(vec_name);
                         const builder_name = try o.builder.metadataString(vec_name);
@@ -2446,8 +2444,6 @@ pub const Object = struct {
                     if (decl.kind != .named) continue;
                     if (decl.analysis != .complete) continue;
 
-                    const decl_line = decl.typeSrcLine(zcu) + 1;
-
                     if (decl.val.typeOf(zcu).ip_index == .type_type) {
                         const nested_type = decl.val.toType();
                         // If this decl is the owner of the type, it will
@@ -2457,11 +2453,20 @@ pub const Object = struct {
                             if (owner == decl_id) continue;
                         }
 
+                        switch (nested_type.zigTypeTag(zcu)) {
+                            // We still may want these for a Zig expression
+                            // evaluator in debuggers, but for now they are
+                            // completely useless.
+                            .ComptimeInt, .ComptimeFloat,
+                            .Type, .Undefined, .Null, .EnumLiteral => continue,
+                            else => {},
+                        }
+
                         fields.appendAssumeCapacity(try o.builder.debugTypedef(
                             try o.builder.metadataString(decl_name),
                             try o.getDebugFile(namespace.fileScope(zcu)),
                             fwd_ref,
-                            decl_line,
+                            0,
                             try o.lowerDebugType(nested_type, false),
                             0, // Align
                         ));
@@ -2470,7 +2475,7 @@ pub const Object = struct {
                             try o.builder.metadataString(decl_name),
                             try o.getDebugFile(namespace.fileScope(zcu)),
                             fwd_ref,
-                            decl_line,
+                            0,
                             try o.lowerDebugType(Type.fromInterned(v.ty), false),
                         ));
                     }
