@@ -232,7 +232,6 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnueabi,
         .gnueabihf,
         .gnuf32,
-        .gnuf64,
         .gnusf,
         .gnux32,
         .gnuilp32,
