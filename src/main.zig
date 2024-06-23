@@ -6960,7 +6960,7 @@ fn cmdFetch(
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
             const fetched_manifest = fetch.manifest orelse
-                fatal("unable to determine name; fetched package has no build.zig.zon file; use the --name option", .{});
+                fatal("unable to determine name; fetched package has no build.zig.zon file; use --save=[name] or --save-exact=[name] to provide a dependency name", .{});
             break :name fetched_manifest.name;
         },
     };
