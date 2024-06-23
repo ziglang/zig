@@ -177,7 +177,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
         .gnuf32 => "gnuf32",
-        .gnuf64 => "gnuf64",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .gnuilp32 => "gnuilp32",
