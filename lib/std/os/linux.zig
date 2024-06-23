@@ -2272,14 +2272,7 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
         // call it fadvise64 (x86, PowerPC, etc), while newer ports call it fadvise64_64 (RISC-V,
         // LoongArch, etc). SPARC is the odd one out because it has both.
         return syscall4(
-            // 64-bit SPARC (apparently?) has a broken fadvise64_64, so use its fadvise64 instead.
-            // TODO: I can't make sense of this. They go to the same code in the kernel, and there
-            // is no special-casing for SPARC in glibc and musl. I suspect a QEMU bug, which is
-            // really not our responsibility.
-            if (@hasField(SYS, "fadvise64_64") and native_arch != .sparc64)
-                .fadvise64_64
-            else
-                .fadvise64,
+            if (@hasField(SYS, "fadvise64_64")) .fadvise64_64 else .fadvise64,
             @as(usize, @bitCast(@as(isize, fd))),
             @as(usize, @bitCast(offset)),
             @as(usize, @bitCast(len)),
