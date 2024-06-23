@@ -696,6 +696,7 @@ pub const StackIterator = struct {
         } else if (@hasDecl(posix.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
                 switch (err) {
+                    error.PermissionDenied => return true,
                     error.UnmappedMemory => return false,
                     else => unreachable,
                 }
