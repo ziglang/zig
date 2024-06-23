@@ -23,7 +23,6 @@ pub const Os = struct {
         freebsd,
         fuchsia,
         ios,
-        kfreebsd,
         linux,
         lv2,
         macos,
@@ -74,7 +73,7 @@ pub const Os = struct {
 
         pub inline fn isBSD(tag: Tag) bool {
             return tag.isDarwin() or switch (tag) {
-                .kfreebsd, .freebsd, .openbsd, .netbsd, .dragonfly => true,
+                .freebsd, .openbsd, .netbsd, .dragonfly => true,
                 else => false,
             };
         }
@@ -140,7 +139,6 @@ pub const Os = struct {
                 .ananas,
                 .cloudabi,
                 .fuchsia,
-                .kfreebsd,
                 .lv2,
                 .zos,
                 .haiku,
@@ -374,7 +372,6 @@ pub const Os = struct {
                 .ananas,
                 .cloudabi,
                 .fuchsia,
-                .kfreebsd,
                 .lv2,
                 .zos,
                 .haiku,
@@ -563,7 +560,6 @@ pub const Os = struct {
             .ananas,
             .cloudabi,
             .fuchsia,
-            .kfreebsd,
             .lv2,
             .zos,
             .minix,
@@ -689,7 +685,6 @@ pub const Abi = enum {
             .openbsd,
             .freebsd,
             .fuchsia,
-            .kfreebsd,
             .netbsd,
             .hurd,
             .haiku,
@@ -1855,7 +1850,6 @@ pub const DynamicLinker = struct {
             .ananas,
             .cloudabi,
             .fuchsia,
-            .kfreebsd,
             .lv2,
             .zos,
             .minix,
@@ -2375,7 +2369,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         },
 
         .cloudabi,
-        .kfreebsd,
         .lv2,
         .zos,
         .rtems,

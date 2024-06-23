@@ -674,7 +674,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
-        .kfreebsd => "kfreebsd",
         .linux => "linux",
         .lv2 => "lv2",
         .netbsd => "netbsd",

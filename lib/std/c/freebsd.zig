@@ -22,7 +22,7 @@ const sf_hdtr = std.c.sf_hdtr;
 const clockid_t = std.c.clockid_t;
 
 comptime {
-    assert(builtin.os.tag == .freebsd or builtin.os.tag == .kfreebsd); // Prevent access of std.c symbols on wrong OS.
+    assert(builtin.os.tag == .freebsd); // Prevent access of std.c symbols on wrong OS.
 }
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;

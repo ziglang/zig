@@ -106,7 +106,7 @@ pub const timespec = switch (native_os) {
         sec: time_t,
         nsec: c_long,
     },
-    .dragonfly, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .dragonfly, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         sec: isize,
         nsec: isize,
     },
@@ -126,7 +126,7 @@ pub const dev_t = switch (native_os) {
     .emscripten => emscripten.dev_t,
     .wasi => wasi.device_t,
     .openbsd, .haiku, .solaris, .illumos, .macos, .ios, .tvos, .watchos, .visionos => i32,
-    .netbsd, .freebsd, .kfreebsd => u64,
+    .netbsd, .freebsd => u64,
     else => void,
 };
 
@@ -134,7 +134,7 @@ pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
     .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi => u32,
-    .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
+    .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
     else => u0,
 };
 
@@ -142,7 +142,7 @@ pub const nlink_t = switch (native_os) {
     .linux => linux.nlink_t,
     .emscripten => emscripten.nlink_t,
     .wasi => c_ulonglong,
-    .freebsd, .kfreebsd => u64,
+    .freebsd => u64,
     .openbsd, .netbsd, .solaris, .illumos => u32,
     .haiku => i32,
     else => void,
@@ -235,7 +235,7 @@ pub const clockid_t = switch (native_os) {
         /// clock measuring the used CPU time of the current thread
         THREAD_CPUTIME_ID = -3,
     },
-    .freebsd, .kfreebsd => enum(u32) {
+    .freebsd => enum(u32) {
         REALTIME = 0,
         VIRTUAL = 1,
         PROF = 2,
@@ -389,7 +389,7 @@ pub const E = switch (native_os) {
         _,
     },
     .macos, .ios, .tvos, .watchos, .visionos => darwin.E,
-    .freebsd, .kfreebsd => freebsd.E,
+    .freebsd => freebsd.E,
     .solaris, .illumos => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
@@ -781,7 +781,7 @@ pub const F = switch (native_os) {
         /// exclusive or write lock
         pub const WRLCK = 3;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// Duplicate file descriptor.
         pub const DUPFD = 0;
         /// Get file descriptor flags.
@@ -1075,7 +1075,7 @@ pub const Flock = switch (native_os) {
         type: i16,
         whence: i16,
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// Starting offset.
         start: off_t,
         /// Number of consecutive bytes to be locked.
@@ -1112,7 +1112,7 @@ pub const Flock = switch (native_os) {
 pub const HOST_NAME_MAX = switch (native_os) {
     .linux => linux.HOST_NAME_MAX,
     .macos, .ios, .tvos, .watchos, .visionos => 72,
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd => 255,
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd => 255,
     else => {},
 };
 pub const IOV_MAX = switch (native_os) {
@@ -1120,11 +1120,11 @@ pub const IOV_MAX = switch (native_os) {
     .emscripten => emscripten.IOV_MAX,
     .openbsd, .haiku, .solaris, .illumos, .wasi => 1024,
     .macos, .ios, .tvos, .watchos, .visionos => 16,
-    .dragonfly, .netbsd, .freebsd, .kfreebsd => KERN.IOV_MAX,
+    .dragonfly, .netbsd, .freebsd => KERN.IOV_MAX,
     else => {},
 };
 pub const CTL = switch (native_os) {
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const KERN = 1;
         pub const DEBUG = 5;
     },
@@ -1162,7 +1162,7 @@ pub const CTL = switch (native_os) {
     else => void,
 };
 pub const KERN = switch (native_os) {
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// struct: process entries
         pub const PROC = 14;
         /// path to executable
@@ -1338,7 +1338,7 @@ pub const KERN = switch (native_os) {
 pub const MADV = switch (native_os) {
     .linux => linux.MADV,
     .emscripten => emscripten.MADV,
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
         pub const SEQUENTIAL = 2;
@@ -1403,7 +1403,7 @@ pub const MSF = switch (native_os) {
         pub const DEACTIVATE = 0x8;
         pub const SYNC = 0x10;
     },
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd => struct {
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd => struct {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
@@ -1420,7 +1420,7 @@ pub const NAME_MAX = switch (native_os) {
     // Haiku's headers make this 256, to contain room for the terminating null
     // character, but POSIX definition says that NAME_MAX does not include the
     // terminating null.
-    .haiku, .openbsd, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => 255,
+    .haiku, .openbsd, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 255,
     else => {},
 };
 pub const PATH_MAX = switch (native_os) {
@@ -1428,7 +1428,7 @@ pub const PATH_MAX = switch (native_os) {
     .emscripten => emscripten.PATH_MAX,
     .wasi => 4096,
     .windows => 260,
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => 1024,
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 1024,
     else => {},
 };
 
@@ -1465,7 +1465,7 @@ pub const POLL = switch (native_os) {
 
         pub const STANDARD = IN | PRI | OUT | RDNORM | RDBAND | WRBAND | ERR | HUP | NVAL;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// any readable data available.
         pub const IN = 0x0001;
         /// OOB/Urgent readable data.
@@ -1568,7 +1568,7 @@ pub const POLL = switch (native_os) {
 pub const PROT = switch (native_os) {
     .linux => linux.PROT,
     .emscripten => emscripten.PROT,
-    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd, .windows => struct {
+    .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .windows => struct {
         /// page can not be accessed
         pub const NONE = 0x0;
         /// page can be read
@@ -1600,7 +1600,7 @@ pub const PROT = switch (native_os) {
 pub const REG = switch (native_os) {
     .linux => linux.REG,
     .emscripten => emscripten.REG,
-    .freebsd, .kfreebsd => switch (builtin.cpu.arch) {
+    .freebsd => switch (builtin.cpu.arch) {
         .aarch64 => struct {
             pub const FP = 29;
             pub const SP = 31;
@@ -1683,7 +1683,7 @@ pub const REG = switch (native_os) {
 pub const RLIM = switch (native_os) {
     .linux => linux.RLIM,
     .emscripten => emscripten.RLIM,
-    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
+    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
         /// No limit
         pub const INFINITY: rlim_t = (1 << 63) - 1;
 
@@ -1774,7 +1774,7 @@ pub const S = switch (native_os) {
             return m & IFMT == IFWHT;
         }
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const IFMT = 0o170000;
 
         pub const IFIFO = 0o010000;
@@ -2137,7 +2137,7 @@ pub const SA = switch (native_os) {
         /// signal handler with SIGINFO args with 64bit regs information
         pub const @"64REGSET" = 0x0200;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const ONSTACK = 0x0001;
         pub const RESTART = 0x0002;
         pub const RESETHAND = 0x0004;
@@ -2214,7 +2214,7 @@ pub const SEEK = switch (native_os) {
         pub const CUR: wasi.whence_t = .CUR;
         pub const END: wasi.whence_t = .END;
     },
-    .openbsd, .haiku, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos, .windows => struct {
+    .openbsd, .haiku, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .windows => struct {
         pub const SET = 0;
         pub const CUR = 1;
         pub const END = 2;
@@ -2353,7 +2353,7 @@ pub const SIG = switch (native_os) {
         /// user defined signal 2
         pub const USR2 = 31;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const HUP = 1;
         pub const INT = 2;
         pub const QUIT = 3;
@@ -2735,7 +2735,7 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
         flags: c_uint,
     },
-    .dragonfly, .freebsd, .kfreebsd => extern struct {
+    .dragonfly, .freebsd => extern struct {
         pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
         pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
@@ -2807,7 +2807,7 @@ pub const T = switch (native_os) {
             return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
         }
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const IOCEXCL = 0x2000740d;
         pub const IOCNXCL = 0x2000740e;
         pub const IOCSCTTY = 0x20007461;
@@ -3154,7 +3154,7 @@ pub const W = switch (native_os) {
         }
         const stopped = 0o177;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const NOHANG = 1;
         pub const UNTRACED = 2;
         pub const STOPPED = UNTRACED;
@@ -3346,7 +3346,7 @@ pub const clock_t = switch (native_os) {
     .linux => linux.clock_t,
     .emscripten => emscripten.clock_t,
     .macos, .ios, .tvos, .watchos, .visionos => c_ulong,
-    .freebsd, .kfreebsd => isize,
+    .freebsd => isize,
     .openbsd, .solaris, .illumos => i64,
     .netbsd => u32,
     .haiku => i32,
@@ -3360,7 +3360,7 @@ pub const cpu_set_t = switch (native_os) {
 pub const dl_phdr_info = switch (native_os) {
     .linux => linux.dl_phdr_info,
     .emscripten => emscripten.dl_phdr_info,
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// Module relocation base.
         addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
         /// Module name.
@@ -3414,7 +3414,7 @@ pub const itimerspec = switch (native_os) {
 };
 pub const msghdr = switch (native_os) {
     .linux => linux.msghdr,
-    .openbsd, .emscripten, .dragonfly, .freebsd, .kfreebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
+    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
         /// optional address
         name: ?*sockaddr,
         /// size of address
@@ -3434,7 +3434,7 @@ pub const msghdr = switch (native_os) {
 };
 pub const msghdr_const = switch (native_os) {
     .linux => linux.msghdr_const,
-    .openbsd, .emscripten, .dragonfly, .freebsd, .kfreebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
+    .openbsd, .emscripten, .dragonfly, .freebsd, .netbsd, .haiku, .solaris, .illumos => extern struct {
         /// optional address
         name: ?*const sockaddr,
         /// size of address
@@ -3457,7 +3457,7 @@ pub const nfds_t = switch (native_os) {
     .emscripten => emscripten.nfds_t,
     .haiku, .solaris, .illumos, .wasi => usize,
     .windows => c_ulong,
-    .openbsd, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => u32,
+    .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u32,
     else => void,
 };
 pub const perf_event_attr = switch (native_os) {
@@ -3484,7 +3484,7 @@ pub const rlim_t = switch (native_os) {
     .linux => linux.rlim_t,
     .emscripten => emscripten.rlim_t,
     .openbsd, .netbsd, .solaris, .illumos, .macos, .ios, .tvos, .watchos, .visionos => u64,
-    .haiku, .dragonfly, .freebsd, .kfreebsd => i64,
+    .haiku, .dragonfly, .freebsd => i64,
     else => void,
 };
 pub const rlimit = switch (native_os) {
@@ -3514,7 +3514,7 @@ pub const rlimit_resource = switch (native_os) {
 
         pub const AS: rlimit_resource = .RSS;
     },
-    .freebsd, .kfreebsd => enum(c_int) {
+    .freebsd => enum(c_int) {
         CPU = 0,
         FSIZE = 1,
         DATA = 2,
@@ -3660,7 +3660,7 @@ pub const siginfo_t = switch (native_os) {
         si_band: c_long,
         _pad: [7]c_ulong,
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         // Signal number.
         signo: c_int,
         // Errno association.
@@ -3822,7 +3822,7 @@ pub const sigset_t = switch (native_os) {
     .linux => linux.sigset_t,
     .emscripten => emscripten.sigset_t,
     .openbsd, .macos, .ios, .tvos, .watchos, .visionos => u32,
-    .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd => extern struct {
+    .dragonfly, .netbsd, .solaris, .illumos, .freebsd => extern struct {
         __bits: [SIG.WORDS]u32,
     },
     .haiku => u64,
@@ -3831,7 +3831,7 @@ pub const sigset_t = switch (native_os) {
 pub const empty_sigset: sigset_t = switch (native_os) {
     .linux => linux.empty_sigset,
     .emscripten => emscripten.empty_sigset,
-    .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .kfreebsd => .{ .__bits = [_]u32{0} ** SIG.WORDS },
+    .dragonfly, .netbsd, .solaris, .illumos, .freebsd => .{ .__bits = [_]u32{0} ** SIG.WORDS },
     else => 0,
 };
 pub const filled_sigset = switch (native_os) {
@@ -3841,7 +3841,7 @@ pub const filled_sigset = switch (native_os) {
 };
 pub const sigval = switch (native_os) {
     .linux => linux.sigval,
-    .openbsd, .dragonfly, .freebsd, .kfreebsd => extern union {
+    .openbsd, .dragonfly, .freebsd => extern union {
         int: c_int,
         ptr: ?*anyopaque,
     },
@@ -3851,7 +3851,7 @@ pub const sigval = switch (native_os) {
 pub const addrinfo = switch (native_os) {
     .linux, .emscripten => linux.addrinfo,
     .windows => ws2_32.addrinfo,
-    .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         flags: AI,
         family: i32,
         socktype: i32,
@@ -3955,7 +3955,7 @@ pub const sockaddr = switch (native_os) {
             path: [104]u8,
         };
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// total length
         len: u8,
         /// address family
@@ -4228,7 +4228,7 @@ pub const in_port_t = u16;
 pub const sa_family_t = switch (native_os) {
     .linux, .emscripten => linux.sa_family_t,
     .windows => ws2_32.ADDRESS_FAMILY,
-    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => u8,
+    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u8,
     .solaris, .illumos => u16,
     else => void,
 };
@@ -4275,7 +4275,7 @@ pub const AF = switch (native_os) {
         pub const PPP = 34;
         pub const MAX = 40;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const UNSPEC = 0;
         pub const UNIX = 1;
         pub const LOCAL = UNIX;
@@ -4505,7 +4505,7 @@ pub const PF = switch (native_os) {
         pub const PPP = AF.PPP;
         pub const MAX = AF.MAX;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const UNSPEC = AF.UNSPEC;
         pub const LOCAL = AF.LOCAL;
         pub const UNIX = PF.LOCAL;
@@ -4691,7 +4691,7 @@ pub const PF = switch (native_os) {
 };
 pub const DT = switch (native_os) {
     .linux => linux.DT,
-    .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
+    .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const UNKNOWN = 0;
         pub const FIFO = 1;
         pub const CHR = 2;
@@ -4768,7 +4768,7 @@ pub const SOCK = switch (native_os) {
         /// with any other `SOCK` bits.
         pub const NONBLOCK = 1 << 16;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const STREAM = 1;
         pub const DGRAM = 2;
         pub const RAW = 3;
@@ -4854,7 +4854,7 @@ pub const IPPROTO = switch (native_os) {
         pub const IP = 0;
         pub const IPV6 = 41;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// dummy for IP
         pub const IP = 0;
         /// control message protocol
@@ -5431,7 +5431,7 @@ pub const SOL = switch (native_os) {
     .linux => linux.SOL,
     .emscripten => emscripten.SOL,
     .windows => ws2_32.SOL,
-    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
+    .openbsd, .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const SOCKET = 0xffff;
     },
     .solaris, .illumos => struct {
@@ -5474,7 +5474,7 @@ pub const SO = switch (native_os) {
         pub const NWRITE = 0x1024;
         pub const REUSESHAREUID = 0x1025;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         pub const DEBUG = 0x00000001;
         pub const ACCEPTCONN = 0x00000002;
         pub const REUSEADDR = 0x00000004;
@@ -5670,7 +5670,7 @@ pub const IFNAMESIZE = switch (native_os) {
     .linux => linux.IFNAMESIZE,
     .emscripten => emscripten.IFNAMESIZE,
     .windows => 30,
-    .openbsd, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => 16,
+    .openbsd, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 16,
     .solaris, .illumos => 32,
     else => void,
 };
@@ -5678,7 +5678,7 @@ pub const IFNAMESIZE = switch (native_os) {
 pub const stack_t = switch (native_os) {
     .linux => linux.stack_t,
     .emscripten => emscripten.stack_t,
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// Signal stack base.
         sp: *anyopaque,
         /// Signal stack length.
@@ -5700,7 +5700,7 @@ pub const time_t = switch (native_os) {
 };
 pub const suseconds_t = switch (native_os) {
     .solaris, .illumos => i64,
-    .freebsd, .kfreebsd, .dragonfly => c_long,
+    .freebsd, .dragonfly => c_long,
     .netbsd => c_int,
     .haiku => i32,
     else => void,
@@ -5717,7 +5717,7 @@ pub const timeval = switch (native_os) {
         sec: c_long,
         usec: i32,
     },
-    .dragonfly, .netbsd, .freebsd, .kfreebsd, .solaris, .illumos => extern struct {
+    .dragonfly, .netbsd, .freebsd, .solaris, .illumos => extern struct {
         /// seconds
         sec: time_t,
         /// microseconds
@@ -5751,7 +5751,7 @@ pub const ucontext_t = switch (native_os) {
         mcontext: *mcontext_t,
         __mcontext_data: mcontext_t,
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         sigmask: sigset_t,
         mcontext: mcontext_t,
         link: ?*ucontext_t,
@@ -5806,7 +5806,7 @@ pub const mcontext_t = switch (native_os) {
     .linux => linux.mcontext_t,
     .emscripten => emscripten.mcontext_t,
     .macos, .ios, .tvos, .watchos, .visionos => darwin.mcontext_t,
-    .freebsd, .kfreebsd => switch (builtin.cpu.arch) {
+    .freebsd => switch (builtin.cpu.arch) {
         .x86_64 => extern struct {
             onstack: u64,
             rdi: u64,
@@ -5920,7 +5920,7 @@ pub const _errno = switch (native_os) {
     .emscripten => private.__errno_location,
     .wasi, .dragonfly => private.errnoFromThreadLocal,
     .windows => private._errno,
-    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .kfreebsd => private.__error,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd => private.__error,
     .solaris, .illumos => private.___errno,
     .openbsd, .netbsd => private.__errno,
     .haiku => haiku._errnop,
@@ -5938,7 +5938,7 @@ pub const RTLD = switch (native_os) {
         NODELETE: bool = false,
         _: u19 = 0,
     },
-    .dragonfly, .freebsd, .kfreebsd => packed struct(u32) {
+    .dragonfly, .freebsd => packed struct(u32) {
         LAZY: bool = false,
         NOW: bool = false,
         _2: u6 = 0,
@@ -6018,7 +6018,7 @@ pub const dirent = switch (native_os) {
         type: u8,
         name: [1024]u8,
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// File number of entry.
         fileno: ino_t,
         /// Directory offset of entry.
@@ -6093,7 +6093,7 @@ pub const dirent64 = switch (native_os) {
 
 pub const AI = switch (native_os) {
     .linux, .emscripten => linux.AI,
-    .dragonfly, .haiku, .freebsd, .kfreebsd => packed struct(u32) {
+    .dragonfly, .haiku, .freebsd => packed struct(u32) {
         PASSIVE: bool = false,
         CANONNAME: bool = false,
         NUMERICHOST: bool = false,
@@ -6194,7 +6194,7 @@ pub const EAI = switch (native_os) {
 
         _,
     },
-    .haiku, .dragonfly, .netbsd, .freebsd, .kfreebsd, .macos, .ios, .tvos, .watchos, .visionos => enum(c_int) {
+    .haiku, .dragonfly, .netbsd, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => enum(c_int) {
         /// address family for hostname not supported
         ADDRFAMILY = 1,
         /// temporary failure in name resolution
@@ -6455,7 +6455,7 @@ pub const Stat = switch (native_os) {
             return self.birthtimespec;
         }
     },
-    .freebsd, .kfreebsd => freebsd.Stat,
+    .freebsd => freebsd.Stat,
     .solaris, .illumos => extern struct {
         dev: dev_t,
         ino: ino_t,
@@ -6640,7 +6640,7 @@ pub const pthread_mutex_t = switch (native_os) {
 
         const data_len = if (@sizeOf(usize) == 8) 56 else 40;
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         inner: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -6689,7 +6689,7 @@ pub const pthread_cond_t = switch (native_os) {
         data: [data_len]u8 = [_]u8{0} ** data_len,
         const data_len = if (@sizeOf(usize) == 8) 40 else 24;
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         inner: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -6741,7 +6741,7 @@ pub const pthread_rwlock_t = switch (native_os) {
         sig: c_long = 0x2DA8B3B4,
         data: [192]u8 = [_]u8{0} ** 192,
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         ptr: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -6788,7 +6788,7 @@ pub const pthread_attr_t = switch (native_os) {
         __sig: c_long,
         __opaque: [56]u8,
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         inner: ?*anyopaque = null,
     },
     .solaris, .illumos => extern struct {
@@ -6846,7 +6846,7 @@ pub const sem_t = switch (native_os) {
         __size: [4 * @sizeOf(usize)]u8 align(@alignOf(usize)),
     },
     .macos, .ios, .tvos, .watchos, .visionos => c_int,
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         _magic: u32,
         _kern: extern struct {
             _count: u32,
@@ -6903,7 +6903,7 @@ pub const Kevent = switch (native_os) {
             assert(@offsetOf(@This(), "udata") == 24);
         }
     },
-    .freebsd, .kfreebsd => extern struct {
+    .freebsd => extern struct {
         /// Identifier for this event.
         ident: usize,
         /// Filter for event.
@@ -6974,7 +6974,7 @@ pub const AT = switch (native_os) {
         /// Path refers to directory
         pub const REMOVEDIR = 0x0080;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// Magic value that specify the use of the current working directory
         /// to determine the target of relative file paths in the openat() and
         /// similar syscalls.
@@ -7260,7 +7260,7 @@ pub const O = switch (native_os) {
         DIRECTORY: bool = false,
         _: u4 = 0,
     },
-    .freebsd, .kfreebsd => packed struct(u32) {
+    .freebsd => packed struct(u32) {
         ACCMODE: std.posix.ACCMODE = .RDONLY,
         NONBLOCK: bool = false,
         APPEND: bool = false,
@@ -7405,7 +7405,7 @@ pub const MAP = switch (native_os) {
         SIZEALIGN: bool = false,
         _: u13 = 0,
     },
-    .freebsd, .kfreebsd => packed struct(u32) {
+    .freebsd => packed struct(u32) {
         TYPE: enum(u4) {
             SHARED = 0x01,
             PRIVATE = 0x02,
@@ -7455,7 +7455,7 @@ pub const V = switch (native_os) {
         TIME,
         STATUS,
     },
-    .freebsd, .kfreebsd => enum {
+    .freebsd => enum {
         EOF,
         EOL,
         EOL2,
@@ -7533,7 +7533,7 @@ pub const V = switch (native_os) {
 
 pub const NCCS = switch (native_os) {
     .linux => linux.NCCS,
-    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .kfreebsd, .netbsd, .openbsd, .dragonfly => 20,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly => 20,
     .haiku => 11,
     .solaris, .illumos => 19,
     .emscripten, .wasi => 32,
@@ -7551,7 +7551,7 @@ pub const termios = switch (native_os) {
         ispeed: speed_t align(8),
         ospeed: speed_t,
     },
-    .freebsd, .kfreebsd, .netbsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .netbsd, .dragonfly, .openbsd => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
@@ -7610,7 +7610,7 @@ pub const tc_iflag_t = switch (native_os) {
         IUTF8: bool = false,
         _: u49 = 0,
     },
-    .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .netbsd, .freebsd, .dragonfly => packed struct(u32) {
         IGNBRK: bool = false,
         BRKINT: bool = false,
         IGNPAR: bool = false,
@@ -7742,7 +7742,7 @@ pub const tc_oflag_t = switch (native_os) {
         ONLRET: bool = false,
         _: u24 = 0,
     },
-    .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .freebsd, .dragonfly => packed struct(u32) {
         OPOST: bool = false,
         ONLCR: bool = false,
         _2: u1 = 0,
@@ -7818,7 +7818,7 @@ pub const tc_cflag_t = switch (native_os) {
         CCAR_OFLOW: bool = false,
         _: u43 = 0,
     },
-    .freebsd, .kfreebsd => packed struct(u32) {
+    .freebsd => packed struct(u32) {
         CIGNORE: bool = false,
         _1: u7 = 0,
         CSIZE: CSIZE = .CS5,
@@ -7959,7 +7959,7 @@ pub const tc_lflag_t = switch (native_os) {
         NOFLSH: bool = false,
         _: u32 = 0,
     },
-    .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .netbsd, .freebsd, .dragonfly => packed struct(u32) {
         ECHOKE: bool = false,
         ECHOE: bool = false,
         ECHOK: bool = false,
@@ -8086,7 +8086,7 @@ pub const speed_t = switch (native_os) {
         B115200 = 115200,
         B230400 = 230400,
     },
-    .freebsd, .kfreebsd, .netbsd => enum(c_uint) {
+    .freebsd, .netbsd => enum(c_uint) {
         B0 = 0,
         B50 = 50,
         B75 = 75,
@@ -8250,7 +8250,7 @@ pub const NSIG = switch (native_os) {
     .linux => linux.NSIG,
     .windows => 23,
     .haiku => 65,
-    .netbsd, .freebsd, .kfreebsd => 32,
+    .netbsd, .freebsd => 32,
     .solaris, .illumos => 75,
     .openbsd => 33,
     else => {},
@@ -8258,7 +8258,7 @@ pub const NSIG = switch (native_os) {
 
 pub const MINSIGSTKSZ = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => 32768,
-    .freebsd, .kfreebsd => switch (builtin.cpu.arch) {
+    .freebsd => switch (builtin.cpu.arch) {
         .x86, .x86_64 => 2048,
         .arm, .aarch64 => 4096,
         else => @compileError("unsupported arch"),
@@ -8270,7 +8270,7 @@ pub const MINSIGSTKSZ = switch (native_os) {
 };
 pub const SIGSTKSZ = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => 131072,
-    .netbsd, .freebsd, .kfreebsd => MINSIGSTKSZ + 32768,
+    .netbsd, .freebsd => MINSIGSTKSZ + 32768,
     .solaris, .illumos => 8192,
     .haiku => 16384,
     .openbsd => MINSIGSTKSZ + (1 << openbsd.MAX_PAGE_SHIFT) * 4,
@@ -8278,7 +8278,7 @@ pub const SIGSTKSZ = switch (native_os) {
 };
 pub const SS = switch (native_os) {
     .linux => linux.SS,
-    .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .netbsd, .freebsd, .kfreebsd => struct {
+    .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .netbsd, .freebsd => struct {
         pub const ONSTACK = 1;
         pub const DISABLE = 4;
     },
@@ -8882,7 +8882,7 @@ pub extern "c" fn fopen64(noalias filename: [*:0]const u8, noalias modes: [*:0]c
 pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 pub const sendfile = switch (native_os) {
-    .freebsd, .kfreebsd => freebsd.sendfile,
+    .freebsd => freebsd.sendfile,
     .macos, .ios, .tvos, .watchos, .visionos => darwin.sendfile,
     .linux => private.sendfile,
     else => {},
@@ -8899,12 +8899,12 @@ pub const sigaltstack = switch (native_os) {
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub const pipe2 = switch (native_os) {
-    .dragonfly, .emscripten, .netbsd, .freebsd, .kfreebsd, .solaris, .illumos, .openbsd, .linux => private.pipe2,
+    .dragonfly, .emscripten, .netbsd, .freebsd, .solaris, .illumos, .openbsd, .linux => private.pipe2,
     else => {},
 };
 pub const copy_file_range = switch (native_os) {
     .linux => private.copy_file_range,
-    .freebsd, .kfreebsd => freebsd.copy_file_range,
+    .freebsd => freebsd.copy_file_range,
     else => {},
 };
 
@@ -9071,7 +9071,6 @@ pub const fork = switch (native_os) {
     .dragonfly,
     .freebsd,
     .ios,
-    .kfreebsd,
     .linux,
     .macos,
     .netbsd,
@@ -9683,7 +9682,7 @@ const private = struct {
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, buf: *Stat, flag: u32) c_int;
     extern "c" fn getdirentries(fd: fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
     extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) switch (native_os) {
-        .freebsd, .kfreebsd => isize,
+        .freebsd => isize,
         .solaris, .illumos => usize,
         else => c_int,
     };
