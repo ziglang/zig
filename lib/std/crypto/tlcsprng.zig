@@ -20,7 +20,6 @@ const os_has_fork = switch (native_os) {
     .dragonfly,
     .freebsd,
     .ios,
-    .kfreebsd,
     .linux,
     .macos,
     .netbsd,
