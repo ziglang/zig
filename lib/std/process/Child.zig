@@ -1103,7 +1103,7 @@ fn windowsCreateProcessPathExt(
     }
     var io_status: windows.IO_STATUS_BLOCK = undefined;
 
-    const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).Enum.fields.len;
+    const num_supported_pathext = @typeInfo(WindowsExtension).Enum.fields.len;
     var pathext_seen = [_]bool{false} ** num_supported_pathext;
     var any_pathext_seen = false;
     var unappended_exists = false;
@@ -1389,8 +1389,9 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
 
 var pipe_name_counter = std.atomic.Value(u32).init(1);
 
-// Should be kept in sync with `windowsCreateProcessSupportsExtension`
-const CreateProcessSupportedExtension = enum {
+/// File name extensions supported natively by `CreateProcess()` on Windows.
+// Should be kept in sync with `windowsCreateProcessSupportsExtension`.
+pub const WindowsExtension = enum {
     bat,
     cmd,
     com,
@@ -1398,7 +1399,7 @@ const CreateProcessSupportedExtension = enum {
 };
 
 /// Case-insensitive WTF-16 lookup
-fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupportedExtension {
+fn windowsCreateProcessSupportsExtension(ext: []const u16) ?WindowsExtension {
     if (ext.len != 4) return null;
     const State = enum {
         start,
@@ -1457,7 +1458,7 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupport
 }
 
 test windowsCreateProcessSupportsExtension {
-    try std.testing.expectEqual(CreateProcessSupportedExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
+    try std.testing.expectEqual(WindowsExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
     try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
 }
 
