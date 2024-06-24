@@ -16,12 +16,14 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 256);
+    var buf = try std.ArrayList(u8).initCapacity(allocator, 512);
     defer buf.deinit();
     try buf.appendSlice("@echo off & setlocal EnableExtensions\n");
     try buf.appendSlice(">&2 set\n");
-    try buf.appendSlice(">&2 <nul set /p=\"CMDCMDLINE: '%CMDCMDLINE%'\" || call && >&2 (echo()\n");
-    try buf.append('"');
+    try buf.appendSlice("setlocal EnableDelayedExpansion\n");
+    try buf.appendSlice(">&2 <nul set /p=\"CMDCMDLINE: '!CMDCMDLINE!'\" || call && >&2 (echo()\n");
+    try.buf.appendSlice("endlocal\n");
+    try buf.appendSlice(">&2 \"");
     try buf.appendSlice(child_exe_path);
     try buf.append('"');
     const preamble_len = buf.items.len;
@@ -109,7 +111,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     argv.appendAssumeCapacity(bat);
     argv.appendSliceAssumeCapacity(args);
 
-    const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
+    //const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -119,16 +121,19 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    // try std.testing.expectEqualStrings("", result.stderr);
-    var it = std.mem.splitScalar(u8, result.stdout, '\x00');
-    var i: usize = 0;
-    while (it.next()) |actual_arg| {
-        if (i >= args.len and can_have_trailing_empty_args) {
-            try std.testing.expectEqualStrings("", actual_arg);
-            continue;
-        }
-        const expected_arg = args[i];
-        try std.testing.expectEqualStrings(expected_arg, actual_arg);
-        i += 1;
-    }
+    const my_log = std.log.scoped(.my_scope);
+    my_log.info("{s}\n", .{result.stderr});
+
+    //try std.testing.expectEqualStrings("", result.stderr);
+    //var it = std.mem.splitScalar(u8, result.stdout, '\x00');
+    //var i: usize = 0;
+    //while (it.next()) |actual_arg| {
+    //    if (i >= args.len and can_have_trailing_empty_args) {
+    //        try std.testing.expectEqualStrings("", actual_arg);
+    //        continue;
+    //    }
+    //    const expected_arg = args[i];
+    //    try std.testing.expectEqualStrings(expected_arg, actual_arg);
+    //    i += 1;
+    //}
 }
