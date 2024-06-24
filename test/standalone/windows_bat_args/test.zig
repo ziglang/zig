@@ -18,7 +18,7 @@ pub fn main() anyerror!void {
 
     var buf = try std.ArrayList(u8).initCapacity(allocator, 128);
     defer buf.deinit();
-    try buf.appendSlice("@echo off\n");
+    try buf.appendSlice("@echo off & setlocal EnableExtensions\n");
     try buf.append('"');
     try buf.appendSlice(child_exe_path);
     try buf.append('"');
