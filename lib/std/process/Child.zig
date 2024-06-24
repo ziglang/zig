@@ -1192,7 +1192,7 @@ fn windowsCreateProcessPathExt(
             else
                 try cmd_line_cache.commandLine();
             const app_name_w = if (is_bat_or_cmd)
-                try cmd_line_cache.comspecPath()
+                try cmd_line_cache.comSpecPath()
             else
                 full_app_name;
 
@@ -1487,7 +1487,7 @@ const WindowsCommandLineCache = struct {
     fn deinit(self: *WindowsCommandLineCache) void {
         if (self.cmd_line) |cmd_line| self.allocator.free(cmd_line);
         if (self.script_cmd_line) |script_cmd_line| self.allocator.free(script_cmd_line);
-        if (self.cmd_exe_path) |cmd_exe_path| self.allocator.free(cmd_exe_path);
+        if (self.comspec_path) |comspec_path| self.allocator.free(comspec_path);
     }
 
     fn commandLine(self: *WindowsCommandLineCache) ![:0]u16 {
@@ -1505,14 +1505,14 @@ const WindowsCommandLineCache = struct {
         if (self.script_cmd_line) |v| self.allocator.free(v);
         self.script_cmd_line = try argvToScriptCommandLineWindows(
             self.allocator,
-            try self.cmdExePath(),
+            try self.comSpecPath(),
             script_path,
             self.argv[1..],
         );
         return self.script_cmd_line.?;
     }
 
-    fn comspecPath(self: *WindowsCommandLineCache) ![:0]u16 {
+    fn comSpecPath(self: *WindowsCommandLineCache) ![:0]u16 {
         if (self.comspec_path == null) {
             self.comspec_path = try windowsComSpecPath(self.allocator);
         }
