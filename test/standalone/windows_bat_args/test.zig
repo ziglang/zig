@@ -21,7 +21,7 @@ pub fn main() anyerror!void {
     try buf.appendSlice("@echo off & setlocal EnableExtensions\n");
     try buf.appendSlice(">&2 set\n");
     try buf.appendSlice("setlocal EnableDelayedExpansion\n");
-    try buf.appendSlice(">&2 <nul set /p=\"CMDCMDLINE: '!CMDCMDLINE!'\" || call && >&2 (echo()\n");
+    try buf.appendSlice(">&2 <nul set /p=\"'!CMDCMDLINE!'\" || call && >&2 (echo()\n");
     try.buf.appendSlice("endlocal\n");
     try buf.appendSlice(">&2 \"");
     try buf.appendSlice(child_exe_path);
@@ -29,13 +29,25 @@ pub fn main() anyerror!void {
     const preamble_len = buf.items.len;
 
     try buf.appendSlice(" %*");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
+    try buf.appendSlice(" %*");
     try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
+    try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
     try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
+    try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
     try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
     try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
