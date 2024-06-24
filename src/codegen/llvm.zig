@@ -2647,8 +2647,7 @@ pub const Object = struct {
                                 // We still may want these for a Zig expression
                                 // evaluator in debuggers, but for now they are
                                 // completely useless.
-                                .comptime_int, .comptime_float,
-                                .type, .undefined, .null, .enum_literal => continue,
+                                .comptime_int, .comptime_float, .type, .undefined, .null, .enum_literal => continue,
                                 else => {},
                             }
 
