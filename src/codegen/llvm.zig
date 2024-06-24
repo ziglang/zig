@@ -2517,7 +2517,7 @@ pub const Object = struct {
                     if (decl.kind != .named) continue;
                     if (decl.analysis != .complete) continue;
 
-                    const decl_line = decl.typeSrcLine(mod) + 1;
+                    const decl_line = 0;
 
                     if (decl.val.typeOf(o.module).ip_index == .type_type) {
                         const nested_type = decl.val.toType();
@@ -2532,8 +2532,7 @@ pub const Object = struct {
                             // We still may want these for a Zig expression
                             // evaluator in debuggers, but for now they are
                             // completely useless.
-                            .ComptimeInt, .ComptimeFloat,
-                            .Type, .Undefined, .Null, .EnumLiteral => continue,
+                            .ComptimeInt, .ComptimeFloat, .Type, .Undefined, .Null, .EnumLiteral => continue,
                             else => {},
                         }
 
