@@ -92,6 +92,7 @@ pub fn main() anyerror!void {
     var env = env: {
         var env = std.process.EnvMap.init(allocator);
         errdefer env.deinit();
+        try env.put("ComSpec", "C:\\WINDOWS\\system32\\cmd.exe");
         // No escaping
         try env.put("FOO", "123");
         // Some possible escaping of %FOO% that could be expanded
