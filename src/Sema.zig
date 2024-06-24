@@ -2735,12 +2735,12 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     if (!zcu.comp.debug_incremental) return false;
 
     const decl_index = Type.fromInterned(ty).getOwnerDecl(zcu);
-    const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
+    const decl_as_depender = InternPool.AnalSubject.wrap(.{ .decl = decl_index });
     const was_outdated = zcu.outdated.swapRemove(decl_as_depender) or
         zcu.potentially_outdated.swapRemove(decl_as_depender);
     if (!was_outdated) return false;
     _ = zcu.outdated_ready.swapRemove(decl_as_depender);
-    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.AnalSubject.wrap(.{ .decl = decl_index }));
     zcu.intern_pool.remove(ty);
     zcu.declPtr(decl_index).analysis = .dependency_failure;
     try zcu.markDependeeOutdated(.{ .decl_val = decl_index });
@@ -2834,7 +2834,7 @@ fn zirStructDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3068,7 +3068,7 @@ fn zirEnumDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3334,7 +3334,7 @@ fn zirUnionDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3422,7 +3422,7 @@ fn zirOpaqueDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -38362,7 +38362,7 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
         return;
     }
 
-    const depender = InternPool.Depender.wrap(
+    const depender = InternPool.AnalSubject.wrap(
         if (sema.owner_func_index != .none)
             .{ .func = sema.owner_func_index }
         else
