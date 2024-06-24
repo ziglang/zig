@@ -123,7 +123,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     argv.appendAssumeCapacity(bat);
     argv.appendSliceAssumeCapacity(args);
 
-    //const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
+    const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
@@ -136,16 +136,15 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     const my_log = std.log.scoped(.my_scope);
     my_log.info("{s}\n", .{result.stderr});
 
-    //try std.testing.expectEqualStrings("", result.stderr);
-    //var it = std.mem.splitScalar(u8, result.stdout, '\x00');
-    //var i: usize = 0;
-    //while (it.next()) |actual_arg| {
-    //    if (i >= args.len and can_have_trailing_empty_args) {
-    //        try std.testing.expectEqualStrings("", actual_arg);
-    //        continue;
-    //    }
-    //    const expected_arg = args[i];
-    //    try std.testing.expectEqualStrings(expected_arg, actual_arg);
-    //    i += 1;
-    //}
+    var it = std.mem.splitScalar(u8, result.stdout, '\x00');
+    var i: usize = 0;
+    while (it.next()) |actual_arg| {
+        if (i >= args.len and can_have_trailing_empty_args) {
+            try std.testing.expectEqualStrings("", actual_arg);
+            continue;
+        }
+        const expected_arg = args[i];
+        try std.testing.expectEqualStrings(expected_arg, actual_arg);
+        i += 1;
+    }
 }
