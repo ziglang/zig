@@ -1019,10 +1019,22 @@ pub fn dupe(b: *Build, bytes: []const u8) []u8 {
     return b.allocator.dupe(u8, bytes) catch @panic("OOM");
 }
 
+/// Allocator.dupeZ without the need to handle out of memory.
+pub fn dupeZ(b: *Build, bytes: []const u8) [:0]u8 {
+    return b.allocator.dupeZ(u8, bytes) catch @panic("OOM");
+}
+
 /// Duplicates an array of strings without the need to handle out of memory.
 pub fn dupeStrings(b: *Build, strings: []const []const u8) [][]u8 {
     const array = b.allocator.alloc([]u8, strings.len) catch @panic("OOM");
     for (array, strings) |*dest, source| dest.* = b.dupe(source);
+    return array;
+}
+
+/// Duplicates an array of strings into an array of null terminated strings without the need to handle out of memory.
+pub fn dupeStringsZ(b: *Build, strings: []const []const u8) [][:0]u8 {
+    const array = b.allocator.alloc([:0]u8, strings.len) catch @panic("OOM");
+    for (array, strings) |*dest, source| dest.* = b.dupeZ(source);
     return array;
 }
 
