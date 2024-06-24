@@ -16,9 +16,11 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 128);
+    var buf = try std.ArrayList(u8).initCapacity(allocator, 256);
     defer buf.deinit();
     try buf.appendSlice("@echo off & setlocal EnableExtensions\n");
+    try buf.appendSlice(">&2 set\n");
+    try buf.appendSlice(">&2 <nul set /p=\"CMDCMDLINE: '%CMDCMDLINE%'\" || call && >&2 (echo()\n");
     try buf.append('"');
     try buf.appendSlice(child_exe_path);
     try buf.append('"');
