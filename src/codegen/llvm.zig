@@ -2435,8 +2435,7 @@ pub const Object = struct {
                             // We still may want these for a Zig expression
                             // evaluator in debuggers, but for now they are
                             // completely useless.
-                            .ComptimeInt, .ComptimeFloat,
-                            .Type, .Undefined, .Null, .EnumLiteral => continue,
+                            .ComptimeInt, .ComptimeFloat, .Type, .Undefined, .Null, .EnumLiteral => continue,
                             else => {},
                         }
 
