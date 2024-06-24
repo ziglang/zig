@@ -239,7 +239,14 @@ pub fn generateSymbol(
             const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
             var space: Value.BigIntSpace = undefined;
             const int_val = val.toBigInt(&space, mod);
-            int_val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian);
+            switch (target.cpu.arch) {
+                .wasm32, .wasm64 => { // padding bits in non-native sized integers must be zero, regardless of signedness
+                    const slice = try code.addManyAsSlice(abi_size);
+                    @memset(slice, 0);
+                    int_val.writePackedTwosComplement(slice, 0, ty.intInfo(mod).bits, endian);
+                },
+                else => int_val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian),
+            }
         },
         .err => |err| {
             const int = try mod.getErrorValue(err.name);
