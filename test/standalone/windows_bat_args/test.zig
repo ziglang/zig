@@ -22,7 +22,7 @@ pub fn main() anyerror!void {
     try buf.appendSlice(">&2 set\n");
     try buf.appendSlice("setlocal EnableDelayedExpansion\n");
     try buf.appendSlice(">&2 <nul set /p=\"'!CMDCMDLINE!'\" || call && >&2 (echo()\n");
-    try.buf.appendSlice("endlocal\n");
+    try buf.appendSlice("endlocal\n");
     try buf.appendSlice(">&2 \"");
     try buf.appendSlice(child_exe_path);
     try buf.append('"');
