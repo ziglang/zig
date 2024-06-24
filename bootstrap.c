@@ -65,6 +65,7 @@ static int count_char_in_string(char str[], const char c) {
 const char ZIG_VERSION[] = "0.14.0";
 static char *get_zig_version(void) {
     char *version_string;
+    char *split;
 
     FILE *fp = popen(
         "git -C . describe --match='*.*.*' --tags --abbrev=9",
@@ -98,7 +99,7 @@ static char *get_zig_version(void) {
                 return version_string;
             case 2:
                 // Untagged development build (e.g. 0.10.0-dev.2025+ecf0050a9-bootstrap).
-                char *split = strtok(git_describe, "-");
+                split = strtok(git_describe, "-");
                 char *info[3];  // info[0] = tagged ancestor
                                 // info[1] = commit height
                                 // info[2] = commit id
