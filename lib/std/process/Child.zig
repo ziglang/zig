@@ -1192,7 +1192,7 @@ fn windowsCreateProcessPathExt(
             else
                 try cmd_line_cache.commandLine();
             const app_name_w = if (is_bat_or_cmd)
-                try cmd_line_cache.cmdExePath()
+                try cmd_line_cache.comspecPath()
             else
                 full_app_name;
 
@@ -1247,7 +1247,7 @@ fn windowsCreateProcessPathExt(
         else
             try cmd_line_cache.commandLine();
         const app_name_w = if (is_bat_or_cmd)
-            try cmd_line_cache.cmdExePath()
+            try cmd_line_cache.comspecPath()
         else
             full_app_name;
 
@@ -1473,7 +1473,7 @@ test windowsCreateProcessSupportsExtension {
 const WindowsCommandLineCache = struct {
     cmd_line: ?[:0]u16 = null,
     script_cmd_line: ?[:0]u16 = null,
-    cmd_exe_path: ?[:0]u16 = null,
+    comspec_path: ?[:0]u16 = null,
     argv: []const []const u8,
     allocator: mem.Allocator,
 
@@ -1505,23 +1505,24 @@ const WindowsCommandLineCache = struct {
         if (self.script_cmd_line) |v| self.allocator.free(v);
         self.script_cmd_line = try argvToScriptCommandLineWindows(
             self.allocator,
+            try self.cmdExePath(),
             script_path,
             self.argv[1..],
         );
         return self.script_cmd_line.?;
     }
 
-    fn cmdExePath(self: *WindowsCommandLineCache) ![:0]u16 {
-        if (self.cmd_exe_path == null) {
-            self.cmd_exe_path = try windowsCmdExePath(self.allocator);
+    fn comspecPath(self: *WindowsCommandLineCache) ![:0]u16 {
+        if (self.comspec_path == null) {
+            self.comspec_path = try windowsComSpecPath(self.allocator);
         }
-        return self.cmd_exe_path.?;
+        return self.comspec_path.?;
     }
 };
 
 /// Returns the absolute path of `cmd.exe` within the Windows system directory.
 /// The caller owns the returned slice.
-fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
+fn windowsComSpecPath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
     var buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 128);
     errdefer buf.deinit(allocator);
     while (true) {
@@ -1727,14 +1728,17 @@ const ArgvToScriptCommandLineError = error{
 /// https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
 ///
 /// The return of this function will look like
-/// `cmd.exe /d /e:ON /v:OFF /c "<escaped command line>"`
+/// `"C:\WINDOWS\system32\cmd.exe" /s /d /e:ON /v:OFF /c "<escaped command line>"`
 /// and should be used as the `lpCommandLine` of `CreateProcessW`, while the
-/// return of `windowsCmdExePath` should be used as `lpApplicationName`.
+/// return of `windowsComSpecPath` should be used as `lpApplicationName`.
 ///
 /// Should only be used when spawning `.bat`/`.cmd` scripts, see `argvToCommandLineWindows` otherwise.
 /// The `.bat`/`.cmd` file must be known to both have the `.bat`/`.cmd` extension and exist on the filesystem.
 fn argvToScriptCommandLineWindows(
     allocator: mem.Allocator,
+    /// Path to the command interpreter. If this path is relative, it is assumed to be relative to the CWD.
+    /// The command interpreter must have been verified to exist at this point before calling this function.
+    comspec_path: []const u16,
     /// Path to the `.bat`/`.cmd` script. If this path is relative, it is assumed to be relative to the CWD.
     /// The script must have been verified to exist at this path before calling this function.
     script_path: []const u16,
@@ -1744,6 +1748,10 @@ fn argvToScriptCommandLineWindows(
     var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
     defer buf.deinit();
 
+    buf.appendAssumeCapacity('"');
+    try unicode.wtf16LeToWtf8ArrayList(&buf, comspec_path);
+
+    // `/s` disables unescaping quote characters by the command interpreter.
     // `/d` disables execution of AutoRun commands.
     // `/e:ON` and `/v:OFF` are needed for BatBadBut mitigation:
     // > If delayed expansion is enabled via the registry value DelayedExpansion,
@@ -1751,7 +1759,7 @@ fn argvToScriptCommandLineWindows(
     // > Escaping for % requires the command extension to be enabled.
     // > If it’s disabled via the registry value EnableExtensions, it must be enabled with the /E:ON option.
     // https://flatt.tech/research/posts/batbadbut-you-cant-securely-execute-commands-on-windows/
-    buf.appendSliceAssumeCapacity("cmd.exe /d /e:ON /v:OFF /c \"");
+    buf.appendSliceAssumeCapacity("\" /s /d /e:ON /v:OFF /c \"");
 
     // Always quote the path to the script arg
     buf.appendAssumeCapacity('"');
