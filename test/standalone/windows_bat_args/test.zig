@@ -74,7 +74,7 @@ pub fn main() anyerror!void {
     try testExec(allocator, &.{"&whoami.exe"}, null);
 
     var env = env: {
-        var env = try std.process.getEnvMap(allocator);
+        var env = std.process.EnvMap.init(allocator);
         errdefer env.deinit();
         // No escaping
         try env.put("FOO", "123");
