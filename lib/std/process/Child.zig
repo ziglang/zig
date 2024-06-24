@@ -1247,7 +1247,7 @@ fn windowsCreateProcessPathExt(
         else
             try cmd_line_cache.commandLine();
         const app_name_w = if (is_bat_or_cmd)
-            try cmd_line_cache.comspecPath()
+            try cmd_line_cache.comSpecPath()
         else
             full_app_name;
 
