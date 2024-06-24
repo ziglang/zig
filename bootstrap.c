@@ -8,7 +8,13 @@ static const char *get_c_compiler(void) {
     return (cc == NULL) ? "cc" : cc;
 }
 
-static __attribute__((noreturn)) void panic(const char *reason) {
+#if defined(__GNUC__) || defined(__clang__)
+    #define NORETURN __attribute__((noreturn))
+#else
+    #define NORETURN
+#endif
+
+static NORETURN void panic(const char *reason) {
     fprintf(stderr, "%s\n", reason);
     abort();
 }
