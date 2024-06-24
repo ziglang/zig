@@ -1532,24 +1532,25 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
 }
 
 fn typeToEnum(comptime T: type) TypeId {
-    return switch (T) {
+    const simple_type: ?TypeId = switch (T) {
+        bool => .bool,
+        []const u8 => .string,
+        []const []const u8 => .list,
         std.zig.BuildId => .build_id,
-        else => return switch (@typeInfo(T)) {
-            .Int => .int,
-            .Float => .float,
-            .Bool => .bool,
-            .Enum => .@"enum",
-            .Pointer => |pointer| switch (pointer.child) {
-                u8 => .string,
-                []const u8 => .list,
-                else => switch (@typeInfo(pointer.child)) {
-                    .Enum => .enum_list,
-                    else => @compileError("Unsupported type: " ++ @typeName(T)),
-                },
-            },
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
-        },
+        else => null,
     };
+    if (simple_type) |result| return result;
+
+    const complex_type: ?TypeId = switch (@typeInfo(T)) {
+        .Int => .int,
+        .Float => .float,
+        .Enum => .@"enum",
+        .Pointer => |ptr| if (@typeInfo(ptr.child) == .Enum and T == []const ptr.child) .enum_list else null,
+        else => null,
+    };
+    if (complex_type) |result| return result;
+
+    @compileError("Unsupported type: " ++ @typeName(T));
 }
 
 fn markInvalidUserInput(b: *Build) void {
