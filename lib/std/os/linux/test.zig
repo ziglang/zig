@@ -84,6 +84,8 @@ test "statx" {
         else => unreachable,
     }
 
+    if (builtin.cpu.arch == .riscv32) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
+
     var stat_buf: linux.Stat = undefined;
     switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
         .SUCCESS => {},
