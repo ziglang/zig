@@ -94,6 +94,7 @@ pub fn main() anyerror!void {
         errdefer env.deinit();
         try env.put("ComSpec", "C:\\WINDOWS\\system32\\cmd.exe");
         try env.put("PATH", "C:\\WINDOWS\\system32;");
+        try env.put("PATHEXT", ".COM;.EXE;.BAT;.CMD");
         // No escaping
         try env.put("FOO", "123");
         // Some possible escaping of %FOO% that could be expanded
