@@ -93,8 +93,6 @@ pub fn main() anyerror!void {
         var env = std.process.EnvMap.init(allocator);
         errdefer env.deinit();
         try env.put("ComSpec", "C:\\WINDOWS\\system32\\cmd.exe");
-        try env.put("PATH", "C:\\WINDOWS\\system32;");
-        try env.put("PATHEXT", ".COM;.EXE;.BAT;.CMD");
         try env.put("SYSTEMROOT", "C:\\WINDOWS");
         // No escaping
         try env.put("FOO", "123");
