@@ -571,10 +571,7 @@ pub const SourceMappings = struct {
 
         // now subtract the span diff from the start line number of all of
         // the following nodes in order
-        var it = Sources.InorderIterator{
-            .current = node,
-            .previous = node.children[0],
-        };
+        var it = Sources.InorderIterator{ .current = node };
         // skip past current, but store it
         var prev = it.next().?;
         while (it.next()) |inorder_node| {
