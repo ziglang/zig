@@ -5363,6 +5363,11 @@ pub fn addCCArgs(
                 const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
                 try argv.append("-isystem");
                 try argv.append(c_headers_dir);
+
+                for (comp.libc_include_dir_list) |include_dir| {
+                    try argv.append("-isystem");
+                    try argv.append(include_dir);
+                }
             }
 
             // The Clang assembler does not accept the list of CPU features like the
