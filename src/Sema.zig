@@ -187,6 +187,7 @@ const Compilation = @import("Compilation.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
+const zon = @import("zon.zig");
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -13926,7 +13927,8 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 // retry this and not cache the file system error, which may be transient.
                 return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
             };
-            return try mod.semaZon(result.file);
+            const interned = try zon.lower(mod, result.file);
+            return Air.internedToRef(interned);
         },
     }
 }
