@@ -192,7 +192,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse comp.config.any_sanitize_thread;
 
     const self = try arena.create(MachO);
     self.* = .{
