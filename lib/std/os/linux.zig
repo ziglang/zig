@@ -6113,12 +6113,13 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
+pub const kernel_timespec = extern struct {
     tv_sec: i64,
     tv_nsec: i64,
 };
 
-pub const timespec = extern struct {
+// TODO: This is a temporary hack until we figure out a coherent Y2038 strategy.
+pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
     tv_sec: isize,
     tv_nsec: isize,
 };
