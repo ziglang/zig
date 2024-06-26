@@ -2884,14 +2884,6 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         /// Returns a slice of the current token, or null if tokenization is
         /// complete, and advances to the next token.
         pub fn next(self: *Self) ?[]const T {
-            const result = self.peek() orelse return null;
-            self.index += result.len;
-            return result;
-        }
-
-        /// Returns a slice of the current token, or null if tokenization is
-        /// complete. Does not advance to the next token.
-        pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
             while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
                 .sequence => self.delimiter.len,
@@ -2906,7 +2898,16 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
             var end = start;
             while (end < self.buffer.len and !self.isDelimiter(end)) : (end += 1) {}
 
+            self.index = end;
+
             return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the current token, or null if tokenization is
+        /// complete. Does not affect iterator state.
+        pub fn peek(self: Self) ?[]const T {
+            var copy = self;
+            return copy.next();
         }
 
         /// Returns a slice of the remaining bytes. Does not affect iterator state.
@@ -2983,7 +2984,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         /// Returns a slice of the next field, or null if splitting is complete.
         /// This method does not alter self.index.
-        pub fn peek(self: *Self) ?[]const T {
+        pub fn peek(self: Self) ?[]const T {
             const start = self.index orelse return null;
             const end = if (switch (delimiter_type) {
                 .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
