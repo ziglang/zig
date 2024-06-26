@@ -830,6 +830,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(p);
         }
 
+        if (comp.config.any_sanitize_thread) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
+        }
+
         for (self.lib_dirs) |lib_dir| {
             const arg = try std.fmt.allocPrint(arena, "-L{s}", .{lib_dir});
             try argv.append(arg);
