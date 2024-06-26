@@ -963,7 +963,7 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.createFileW(path_w.span(), flags);
     }
-    if (native_os == .wasi) {
+    if (native_os == .wasi and !builtin.link_libc) {
         return .{
             .handle = try posix.openatWasi(self.fd, sub_path, .{}, .{
                 .CREAT = true,
@@ -996,17 +996,25 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
             const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
             return self.createFileW(path_w.span(), flags);
         },
-        .wasi => {
+        .wasi => if (!builtin.link_libc) {
             return createFile(self, mem.sliceTo(sub_path_c, 0), flags);
         },
         else => {},
     }
-
-    var os_flags: posix.O = .{
-        .ACCMODE = if (flags.read) .RDWR else .WRONLY,
-        .CREAT = true,
-        .TRUNC = flags.truncate,
-        .EXCL = flags.exclusive,
+    var os_flags: posix.O = switch (native_os) {
+        .wasi => .{
+            .read = flags.read,
+            .write = true,
+            .CREAT = true,
+            .TRUNC = flags.truncate,
+            .EXCL = flags.exclusive,
+        },
+        else => .{
+            .ACCMODE = if (flags.read) .RDWR else .WRONLY,
+            .CREAT = true,
+            .TRUNC = flags.truncate,
+            .EXCL = flags.exclusive,
+        },
     };
     if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
     if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
@@ -1030,14 +1038,16 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
     const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
-    if (!has_flock_open_flags and flags.lock != .none) {
-        // TODO: integrate async I/O
-        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-        try posix.flock(fd, switch (flags.lock) {
-            .none => unreachable,
-            .shared => posix.LOCK.SH | lock_nonblocking,
-            .exclusive => posix.LOCK.EX | lock_nonblocking,
-        });
+    if (@hasDecl(posix.system, "LOCK")) {
+        if (!has_flock_open_flags and flags.lock != .none) {
+            // TODO: integrate async I/O
+            const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
+            try posix.flock(fd, switch (flags.lock) {
+                .none => unreachable,
+                .shared => posix.LOCK.SH | lock_nonblocking,
+                .exclusive => posix.LOCK.EX | lock_nonblocking,
+            });
+        }
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
