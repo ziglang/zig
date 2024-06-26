@@ -2344,7 +2344,8 @@ fn parseFloat(
     const main_tokens = self.ast.nodes.items(.main_token);
     const num_lit_token = main_tokens[num_lit_node];
     const bytes = self.ast.tokenSlice(num_lit_token);
-    const unsigned_float = std.fmt.parseFloat(f128, bytes) catch unreachable; // Already validated
+    const Float = if (@typeInfo(T) == .Float) T else f128;
+    const unsigned_float = std.fmt.parseFloat(Float, bytes) catch unreachable; // Already validated
     const result = if (self.isNegative(node)) -unsigned_float else unsigned_float;
     switch (@typeInfo(T)) {
         .Float => return @as(T, @floatCast(result)),
