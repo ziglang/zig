@@ -6327,12 +6327,13 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
+pub const kernel_timespec = extern struct {
     sec: i64,
     nsec: i64,
 };
 
-pub const timespec = extern struct {
+// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
+pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
