@@ -583,7 +583,7 @@ const Writer = struct {
 
             .reify => {
                 const inst_data = self.code.extraData(Zir.Inst.Reify, extended.operand).data;
-                try stream.print("{d}, ", .{inst_data.src_line});
+                try stream.print("line({d}), ", .{inst_data.src_line});
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
                 const prev_parent_decl_node = self.parent_decl_node;
@@ -2749,7 +2749,7 @@ const Writer = struct {
             extra.data.src_hash_3,
         };
         const src_hash_bytes: [16]u8 = @bitCast(src_hash_arr);
-        try stream.print(" line(+{d}) hash({})", .{ extra.data.line_offset, std.fmt.fmtSliceHexLower(&src_hash_bytes) });
+        try stream.print(" line({d}) hash({})", .{ extra.data.src_line, std.fmt.fmtSliceHexLower(&src_hash_bytes) });
 
         {
             const bodies = extra.data.getBodies(@intCast(extra.end), self.code);

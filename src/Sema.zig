@@ -2735,12 +2735,12 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     if (!zcu.comp.debug_incremental) return false;
 
     const decl_index = Type.fromInterned(ty).getOwnerDecl(zcu);
-    const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
+    const decl_as_depender = InternPool.AnalSubject.wrap(.{ .decl = decl_index });
     const was_outdated = zcu.outdated.swapRemove(decl_as_depender) or
         zcu.potentially_outdated.swapRemove(decl_as_depender);
     if (!was_outdated) return false;
     _ = zcu.outdated_ready.swapRemove(decl_as_depender);
-    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.AnalSubject.wrap(.{ .decl = decl_index }));
     zcu.intern_pool.remove(ty);
     zcu.declPtr(decl_index).analysis = .dependency_failure;
     try zcu.markDependeeOutdated(.{ .decl_val = decl_index });
@@ -2827,7 +2827,6 @@ fn zirStructDecl(
         small.name_strategy,
         "struct",
         inst,
-        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2835,7 +2834,7 @@ fn zirStructDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -2864,7 +2863,6 @@ fn createAnonymousDeclTypeNamed(
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
-    src_line: u32,
 ) !InternPool.DeclIndex {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
@@ -2876,7 +2874,7 @@ fn createAnonymousDeclTypeNamed(
     switch (name_strategy) {
         .anon => {}, // handled after switch
         .parent => {
-            try zcu.initNewAnonDecl(new_decl_index, src_line, val, block.type_name_ctx);
+            try zcu.initNewAnonDecl(new_decl_index, val, block.type_name_ctx);
             return new_decl_index;
         },
         .func => func_strat: {
@@ -2921,7 +2919,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try ip.getOrPutString(gpa, buf.items, .no_embedded_nulls);
-            try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
+            try zcu.initNewAnonDecl(new_decl_index, val, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2935,7 +2933,7 @@ fn createAnonymousDeclTypeNamed(
                     const name = try ip.getOrPutStringFmt(gpa, "{}.{s}", .{
                         block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
+                    try zcu.initNewAnonDecl(new_decl_index, val, name);
                     return new_decl_index;
                 },
                 else => {},
@@ -2956,7 +2954,7 @@ fn createAnonymousDeclTypeNamed(
     const name = ip.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
         block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
     }, .no_embedded_nulls) catch unreachable;
-    try zcu.initNewAnonDecl(new_decl_index, src_line, val, name);
+    try zcu.initNewAnonDecl(new_decl_index, val, name);
     return new_decl_index;
 }
 
@@ -3062,7 +3060,6 @@ fn zirEnumDecl(
         small.name_strategy,
         "enum",
         inst,
-        extra.data.src_line,
     );
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -3071,7 +3068,7 @@ fn zirEnumDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3330,7 +3327,6 @@ fn zirUnionDecl(
         small.name_strategy,
         "union",
         inst,
-        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -3338,7 +3334,7 @@ fn zirUnionDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3419,7 +3415,6 @@ fn zirOpaqueDecl(
         small.name_strategy,
         "opaque",
         inst,
-        extra.data.src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -3427,7 +3422,7 @@ fn zirOpaqueDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             gpa,
-            InternPool.Depender.wrap(.{ .decl = new_decl_index }),
+            InternPool.AnalSubject.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -21546,7 +21541,7 @@ fn zirReify(
                 .needed_comptime_reason = "struct fields must be comptime-known",
             });
 
-            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_arr, name_strategy, is_tuple_val.toBool(), extra.src_line);
+            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_arr, name_strategy, is_tuple_val.toBool());
         },
         .Enum => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21575,7 +21570,7 @@ fn zirReify(
                 .needed_comptime_reason = "enum fields must be comptime-known",
             });
 
-            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_arr, name_strategy, extra.src_line);
+            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_arr, name_strategy);
         },
         .Opaque => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21606,7 +21601,6 @@ fn zirReify(
                 name_strategy,
                 "opaque",
                 inst,
-                extra.src_line,
             );
             mod.declPtr(new_decl_index).owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -21643,7 +21637,7 @@ fn zirReify(
                 .needed_comptime_reason = "union fields must be comptime-known",
             });
 
-            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy, extra.src_line);
+            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy);
         },
         .Fn => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21745,7 +21739,6 @@ fn reifyEnum(
     is_exhaustive: bool,
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
-    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -21807,7 +21800,6 @@ fn reifyEnum(
         name_strategy,
         "enum",
         inst,
-        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -21871,7 +21863,6 @@ fn reifyUnion(
     opt_tag_type_val: Value,
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
-    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -21955,7 +21946,6 @@ fn reifyUnion(
         name_strategy,
         "union",
         inst,
-        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -22051,7 +22041,7 @@ fn reifyUnion(
             }
         }
 
-        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), mod.declPtr(new_decl_index), src_line);
+        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), mod.declPtr(new_decl_index));
         break :tag_ty .{ enum_tag_ty, false };
     };
     errdefer if (!has_explicit_tag) ip.remove(enum_tag_ty); // remove generated tag type on error
@@ -22112,7 +22102,6 @@ fn reifyStruct(
     fields_val: Value,
     name_strategy: Zir.Inst.NameStrategy,
     is_tuple: bool,
-    src_line: u32,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -22213,7 +22202,6 @@ fn reifyStruct(
         name_strategy,
         "struct",
         inst,
-        src_line,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -26347,7 +26335,6 @@ fn zirBuiltinExtern(
     const new_decl = mod.declPtr(new_decl_index);
     try mod.initNewAnonDecl(
         new_decl_index,
-        sema.owner_decl.src_line,
         Value.fromInterned(
             if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
                 try ip.getExternFunc(sema.gpa, .{
@@ -36745,10 +36732,10 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
     } else if (enum_field_vals.count() > 0) {
-        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), mod.declPtr(union_type.decl), extra.data.src_line);
+        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), mod.declPtr(union_type.decl));
         union_type.tagTypePtr(ip).* = enum_ty;
     } else {
-        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl), extra.data.src_line);
+        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl));
         union_type.tagTypePtr(ip).* = enum_ty;
     }
 }
@@ -36766,7 +36753,6 @@ fn generateUnionTagTypeNumbered(
     enum_field_names: []const InternPool.NullTerminatedString,
     enum_field_vals: []const InternPool.Index,
     union_owner_decl: *Module.Decl,
-    src_line: u32,
 ) !InternPool.Index {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -36783,7 +36769,6 @@ fn generateUnionTagTypeNumbered(
     );
     try mod.initNewAnonDecl(
         new_decl_index,
-        src_line,
         Value.@"unreachable",
         name,
     );
@@ -36816,7 +36801,6 @@ fn generateUnionTagTypeSimple(
     block: *Block,
     enum_field_names: []const InternPool.NullTerminatedString,
     union_owner_decl: *Module.Decl,
-    src_line: u32,
 ) !InternPool.Index {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
@@ -36834,7 +36818,6 @@ fn generateUnionTagTypeSimple(
         );
         try mod.initNewAnonDecl(
             new_decl_index,
-            src_line,
             Value.@"unreachable",
             name,
         );
@@ -38379,7 +38362,7 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
         return;
     }
 
-    const depender = InternPool.Depender.wrap(
+    const depender = InternPool.AnalSubject.wrap(
         if (sema.owner_func_index != .none)
             .{ .func = sema.owner_func_index }
         else

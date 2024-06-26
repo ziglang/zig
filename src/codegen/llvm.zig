@@ -1697,7 +1697,7 @@ pub const Object = struct {
         const file, const subprogram = if (!wip.strip) debug_info: {
             const file = try o.getDebugFile(namespace.file_scope);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
             const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
@@ -1741,7 +1741,7 @@ pub const Object = struct {
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
-            .base_line = dg.decl.src_line,
+            .base_line = dg.decl.navSrcLine(zcu),
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
@@ -2067,7 +2067,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.src_line + 1, // Line
+                    owner_decl.typeSrcLine(mod) + 1, // Line
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(mod) * 8,
                     (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
@@ -2237,7 +2237,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.src_line + 1, // Line
+                    owner_decl.typeSrcLine(mod) + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -2867,7 +2867,7 @@ pub const Object = struct {
             try o.builder.metadataString(decl.name.toSlice(&mod.intern_pool)), // TODO use fully qualified name
             try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope),
             try o.namespaceToDebugScope(decl.src_namespace),
-            decl.src_line + 1,
+            decl.typeSrcLine(mod) + 1,
             .none,
             0,
             0,
@@ -4762,7 +4762,7 @@ pub const DeclGen = struct {
                 else => try o.lowerValue(init_val),
             }, &o.builder);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             const is_internal_linkage = !o.module.decl_exports.contains(decl_index);
 
             const namespace = zcu.namespacePtr(decl.src_namespace);
@@ -5188,7 +5188,7 @@ pub const FuncGen = struct {
 
             self.file = try o.getDebugFile(namespace.file_scope);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             self.inlined = self.wip.debug_location;
 
             const fqn = try decl.fullyQualifiedName(zcu);
@@ -5217,7 +5217,7 @@ pub const FuncGen = struct {
                 o.debug_compile_unit,
             );
 
-            self.base_line = decl.src_line;
+            self.base_line = decl.navSrcLine(zcu);
             const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
             self.wip.debug_location = .{
                 .location = .{
@@ -8857,7 +8857,7 @@ pub const FuncGen = struct {
         const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
         const func_index = self.dg.decl.getOwnedFunctionIndex();
         const func = mod.funcInfo(func_index);
-        const lbrace_line = mod.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
+        const lbrace_line = mod.declPtr(func.owner_decl).navSrcLine(mod) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(

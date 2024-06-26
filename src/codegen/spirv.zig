@@ -212,7 +212,7 @@ pub const Object = struct {
                 false => .{ .unstructured = .{} },
             },
             .current_block_label = undefined,
-            .base_line = decl.src_line,
+            .base_line = decl.navSrcLine(mod),
         };
         defer decl_gen.deinit();
 
@@ -6345,7 +6345,7 @@ const DeclGen = struct {
         const decl = mod.funcOwnerDeclPtr(extra.data.func);
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
-        self.base_line = decl.src_line;
+        self.base_line = decl.navSrcLine(mod);
         return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 

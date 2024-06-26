@@ -2598,9 +2598,7 @@ pub const Inst = struct {
         src_hash_3: u32,
         /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
         name: Name,
-        /// This Decl's line number relative to that of its parent.
-        /// TODO: column must be encoded similarly to respect non-formatted code!
-        line_offset: u32,
+        src_line: u32,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
