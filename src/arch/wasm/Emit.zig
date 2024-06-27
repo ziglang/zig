@@ -6,8 +6,6 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
@@ -18,7 +16,7 @@ mir: Mir,
 bin_file: *link.File.Wasm,
 /// Possible error message. When set, the value is allocated and
 /// must be freed manually.
-error_msg: ?*Module.ErrorMsg = null,
+error_msg: ?*Zcu.ErrorMsg = null,
 /// The binary representation that will be emit by this module.
 code: *std.ArrayList(u8),
 /// List of allocated locals.
@@ -259,7 +257,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     const comp = emit.bin_file.base.comp;
     const zcu = comp.module.?;
     const gpa = comp.gpa;
-    emit.error_msg = try Module.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).navSrcLoc(zcu).upgrade(zcu), format, args);
+    emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).navSrcLoc(zcu).upgrade(zcu), format, args);
     return error.EmitFail;
 }
 

@@ -10,8 +10,6 @@ const assert = std.debug.assert;
 
 const Type = @import("../../type.zig").Type;
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 
 /// Defines how to pass a type as part of a function signature,
 /// both for parameters as well as return values.
@@ -24,7 +22,7 @@ const direct: [2]Class = .{ .direct, .none };
 /// Classifies a given Zig type to determine how they must be passed
 /// or returned as value within a wasm function.
 /// When all elements result in `.none`, no value must be passed in or returned.
-pub fn classifyType(ty: Type, mod: *Module) [2]Class {
+pub fn classifyType(ty: Type, mod: *Zcu) [2]Class {
     const ip = &mod.intern_pool;
     const target = mod.getTarget();
     if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return none;
@@ -102,7 +100,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
 /// Returns the scalar type a given type can represent.
 /// Asserts given type can be represented as scalar, such as
 /// a struct with a single scalar field.
-pub fn scalarType(ty: Type, mod: *Module) Type {
+pub fn scalarType(ty: Type, mod: *Zcu) Type {
     const ip = &mod.intern_pool;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {

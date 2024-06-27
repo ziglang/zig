@@ -11,10 +11,8 @@ const log = std.log.scoped(.codegen);
 
 const codegen = @import("../../codegen.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
-const Decl = Module.Decl;
+const Decl = Zcu.Decl;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
@@ -674,7 +672,7 @@ local_index: u32 = 0,
 /// Used to track which argument is being referenced in `airArg`.
 arg_index: u32 = 0,
 /// If codegen fails, an error messages will be allocated and saved in `err_msg`
-err_msg: *Module.ErrorMsg,
+err_msg: *Zcu.ErrorMsg,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: std.ArrayListUnmanaged(u8),
@@ -768,7 +766,7 @@ pub fn deinit(func: *CodeGen) void {
 fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
     const mod = func.bin_file.base.comp.module.?;
     const src_loc = func.decl.navSrcLoc(mod).upgrade(mod);
-    func.err_msg = try Module.ErrorMsg.create(func.gpa, src_loc, fmt, args);
+    func.err_msg = try Zcu.ErrorMsg.create(func.gpa, src_loc, fmt, args);
     return error.CodegenFail;
 }
 
@@ -992,7 +990,7 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
 }
 
 /// Using a given `Type`, returns the corresponding type
-fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
+fn typeToValtype(ty: Type, mod: *Zcu) wasm.Valtype {
     const target = mod.getTarget();
     const ip = &mod.intern_pool;
     return switch (ty.zigTypeTag(mod)) {
@@ -1032,14 +1030,14 @@ fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
 }
 
 /// Using a given `Type`, returns the byte representation of its wasm value type
-fn genValtype(ty: Type, mod: *Module) u8 {
+fn genValtype(ty: Type, mod: *Zcu) u8 {
     return wasm.valtype(typeToValtype(ty, mod));
 }
 
 /// Using a given `Type`, returns the corresponding wasm value type
 /// Differently from `genValtype` this also allows `void` to create a block
 /// with no return type
-fn genBlockType(ty: Type, mod: *Module) u8 {
+fn genBlockType(ty: Type, mod: *Zcu) u8 {
     return switch (ty.ip_index) {
         .void_type, .noreturn_type => wasm.block_empty,
         else => genValtype(ty, mod),
@@ -1149,7 +1147,7 @@ fn genFunctype(
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
     return_type: Type,
-    mod: *Module,
+    mod: *Zcu,
 ) !wasm.Type {
     var temp_params = std.ArrayList(wasm.Valtype).init(gpa);
     defer temp_params.deinit();
@@ -1204,7 +1202,7 @@ fn genFunctype(
 
 pub fn generate(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Zcu.SrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -1405,7 +1403,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     return result;
 }
 
-fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, mod: *Module) bool {
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, mod: *Zcu) bool {
     switch (cc) {
         .Unspecified, .Inline => return isByRef(return_type, mod),
         .C => {
@@ -1713,7 +1711,7 @@ fn arch(func: *const CodeGen) std.Target.Cpu.Arch {
 
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
-fn isByRef(ty: Type, mod: *Module) bool {
+fn isByRef(ty: Type, mod: *Zcu) bool {
     const ip = &mod.intern_pool;
     const target = mod.getTarget();
     switch (ty.zigTypeTag(mod)) {
@@ -1785,7 +1783,7 @@ const SimdStoreStrategy = enum {
 /// This means when a given type is 128 bits and either the simd128 or relaxed-simd
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
-fn determineSimdStoreStrategy(ty: Type, mod: *Module) SimdStoreStrategy {
+fn determineSimdStoreStrategy(ty: Type, mod: *Zcu) SimdStoreStrategy {
     std.debug.assert(ty.zigTypeTag(mod) == .Vector);
     if (ty.bitSize(mod) != 128) return .unrolled;
     const hasFeature = std.Target.wasm.featureSetHas;
@@ -3436,7 +3434,7 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
                 assert(ptr.base_addr == .int);
                 return @intCast(ptr.byte_offset);
             },
-            .err => |err| @as(i32, @bitCast(@as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(err.name).?)))),
+            .err => |err| @as(i32, @bitCast(@as(Zcu.ErrorInt, @intCast(mod.global_error_set.getIndex(err.name).?)))),
             else => unreachable,
         },
     }
@@ -3447,11 +3445,11 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
     };
 }
 
-fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, mod: *Module) i32 {
+fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, mod: *Zcu) i32 {
     return intStorageAsI32(ip.indexToKey(int).int.storage, mod);
 }
 
-fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Module) i32 {
+fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Zcu) i32 {
     return switch (storage) {
         .i64 => |x| @as(i32, @intCast(x)),
         .u64 => |x| @as(i32, @bitCast(@as(u32, @intCast(x)))),
@@ -7340,7 +7338,7 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
     for (0..names.len) |name_index| {
-        const err_int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
+        const err_int: Zcu.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;
