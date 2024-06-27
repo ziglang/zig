@@ -3494,7 +3494,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure;
-                try module.retryable_failures.append(gpa, InternPool.AnalSubject.wrap(.{ .decl = decl_index }));
+                try module.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
             };
         },
         .analyze_mod => |pkg| {
