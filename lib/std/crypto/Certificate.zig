@@ -5,6 +5,25 @@ pub const Bundle = @import("Certificate/Bundle.zig");
 
 pub const Version = enum { v1, v2, v3 };
 
+pub const Error = error{
+    CertificateExpired,
+    CertificateFieldHasInvalidLength,
+    CertificateFieldHasWrongDataType,
+    CertificateHasInvalidBitString,
+    CertificateHasUnrecognizedObjectId,
+    CertificateHostMismatch,
+    CertificateIssuerMismatch,
+    CertificateNotYetValid,
+    CertificatePublicKeyInvalid,
+    CertificateSignatureAlgorithmMismatch,
+    CertificateSignatureAlgorithmUnsupported,
+    CertificateSignatureInvalid,
+    CertificateSignatureInvalidLength,
+    CertificateSignatureNamedCurveUnsupported,
+    CertificateSignatureUnsupportedBitCount,
+    CertificateTimeInvalid,
+} || ParseVersionError;
+
 pub const Algorithm = enum {
     sha1WithRSAEncryption,
     sha224WithRSAEncryption,
@@ -704,7 +723,10 @@ fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnu
     return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
-pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
+pub const ParseVersionError = error{
+    CertificateUnsupportedVersion,
+    CertificateFieldHasInvalidLength,
+};
 
 pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
     if (@as(u8, @bitCast(version_elem.identifier)) != 0xa0)
@@ -723,7 +745,7 @@ pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionEr
         return .v1;
     }
 
-    return error.UnsupportedCertificateVersion;
+    return error.CertificateUnsupportedVersion;
 }
 
 fn verifyRsa(
