@@ -1935,16 +1935,18 @@ or
           <li>{#syntax#}*T{#endsyntax#} - single-item pointer to exactly one item.
             <ul>
               <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
+              <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
           </li>
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
-              <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
-              <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
+              <li>Supports pointer-integer arithmetic: {#syntax#}ptr + int{#endsyntax#}, {#syntax#}ptr - int{#endsyntax#}</li>
+              <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
+            {#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
+            {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.
           </li>
       </ul>
       <p>These types are closely related to {#link|Arrays#} and {#link|Slices#}:</p>
@@ -1954,6 +1956,7 @@ or
                 <li>Supports index syntax: {#syntax#}array_ptr[i]{#endsyntax#}</li>
                 <li>Supports slice syntax: {#syntax#}array_ptr[start..end]{#endsyntax#}</li>
                 <li>Supports len property: {#syntax#}array_ptr.len{#endsyntax#}</li>
+                <li>Supports pointer subtraction: {#syntax#}array_ptr - array_ptr{#endsyntax#}</li>
             </ul>
             </li>
         </ul>
