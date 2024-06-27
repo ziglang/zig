@@ -393,8 +393,38 @@ fn comptimeAdd(comptime a: comptime_int, comptime b: comptime_int) comptime_int 
     return a + b;
 }
 
+fn not(comptime T: type, a: T) T {
+    return ~a;
+}
+
 test "binary not" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try expect(not(u0, 0) == 0);
+    try expect(not(u1, 0) == 1);
+    try expect(not(u1, 1) == 0);
+    try expect(not(u5, 0b01001) == 0b10110);
+    try expect(not(u5, 0b10110) == 0b01001);
+    try expect(not(u16, 0b10101010_10101010) == 0b01010101_01010101);
+    try expect(not(u16, 0b01010101_01010101) == 0b10101010_10101010);
+    try expect(not(u32, 0xAAAA_3333) == 0x5555_CCCC);
+    try expect(not(u32, 0x5555_CCCC) == 0xAAAA_3333);
+    try expect(not(u35, 0x4_1111_FFFF) == 0x3_EEEE_0000);
+    try expect(not(u35, 0x3_EEEE_0000) == 0x4_1111_FFFF);
+    try expect(not(u48, 0x4567_89AB_CDEF) == 0xBA98_7654_3210);
+    try expect(not(u48, 0xBA98_7654_3210) == 0x4567_89AB_CDEF);
+    try expect(not(u64, 0x0123_4567_89AB_CDEF) == 0xFEDC_BA98_7654_3210);
+    try expect(not(u64, 0xFEDC_BA98_7654_3210) == 0x0123_4567_89AB_CDEF);
+
+    try expect(not(i0, 0) == 0);
+    try expect(not(i1, 0) == -1);
+    try expect(not(i1, -1) == 0);
+    try expect(not(i5, -2) == 1);
+    try expect(not(i5, 3) == -4);
+    try expect(not(i32, 0) == -1);
+    try expect(not(i32, -2147483648) == 2147483647);
+    try expect(not(i64, -1) == 0);
+    try expect(not(i64, 0) == -1);
 
     try expect(comptime x: {
         break :x ~@as(u16, 0b1010101010101010) == 0b0101010101010101;
@@ -405,20 +435,33 @@ test "binary not" {
     try expect(comptime x: {
         break :x ~@as(u0, 0) == 0;
     });
-    try testBinaryNot(0b1010101010101010);
 }
 
-fn testBinaryNot(x: u16) !void {
-    try expect(~x == 0b0101010101010101);
-}
-
-test "binary not 128-bit" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+test "binary not big int <= 128 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try expect(not(u65, 1) == 0x1_FFFFFFFF_FFFFFFFE);
+    try expect(not(u65, 0x1_FFFFFFFF_FFFFFFFE) == 1);
+
+    try expect(not(u96, 0x01234567_89ABCDEF_00000001) == 0xFEDCBA98_76543210_FFFFFFFE);
+    try expect(not(u96, 0xFEDCBA98_76543210_FFFFFFFE) == 0x01234567_89ABCDEF_00000001);
+
+    try expect(not(u128, 0xAAAAAAAA_AAAAAAAA_AAAAAAAA_AAAAAAAA) == 0x55555555_55555555_55555555_55555555);
+    try expect(not(u128, 0x55555555_55555555_55555555_55555555) == 0xAAAAAAAA_AAAAAAAA_AAAAAAAA_AAAAAAAA);
+
+    try expect(not(i65, -1) == 0);
+    try expect(not(i65, 0) == -1);
+    try expect(not(i65, -18446744073709551616) == 18446744073709551615);
+    try expect(not(i65, 18446744073709551615) == -18446744073709551616);
+
+    try expect(not(i128, -1) == 0);
+    try expect(not(i128, 0) == -1);
+    try expect(not(i128, -200) == 199);
+    try expect(not(i128, 199) == -200);
 
     try expect(comptime x: {
         break :x ~@as(u128, 0x55555555_55555555_55555555_55555555) == 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa;
@@ -426,13 +469,6 @@ test "binary not 128-bit" {
     try expect(comptime x: {
         break :x ~@as(i128, 0x55555555_55555555_55555555_55555555) == @as(i128, @bitCast(@as(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa)));
     });
-
-    try testBinaryNot128(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa);
-    try testBinaryNot128(i128, @as(i128, @bitCast(@as(u128, 0xaaaaaaaa_aaaaaaaa_aaaaaaaa_aaaaaaaa))));
-}
-
-fn testBinaryNot128(comptime Type: type, x: Type) !void {
-    try expect(~x == @as(Type, 0x55555555_55555555_55555555_55555555));
 }
 
 test "division" {

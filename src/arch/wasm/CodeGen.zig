@@ -3729,32 +3729,49 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try func.addLabel(.local_set, not_tmp.local.value);
             break :result not_tmp;
         } else {
-            const operand_bits = operand_ty.intInfo(mod).bits;
-            const wasm_bits = toWasmBits(operand_bits) orelse {
-                return func.fail("TODO: Implement binary NOT for integer with bitsize '{d}'", .{operand_bits});
+            const int_info = operand_ty.intInfo(mod);
+            const wasm_bits = toWasmBits(int_info.bits) orelse {
+                return func.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(mod)});
             };
 
             switch (wasm_bits) {
                 32 => {
-                    const bin_op = try func.binOp(operand, .{ .imm32 = ~@as(u32, 0) }, operand_ty, .xor);
-                    break :result try (try func.wrapOperand(bin_op, operand_ty)).toLocal(func, operand_ty);
+                    try func.emitWValue(operand);
+                    try func.addImm32(switch (int_info.signedness) {
+                        .unsigned => ~@as(u32, 0) >> @intCast(32 - int_info.bits),
+                        .signed => ~@as(u32, 0),
+                    });
+                    try func.addTag(.i32_xor);
+                    break :result try @as(WValue, .stack).toLocal(func, operand_ty);
                 },
                 64 => {
-                    const bin_op = try func.binOp(operand, .{ .imm64 = ~@as(u64, 0) }, operand_ty, .xor);
-                    break :result try (try func.wrapOperand(bin_op, operand_ty)).toLocal(func, operand_ty);
+                    try func.emitWValue(operand);
+                    try func.addImm64(switch (int_info.signedness) {
+                        .unsigned => ~@as(u64, 0) >> @intCast(64 - int_info.bits),
+                        .signed => ~@as(u64, 0),
+                    });
+                    try func.addTag(.i64_xor);
+                    break :result try @as(WValue, .stack).toLocal(func, operand_ty);
                 },
                 128 => {
-                    const result_ptr = try func.allocStack(operand_ty);
-                    try func.emitWValue(result_ptr);
-                    const msb = try func.load(operand, Type.u64, 0);
-                    const msb_xor = try func.binOp(msb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
-                    try func.store(.{ .stack = {} }, msb_xor, Type.u64, 0 + result_ptr.offset());
+                    const ptr = try func.allocStack(operand_ty);
 
-                    try func.emitWValue(result_ptr);
-                    const lsb = try func.load(operand, Type.u64, 8);
-                    const lsb_xor = try func.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
-                    try func.store(result_ptr, lsb_xor, Type.u64, 8 + result_ptr.offset());
-                    break :result result_ptr;
+                    try func.emitWValue(ptr);
+                    _ = try func.load(operand, Type.u64, 0);
+                    try func.addImm64(~@as(u64, 0));
+                    try func.addTag(.i64_xor);
+                    try func.store(.stack, .stack, Type.u64, ptr.offset());
+
+                    try func.emitWValue(ptr);
+                    _ = try func.load(operand, Type.u64, 8);
+                    try func.addImm64(switch (int_info.signedness) {
+                        .unsigned => ~@as(u64, 0) >> @intCast(128 - int_info.bits),
+                        .signed => ~@as(u64, 0),
+                    });
+                    try func.addTag(.i64_xor);
+                    try func.store(.stack, .stack, Type.u64, ptr.offset() + 8);
+
+                    break :result ptr;
                 },
                 else => unreachable,
             }
