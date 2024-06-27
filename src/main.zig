@@ -1143,7 +1143,7 @@ fn buildOutputType(
                         color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
-                    } else if (mem.eql(u8, arg, "--subsystem")) {
+                    } else if (mem.eql(u8, arg, "--subsystem") or mem.eql(u8, arg, "-subsystem")) {
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(args_iter.nextOrFatal());
@@ -1151,15 +1151,15 @@ fn buildOutputType(
                         entry = .{ .named = arg["-fentry=".len..] };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
-                    } else if (mem.eql(u8, arg, "--stack")) {
+                    } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack")) {
                         stack_size = parseStackSize(args_iter.nextOrFatal());
-                    } else if (mem.eql(u8, arg, "--image-base")) {
+                    } else if (mem.eql(u8, arg, "--image-base") or mem.eql(u8, arg, "-image-base")) {
                         image_base = parseImageBase(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--name")) {
                         provided_name = args_iter.nextOrFatal();
                         if (!mem.eql(u8, provided_name.?, fs.path.basename(provided_name.?)))
                             fatal("invalid package name '{s}': cannot contain folder separators", .{provided_name.?});
-                    } else if (mem.eql(u8, arg, "-rpath")) {
+                    } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                         try create_module.rpath_list.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
                         try create_module.lib_dir_args.append(arena, args_iter.nextOrFatal());
@@ -1216,17 +1216,17 @@ fn buildOutputType(
                         dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-ObjC")) {
                         force_load_objc = true;
-                    } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
+                    } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script") or mem.eql(u8, arg, "-script")) {
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--undefined-version")) {
+                    } else if (mem.eql(u8, arg, "--undefined-version") or mem.eql(u8, arg, "-undefined-version")) {
                         linker_allow_undefined_version = true;
-                    } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                    } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                         linker_allow_undefined_version = false;
-                    } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                    } else if (mem.eql(u8, arg, "--enable-new-dtags") or mem.eql(u8, arg, "-enable-new-dtags")) {
                         linker_enable_new_dtags = true;
-                    } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                    } else if (mem.eql(u8, arg, "--disable-new-dtags") or mem.eql(u8, arg, "-disable-new-dtags")) {
                         linker_enable_new_dtags = false;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc
@@ -1294,7 +1294,7 @@ fn buildOutputType(
                         target_mcpu = arg["-mcpu=".len..];
                     } else if (mem.startsWith(u8, arg, "-O")) {
                         mod_opts.optimize_mode = parseOptimizeMode(arg["-O".len..]);
-                    } else if (mem.eql(u8, arg, "--dynamic-linker")) {
+                    } else if (mem.eql(u8, arg, "--dynamic-linker") or mem.eql(u8, arg, "-dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
@@ -1496,7 +1496,7 @@ fn buildOutputType(
                         create_module.opts.link_mode = .dynamic;
                         lib_preferred_mode = .dynamic;
                         lib_search_strategy = .mode_first;
-                    } else if (mem.eql(u8, arg, "-static")) {
+                    } else if (mem.eql(u8, arg, "--static") or mem.eql(u8, arg, "-static")) {
                         create_module.opts.link_mode = .static;
                         lib_preferred_mode = .static;
                         lib_search_strategy = .no_fallback;
@@ -1539,11 +1539,11 @@ fn buildOutputType(
                         const next_arg = arg["-fopt-bisect-limit=".len..];
                         llvm_opt_bisect_limit = std.fmt.parseInt(c_int, next_arg, 0) catch |err|
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
-                    } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                    } else if (mem.eql(u8, arg, "--eh-frame-hdr") or mem.eql(u8, arg, "-eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
-                    } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                    } else if (mem.eql(u8, arg, "--dynamicbase") or mem.eql(u8, arg, "-dynamicbase")) {
                         linker_dynamicbase = true;
-                    } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                    } else if (mem.eql(u8, arg, "--no-dynamicbase") or mem.eql(u8, arg, "-no-dynamicbase")) {
                         linker_dynamicbase = false;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
                         link_emit_relocs = true;
@@ -1607,11 +1607,11 @@ fn buildOutputType(
                         linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                     } else if (mem.startsWith(u8, arg, "--export=")) {
                         try linker_export_symbol_names.append(arena, arg["--export=".len..]);
-                    } else if (mem.eql(u8, arg, "-Bsymbolic")) {
+                    } else if (mem.eql(u8, arg, "--Bsymbolic") or mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
-                    } else if (mem.eql(u8, arg, "--gc-sections")) {
+                    } else if (mem.eql(u8, arg, "--gc-sections") or mem.eql(u8, arg, "-gc-sections")) {
                         linker_gc_sections = true;
-                    } else if (mem.eql(u8, arg, "--no-gc-sections")) {
+                    } else if (mem.eql(u8, arg, "--no-gc-sections") or mem.eql(u8, arg, "-no-gc-sections")) {
                         linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--build-id")) {
                         build_id = .fast;
@@ -1944,7 +1944,7 @@ fn buildOutputType(
                                             });
                                         };
                                         continue;
-                                    } else if (mem.eql(u8, key, "--sort-common")) {
+                                    } else if (mem.eql(u8, key, "--sort-common") or mem.eql(u8, key, "-sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common
                                         // is done below.
                                         continue;
@@ -1956,13 +1956,13 @@ fn buildOutputType(
                             }
                             if (mem.eql(u8, linker_arg, "--build-id")) {
                                 build_id = .fast;
-                            } else if (mem.eql(u8, linker_arg, "--as-needed")) {
+                            } else if (mem.eql(u8, linker_arg, "--as-needed") or mem.eql(u8, linker_arg, "-as-needed")) {
                                 needed = false;
-                            } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
+                            } else if (mem.eql(u8, linker_arg, "--no-as-needed") or mem.eql(u8, linker_arg, "-no-as-needed")) {
                                 needed = true;
-                            } else if (mem.eql(u8, linker_arg, "-no-pie")) {
+                            } else if (mem.eql(u8, linker_arg, "--no-pie") or mem.eql(u8, linker_arg, "-no-pie")) {
                                 create_module.opts.pie = false;
-                            } else if (mem.eql(u8, linker_arg, "--sort-common")) {
+                            } else if (mem.eql(u8, linker_arg, "--sort-common") or mem.eql(u8, linker_arg, "-sort-common")) {
                                 // from ld.lld(1): --sort-common is ignored for GNU compatibility,
                                 // this ignores plain --sort-common
                             } else if (mem.eql(u8, linker_arg, "--whole-archive") or
@@ -1973,15 +1973,22 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-no-whole-archive"))
                             {
                                 must_link = false;
-                            } else if (mem.eql(u8, linker_arg, "-Bdynamic") or
+                            } else if (mem.eql(u8, linker_arg, "--Bdynamic") or
+                                mem.eql(u8, linker_arg, "-Bdynamic") or
+                                mem.eql(u8, linker_arg, "--dy") or
                                 mem.eql(u8, linker_arg, "-dy") or
+                                mem.eql(u8, linker_arg, "--call_shared") or
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
                                 lib_search_strategy = .no_fallback;
                                 lib_preferred_mode = .dynamic;
-                            } else if (mem.eql(u8, linker_arg, "-Bstatic") or
+                            } else if (mem.eql(u8, linker_arg, "--Bstatic") or
+                                mem.eql(u8, linker_arg, "-Bstatic") or
+                                mem.eql(u8, linker_arg, "--dn") or
                                 mem.eql(u8, linker_arg, "-dn") or
+                                mem.eql(u8, linker_arg, "--non_shared") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
+                                mem.eql(u8, linker_arg, "--static") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 lib_search_strategy = .no_fallback;
@@ -2167,9 +2174,11 @@ fn buildOutputType(
                         }
                     }
                     provided_name = name[prefix..end];
+                } else if (mem.eql(u8, arg, "--pic-executable") or mem.eql(u8, arg, "-pic-executable")) {
+                    create_module.opts.pie = true;
                 } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                     try create_module.rpath_list.append(arena, linker_args_it.nextOrFatal());
-                } else if (mem.eql(u8, arg, "--subsystem")) {
+                } else if (mem.eql(u8, arg, "--subsystem") or mem.eql(u8, arg, "-subsystem")) {
                     subsystem = try parseSubSystem(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "-I") or
                     mem.eql(u8, arg, "--dynamic-linker") or
@@ -2183,13 +2192,13 @@ fn buildOutputType(
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                     version_script = linker_args_it.nextOrFatal();
-                } else if (mem.eql(u8, arg, "--undefined-version")) {
+                } else if (mem.eql(u8, arg, "--undefined-version") or mem.eql(u8, arg, "-undefined-version")) {
                     linker_allow_undefined_version = true;
-                } else if (mem.eql(u8, arg, "--no-undefined-version")) {
+                } else if (mem.eql(u8, arg, "--no-undefined-version") or mem.eql(u8, arg, "-no-undefined-version")) {
                     linker_allow_undefined_version = false;
-                } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                } else if (mem.eql(u8, arg, "--enable-new-dtags") or mem.eql(u8, arg, "-enable-new-dtags")) {
                     linker_enable_new_dtags = true;
-                } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                } else if (mem.eql(u8, arg, "--disable-new-dtags") or mem.eql(u8, arg, "-disable-new-dtags")) {
                     linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
@@ -2213,19 +2222,19 @@ fn buildOutputType(
                     dead_strip_dylibs = true;
                 } else if (mem.eql(u8, arg, "-ObjC")) {
                     force_load_objc = true;
-                } else if (mem.eql(u8, arg, "--no-undefined")) {
+                } else if (mem.eql(u8, arg, "--no-undefined") or mem.eql(u8, arg, "-no-undefined")) {
                     linker_z_defs = true;
-                } else if (mem.eql(u8, arg, "--gc-sections")) {
+                } else if (mem.eql(u8, arg, "--gc-sections") or mem.eql(u8, arg, "-gc-sections")) {
                     linker_gc_sections = true;
-                } else if (mem.eql(u8, arg, "--no-gc-sections")) {
+                } else if (mem.eql(u8, arg, "--no-gc-sections") or mem.eql(u8, arg, "-no-gc-sections")) {
                     linker_gc_sections = false;
-                } else if (mem.eql(u8, arg, "--print-gc-sections")) {
+                } else if (mem.eql(u8, arg, "--print-gc-sections") or mem.eql(u8, arg, "-print-gc-sections")) {
                     linker_print_gc_sections = true;
-                } else if (mem.eql(u8, arg, "--print-icf-sections")) {
+                } else if (mem.eql(u8, arg, "--print-icf-sections") or mem.eql(u8, arg, "-print-icf-sections")) {
                     linker_print_icf_sections = true;
-                } else if (mem.eql(u8, arg, "--print-map")) {
+                } else if (mem.eql(u8, arg, "--print-map") or mem.eql(u8, arg, "-print-map")) {
                     linker_print_map = true;
-                } else if (mem.eql(u8, arg, "--sort-section")) {
+                } else if (mem.eql(u8, arg, "--sort-section") or mem.eql(u8, arg, "-sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
                     linker_sort_section = std.meta.stringToEnum(link.File.Elf.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
@@ -2238,7 +2247,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "-no-allow-shlib-undefined"))
                 {
                     linker_allow_shlib_undefined = false;
-                } else if (mem.eql(u8, arg, "-Bsymbolic")) {
+                } else if (mem.eql(u8, arg, "--Bsymbolic") or mem.eql(u8, arg, "-Bsymbolic")) {
                     linker_bind_global_refs_locally = true;
                 } else if (mem.eql(u8, arg, "--import-memory")) {
                     create_module.opts.import_memory = true;
@@ -2324,48 +2333,60 @@ fn buildOutputType(
                         fatal("unable to parse minor image version '{s}': {s}", .{ minor, @errorName(err) });
                     };
                     have_version = true;
-                } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry")) {
+                } else if (mem.eql(u8, arg, "-e") or mem.eql(u8, arg, "--entry") or mem.eql(u8, arg, "-entry")) {
                     entry = .{ .named = linker_args_it.nextOrFatal() };
-                } else if (mem.eql(u8, arg, "-u")) {
-                    try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
-                } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
+                } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
-                } else if (mem.eql(u8, arg, "--image-base")) {
+                } else if (mem.eql(u8, arg, "--image-base") or mem.eql(u8, arg, "-image-base")) {
                     image_base = parseImageBase(linker_args_it.nextOrFatal());
-                } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
+                } else if (mem.eql(u8, arg, "--enable-auto-image-base") or
+                    mem.eql(u8, arg, "-enable-auto-image-base") or
+                    mem.eql(u8, arg, "--disable-auto-image-base") or
+                    mem.eql(u8, arg, "-disable-auto-image-base"))
+                {
+                    // These are ignored by LLD, but are used by Libtool for MinGW triples.
+                } else if (mem.eql(u8, arg, "--full-shutdown")) {
+                    // This is ignored by LLD.
+                } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script") or mem.eql(u8, arg, "-script")) {
                     linker_script = linker_args_it.nextOrFatal();
-                } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
+                } else if (mem.eql(u8, arg, "--eh-frame-hdr") or mem.eql(u8, arg, "-eh-frame-hdr")) {
                     link_eh_frame_hdr = true;
-                } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
+                } else if (mem.eql(u8, arg, "--no-eh-frame-hdr") or mem.eql(u8, arg, "-no-eh-frame-hdr")) {
                     link_eh_frame_hdr = false;
-                } else if (mem.eql(u8, arg, "--tsaware")) {
+                } else if (mem.eql(u8, arg, "--tsaware") or mem.eql(u8, arg, "-tsaware")) {
                     linker_tsaware = true;
-                } else if (mem.eql(u8, arg, "--nxcompat")) {
+                } else if (mem.eql(u8, arg, "--nxcompat") or mem.eql(u8, arg, "-nxcompat")) {
                     linker_nxcompat = true;
-                } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                } else if (mem.eql(u8, arg, "--dynamicbase") or mem.eql(u8, arg, "-dynamicbase")) {
                     linker_dynamicbase = true;
-                } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
+                } else if (mem.eql(u8, arg, "--no-dynamicbase") or mem.eql(u8, arg, "-no-dynamicbase")) {
                     linker_dynamicbase = false;
-                } else if (mem.eql(u8, arg, "--high-entropy-va")) {
+                } else if (mem.eql(u8, arg, "--high-entropy-va") or mem.eql(u8, arg, "-high-entropy-va")) {
                     // This option does not do anything.
-                } else if (mem.eql(u8, arg, "--export-all-symbols")) {
+                } else if (mem.eql(u8, arg, "--export-all-symbols") or mem.eql(u8, arg, "-export-all-symbols")) {
                     create_module.opts.rdynamic = true;
                 } else if (mem.eql(u8, arg, "--color-diagnostics") or
-                    mem.eql(u8, arg, "--color-diagnostics=always"))
+                    mem.eql(u8, arg, "-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=always") or
+                    mem.eql(u8, arg, "-color-diagnostics=always"))
                 {
                     color = .on;
                 } else if (mem.eql(u8, arg, "--no-color-diagnostics") or
-                    mem.eql(u8, arg, "--color-diagnostics=never"))
+                    mem.eql(u8, arg, "-no-color-diagnostics") or
+                    mem.eql(u8, arg, "--color-diagnostics=never") or
+                    mem.eql(u8, arg, "-color-diagnostics=never"))
                 {
                     color = .off;
-                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
-                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
+                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or mem.eql(u8, arg, "-strip-all") or
+                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug") or mem.eql(u8, arg, "-strip-debug"))
                 {
-                    // -s, --strip-all             Strip all symbols
-                    // -S, --strip-debug           Strip debugging symbols
+                    // -s, -(-)strip-all             Strip all symbols
+                    // -S, -(-)strip-debug           Strip debugging symbols
                     mod_opts.strip = true;
                 } else if (mem.eql(u8, arg, "--start-group") or
-                    mem.eql(u8, arg, "--end-group"))
+                    mem.eql(u8, arg, "-start-group") or
+                    mem.eql(u8, arg, "--end-group") or
+                    mem.eql(u8, arg, "-end-group"))
                 {
                     // We don't need to care about these because these args are
                     // for resolving circular dependencies but our linker takes
@@ -2428,6 +2449,8 @@ fn buildOutputType(
                     };
                     have_version = true;
                 } else if (mem.eql(u8, arg, "--out-implib") or
+                    mem.eql(u8, arg, "-out-implib") or
+                    mem.eql(u8, arg, "--implib") or
                     mem.eql(u8, arg, "-implib"))
                 {
                     emit_implib = .{ .yes = linker_args_it.nextOrFatal() };
@@ -2439,8 +2462,20 @@ fn buildOutputType(
                     } else if (mem.eql(u8, "error", lookup_type)) {
                         linker_allow_shlib_undefined = false;
                     } else {
-                        fatal("unsupported -undefined option '{s}'", .{lookup_type});
+                        // There is an ambiguity here: ld on Linux uses `-(-)undefined <symbol>` to force a symbol to
+                        // be undefined during linking. Meanwhile, macOS ld uses it as the equivalent of Linux ld's
+                        // `-(-)(no-)allow-shlib-undefined` option.
+                        //
+                        // There are no great options here. For now, we allow the option to be used in both ways and
+                        // hope that no one is going to try to undefine a symbol called `dynamic_lookup` or `error`.
+                        //
+                        // Note that this ambiguity only exists for the linker option; the Clang option is explicitly
+                        // macOS-specific.
+                        try force_undefined_symbols.put(arena, lookup_type, {});
                     }
+                } else if (mem.eql(u8, arg, "-u") or mem.eql(u8, arg, "--undefined")) {
+                    // The above ambiguity does not exist for these variants of the option.
+                    try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
                 } else if (mem.eql(u8, arg, "-install_name")) {
                     install_name = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "-force_load")) {
@@ -2457,9 +2492,11 @@ fn buildOutputType(
                             next_arg,
                         });
                     };
-                } else if (mem.eql(u8, arg, "-wrap")) {
+                } else if (mem.eql(u8, arg, "--wrap") or mem.eql(u8, arg, "-wrap")) {
                     const next_arg = linker_args_it.nextOrFatal();
                     try symbol_wrap_set.put(arena, next_arg, {});
+                } else if (mem.eql(u8, arg, "--stats") or mem.eql(u8, arg, "-stats")) {
+                    // TODO: Actually compute and display statistics.
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
                     var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     subsystem = try parseSubSystem(split_it.first());
