@@ -1984,8 +1984,8 @@ const UnpackResult = struct {
 
 test "zip" {
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const test_files = [_]std.zip.testutil.File{
         .{ .name = "foo", .content = "this is just foo\n", .compression = .store },
@@ -2017,8 +2017,8 @@ test "zip" {
 
 test "zip with one root folder" {
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const test_files = [_]std.zip.testutil.File{
         .{ .name = "the_root_folder/foo.zig", .content = "// this is foo.zig\n", .compression = .store },
@@ -2064,8 +2064,8 @@ test "tarball with duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const tarball_name = "duplicate_paths.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
@@ -2096,8 +2096,8 @@ test "tarball with excluded duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const tarball_name = "duplicate_paths_excluded.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
@@ -2140,8 +2140,8 @@ test "tarball without root folder" {
     //
 
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const tarball_name = "no_root.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);
@@ -2171,8 +2171,8 @@ test "tarball without root folder" {
 test "set executable bit based on file content" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
     const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(gpa, .{});
+    defer tmp.cleanup(gpa);
 
     const tarball_name = "executables.tar.gz";
     try saveEmbedFile(tarball_name, tmp.dir);

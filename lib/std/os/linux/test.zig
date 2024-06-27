@@ -3,13 +3,14 @@ const builtin = @import("builtin");
 const linux = std.os.linux;
 const mem = std.mem;
 const elf = std.elf;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
 const fs = std.fs;
 
 test "fallocate" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const path = "test_fallocate";
     const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
@@ -69,8 +70,8 @@ test "timer" {
 }
 
 test "statx" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "just_a_temporary_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});
@@ -107,8 +108,8 @@ test "user and group ids" {
 }
 
 test "fadvise" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "temp_posix_fadvise.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});

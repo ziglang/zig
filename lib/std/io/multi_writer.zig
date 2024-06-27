@@ -36,8 +36,8 @@ pub fn multiWriter(streams: anytype) MultiWriter(@TypeOf(streams)) {
 const testing = std.testing;
 
 test "MultiWriter" {
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
     var f = try tmp.dir.createFile("t.txt", .{});
 
     var buf1: [255]u8 = undefined;

@@ -1485,8 +1485,8 @@ test "parse: unsupported LCX/LCE-related options" {
 }
 
 test "maybeAppendRC" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(std.testing.allocator, .{});
+    defer tmp.cleanup(std.testing.allocator);
 
     var options = try testParse(&.{"foo"});
     defer options.deinit();

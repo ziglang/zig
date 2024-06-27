@@ -10,8 +10,8 @@ pub fn main() anyerror!void {
     _ = it.next() orelse unreachable; // skip binary name
     const child_exe_path = it.next() orelse unreachable;
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
 
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};

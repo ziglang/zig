@@ -1446,12 +1446,12 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
 
     // Use the same global cache dir for all the tests, such that we for example don't have to
     // rebuild musl libc for every case (when LLVM backend is enabled).
-    var global_tmp = std.testing.tmpDir(.{});
-    defer global_tmp.cleanup();
+    var global_tmp = std.testing.tmpDir(self.gpa, .{});
+    defer global_tmp.cleanup(self.gpa);
 
     var cache_dir = try global_tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
-    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ ".", ".zig-cache", "tmp", &global_tmp.sub_path });
+    const tmp_dir_path = try std.fs.path.join(self.gpa, &[_][]const u8{ global_tmp.parent_path, &global_tmp.sub_path });
     defer self.gpa.free(tmp_dir_path);
 
     const global_cache_directory: Compilation.Directory = .{
@@ -1526,15 +1526,15 @@ fn runOneCase(
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(arena, .{});
+    defer tmp.cleanup(arena);
 
     var cache_dir = try tmp.dir.makeOpenPath(".zig-cache", .{});
     defer cache_dir.close();
 
     const tmp_dir_path = try std.fs.path.join(
         arena,
-        &[_][]const u8{ ".", ".zig-cache", "tmp", &tmp.sub_path },
+        &[_][]const u8{ tmp.parent_path, &tmp.sub_path },
     );
     const local_cache_path = try std.fs.path.join(
         arena,

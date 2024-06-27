@@ -607,8 +607,8 @@ fn testZipWithStore(
     var zip_buf: [4096]u8 = undefined;
     var fbs = try testutil.makeZipWithStore(&zip_buf, test_files, write_opt, store);
 
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+    defer tmp.cleanup(testing.allocator);
     try extract(tmp.dir, fbs.seekableStream(), options);
     try testutil.expectFiles(test_files, tmp.dir, .{});
 }
@@ -616,8 +616,8 @@ fn testZipError(expected_error: anyerror, file: File, options: ExtractOptions) !
     var zip_buf: [4096]u8 = undefined;
     var store: [1]FileStore = undefined;
     var fbs = try testutil.makeZipWithStore(&zip_buf, &[_]File{file}, .{}, &store);
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+    defer tmp.cleanup(testing.allocator);
     try testing.expectError(expected_error, extract(tmp.dir, fbs.seekableStream(), options));
 }
 
@@ -698,8 +698,8 @@ test "zip64" {
 }
 
 test "bad zip files" {
-    var tmp = testing.tmpDir(.{ .no_follow = true });
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{ .no_follow = true });
+    defer tmp.cleanup(testing.allocator);
     var zip_buf: [4096]u8 = undefined;
 
     const file_a = [_]File{.{ .name = "a", .content = "", .compression = .store }};

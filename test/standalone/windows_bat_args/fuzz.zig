@@ -36,8 +36,8 @@ pub fn main() anyerror!void {
         std.debug.print("rand seed: {}\n", .{seed});
     }
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
 
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};

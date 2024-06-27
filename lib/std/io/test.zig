@@ -9,11 +9,12 @@ const fs = std.fs;
 const File = std.fs.File;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
-const tmpDir = std.testing.tmpDir;
+const testing = std.testing;
+const tmpDir = testing.tmpDir;
 
 test "write a file, read it, then delete it" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     var data: [1024]u8 = undefined;
     var prng = DefaultPrng.init(1234);
@@ -58,8 +59,8 @@ test "write a file, read it, then delete it" {
 }
 
 test "BitStreams with File Stream" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "temp_test_file.txt";
     {
@@ -103,8 +104,8 @@ test "BitStreams with File Stream" {
 }
 
 test "File seek ops" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "temp_test_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});
@@ -130,8 +131,8 @@ test "File seek ops" {
 }
 
 test "setEndPos" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "temp_test_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{});
@@ -156,8 +157,8 @@ test "setEndPos" {
 }
 
 test "updateTimes" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const tmp_file_name = "just_a_temporary_file.txt";
     var file = try tmp.dir.createFile(tmp_file_name, .{ .read = true });

@@ -81,11 +81,12 @@ const TestContext = struct {
     transform_fn: *const PathType.TransformFn,
 
     pub fn init(path_type: PathType, path_sep: u8, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
-        const tmp = tmpDir(.{ .iterate = true });
+        var arena = ArenaAllocator.init(allocator);
+        const tmp = tmpDir(arena.allocator(), .{ .iterate = true });
         return .{
             .path_type = path_type,
             .path_sep = path_sep,
-            .arena = ArenaAllocator.init(allocator),
+            .arena = arena,
             .tmp = tmp,
             .dir = tmp.dir,
             .transform_fn = transform_fn,
@@ -93,8 +94,8 @@ const TestContext = struct {
     }
 
     pub fn deinit(self: *TestContext) void {
+        self.tmp.cleanup(self.arena.allocator());
         self.arena.deinit();
-        self.tmp.cleanup();
     }
 
     /// Returns the `relative_path` transformed into the TestContext's `path_type`,
@@ -317,15 +318,15 @@ test "openDir" {
 test "accessAbsolute" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    var tmp = tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
+
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ tmp.parent_path, tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -335,16 +336,17 @@ test "accessAbsolute" {
 test "openDirAbsolute" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.makeDir("subdir");
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    var tmp = tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
+
+    try tmp.dir.makeDir("subdir");
+
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
+        const relative_path = try fs.path.join(allocator, &.{ tmp.parent_path, tmp.sub_path[0..], "subdir" });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -373,8 +375,8 @@ test "openDir non-cwd parent '..'" {
         else => {},
     }
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     var subdir = try tmp.dir.makeOpenPath("subdir", .{});
     defer subdir.close();
@@ -394,20 +396,20 @@ test "openDir non-cwd parent '..'" {
 test "readLinkAbsolute" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp = tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
 
     // Create some targets
     try tmp.dir.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
     try tmp.dir.makeDir("subdir");
 
     // Get base abs path
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ tmp.parent_path, tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -430,18 +432,18 @@ test "readLinkAbsolute" {
 }
 
 test "Dir.Iterator" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
-    defer tmp_dir.cleanup();
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp_dir = tmpDir(allocator, .{ .iterate = true });
+    defer tmp_dir.cleanup(allocator);
 
     // First, create a couple of entries to iterate over.
     const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
     try tmp_dir.dir.makeDir("some_dir");
-
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
 
     var entries = std.ArrayList(Dir.Entry).init(allocator);
 
@@ -460,8 +462,12 @@ test "Dir.Iterator" {
 }
 
 test "Dir.Iterator many entries" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
-    defer tmp_dir.cleanup();
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp_dir = tmpDir(allocator, .{ .iterate = true });
+    defer tmp_dir.cleanup(allocator);
 
     const num = 1024;
     var i: usize = 0;
@@ -471,10 +477,6 @@ test "Dir.Iterator many entries" {
         const file = try tmp_dir.dir.createFile(name, .{});
         file.close();
     }
-
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
 
     var entries = std.ArrayList(Dir.Entry).init(allocator);
 
@@ -495,18 +497,18 @@ test "Dir.Iterator many entries" {
 }
 
 test "Dir.Iterator twice" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
-    defer tmp_dir.cleanup();
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp_dir = tmpDir(allocator, .{ .iterate = true });
+    defer tmp_dir.cleanup(allocator);
 
     // First, create a couple of entries to iterate over.
     const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
     try tmp_dir.dir.makeDir("some_dir");
-
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
@@ -528,18 +530,18 @@ test "Dir.Iterator twice" {
 }
 
 test "Dir.Iterator reset" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
-    defer tmp_dir.cleanup();
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var tmp_dir = tmpDir(allocator, .{ .iterate = true });
+    defer tmp_dir.cleanup(allocator);
 
     // First, create a couple of entries to iterate over.
     const file = try tmp_dir.dir.createFile("some_file", .{});
     file.close();
 
     try tmp_dir.dir.makeDir("some_dir");
-
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -564,8 +566,8 @@ test "Dir.Iterator reset" {
 }
 
 test "Dir.Iterator but dir is deleted during iteration" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     // Create directory and setup an iterator for it
     var subdir = try tmp.dir.makeOpenPath("subdir", .{ .iterate = true });
@@ -656,8 +658,8 @@ test "Dir.realpath smoke test" {
 }
 
 test "readAllAlloc" {
-    var tmp_dir = tmpDir(.{});
-    defer tmp_dir.cleanup();
+    var tmp_dir = tmpDir(testing.allocator, .{});
+    defer tmp_dir.cleanup(testing.allocator);
 
     var file = try tmp_dir.dir.createFile("test_file", .{ .read = true });
     defer file.close();
@@ -781,8 +783,8 @@ test "file operations on directories" {
 }
 
 test "makeOpenPath parent dirs do not exist" {
-    var tmp_dir = tmpDir(.{});
-    defer tmp_dir.cleanup();
+    var tmp_dir = tmpDir(testing.allocator, .{});
+    defer tmp_dir.cleanup(testing.allocator);
 
     var dir = try tmp_dir.dir.makeOpenPath("root_dir/parent_dir/some_dir", .{});
     dir.close();
@@ -959,11 +961,11 @@ test "Dir.rename file <-> dir" {
 }
 
 test "rename" {
-    var tmp_dir1 = tmpDir(.{});
-    defer tmp_dir1.cleanup();
+    var tmp_dir1 = tmpDir(testing.allocator, .{});
+    defer tmp_dir1.cleanup(testing.allocator);
 
-    var tmp_dir2 = tmpDir(.{});
-    defer tmp_dir2.cleanup();
+    var tmp_dir2 = tmpDir(testing.allocator, .{});
+    defer tmp_dir2.cleanup(testing.allocator);
 
     // Renaming files
     const test_file_name = "test_file";
@@ -981,16 +983,16 @@ test "rename" {
 test "renameAbsolute" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var tmp_dir = tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Get base abs path
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    var tmp_dir = tmpDir(allocator, .{});
+    defer tmp_dir.cleanup(allocator);
+
+    // Get base abs path
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp_dir.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ tmp_dir.parent_path, tmp_dir.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1049,8 +1051,8 @@ test "selfExePath" {
 }
 
 test "deleteTree does not follow symlinks" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makePath("b");
     {
@@ -1067,8 +1069,8 @@ test "deleteTree does not follow symlinks" {
 }
 
 test "deleteTree on a symlink" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     // Symlink to a file
     try tmp.dir.writeFile(.{ .sub_path = "file", .data = "" });
@@ -1134,16 +1136,16 @@ test "makePath, put some files in it, deleteTreeMinStackSize" {
 test "makePath in a directory that no longer exists" {
     if (native_os == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
     try tmp.parent_dir.deleteTree(&tmp.sub_path);
 
     try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
 
 test "makePath but sub_path contains pre-existing file" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makeDir("foo");
     try tmp.dir.writeFile(.{ .sub_path = "foo/bar", .data = "" });
@@ -1157,8 +1159,8 @@ fn expectDir(dir: Dir, path: []const u8) !void {
 }
 
 test "makepath existing directories" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makeDir("A");
     var tmpA = try tmp.dir.openDir("A", .{});
@@ -1172,8 +1174,8 @@ test "makepath existing directories" {
 }
 
 test "makepath through existing valid symlink" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makeDir("realfolder");
     try setupSymlink(tmp.dir, "." ++ fs.path.sep_str ++ "realfolder", "working-symlink", .{});
@@ -1184,8 +1186,8 @@ test "makepath through existing valid symlink" {
 }
 
 test "makepath relative walks" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const relPath = try fs.path.join(testing.allocator, &.{
         "first", "..", "second", "..", "third", "..", "first", "A", "..", "B", "..", "C",
@@ -1214,8 +1216,8 @@ test "makepath relative walks" {
 }
 
 test "makepath ignores '.'" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     // Path to create, with "." elements:
     const dotPath = try fs.path.join(testing.allocator, &.{
@@ -1258,8 +1260,8 @@ fn testFilenameLimits(iterable_dir: Dir, maxed_filename: []const u8) !void {
 }
 
 test "max file name component lengths" {
-    var tmp = tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{ .iterate = true });
+    defer tmp.cleanup(testing.allocator);
 
     if (native_os == .windows) {
         // U+FFFF is the character with the largest code point that is encoded as a single
@@ -1279,8 +1281,8 @@ test "max file name component lengths" {
 }
 
 test "writev, readv" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const line1 = "line1\n";
     const line2 = "line2\n";
@@ -1321,8 +1323,8 @@ test "writev, readv" {
 }
 
 test "pwritev, preadv" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const line1 = "line1\n";
     const line2 = "line2\n";
@@ -1378,8 +1380,8 @@ test "access file" {
 }
 
 test "sendfile" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makePath("os_test_tmp");
     defer tmp.dir.deleteTree("os_test_tmp") catch {};
@@ -1443,8 +1445,8 @@ test "sendfile" {
 }
 
 test "copyRangeAll" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     try tmp.dir.makePath("os_test_tmp");
     defer tmp.dir.deleteTree("os_test_tmp") catch {};
@@ -1649,8 +1651,8 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 test "walker" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{ .iterate = true });
+    defer tmp.cleanup(testing.allocator);
 
     // iteration order of walker is undefined, so need lookup maps to check against
 
@@ -1702,8 +1704,8 @@ test "walker" {
 test "walker without fully iterating" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{ .iterate = true });
+    defer tmp.cleanup(testing.allocator);
 
     var walker = try tmp.dir.walk(testing.allocator);
     defer walker.deinit();
@@ -1765,15 +1767,15 @@ test "'.' and '..' in fs.Dir functions" {
 test "'.' and '..' in absolute functions" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    var tmp = tmpDir(allocator, .{});
+    defer tmp.cleanup(allocator);
+
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &.{ tmp.parent_path, tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1810,8 +1812,8 @@ test "chmod" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{ .mode = 0o600 });
     defer file.close();
@@ -1832,8 +1834,8 @@ test "chown" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{});
     defer file.close();
@@ -1847,8 +1849,8 @@ test "chown" {
 }
 
 test "File.Metadata" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{ .read = true });
     defer file.close();
@@ -1865,8 +1867,8 @@ test "File.Permissions" {
     if (native_os == .wasi)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{ .read = true });
     defer file.close();
@@ -1891,8 +1893,8 @@ test "File.PermissionsUnix" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
     defer file.close();
@@ -1926,8 +1928,8 @@ test "delete a read-only file on windows" {
     if (native_os != .windows)
         return error.SkipZigTest;
 
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
+    var tmp = testing.tmpDir(testing.allocator, .{});
+    defer tmp.cleanup(testing.allocator);
 
     const file = try tmp.dir.createFile("test_file", .{ .read = true });
     defer file.close();
@@ -1956,7 +1958,7 @@ test "delete a read-only file on windows" {
 test "delete a setAsCwd directory on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
-    var tmp = tmpDir(.{});
+    var tmp = tmpDir(testing.allocator, .{});
     // Set tmp dir as current working directory.
     try tmp.dir.setAsCwd();
     tmp.dir.close();
@@ -1966,6 +1968,7 @@ test "delete a setAsCwd directory on Windows" {
     try tmp.parent_dir.deleteTree(&tmp.sub_path);
     // Close the parent "tmp" so we don't leak the HANDLE.
     tmp.parent_dir.close();
+    testing.allocator.free(tmp.parent_path);
 }
 
 test "invalid UTF-8/WTF-8 paths" {
