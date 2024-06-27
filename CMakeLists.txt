@@ -513,7 +513,6 @@ set(ZIG_STAGE2_SOURCES
     src/InternPool.zig
     src/Liveness.zig
     src/Liveness/Verify.zig
-    src/Module.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -524,6 +523,7 @@ set(ZIG_STAGE2_SOURCES
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
     src/Value.zig
+    src/Zcu.zig
     src/arch/aarch64/CodeGen.zig
     src/arch/aarch64/Emit.zig
     src/arch/aarch64/Mir.zig

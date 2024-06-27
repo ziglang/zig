@@ -26,8 +26,9 @@ const Liveness = @import("../../Liveness.zig");
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const Package = @import("../../Package.zig");
-const Module = @import("../../Module.zig");
-const Zcu = Module;
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Target = std.Target;
@@ -14529,6 +14530,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                 else => {},
             },
         },
+        .ip => {},
     }
     return self.fail("TODO moveStrategy for {}", .{ty.fmt(mod)});
 }
@@ -14685,6 +14687,7 @@ fn genSetReg(
                 else => unreachable,
             },
             .segment, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(try mod.undefValue(ty)), opts),
+            .ip => unreachable,
         },
         .eflags => |cc| try self.asmSetccRegister(cc, dst_reg.to8()),
         .immediate => |imm| {
@@ -14722,7 +14725,7 @@ fn genSetReg(
                     registerAlias(dst_reg, abi_size),
                     src_reg,
                 ),
-                .x87, .mmx => unreachable,
+                .x87, .mmx, .ip => unreachable,
                 .sse => try self.asmRegisterRegister(
                     switch (abi_size) {
                         1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
@@ -14738,7 +14741,7 @@ fn genSetReg(
                 dst_reg,
                 switch (src_reg.class()) {
                     .general_purpose, .segment => registerAlias(src_reg, abi_size),
-                    .x87, .mmx => unreachable,
+                    .x87, .mmx, .ip => unreachable,
                     .sse => try self.copyToTmpRegister(ty, src_mcv),
                 },
             ),
@@ -14753,7 +14756,7 @@ fn genSetReg(
                     },
                     else => unreachable,
                 },
-                .mmx, .sse => unreachable,
+                .mmx, .sse, .ip => unreachable,
             },
             .mmx => unreachable,
             .sse => switch (src_reg.class()) {
@@ -14772,7 +14775,7 @@ fn genSetReg(
                     .{ .register = try self.copyToTmpRegister(ty, src_mcv) },
                     opts,
                 ),
-                .x87, .mmx => unreachable,
+                .x87, .mmx, .ip => unreachable,
                 .sse => try self.asmRegisterRegister(
                     @as(?Mir.Inst.FixedTag, switch (ty.scalarType(mod).zigTypeTag(mod)) {
                         else => switch (abi_size) {
@@ -14799,6 +14802,7 @@ fn genSetReg(
                     registerAlias(src_reg, abi_size),
                 ),
             },
+            .ip => unreachable,
         },
         .register_pair => |src_regs| try self.genSetReg(dst_reg, ty, .{ .register = src_regs[0] }, opts),
         .register_offset,
@@ -14866,7 +14870,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx => unreachable,
+                    .segment, .mmx, .ip => unreachable,
                     .x87, .sse => {},
                 },
                 .load_direct => |sym_index| switch (dst_reg.class()) {
@@ -14884,7 +14888,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx => unreachable,
+                    .segment, .mmx, .ip => unreachable,
                     .x87, .sse => {},
                 },
                 .load_got, .load_tlv => {},
@@ -15047,7 +15051,7 @@ fn genSetMem(
             };
             const src_alias = registerAlias(src_reg, abi_size);
             const src_size: u32 = @intCast(switch (src_alias.class()) {
-                .general_purpose, .segment, .x87 => @divExact(src_alias.bitSize(), 8),
+                .general_purpose, .segment, .x87, .ip => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
             const src_align = Alignment.fromNonzeroByteUnits(math.ceilPowerOfTwoAssert(u32, src_size));
@@ -19075,6 +19079,14 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             reg.to128()
         else if (size_bytes <= 32)
             reg.to256()
+        else
+            unreachable,
+        .ip => if (size_bytes <= 2)
+            .ip
+        else if (size_bytes <= 4)
+            .eip
+        else if (size_bytes <= 8)
+            .rip
         else
             unreachable,
     };

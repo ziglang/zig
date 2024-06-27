@@ -236,7 +236,6 @@ test "float equality" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const x: f64 = 0.012;
     const y: f64 = x + 1.0;
@@ -440,7 +439,7 @@ test "division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -449,23 +448,25 @@ test "division" {
         return error.SkipZigTest;
     }
 
-    try testDivision();
-    try comptime testDivision();
+    try testIntDivision();
+    try comptime testIntDivision();
+
+    try testFloatDivision();
+    try comptime testFloatDivision();
 }
 
-fn testDivision() !void {
+fn testIntDivision() !void {
     try expect(div(u32, 13, 3) == 4);
-    try expect(div(f32, 1.0, 2.0) == 0.5);
+    try expect(div(u64, 13, 3) == 4);
+    try expect(div(u8, 13, 3) == 4);
 
     try expect(divExact(u32, 55, 11) == 5);
     try expect(divExact(i32, -55, 11) == -5);
-    try expect(divExact(f32, 55.0, 11.0) == 5.0);
-    try expect(divExact(f32, -55.0, 11.0) == -5.0);
+    try expect(divExact(i64, -55, 11) == -5);
+    try expect(divExact(i16, -55, 11) == -5);
 
     try expect(divFloor(i32, 5, 3) == 1);
     try expect(divFloor(i32, -5, 3) == -2);
-    try expect(divFloor(f32, 5.0, 3.0) == 1.0);
-    try expect(divFloor(f32, -5.0, 3.0) == -2.0);
     try expect(divFloor(i32, -0x80000000, -2) == 0x40000000);
     try expect(divFloor(i32, 0, -0x80000000) == 0);
     try expect(divFloor(i32, -0x40000001, 0x40000000) == -2);
@@ -474,18 +475,15 @@ fn testDivision() !void {
     try expect(divFloor(i32, -14, 12) == -2);
     try expect(divFloor(i32, -2, 12) == -1);
 
+    try expect(divFloor(i8, 5, 3) == 1);
+    try expect(divFloor(i16, -5, 3) == -2);
+    try expect(divFloor(i64, -0x80000000, -2) == 0x40000000);
+    try expect(divFloor(i64, -0x40000001, 0x40000000) == -2);
+
     try expect(divTrunc(i32, 5, 3) == 1);
     try expect(divTrunc(i32, -5, 3) == -1);
     try expect(divTrunc(i32, 9, -10) == 0);
     try expect(divTrunc(i32, -9, 10) == 0);
-    try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
-    try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
-    try expect(divTrunc(f32, 9.0, -10.0) == 0.0);
-    try expect(divTrunc(f32, -9.0, 10.0) == 0.0);
-    try expect(divTrunc(f64, 5.0, 3.0) == 1.0);
-    try expect(divTrunc(f64, -5.0, 3.0) == -1.0);
-    try expect(divTrunc(f64, 9.0, -10.0) == 0.0);
-    try expect(divTrunc(f64, -9.0, 10.0) == 0.0);
     try expect(divTrunc(i32, 10, 12) == 0);
     try expect(divTrunc(i32, -14, 12) == -1);
     try expect(divTrunc(i32, -2, 12) == 0);
@@ -496,6 +494,19 @@ fn testDivision() !void {
     try expect(mod(i32, 10, -12) == -2);
     try expect(mod(i32, -14, -12) == -2);
     try expect(mod(i32, -2, -12) == -2);
+
+    try expect(mod(i64, -118, 12) == 2);
+    try expect(mod(u32, 10, 12) == 10);
+    try expect(mod(i64, -14, 12) == 10);
+    try expect(mod(i16, -2, 12) == 10);
+    try expect(mod(i16, -118, 12) == 2);
+    try expect(mod(i8, -2, 12) == 10); // TODO: fails in x86_64
+
+    try expect(rem(i64, -118, 12) == -10);
+    try expect(rem(i32, 10, 12) == 10);
+    try expect(rem(i32, -14, 12) == -2);
+    try expect(rem(i32, -2, 12) == -2);
+    try expect(rem(i16, -118, 12) == -10);
 
     try expect(divTrunc(i20, 20, -5) == -4);
     try expect(divTrunc(i20, -20, -4) == 5);
@@ -522,6 +533,52 @@ fn testDivision() !void {
         try expect(
             4126227191251978491697987544882340798050766755606969681711 % 10 == 1,
         );
+    }
+}
+
+fn testFloatDivision() !void {
+    try expect(div(f32, 1.0, 2.0) == 0.5);
+
+    try expect(divExact(f32, 55.0, 11.0) == 5.0);
+    try expect(divExact(f32, -55.0, 11.0) == -5.0);
+
+    try expect(divFloor(f32, 5.0, 3.0) == 1.0);
+    try expect(divFloor(f32, -5.0, 3.0) == -2.0);
+    try expect(divFloor(f32, 56.0, 9.0) == 6.0);
+    try expect(divFloor(f32, 1053.0, -41.0) == -26.0);
+    try expect(divFloor(f16, -43.0, 12.0) == -4.0);
+    try expect(divFloor(f64, -90.0, -9.0) == 10.0);
+
+    try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f32, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f32, -9.0, 10.0) == 0.0);
+    try expect(divTrunc(f64, 5.0, 3.0) == 1.0);
+    try expect(divTrunc(f64, -5.0, 3.0) == -1.0);
+    try expect(divTrunc(f64, 9.0, -10.0) == 0.0);
+    try expect(divTrunc(f64, -9.0, 10.0) == 0.0);
+}
+
+test "large integer division" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    {
+        var numerator: u256 = 99999999999999999997315645440;
+        var divisor: u256 = 10000000000000000000000000000;
+        _ = .{ &numerator, &divisor };
+        try expect(numerator / divisor == 9);
+    }
+    {
+        var numerator: u256 = 99999999999999999999000000000000000000000;
+        var divisor: u256 = 10000000000000000000000000000000000000000;
+        _ = .{ &numerator, &divisor };
+        try expect(numerator / divisor == 9);
     }
 }
 
@@ -565,6 +622,9 @@ fn divTrunc(comptime T: type, a: T, b: T) T {
 fn mod(comptime T: type, a: T, b: T) T {
     return @mod(a, b);
 }
+fn rem(comptime T: type, a: T, b: T) T {
+    return @rem(a, b);
+}
 
 test "unsigned wrapping" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -593,8 +653,6 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testSignedNegationWrappingEval(minInt(i16));
     try comptime testSignedNegationWrappingEval(minInt(i16));
 }
@@ -605,8 +663,6 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testUnsignedNegationWrappingEval(1);
     try comptime testUnsignedNegationWrappingEval(1);
 }
@@ -667,8 +723,6 @@ test "bit shift a u1" {
 }
 
 test "truncating shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrTrunc(maxInt(u16));
     try comptime testShrTrunc(maxInt(u16));
 }
@@ -1436,8 +1490,6 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShlTrunc(maxInt(u16));
     try comptime testShlTrunc(maxInt(u16));
 }
@@ -1460,8 +1512,6 @@ fn testShlExact(x: u8) !void {
 }
 
 test "exact shift right" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try testShrExact(0b10110100);
     try comptime testShrExact(0b10110100);
 }
@@ -1471,8 +1521,6 @@ fn testShrExact(x: u8) !void {
 }
 
 test "shift left/right on u0 operand" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var x: u0 = 0;
@@ -1821,7 +1869,6 @@ test "absFloat" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testAbsFloat();
     try comptime testAbsFloat();

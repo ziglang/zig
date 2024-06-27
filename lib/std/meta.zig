@@ -757,16 +757,13 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         },
         .Union => |info| {
             if (info.tag_type) |UnionTag| {
-                const tag_a = activeTag(a);
-                const tag_b = activeTag(b);
+                const tag_a: UnionTag = a;
+                const tag_b: UnionTag = b;
                 if (tag_a != tag_b) return false;
 
-                inline for (info.fields) |field_info| {
-                    if (@field(UnionTag, field_info.name) == tag_a) {
-                        return eql(@field(a, field_info.name), @field(b, field_info.name));
-                    }
-                }
-                return false;
+                return switch (a) {
+                    inline else => |val, tag| return eql(val, @field(b, @tagName(tag))),
+                };
             }
 
             @compileError("cannot compare untagged union type " ++ @typeName(T));
@@ -858,6 +855,15 @@ test eql {
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
+
+    const CU = union(enum) {
+        a: void,
+        b: void,
+        c: comptime_int,
+    };
+
+    try testing.expect(eql(CU{ .a = {} }, .a));
+    try testing.expect(!eql(CU{ .a = {} }, .b));
 }
 
 test intToEnum {
@@ -1197,6 +1203,14 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
         .Pointer => |info| info.size != .Slice,
 
+        .Optional => |info| switch (@typeInfo(info.child)) {
+            .Pointer => |ptr| !ptr.is_allowzero and switch (ptr.size) {
+                .Slice, .C => false,
+                .One, .Many => true,
+            },
+            else => false,
+        },
+
         .Array => |info| hasUniqueRepresentation(info.child),
 
         .Struct => |info| {
@@ -1295,8 +1309,15 @@ test hasUniqueRepresentation {
         try testing.expect(!hasUniqueRepresentation(T));
     }
 
+    try testing.expect(hasUniqueRepresentation(*u8));
+    try testing.expect(hasUniqueRepresentation(*const u8));
+    try testing.expect(hasUniqueRepresentation(?*u8));
+    try testing.expect(hasUniqueRepresentation(?*const u8));
+
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
+    try testing.expect(!hasUniqueRepresentation(?[]u8));
+    try testing.expect(!hasUniqueRepresentation(?[]const u8));
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));

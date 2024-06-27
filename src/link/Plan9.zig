@@ -3,7 +3,9 @@
 
 const Plan9 = @This();
 const link = @import("../link.zig");
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
@@ -433,7 +435,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         func_index,
         air,
         liveness,
@@ -499,7 +501,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), val, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = new_atom_idx,
@@ -538,7 +540,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
@@ -1020,7 +1022,7 @@ fn addDeclExports(
             {
                 try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     gpa,
-                    mod.declPtr(decl_index).srcLoc(mod),
+                    mod.declPtr(decl_index).navSrcLoc(mod).upgrade(mod),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -1046,8 +1048,6 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.comp.gpa;
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
-    // However that is planned to change, see the TODO comment in Module.zig
-    // in the deleteUnusedDecl function.
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = decl.val.isFuncBody(mod);
@@ -1212,12 +1212,12 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     self.syms.items[self.getAtomPtr(atom_index).sym_index.?] = symbol;
 
     // generate the code
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.srcLocOrNull(mod)) |src|
+        src.upgrade(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
-            .parent_decl_node = undefined,
+            .base_node = undefined,
             .lazy = .unneeded,
         };
     const res = try codegen.generateLazySymbol(

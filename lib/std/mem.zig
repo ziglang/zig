@@ -224,7 +224,7 @@ pub fn zeroes(comptime T: type) T {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
             return @as(T, 0);
         },
-        .Enum, .EnumLiteral => {
+        .Enum => {
             return @as(T, @enumFromInt(0));
         },
         .Void => {
@@ -291,6 +291,7 @@ pub fn zeroes(comptime T: type) T {
             }
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
+        .EnumLiteral,
         .ErrorUnion,
         .ErrorSet,
         .Fn,

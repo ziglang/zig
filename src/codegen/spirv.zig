@@ -5,11 +5,12 @@ const log = std.log.scoped(.codegen);
 const assert = std.debug.assert;
 const Signedness = std.builtin.Signedness;
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
-const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
@@ -211,7 +212,7 @@ pub const Object = struct {
                 false => .{ .unstructured = .{} },
             },
             .current_block_label = undefined,
-            .base_line = decl.src_line,
+            .base_line = decl.navSrcLine(mod),
         };
         defer decl_gen.deinit();
 
@@ -414,7 +415,7 @@ const DeclGen = struct {
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const mod = self.module;
-        const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
+        const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod).upgrade(mod);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -3376,6 +3377,11 @@ const DeclGen = struct {
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
+
+            .work_item_id => try self.airWorkItemId(inst),
+            .work_group_size => try self.airWorkGroupSize(inst),
+            .work_group_id => try self.airWorkGroupId(inst),
+
             // zig fmt: on
 
             else => |tag| return self.todo("implement AIR tag {s}", .{@tagName(tag)}),
@@ -6339,7 +6345,7 @@ const DeclGen = struct {
         const decl = mod.funcOwnerDeclPtr(extra.data.func);
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
-        self.base_line = decl.src_line;
+        self.base_line = decl.navSrcLine(mod);
         return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 
@@ -6433,7 +6439,7 @@ const DeclGen = struct {
                 // TODO: Translate proper error locations.
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
-                const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
+                const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod).upgrade(mod);
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 
@@ -6531,6 +6537,56 @@ const DeclGen = struct {
         }
 
         return result_id;
+    }
+
+    fn builtin3D(self: *DeclGen, result_ty: Type, builtin: spec.BuiltIn, dimension: u32, out_of_range_value: anytype) !IdRef {
+        const mod = self.module;
+        if (dimension >= 3) {
+            return try self.constInt(result_ty, out_of_range_value, .direct);
+        }
+        const vec_ty = try mod.vectorType(.{
+            .len = 3,
+            .child = result_ty.toIntern(),
+        });
+        const ptr_ty_id = try self.ptrType(vec_ty, .Input);
+        const spv_decl_index = try self.spv.builtin(ptr_ty_id, builtin);
+        try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
+        const ptr = self.spv.declPtr(spv_decl_index).result_id;
+        const vec = try self.load(vec_ty, ptr, .{});
+        return try self.extractVectorComponent(result_ty, vec, dimension);
+    }
+
+    fn airWorkItemId(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+        const dimension = pl_op.payload;
+        // TODO: Should we make these builtins return usize?
+        const result_id = try self.builtin3D(Type.u64, .LocalInvocationId, dimension, 0);
+        const tmp = Temporary.init(Type.u64, result_id);
+        const result = try self.buildIntConvert(Type.u32, tmp);
+        return try result.materialize(self);
+    }
+
+    fn airWorkGroupSize(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+        const dimension = pl_op.payload;
+        // TODO: Should we make these builtins return usize?
+        const result_id = try self.builtin3D(Type.u64, .WorkgroupSize, dimension, 0);
+        const tmp = Temporary.init(Type.u64, result_id);
+        const result = try self.buildIntConvert(Type.u32, tmp);
+        return try result.materialize(self);
+    }
+
+    fn airWorkGroupId(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+        const dimension = pl_op.payload;
+        // TODO: Should we make these builtins return usize?
+        const result_id = try self.builtin3D(Type.u64, .WorkgroupId, dimension, 0);
+        const tmp = Temporary.init(Type.u64, result_id);
+        const result = try self.buildIntConvert(Type.u32, tmp);
+        return try result.materialize(self);
     }
 
     fn typeOf(self: *DeclGen, inst: Air.Inst.Ref) Type {

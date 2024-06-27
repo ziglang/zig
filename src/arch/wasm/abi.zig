@@ -9,7 +9,9 @@ const Target = std.Target;
 const assert = std.debug.assert;
 
 const Type = @import("../../type.zig").Type;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 
 /// Defines how to pass a type as part of a function signature,
 /// both for parameters as well as return values.

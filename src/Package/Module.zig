@@ -1,6 +1,4 @@
 //! Corresponds to something that Zig source code can `@import`.
-//! Not to be confused with src/Module.zig which will be renamed
-//! to Zcu. https://github.com/ziglang/zig/issues/14307
 
 /// Only files inside this directory can be imported.
 root: Cache.Path,
@@ -518,4 +516,4 @@ const Cache = std.Build.Cache;
 const Builtin = @import("../Builtin.zig");
 const assert = std.debug.assert;
 const Compilation = @import("../Compilation.zig");
-const File = @import("../Module.zig").File;
+const File = @import("../Zcu.zig").File;

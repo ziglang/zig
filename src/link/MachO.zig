@@ -192,7 +192,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse comp.config.any_sanitize_thread;
 
     const self = try arena.create(MachO);
     self.* = .{
@@ -410,6 +410,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     }
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    // TSAN
+    if (comp.config.any_sanitize_thread) {
+        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+    }
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
@@ -823,6 +828,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (comp.config.any_sanitize_thread) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -4861,7 +4870,9 @@ const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const RebaseSection = synthetic.RebaseSection;
 pub const Relocation = @import("MachO/Relocation.zig");

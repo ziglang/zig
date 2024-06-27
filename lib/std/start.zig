@@ -255,14 +255,6 @@ fn _start() callconv(.Naked) noreturn {
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
     }
-    switch (native_arch) {
-        // https://github.com/ziglang/zig/issues/16799
-        .riscv64 => @export(argc_argv_ptr, .{
-            .name = "__zig_argc_argv_ptr",
-            .visibility = .hidden,
-        }),
-        else => {},
-    }
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
@@ -293,8 +285,7 @@ fn _start() callconv(.Naked) noreturn {
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
-            \\ lui a0, %hi(__zig_argc_argv_ptr)
-            \\ sd sp, %lo(__zig_argc_argv_ptr)(a0)
+            \\ sd sp, %[argc_argv_ptr]
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,

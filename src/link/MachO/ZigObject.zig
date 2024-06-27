@@ -682,7 +682,7 @@ pub fn updateFunc(
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
     const res = try codegen.generateFunction(
         &macho_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         func_index,
         air,
         liveness,
@@ -756,7 +756,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
-    const res = try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), decl_val, &code_buffer, dio, .{
+    const res = try codegen.generateSymbol(&macho_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
     });
 
@@ -1104,7 +1104,7 @@ pub fn lowerUnnamedConst(
         val,
         val.typeOf(mod).abiAlignment(mod),
         macho_file.zig_const_sect_index.?,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
@@ -1294,12 +1294,12 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (lazy_sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (lazy_sym.ty.srcLocOrNull(mod)) |src|
+        src.upgrade(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
-            .parent_decl_node = undefined,
+            .base_node = undefined,
             .lazy = .unneeded,
         };
     const res = try codegen.generateLazySymbol(
@@ -1587,7 +1587,9 @@ const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");

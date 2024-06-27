@@ -28,7 +28,7 @@ const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 /// Deprecated; use `Zcu`.
 const Module = Zcu;
 const InternPool = @import("InternPool.zig");
@@ -2639,7 +2639,7 @@ fn reportMultiModuleErrors(mod: *Module) !void {
                     .root => |pkg| blk: {
                         break :blk try Module.ErrorMsg.init(
                             mod.gpa,
-                            .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                            .{ .file_scope = file, .base_node = 0, .lazy = .entire_file },
                             "root of module {s}",
                             .{pkg.fully_qualified_name},
                         );
@@ -2651,7 +2651,7 @@ fn reportMultiModuleErrors(mod: *Module) !void {
             if (omitted > 0) {
                 notes[num_notes] = try Module.ErrorMsg.init(
                     mod.gpa,
-                    .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                    .{ .file_scope = file, .base_node = 0, .lazy = .entire_file },
                     "{} more references omitted",
                     .{omitted},
                 );
@@ -2660,7 +2660,7 @@ fn reportMultiModuleErrors(mod: *Module) !void {
 
             const err = try Module.ErrorMsg.create(
                 mod.gpa,
-                .{ .file_scope = file, .parent_decl_node = 0, .lazy = .entire_file },
+                .{ .file_scope = file, .base_node = 0, .lazy = .entire_file },
                 "file exists in multiple modules",
                 .{},
             );
@@ -3040,29 +3040,26 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.module) |module| {
-        if (bundle.root_list.items.len == 0 and module.compile_log_decls.count() != 0) {
-            const keys = module.compile_log_decls.keys();
-            const values = module.compile_log_decls.values();
+    if (comp.module) |zcu| {
+        if (bundle.root_list.items.len == 0 and zcu.compile_log_decls.count() != 0) {
+            const values = zcu.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
-            const err_decl = module.declPtr(keys[0]);
-            const src_loc = err_decl.nodeOffsetSrcLoc(values[0], module);
-            const err_msg = Module.ErrorMsg{
+            const src_loc = values[0].src().upgrade(zcu);
+            const err_msg: Module.ErrorMsg = .{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try gpa.alloc(Module.ErrorMsg, module.compile_log_decls.count() - 1),
+                .notes = try gpa.alloc(Module.ErrorMsg, zcu.compile_log_decls.count() - 1),
             };
             defer gpa.free(err_msg.notes);
 
-            for (keys[1..], 0..) |key, i| {
-                const note_decl = module.declPtr(key);
-                err_msg.notes[i] = .{
-                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1], module),
+            for (values[1..], err_msg.notes) |src_info, *note| {
+                note.* = .{
+                    .src_loc = src_info.src().upgrade(zcu),
                     .msg = "also here",
                 };
             }
 
-            try addModuleErrorMsg(module, &bundle, err_msg);
+            try addModuleErrorMsg(zcu, &bundle, err_msg);
         }
     }
 
@@ -3492,12 +3489,12 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(module),
+                    decl.navSrcLoc(module).upgrade(module),
                     "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
                 decl.analysis = .codegen_failure;
-                try module.retryable_failures.append(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+                try module.retryable_failures.append(gpa, InternPool.AnalSubject.wrap(.{ .decl = decl_index }));
             };
         },
         .analyze_mod => |pkg| {
@@ -3993,7 +3990,7 @@ fn workerAstGenFile(
                 if (!res.is_pkg) {
                     res.file.addReference(mod.*, .{ .import = .{
                         .file_scope = file,
-                        .parent_decl_node = 0,
+                        .base_node = 0,
                         .lazy = .{ .token_abs = item.data.token },
                     } }) catch continue;
                 }
@@ -4370,7 +4367,7 @@ fn reportRetryableAstGenError(
     const src_loc: Module.SrcLoc = switch (src) {
         .root => .{
             .file_scope = file,
-            .parent_decl_node = 0,
+            .base_node = 0,
             .lazy = .entire_file,
         },
         .import => |info| blk: {
@@ -4378,7 +4375,7 @@ fn reportRetryableAstGenError(
 
             break :blk .{
                 .file_scope = importing_file,
-                .parent_decl_node = 0,
+                .base_node = 0,
                 .lazy = .{ .token_abs = info.import_tok },
             };
         },

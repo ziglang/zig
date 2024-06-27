@@ -119,6 +119,7 @@ pub const ResolveError = error{
     ZigLacksTargetSupport,
     EmittingBinaryRequiresLlvmLibrary,
     LldIncompatibleObjectFormat,
+    LldCannotIncrementallyLink,
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     LibCppRequiresLibUnwind,
@@ -255,6 +256,11 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (options.lto == true) {
             if (options.use_lld == false) return error.LtoRequiresLld;
             break :b true;
+        }
+
+        if (options.use_llvm == false) {
+            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
+            break :b false;
         }
 
         if (options.use_lld) |x| break :b x;

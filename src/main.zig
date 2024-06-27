@@ -26,7 +26,9 @@ const wasi_libc = @import("wasi_libc.zig");
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
@@ -2252,19 +2254,19 @@ fn buildOutputType(
                     entry = .disabled;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_initial_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse initial memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--max-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_max_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_max_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse max memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--shared-memory")) {
                     create_module.opts.shared_memory = true;
                 } else if (mem.eql(u8, arg, "--global-base")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_global_base = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_global_base = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse global base '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--export")) {
@@ -3949,6 +3951,7 @@ fn createModule(
             error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
             error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
             error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
@@ -5965,6 +5968,7 @@ fn cmdAstCheck(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6283,6 +6287,7 @@ fn cmdDumpZir(
         .zir = try Module.loadZirCache(gpa, f),
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
     defer file.zir.deinit(gpa);
 
@@ -6353,6 +6358,7 @@ fn cmdChangelist(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
 
     file.mod = try Package.Module.createLimited(arena, .{

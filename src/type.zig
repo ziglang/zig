@@ -3,13 +3,15 @@ const builtin = @import("builtin");
 const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
-const Module = @import("Module.zig");
-const Zcu = Module;
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
+const Zir = std.zig.Zir;
 
 /// Both types and values are canonically represented by a single 32-bit integer
 /// which is an index into an `InternPool` data structure.
@@ -3317,15 +3319,6 @@ pub const Type = struct {
         }
     }
 
-    pub fn declSrcLoc(ty: Type, mod: *Module) Module.SrcLoc {
-        return declSrcLocOrNull(ty, mod).?;
-    }
-
-    pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        const decl = ty.getOwnerDeclOrNull(mod) orelse return null;
-        return mod.declPtr(decl).srcLoc(mod);
-    }
-
     pub fn getOwnerDecl(ty: Type, mod: *Module) InternPool.DeclIndex {
         return ty.getOwnerDeclOrNull(mod) orelse unreachable;
     }
@@ -3339,6 +3332,26 @@ pub const Type = struct {
             .enum_type => ip.loadEnumType(ty.toIntern()).decl,
             else => null,
         };
+    }
+
+    pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Module.LazySrcLoc {
+        const ip = &zcu.intern_pool;
+        return .{
+            .base_node_inst = switch (ip.indexToKey(ty.toIntern())) {
+                .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
+                    .declared => |d| d.zir_index,
+                    .reified => |r| r.zir_index,
+                    .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
+                    .empty_struct => return null,
+                },
+                else => return null,
+            },
+            .offset = Module.LazySrcLoc.Offset.nodeOffset(0),
+        };
+    }
+
+    pub fn srcLoc(ty: Type, zcu: *Zcu) Module.LazySrcLoc {
+        return ty.srcLocOrNull(zcu).?;
     }
 
     pub fn isGenericPoison(ty: Type) bool {
@@ -3425,6 +3438,33 @@ pub const Type = struct {
             .enum_type => ip.loadEnumType(ty.toIntern()).zir_index.unwrap(),
             .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
             else => null,
+        };
+    }
+
+    pub fn typeDeclSrcLine(ty: Type, zcu: *const Zcu) ?u32 {
+        const ip = &zcu.intern_pool;
+        const tracked = switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
+                .declared => |d| d.zir_index,
+                .reified => |r| r.zir_index,
+                .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
+                .empty_struct => return null,
+            },
+            else => return null,
+        };
+        const info = tracked.resolveFull(&zcu.intern_pool);
+        const file = zcu.import_table.values()[zcu.path_digest_map.getIndex(info.path_digest).?];
+        assert(file.zir_loaded);
+        const zir = file.zir;
+        const inst = zir.instructions.get(@intFromEnum(info.inst));
+        assert(inst.tag == .extended);
+        return switch (inst.data.extended.opcode) {
+            .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_line,
+            .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
+            .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
+            .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
+            .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            else => unreachable,
         };
     }
 

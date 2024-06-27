@@ -7,7 +7,9 @@ const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const ErrorMsg = Module.ErrorMsg;
 const assert = std.debug.assert;
 const Instruction = bits.Instruction;

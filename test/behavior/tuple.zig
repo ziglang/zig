@@ -10,7 +10,6 @@ test "tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -56,7 +55,6 @@ test "more tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const T = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
@@ -326,8 +324,6 @@ test "tuple type with void field" {
 }
 
 test "zero sized struct in tuple handled correctly" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const State = struct {
         const Self = @This();
         data: @Type(.{
@@ -369,7 +365,6 @@ test "branching inside tuple literal" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(a: anytype) !void {
@@ -474,7 +469,6 @@ test "coerce anon tuple to tuple" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u8 = 1;
     var y: u16 = 2;
@@ -579,8 +573,6 @@ test "comptime fields in tuple can be initialized" {
 }
 
 test "tuple default values" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const T = struct {
         usize,
         usize = 123,

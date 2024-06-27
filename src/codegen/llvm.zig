@@ -14,15 +14,15 @@ else
 const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const Module = @import("../Module.zig");
-const Zcu = Module;
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
-const LazySrcLoc = std.zig.LazySrcLoc;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -1697,7 +1697,7 @@ pub const Object = struct {
         const file, const subprogram = if (!wip.strip) debug_info: {
             const file = try o.getDebugFile(namespace.file_scope);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
             const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
@@ -1732,6 +1732,7 @@ pub const Object = struct {
             .liveness = liveness,
             .dg = &dg,
             .wip = wip,
+            .is_naked = fn_info.cc == .Naked,
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
@@ -1740,7 +1741,7 @@ pub const Object = struct {
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
-            .base_line = dg.decl.src_line,
+            .base_line = dg.decl.navSrcLine(zcu),
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
@@ -2066,7 +2067,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.typeSrcLine(mod) + 1, // Line
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(mod) * 8,
                     (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
@@ -2236,7 +2237,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.typeSrcLine(mod) + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -2866,7 +2867,7 @@ pub const Object = struct {
             try o.builder.metadataString(decl.name.toSlice(&mod.intern_pool)), // TODO use fully qualified name
             try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope),
             try o.namespaceToDebugScope(decl.src_namespace),
-            decl.src_line + 1,
+            decl.typeSrcLine(mod) + 1,
             .none,
             0,
             0,
@@ -4728,7 +4729,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = dg.decl.srcLoc(mod);
+        const src_loc = dg.decl.navSrcLoc(mod).upgrade(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -4761,7 +4762,7 @@ pub const DeclGen = struct {
                 else => try o.lowerValue(init_val),
             }, &o.builder);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             const is_internal_linkage = !o.module.decl_exports.contains(decl_index);
 
             const namespace = zcu.namespacePtr(decl.src_namespace);
@@ -4801,6 +4802,7 @@ pub const FuncGen = struct {
     air: Air,
     liveness: Liveness,
     wip: Builder.WipFunction,
+    is_naked: bool,
 
     file: Builder.Metadata,
     scope: Builder.Metadata,
@@ -5186,7 +5188,7 @@ pub const FuncGen = struct {
 
             self.file = try o.getDebugFile(namespace.file_scope);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             self.inlined = self.wip.debug_location;
 
             const fqn = try decl.fullyQualifiedName(zcu);
@@ -5215,7 +5217,7 @@ pub const FuncGen = struct {
                 o.debug_compile_unit,
             );
 
-            self.base_line = decl.src_line;
+            self.base_line = decl.navSrcLine(zcu);
             const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
             self.wip.debug_location = .{
                 .location = .{
@@ -8846,7 +8848,8 @@ pub const FuncGen = struct {
         const arg_val = self.args[self.arg_index];
         self.arg_index += 1;
 
-        if (self.wip.strip) return arg_val;
+        // llvm does not support debug info for naked function arguments
+        if (self.wip.strip or self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
         if (needDbgVarWorkaround(o)) return arg_val;
@@ -8854,7 +8857,7 @@ pub const FuncGen = struct {
         const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
         const func_index = self.dg.decl.getOwnedFunctionIndex();
         const func = mod.funcInfo(func_index);
-        const lbrace_line = mod.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
+        const lbrace_line = mod.declPtr(func.owner_decl).navSrcLine(mod) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
@@ -11148,7 +11151,6 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             }
                             return o.builder.structType(.normal, types[0..types_len]);
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11406,7 +11408,6 @@ const ParamTypeIterator = struct {
                             it.llvm_index += it.types_len - 1;
                             return .multiple_llvm_types;
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
