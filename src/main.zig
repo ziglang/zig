@@ -4653,7 +4653,9 @@ const usage_build =
     \\  --build-runner [file]         Override path to build runner
     \\  --prominent-compile-errors    Buffer compile errors and display at end
     \\  --seed [integer]              For shuffling dependency traversal order (default: random)
-    \\  --fetch                       Exit after fetching dependency tree
+    \\  --fetch[=mode]                Fetch dependency tree (optionally choose laziness) and exit
+    \\    lazy                        (Default) Lazy dependencies are fetched on need
+    \\    all                         Lazy dependencies are always fetched
     \\  -h, --help                    Print this help and exit
     \\
 ;
@@ -4679,6 +4681,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
     var fetch_only = false;
+    var fetch_mode: Package.Fetch.JobQueue.Mode = .lazy;
     var system_pkg_dir_path: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
@@ -4756,6 +4759,13 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     reference_trace = 256;
                 } else if (mem.eql(u8, arg, "--fetch")) {
                     fetch_only = true;
+                } else if (mem.startsWith(u8, arg, "--fetch=")) {
+                    fetch_only = true;
+                    const sub_arg = arg["--fetch=".len..];
+                    fetch_mode = std.meta.stringToEnum(Package.Fetch.JobQueue.Mode, sub_arg) orelse
+                        fatal("expected [lazy|all] after '--fetch=', found '{s}'", .{
+                        sub_arg,
+                    });
                 } else if (mem.eql(u8, arg, "--system")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -4998,6 +5008,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .debug_hash = false,
                     .work_around_btrfs_bug = work_around_btrfs_bug,
                     .unlazy_set = unlazy_set,
+                    .mode = fetch_mode,
                 };
                 defer job_queue.deinit();
 
@@ -6907,6 +6918,7 @@ fn cmdFetch(
         .read_only = false,
         .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
+        .mode = .all,
     };
     defer job_queue.deinit();
 
