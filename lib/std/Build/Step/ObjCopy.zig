@@ -161,7 +161,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node);
+    _ = try step.evalZigProcess(null, argv.items, prog_node);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const Build = std.Build;
 const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
@@ -184,6 +185,7 @@ stack_size: ?u64 = null,
 want_lto: ?bool = null,
 use_llvm: ?bool,
 use_lld: ?bool,
+omit_soname: ?bool,
 
 /// This is an advanced setting that can change the intent of this Compile step.
 /// If this value is non-null, it means that this Compile step exists to
@@ -213,6 +215,9 @@ is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
 
+/// Use `setCwd` to set the initial current working directory
+cwd: ?Build.LazyPath = null,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -241,6 +246,7 @@ pub const Options = struct {
     test_runner: ?LazyPath = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+    omit_soname: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
     /// Embed a `.manifest` file in the compilation if the object format supports it.
     /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
@@ -398,6 +404,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .omit_soname = options.omit_soname,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -906,8 +913,16 @@ pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
 
+pub fn addLibraryPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addLibraryPathSpecial(bytes);
+}
+
 pub fn addRPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addRPath(directory_path);
+}
+
+pub fn addRPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addRPathSpecial(bytes);
 }
 
 pub fn addSystemFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
@@ -1013,6 +1028,10 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+
+    if (compile.omit_soname orelse false) {
+        try zig_args.append("-fno-soname");
+    }
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
@@ -1724,7 +1743,8 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+    const cwd: ?[]const u8 = if (compile.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
+    const maybe_output_bin_path = step.evalZigProcess(cwd, zig_args.items, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);
@@ -1966,4 +1986,9 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
+}
+
+pub fn setCwd(self: *Compile, cwd: Build.LazyPath) void {
+    cwd.addStepDependencies(&self.step);
+    self.cwd = cwd;
 }

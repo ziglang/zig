@@ -1584,10 +1584,17 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
 
             if (obj.loption) {
-                assert(obj.path[0] == ':');
                 try argv.append("-l");
+                if (obj.path[0] == ':') {
+                    try argv.append(obj.path);
+                } else {
+                    const stem = fs.path.stem(obj.path);
+                    assert(mem.startsWith(u8, stem, "lib"));
+                    try argv.append(stem[3..]);
+                }
+            } else {
+                try argv.append(obj.path);
             }
-            try argv.append(obj.path);
         }
         if (whole_archive) {
             try argv.append("-no-whole-archive");
@@ -2591,10 +2598,17 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) !void
             }
 
             if (obj.loption) {
-                assert(obj.path[0] == ':');
                 try argv.append("-l");
+                if (obj.path[0] == ':') {
+                    try argv.append(obj.path);
+                } else {
+                    const stem = fs.path.stem(obj.path);
+                    assert(mem.startsWith(u8, stem, "lib"));
+                    try argv.append(stem[3..]);
+                }
+            } else {
+                try argv.append(obj.path);
             }
-            try argv.append(obj.path);
         }
         if (whole_archive) {
             try argv.append("-no-whole-archive");
