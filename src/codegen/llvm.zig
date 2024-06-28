@@ -2517,8 +2517,6 @@ pub const Object = struct {
                     if (decl.kind != .named) continue;
                     if (decl.analysis != .complete) continue;
 
-                    const decl_line = 0;
-
                     if (decl.val.typeOf(o.module).ip_index == .type_type) {
                         const nested_type = decl.val.toType();
                         // If this decl is the owner of the type, it will
@@ -2540,18 +2538,52 @@ pub const Object = struct {
                             try o.builder.metadataString(decl_name),
                             try o.getDebugFile(namespace.file_scope),
                             fwd_ref,
-                            decl_line,
+                            0, // Line
                             try o.lowerDebugType(nested_type, false),
                             0, // Align
                         ));
                     } else if (decl.val.getVariable(mod)) |v| {
-                        fields.appendAssumeCapacity(try o.builder.debugStaticMemberType(
-                            try o.builder.metadataString(decl_name),
-                            try o.getDebugFile(namespace.file_scope),
+                        // Imitate a C++ static member variable since neither
+                        // GDB or LLDB can really cope with regular variables
+                        // directly inside a struct type.
+
+                        const vglobal = (o.decl_map.get(decl_id) orelse continue).ptr(&o.builder);
+
+                        const linkage_name = try o.builder.metadataStringFromStrtabString(vglobal.kind.variable.name(&o.builder));
+                        const var_name = try o.builder.metadataString(decl.name.toSlice(ip));
+                        const var_type = try o.lowerDebugType(Type.fromInterned(v.ty), false);
+                        const debug_file = try o.getDebugFile(namespace.file_scope);
+                        const debug_line = decl.navSrcLine(mod) + 1;
+
+                        const static_member = try o.builder.debugStaticMemberType(
+                            var_name,
+                            debug_file,
                             fwd_ref,
-                            decl_line,
-                            try o.lowerDebugType(Type.fromInterned(v.ty), false),
-                        ));
+                            debug_line,
+                            var_type,
+                        );
+                        fields.appendAssumeCapacity(static_member);
+
+                        const debug_global_var = try o.builder.debugGlobalVar(
+                            var_name,
+                            linkage_name,
+                            debug_file,
+                            debug_file,
+                            debug_line,
+                            var_type,
+                            vglobal.kind.variable,
+                            static_member,
+                            .internal,
+                        );
+
+                        const debug_expression = try o.builder.debugExpression(&.{});
+
+                        const resolved_var = try o.builder.debugGlobalVarExpression(
+                            debug_global_var,
+                            debug_expression,
+                        );
+                        vglobal.dbg = resolved_var;
+                        try o.debug_globals.append(o.gpa, resolved_var);
                     }
                 }
             }
@@ -4799,59 +4831,34 @@ pub const DeclGen = struct {
             if (owner_mod.strip) return;
 
             const debug_file = try o.getDebugFile(namespace.file_scope);
-            const debug_scope = try o.namespaceToDebugScope(decl.src_namespace);
 
             const linkage_name = try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder));
 
-            const debug_global_var = if (is_internal_linkage) blk: {
-                // Imitate a C++ static member variable since neither
-                // GDB or LLDB can really cope with regular variables
-                // directly inside a struct type.
-                const ty = try o.lowerDebugType(decl.typeOf(zcu), true);
-                const name = try o.builder.metadataString(decl.name.toSlice(ip));
-
-                const variable = try o.builder.debugGlobalVar(
-                    name,
+            if (is_internal_linkage) {
+                // Make it a static member variable, which is resolved later in genNamespaces.
+                _ = try o.namespaceToDebugScope(decl.src_namespace);
+            } else {
+                const debug_global_var = try o.builder.debugGlobalVar(
+                    linkage_name,
                     linkage_name,
                     debug_file,
                     debug_file,
                     line_number,
-                    ty,
+                    try o.lowerDebugType(decl.typeOf(zcu), true),
                     variable_index,
                     .none,
-                    .internal,
+                    .external,
                 );
 
-                try o.debug_imports.append(o.gpa, try o.builder.debugImportDeclaration(
-                    name,
-                    debug_file,
-                    debug_scope,
-                    line_number,
-                    variable,
-                ));
+                const debug_expression = try o.builder.debugExpression(&.{});
 
-                break :blk variable;
-            } else try o.builder.debugGlobalVar(
-                linkage_name,
-                linkage_name,
-                debug_file,
-                debug_file,
-                line_number,
-                try o.lowerDebugType(decl.typeOf(zcu), true),
-                variable_index,
-                .none,
-                .external,
-            );
-
-            const debug_expression = try o.builder.debugExpression(&.{});
-
-            const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
-                debug_global_var,
-                debug_expression,
-            );
-
-            variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
-            try o.debug_globals.append(o.gpa, debug_global_var_expression);
+                const debug_global_var_expression =  try o.builder.debugGlobalVarExpression(
+                    debug_global_var,
+                    debug_expression,
+                );
+                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+                try o.debug_globals.append(o.gpa, debug_global_var_expression);
+            }
         }
     }
 };
