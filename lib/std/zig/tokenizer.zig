@@ -1270,7 +1270,7 @@ pub const Tokenizer = struct {
 
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
-        if (std.ascii.isASCII(c0)) {
+        if (std.ascii.isAscii(c0)) {
             if (c0 == '\r') {
                 if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
                     // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise

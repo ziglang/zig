@@ -1363,7 +1363,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
     if (hostname.len >= 254) return false;
     if (!std.unicode.utf8ValidateSlice(hostname)) return false;
     for (hostname) |byte| {
-        if (!std.ascii.isASCII(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
+        if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
             continue;
         }
         return false;
