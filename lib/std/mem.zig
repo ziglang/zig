@@ -3933,6 +3933,60 @@ test toBytes {
     }
 }
 
+/// Returns the packed byte size of `T`
+pub fn packedSizeOf(comptime T: type) usize {
+    return std.math.divCeil(usize, @bitSizeOf(T), std.mem.byte_size_in_bits) catch unreachable;
+}
+
+test "packedSizeOf" {
+    try std.testing.expectEqual(0, packedSizeOf(u0));
+    try std.testing.expectEqual(1, packedSizeOf(u1));
+    try std.testing.expectEqual(3, packedSizeOf(u24));
+    try std.testing.expectEqual(3, packedSizeOf(u20));
+}
+
+fn AsPackedBytesReturnType(comptime P: type) type {
+    const size = packedSizeOf(std.meta.Child(P));
+    return CopyPtrAttrs(P, .One, [size]u8);
+}
+
+/// Given a pointer to a single item, returns a slice of the underlying bytes, preserving pointer attributes.
+pub fn asPackedBytes(ptr: anytype) AsPackedBytesReturnType(@TypeOf(ptr)) {
+    const size = comptime packedSizeOf(std.meta.Child(@TypeOf(ptr)));
+    return std.mem.asBytes(ptr)[0..size];
+}
+
+test "asPackedBytes preserves pointer attributes" {
+    const inArr: u32 align(16) = 0xDEADBEEF;
+    const inPtr = @as(*align(16) const volatile u32, @ptrCast(&inArr));
+    const outSlice = asPackedBytes(inPtr);
+
+    const in = @typeInfo(@TypeOf(inPtr)).Pointer;
+    const out = @typeInfo(@TypeOf(outSlice)).Pointer;
+
+    try testing.expectEqual(in.is_const, out.is_const);
+    try testing.expectEqual(in.is_volatile, out.is_volatile);
+    try testing.expectEqual(in.is_allowzero, out.is_allowzero);
+    try testing.expectEqual(in.alignment, out.alignment);
+}
+
+/// Given any value, returns a copy of its bytes in an array tightly packed.
+pub fn toPackedBytes(value: anytype) [packedSizeOf(@TypeOf(value))]u8 {
+    return asPackedBytes(&value).*;
+}
+
+test "toPackedBytes" {
+    const Ascii = packed struct {
+        c1: u7 = 'h',
+        c2: u7 = 'e',
+        c3: u7 = 'l',
+        c4: u7 = 'l',
+        c5: u7 = 'o',
+    };
+    try std.testing.expect(packedSizeOf(Ascii) != @sizeOf(Ascii));
+    try std.testing.expectEqualSlices(u8, &std.mem.toPackedBytes(Ascii{}), std.mem.toBytes(Ascii{})[0..5]);
+}
+
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     return CopyPtrAttrs(B, .One, T);
 }
