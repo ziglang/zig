@@ -1870,3 +1870,5 @@ pub const MFD = struct {
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
 pub extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*off_t, fd_out: fd_t, off_out: ?*off_t, len: usize, flags: u32) usize;
+pub extern "c" fn eventfd(initval: c_uint, flags: c_uint) c_int;
+pub extern "c" fn dup3(old: c_int, new: c_int, flags: c_uint) c_int;
