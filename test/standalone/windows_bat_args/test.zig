@@ -16,22 +16,38 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 128);
+    var buf = try std.ArrayList(u8).initCapacity(allocator, 512);
     defer buf.deinit();
-    try buf.appendSlice("@echo off\n");
-    try buf.append('"');
+    try buf.appendSlice("@echo off & setlocal EnableExtensions\n");
+    try buf.appendSlice(">&2 set\n");
+    try buf.appendSlice("setlocal EnableDelayedExpansion\n");
+    try buf.appendSlice(">&2 <nul set /p=\"'!CMDCMDLINE!'\" || call && >&2 (echo()\n");
+    try buf.appendSlice("endlocal\n");
+    try buf.appendSlice(">&2 \"");
     try buf.appendSlice(child_exe_path);
     try buf.append('"');
     const preamble_len = buf.items.len;
 
     try buf.appendSlice(" %*");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
+    try buf.appendSlice(" %*");
     try tmp.dir.writeFile(.{ .sub_path = "args1.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
     try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
+    try buf.appendSlice(" %1 %2 %3 %4 %5 %6 %7 %8 %9");
     try tmp.dir.writeFile(.{ .sub_path = "args2.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
 
+    try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
+    try buf.appendSlice("\n\"");
+    try buf.appendSlice(child_exe_path);
+    try buf.append('"');
     try buf.appendSlice(" \"%~1\" \"%~2\" \"%~3\" \"%~4\" \"%~5\" \"%~6\" \"%~7\" \"%~8\" \"%~9\"");
     try tmp.dir.writeFile(.{ .sub_path = "args3.bat", .data = buf.items });
     buf.shrinkRetainingCapacity(preamble_len);
@@ -74,8 +90,9 @@ pub fn main() anyerror!void {
     try testExec(allocator, &.{"&whoami.exe"}, null);
 
     var env = env: {
-        var env = try std.process.getEnvMap(allocator);
+        var env = std.process.EnvMap.init(allocator);
         errdefer env.deinit();
+        try env.put("SYSTEMROOT", "C:\\WINDOWS");
         // No escaping
         try env.put("FOO", "123");
         // Some possible escaping of %FOO% that could be expanded
@@ -117,7 +134,9 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    try std.testing.expectEqualStrings("", result.stderr);
+    const my_log = std.log.scoped(.my_scope);
+    my_log.info("{s}\n", .{result.stderr});
+
     var it = std.mem.splitScalar(u8, result.stdout, '\x00');
     var i: usize = 0;
     while (it.next()) |actual_arg| {
