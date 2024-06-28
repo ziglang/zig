@@ -2660,13 +2660,46 @@ pub const Object = struct {
                                 0, // Align
                             ));
                         } else if (val.getVariable(zcu)) |v| {
-                            fields.appendAssumeCapacity(try o.builder.debugStaticMemberType(
-                                try o.builder.metadataString(nav_name),
-                                try o.getDebugFile(decl_file),
+                            // Imitate a C++ static member variable since neither
+                            // GDB or LLDB can really cope with regular variables
+                            // directly inside a struct type.
+
+                            const vglobal = (o.nav_map.get(nav_index) orelse continue).ptr(&o.builder);
+
+                            const linkage_name = try o.builder.metadataStringFromStrtabString(vglobal.kind.variable.name(&o.builder));
+                            const var_name = try o.builder.metadataString(nav.name.toSlice(ip));
+                            const var_type = try o.lowerDebugType(Type.fromInterned(v.ty), false);
+                            const debug_file = try o.getDebugFile(decl_file);
+
+                            const static_member = try o.builder.debugStaticMemberType(
+                                var_name,
+                                debug_file,
                                 fwd_ref,
                                 decl_line,
-                                try o.lowerDebugType(Type.fromInterned(v.ty), false),
-                            ));
+                                var_type,
+                            );
+                            fields.appendAssumeCapacity(static_member);
+
+                            const debug_global_var = try o.builder.debugGlobalVar(
+                                var_name,
+                                linkage_name,
+                                debug_file,
+                                debug_file,
+                                decl_line,
+                                var_type,
+                                vglobal.kind.variable,
+                                static_member,
+                                .internal,
+                            );
+
+                            const debug_expression = try o.builder.debugExpression(&.{});
+
+                            const resolved_var = try o.builder.debugGlobalVarExpression(
+                                debug_global_var,
+                                debug_expression,
+                            );
+                            vglobal.dbg = resolved_var;
+                            try o.debug_globals.append(o.gpa, resolved_var);
                         }
                     }
                 }
@@ -4966,60 +4999,35 @@ pub const NavGen = struct {
 
             if (!mod.strip) {
                 const debug_file = try o.getDebugFile(file_scope);
-                const debug_scope = if (nav.analysis_owner.unwrap()) |owner|
-                    try o.namespaceToDebugScope(ip.getCau(owner).namespace)
-                else
-                    debug_file;
 
                 const linkage_name = try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder));
 
-                const debug_global_var = if (!is_extern) blk: {
-                    // Imitate a C++ static member variable since neither
-                    // GDB or LLDB can really cope with regular variables
-                    // directly inside a struct type.
-                    const inner = try o.lowerDebugType(ty, true);
-                    const name = try o.builder.metadataString(nav.name.toSlice(ip));
-                    const variable = try o.builder.debugGlobalVar(
-                        name,
+                if (!is_extern) {
+                    // Make it a static member variable, which is resolved later in genNamespaces.
+                    if (nav.analysis_owner.unwrap()) |owner|
+                        _ = try o.namespaceToDebugScope(ip.getCau(owner).namespace);
+                } else {
+                    const debug_global_var = try o.builder.debugGlobalVar(
+                        linkage_name,
                         linkage_name,
                         debug_file,
                         debug_file,
                         line_number,
-                        inner,
+                        try o.lowerDebugType(ty, true),
                         variable_index,
                         .none,
                         .external,
                     );
+                    const debug_expression = try o.builder.debugExpression(&.{});
 
-                    try o.debug_imports.append(o.gpa, try o.builder.debugImportDeclaration(
-                        name,
-                        debug_file,
-                        debug_scope,
-                        line_number,
-                        variable,
-                    ));
+                    const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
+                        debug_global_var,
+                        debug_expression,
+                    );
 
-                    break :blk variable;
-                } else try o.builder.debugGlobalVar(
-                    linkage_name,
-                    linkage_name,
-                    debug_file,
-                    debug_file,
-                    line_number,
-                    try o.lowerDebugType(ty, true),
-                    variable_index,
-                    .none,
-                    .external,
-                );
-                const debug_expression = try o.builder.debugExpression(&.{});
-
-                const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
-                    debug_global_var,
-                    debug_expression,
-                );
-
-                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
-                try o.debug_globals.append(o.gpa, debug_global_var_expression);
+                    variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+                    try o.debug_globals.append(o.gpa, debug_global_var_expression);
+                }
             }
         }
 
