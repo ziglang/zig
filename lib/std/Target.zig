@@ -1548,6 +1548,7 @@ pub const Cpu = struct {
                 .riscv64 => &riscv.cpu.baseline_rv64,
                 .x86 => &x86.cpu.pentium4,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
+                .s390x => &s390x.cpu.arch8,
                 .sparc, .sparcel => &sparc.cpu.v8,
                 .loongarch64 => &loongarch.cpu.loongarch64,
 
