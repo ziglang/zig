@@ -2992,6 +2992,10 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      <p>
+      The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
+      </p>
+      {#code|test_errdefer_capture.zig#}
       {#header_close#}
       {#header_open|Common errdefer Slip-Ups#}
       <p>
