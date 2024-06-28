@@ -26,7 +26,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// only known at runtime, but whose maximum size is known at comptime, without
 /// requiring an `Allocator`.
 /// ```zig
-//  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
+//  var a = BoundedArrayAligned(u8, 16, 2){};
 //  try a.append(255);
 //  try a.append(255);
 //  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
@@ -46,6 +46,7 @@ pub fn BoundedArrayAligned(
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
+        /// Use std.BoundedArray(T, N){} to initialize an empty BoundedArray
         pub fn init(len: usize) error{Overflow}!Self {
             if (len > buffer_capacity) return error.Overflow;
             return Self{ .len = @intCast(len) };
@@ -414,7 +415,7 @@ test "BoundedArray sizeOf" {
 }
 
 test "BoundedArrayAligned" {
-    var a = try BoundedArrayAligned(u8, 16, 4).init(0);
+    var a = BoundedArrayAligned(u8, 16, 4){};
     try a.append(0);
     try a.append(0);
     try a.append(255);
