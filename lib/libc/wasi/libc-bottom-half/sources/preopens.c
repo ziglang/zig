@@ -25,6 +25,7 @@ typedef struct preopen {
 } preopen;
 
 /// A simple growable array of `preopen`.
+static _Atomic _Bool preopens_populated = false;
 static preopen *preopens;
 static size_t num_preopens;
 static size_t preopen_capacity;
@@ -100,12 +101,9 @@ static const char *strip_prefixes(const char *path) {
     return path;
 }
 
-/// Register the given preopened file descriptor under the given path.
-///
-/// This function takes ownership of `prefix`.
-static int internal_register_preopened_fd(__wasi_fd_t fd, const char *relprefix) {
-    LOCK(lock);
-
+/// Similar to `internal_register_preopened_fd_unlocked` but does not
+/// take a lock.
+static int internal_register_preopened_fd_unlocked(__wasi_fd_t fd, const char *relprefix) {
     // Check preconditions.
     assert_invariants();
     assert(fd != AT_FDCWD);
@@ -113,20 +111,30 @@ static int internal_register_preopened_fd(__wasi_fd_t fd, const char *relprefix)
     assert(relprefix != NULL);
 
     if (num_preopens == preopen_capacity && resize() != 0) {
-        UNLOCK(lock);
         return -1;
     }
 
     char *prefix = strdup(strip_prefixes(relprefix));
     if (prefix == NULL) {
-        UNLOCK(lock);
         return -1;
     }
     preopens[num_preopens++] = (preopen) { prefix, fd, };
 
     assert_invariants();
-    UNLOCK(lock);
     return 0;
+}
+
+/// Register the given preopened file descriptor under the given path.
+///
+/// This function takes ownership of `prefix`.
+static int internal_register_preopened_fd(__wasi_fd_t fd, const char *relprefix) {
+    LOCK(lock);
+
+    int r = internal_register_preopened_fd_unlocked(fd, relprefix);
+
+    UNLOCK(lock);
+
+    return r;
 }
 
 /// Are the `prefix_len` bytes pointed to by `prefix` a prefix of `path`?
@@ -152,6 +160,8 @@ static bool prefix_matches(const char *prefix, size_t prefix_len, const char *pa
 
 // See the documentation in libc.h
 int __wasilibc_register_preopened_fd(int fd, const char *prefix) {
+    __wasilibc_populate_preopens();
+
     return internal_register_preopened_fd((__wasi_fd_t)fd, prefix);
 }
 
@@ -172,6 +182,8 @@ int __wasilibc_find_relpath(const char *path,
 int __wasilibc_find_abspath(const char *path,
                             const char **abs_prefix,
                             const char **relative_path) {
+    __wasilibc_populate_preopens();
+
     // Strip leading `/` characters, the prefixes we're mataching won't have
     // them.
     while (*path == '/')
@@ -219,13 +231,21 @@ int __wasilibc_find_abspath(const char *path,
     return fd;
 }
 
-/// This is referenced by weak reference from crt1.c and lives in the same
-/// source file as `__wasilibc_find_relpath` so that it's linked in when it's
-/// needed.
-// Concerning the 51 -- see the comment by the constructor priority in
-// libc-bottom-half/sources/environ.c.
 __attribute__((constructor(51)))
-static void __wasilibc_populate_preopens(void) {
+void __wasilibc_populate_preopens(void) {
+    // Fast path: If the preopens are already initialized, do nothing.
+    if (preopens_populated) {
+        return;
+    }
+
+    LOCK(lock);
+
+    // Check whether another thread initialized the preopens already.
+    if (preopens_populated) {
+        UNLOCK(lock);
+        return;
+    }
+
     // Skip stdin, stdout, and stderr, and count up until we reach an invalid
     // file descriptor.
     for (__wasi_fd_t fd = 3; fd != 0; ++fd) {
@@ -241,7 +261,7 @@ static void __wasilibc_populate_preopens(void) {
             if (prefix == NULL)
                 goto software;
 
-            // TODO: Remove the cast on `path` once the witx is updated with
+            // TODO: Remove the cast on `prefix` once the witx is updated with
             // char8 support.
             ret = __wasi_fd_prestat_dir_name(fd, (uint8_t *)prefix,
                                              prestat.u.dir.pr_name_len);
@@ -249,7 +269,7 @@ static void __wasilibc_populate_preopens(void) {
                 goto oserr;
             prefix[prestat.u.dir.pr_name_len] = '\0';
 
-            if (internal_register_preopened_fd(fd, prefix) != 0)
+            if (internal_register_preopened_fd_unlocked(fd, prefix) != 0)
                 goto software;
             free(prefix);
 
@@ -260,9 +280,34 @@ static void __wasilibc_populate_preopens(void) {
         }
     }
 
+    // Preopens are now initialized.
+    preopens_populated = true;
+
+    UNLOCK(lock);
+
     return;
 oserr:
     _Exit(EX_OSERR);
 software:
     _Exit(EX_SOFTWARE);
+}
+
+void __wasilibc_reset_preopens(void) {
+    LOCK(lock);
+
+    if (num_preopens) {
+        for (int i = 0; i < num_preopens; ++i) {
+            free((void*) preopens[i].prefix);
+        }
+        free(preopens);
+    }
+    
+    preopens_populated = false;
+    preopens = NULL;
+    num_preopens = 0;
+    preopen_capacity = 0;
+    
+    assert_invariants();
+    
+    UNLOCK(lock);
 }
