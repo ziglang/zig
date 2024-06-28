@@ -1026,8 +1026,8 @@ pub const MetadataBlock = struct {
             LineAbbrev, // line
             MetadataAbbrev, // type
             .{ .fixed = 1 }, // local
-            .{ .fixed = 1 }, // defined
-            MetadataAbbrev, // static data members declaration
+            .{ .literal = 1 }, // defined
+            .{ .literal = 0 }, // static data members declaration
             .{ .literal = 0 }, // template params
             .{ .literal = 0 }, // align in bits
             .{ .literal = 0 }, // annotations
@@ -1040,8 +1040,6 @@ pub const MetadataBlock = struct {
         line: u32,
         ty: Builder.Metadata,
         local: bool,
-        defined: bool,
-        declaration: Builder.Metadata,
     };
 
     pub const GlobalVarExpression = struct {
