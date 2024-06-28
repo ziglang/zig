@@ -414,7 +414,7 @@ pub const Iterator = switch (native_os) {
         index: usize,
         end_index: usize,
         first_iter: bool,
-        name_data: [fs.MAX_NAME_BYTES]u8,
+        name_data: [fs.max_name_bytes]u8,
 
         const Self = @This();
 
