@@ -53,6 +53,19 @@ pub const VTable = struct {
     free: *const fn (ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void,
 };
 
+pub fn noAlloc(
+    self: *anyopaque,
+    len: usize,
+    ptr_align: u8,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = len;
+    _ = ptr_align;
+    _ = ret_addr;
+    return null;
+}
+
 pub fn noResize(
     self: *anyopaque,
     buf: []u8,

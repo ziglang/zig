@@ -591,6 +591,17 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+/// An allocator intended as a placeholder for statically allocated data. Always fails on alloc and resize, and does nothing on free.
+pub const static_allocator = Allocator{
+    .ptr = undefined,
+    .vtable = &static_allocator_vtable,
+};
+const static_allocator_vtable = Allocator.VTable{
+    .alloc = Allocator.noAlloc,
+    .resize = Allocator.noResize,
+    .free = Allocator.noFree,
+};
+
 test "c_allocator" {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
@@ -880,6 +891,11 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     slice = try allocator.reallocAdvanced(slice, alloc_size / 2, 0);
     try testing.expect(slice[0] == 0x12);
     try testing.expect(slice[60] == 0x34);
+}
+
+test "static_allocator" {
+    try testing.expectError(error.OutOfMemory, static_allocator.create(i32));
+    try testing.expect(!static_allocator.resize(@constCast("test"), 10));
 }
 
 test {
