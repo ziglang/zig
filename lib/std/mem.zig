@@ -1593,7 +1593,9 @@ test containsAtLeast {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
-    var result: ReturnType = 0;
+    const signedness = @typeInfo(ReturnType).Int.signedness;
+    const WorkType = std.meta.Int(signedness, @max(16, @typeInfo(ReturnType).Int.bits));
+    var result: WorkType = 0;
     switch (endian) {
         .big => {
             for (bytes) |b| {
@@ -1601,13 +1603,33 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
         .little => {
-            const ShiftType = math.Log2Int(ReturnType);
+            const ShiftType = math.Log2Int(WorkType);
             for (bytes, 0..) |b, index| {
-                result = result | (@as(ReturnType, b) << @as(ShiftType, @intCast(index * 8)));
+                result = result | (@as(WorkType, b) << @as(ShiftType, @intCast(index * 8)));
             }
         },
     }
-    return result;
+    return @as(ReturnType, @truncate(result));
+}
+
+test readVarInt {
+    try testing.expect(readVarInt(u0, &[_]u8{}, .big) == 0x0);
+    try testing.expect(readVarInt(u0, &[_]u8{}, .little) == 0x0);
+
+    try testing.expect(readVarInt(u9, &[_]u8{0x32}, .big) == 0x32);
+    try testing.expect(readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
+
+    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
+    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
+
+    try testing.expect(readVarInt(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
+    try testing.expect(readVarInt(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
+
+    try testing.expect(readVarInt(i8, &[_]u8{0xff}, .big) == -1);
+    try testing.expect(readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
+
+    try testing.expect(readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
+    try testing.expect(readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
 }
 
 /// Loads an integer from packed memory with provided bit_count, bit_offset, and signedness.
