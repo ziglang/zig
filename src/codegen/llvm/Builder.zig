@@ -8125,6 +8125,10 @@ pub const Metadata = enum(u32) {
         align_in_bits_lo: u32,
         align_in_bits_hi: u32,
         fields_tuple: Metadata,
+        flags: packed struct(u32) {
+            is_byref: bool,
+            pad: u31 = 0,
+        },
 
         pub fn bitSize(self: CompositeType) u64 {
             return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
@@ -11907,7 +11911,17 @@ fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @intFromEnum(value),
             Metadata.DIFlags => @bitCast(value),
-            else => @compileError("bad field type: " ++ @typeName(field.type)),
+            else => blk: {
+                switch (@typeInfo(field.type)) {
+                    .@"struct" => |s| {
+                        if (s.backing_integer == u32)
+                            break :blk @bitCast(value);
+                        @compileLog(s.layout, s.backing_integer);
+                    },
+                    else => {},
+                }
+                @compileError("bad field type: " ++ @typeName(field.type));
+            },
         });
     }
     return result;
@@ -11946,7 +11960,7 @@ fn metadataExtraDataTrail(
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @enumFromInt(value),
             Metadata.DIFlags => @bitCast(value),
-            else => @compileError("bad field type: " ++ @typeName(field.type)),
+            else => @bitCast(value),
         };
     return .{
         .data = result,
@@ -12113,6 +12127,7 @@ pub fn debugStructType(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
+    is_byref: bool,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugStructTypeAssumeCapacity(
@@ -12124,6 +12139,7 @@ pub fn debugStructType(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        is_byref,
     );
 }
 
@@ -12137,6 +12153,7 @@ pub fn debugUnionType(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
+    is_byref: bool,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugUnionTypeAssumeCapacity(
@@ -12148,6 +12165,7 @@ pub fn debugUnionType(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        is_byref,
     );
 }
 
@@ -12676,6 +12694,7 @@ fn debugStructTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
+    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12688,6 +12707,7 @@ fn debugStructTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        is_byref,
     );
 }
 
@@ -12701,6 +12721,7 @@ fn debugUnionTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
+    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12713,6 +12734,7 @@ fn debugUnionTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        is_byref,
     );
 }
 
@@ -12738,6 +12760,7 @@ fn debugEnumerationTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        false, // is_byref
     );
 }
 
@@ -12763,6 +12786,7 @@ fn debugArrayTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        size_in_bits > 0, // is_byref
     );
 }
 
@@ -12788,6 +12812,7 @@ fn debugVectorTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
+        false,
     );
 }
 
@@ -12802,6 +12827,7 @@ fn debugCompositeTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
+    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(tag, Metadata.CompositeType{
@@ -12815,6 +12841,7 @@ fn debugCompositeTypeAssumeCapacity(
         .align_in_bits_lo = @truncate(align_in_bits),
         .align_in_bits_hi = @truncate(align_in_bits >> 32),
         .fields_tuple = fields_tuple,
+        .flags = .{ .is_byref = is_byref },
     });
 }
 
@@ -14298,7 +14325,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .underlying_type = extra.underlying_type,
                             .size_in_bits = extra.bitSize(),
                             .align_in_bits = extra.bitAlign(),
-                            .flags = if (kind == .composite_vector_type) .{ .Vector = true } else .{},
+                            .flags = .{
+                                .Vector = kind == .composite_vector_type,
+                                .EnumClass = kind == .composite_enumeration_type,
+                                .TypePassbyReference = extra.flags.is_byref,
+                            },
                             .elements = extra.fields_tuple,
                         }, metadata_adapter);
                     },
