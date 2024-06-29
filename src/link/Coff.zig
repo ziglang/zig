@@ -1162,9 +1162,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     try self.updateDeclCode(decl_index, code, .FUNCTION);
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclIndex) !u32 {
@@ -1286,9 +1284,7 @@ pub fn updateDecl(
 
     try self.updateDeclCode(decl_index, code, .NULL);
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 fn updateLazySymbolAtom(
@@ -1509,7 +1505,7 @@ pub fn updateExports(
     self: *Coff,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1522,7 +1518,8 @@ pub fn updateExports(
     if (comp.config.use_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
-        for (exports) |exp| {
+        for (export_indices) |export_idx| {
+            const exp = mod.all_exports.items[export_idx];
             const exported_decl_index = switch (exp.exported) {
                 .decl_index => |i| i,
                 .value => continue,
@@ -1552,7 +1549,7 @@ pub fn updateExports(
         }
     }
 
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
 
     const gpa = comp.gpa;
 
@@ -1562,7 +1559,7 @@ pub fn updateExports(
             break :blk self.decls.getPtr(decl_index).?;
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
-            const first_exp = exports[0];
+            const first_exp = mod.all_exports.items[export_indices[0]];
             const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
             switch (res) {
                 .ok => {},
@@ -1570,7 +1567,7 @@ pub fn updateExports(
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
                     try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1580,12 +1577,13 @@ pub fn updateExports(
     const atom_index = metadata.atom;
     const atom = self.getAtom(atom_index);
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
 
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
                     exp.getSrcLoc(mod),
                     "Unimplemented: ExportOptions.section",
@@ -1596,7 +1594,7 @@ pub fn updateExports(
         }
 
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
                 exp.getSrcLoc(mod),
                 "Unimplemented: GlobalLinkage.link_once",
@@ -1641,13 +1639,16 @@ pub fn updateExports(
     }
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *Coff,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
-    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| self.decls.getPtr(decl_index) orelse return,
+        .value => |value| self.anon_decls.getPtr(value) orelse return,
+    };
     const mod = self.base.comp.module.?;
     const name_slice = name.toSlice(&mod.intern_pool);
     const sym_index = metadata.getExportPtr(self, name_slice) orelse return;

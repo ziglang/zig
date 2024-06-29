@@ -183,6 +183,8 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
+    if (true) @panic("TODO jacobly");
+
     const gpa = self.base.comp.gpa;
 
     const func = zcu.funcInfo(func_index);
@@ -250,6 +252,8 @@ pub fn updateFunc(
 }
 
 fn updateAnonDecl(self: *C, zcu: *Zcu, i: usize) !void {
+    if (true) @panic("TODO jacobly");
+
     const gpa = self.base.comp.gpa;
     const anon_decl = self.anon_decls.keys()[i];
 
@@ -306,6 +310,8 @@ fn updateAnonDecl(self: *C, zcu: *Zcu, i: usize) !void {
 }
 
 pub fn updateDecl(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
+    if (true) @panic("TODO jacobly");
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -390,6 +396,8 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
 }
 
 pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !void {
+    if (true) @panic("TODO jacobly");
+
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
@@ -451,9 +459,16 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
     {
         var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @intCast(zcu.decl_exports.entries.len));
-        for (zcu.decl_exports.values()) |exports| for (exports.items) |@"export"|
-            try export_names.put(gpa, @"export".opts.name, {});
+        try export_names.ensureTotalCapacity(gpa, @intCast(zcu.single_exports.count()));
+        for (zcu.single_exports.values()) |export_idx| {
+            export_names.putAssumeCapacity(gpa, zcu.all_exports.items[export_idx].opts.name, {});
+        }
+        for (zcu.multi_exports.values()) |info| {
+            try export_names.ensureUnusedCapacity(info.len);
+            for (zcu.all_exports.items[info.index..][0..info.len]) |export_idx| {
+                export_names.putAssumeCapacity(gpa, zcu.all_exports.items[export_idx].opts.name, {});
+            }
+        }
 
         for (self.anon_decls.values()) |*decl_block| {
             try self.flushDeclBlock(zcu, zcu.root_mod, &f, decl_block, export_names, .none);
@@ -781,10 +796,10 @@ pub fn updateExports(
     self: *C,
     zcu: *Zcu,
     exported: Zcu.Exported,
-    exports: []const *Zcu.Export,
+    export_indices: []const u32,
 ) !void {
-    _ = exports;
-    _ = exported;
-    _ = zcu;
     _ = self;
+    _ = zcu;
+    _ = exported;
+    _ = export_indices;
 }

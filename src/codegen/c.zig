@@ -3081,6 +3081,8 @@ pub fn genDeclValue(
 }
 
 pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
+    if (true) @panic("TODO jacobly");
+
     const tracy = trace(@src());
     defer tracy.end();
 

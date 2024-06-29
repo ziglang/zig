@@ -60,6 +60,9 @@ fn_decl_table: std.AutoArrayHashMapUnmanaged(
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
 data_decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u8) = .{},
+/// When `updateExports` is called, we store the export indices here, to be used
+/// during flush.
+decl_exports: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u32) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -770,8 +773,8 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node)
                     mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
                 }
                 self.syms.items[atom.sym_index.?].value = off;
-                if (mod.decl_exports.get(decl_index)) |exports| {
-                    try self.addDeclExports(mod, decl_index, exports.items);
+                if (self.decl_exports.get(decl_index)) |export_indices| {
+                    try self.addDeclExports(mod, decl_index, export_indices);
                 }
             }
         }
@@ -836,8 +839,8 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node)
                 mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
             }
             self.syms.items[atom.sym_index.?].value = off;
-            if (mod.decl_exports.get(decl_index)) |exports| {
-                try self.addDeclExports(mod, decl_index, exports.items);
+            if (self.decl_exports.get(decl_index)) |export_indices| {
+                try self.addDeclExports(mod, decl_index, export_indices);
             }
         }
         // write the unnamed constants after the other data decls
@@ -1007,20 +1010,21 @@ fn addDeclExports(
     self: *Plan9,
     mod: *Module,
     decl_index: InternPool.DeclIndex,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const gpa = self.base.comp.gpa;
     const metadata = self.decls.getPtr(decl_index).?;
     const atom = self.getAtom(metadata.index);
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         // plan9 does not support custom sections
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice(".text", &mod.intern_pool) and
                 !section_name.eqlSlice(".data", &mod.intern_pool))
             {
-                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.put(mod.gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
                     mod.declPtr(decl_index).navSrcLoc(mod).upgrade(mod),
                     "plan9 does not support extra sections",
@@ -1152,15 +1156,23 @@ pub fn updateExports(
     self: *Plan9,
     module: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
+    const gpa = self.base.comp.gpa;
     switch (exported) {
         .value => @panic("TODO: plan9 updateExports handling values"),
-        .decl_index => |decl_index| _ = try self.seeDecl(decl_index),
+        .decl_index => |decl_index| {
+            _ = try self.seeDecl(decl_index);
+            if (self.decl_exports.fetchSwapRemove(decl_index)) |kv| {
+                gpa.free(kv.value);
+            }
+            try self.decl_exports.ensureUnusedCapacity(gpa, 1);
+            const duped_indices = try gpa.dupe(u32, export_indices);
+            self.decl_exports.putAssumeCapacityNoClobber(decl_index, duped_indices);
+        },
     }
-    // we do all the things in flush
+    // all proper work is done in flush
     _ = module;
-    _ = exports;
 }
 
 pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.Index {
@@ -1290,6 +1302,10 @@ pub fn deinit(self: *Plan9) void {
         gpa.free(self.syms.items[sym_index].name);
     }
     self.data_decl_table.deinit(gpa);
+    for (self.decl_exports.values()) |export_indices| {
+        gpa.free(export_indices);
+    }
+    self.decl_exports.deinit(gpa);
     self.syms.deinit(gpa);
     self.got_index_free_list.deinit(gpa);
     self.syms_index_free_list.deinit(gpa);
@@ -1395,10 +1411,13 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const atom = self.getAtom(decl_metadata.index);
             const sym = self.syms.items[atom.sym_index.?];
             try self.writeSym(writer, sym);
-            if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
-                    try self.writeSym(writer, self.syms.items[exp_i]);
-                };
+            if (self.decl_exports.get(decl_index)) |export_indices| {
+                for (export_indices) |export_idx| {
+                    const exp = mod.all_exports.items[export_idx];
+                    if (decl_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
+                        try self.writeSym(writer, self.syms.items[exp_i]);
+                    }
+                }
             }
         }
     }
@@ -1442,13 +1461,16 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const atom = self.getAtom(decl_metadata.index);
                 const sym = self.syms.items[atom.sym_index.?];
                 try self.writeSym(writer, sym);
-                if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                    for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
-                        const s = self.syms.items[exp_i];
-                        if (mem.eql(u8, s.name, "_start"))
-                            self.entry_val = s.value;
-                        try self.writeSym(writer, s);
-                    };
+                if (self.decl_exports.get(decl_index)) |export_indices| {
+                    for (export_indices) |export_idx| {
+                        const exp = mod.all_exports.items[export_idx];
+                        if (decl_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
+                            const s = self.syms.items[exp_i];
+                            if (mem.eql(u8, s.name, "_start"))
+                                self.entry_val = s.value;
+                            try self.writeSym(writer, s);
+                        }
+                    }
                 }
             }
         }

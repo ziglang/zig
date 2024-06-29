@@ -152,7 +152,7 @@ pub fn updateExports(
     self: *SpirV,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -177,7 +177,8 @@ pub fn updateExports(
         if ((!is_vulkan and execution_model == .Kernel) or
             (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
         {
-            for (exports) |exp| {
+            for (export_indices) |export_idx| {
+                const exp = mod.all_exports.items[export_idx];
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
                     exp.opts.name.toSlice(&mod.intern_pool),

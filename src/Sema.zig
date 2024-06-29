@@ -117,6 +117,10 @@ maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAll
 /// Backed by gpa.
 comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .{},
 
+/// A list of exports performed by this analysis. After this `Sema` terminates,
+/// these are flushed to `Zcu.single_exports` or `Zcu.multi_exports`.
+exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -186,6 +190,7 @@ const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
+const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
 
 pub const default_branch_quota = 1000;
@@ -875,6 +880,7 @@ pub fn deinit(sema: *Sema) void {
     sema.base_allocs.deinit(gpa);
     sema.maybe_comptime_allocs.deinit(gpa);
     sema.comptime_allocs.deinit(gpa);
+    sema.exports.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -2735,12 +2741,12 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     if (!zcu.comp.debug_incremental) return false;
 
     const decl_index = Type.fromInterned(ty).getOwnerDecl(zcu);
-    const decl_as_depender = InternPool.AnalUnit.wrap(.{ .decl = decl_index });
+    const decl_as_depender = AnalUnit.wrap(.{ .decl = decl_index });
     const was_outdated = zcu.outdated.swapRemove(decl_as_depender) or
         zcu.potentially_outdated.swapRemove(decl_as_depender);
     if (!was_outdated) return false;
     _ = zcu.outdated_ready.swapRemove(decl_as_depender);
-    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, AnalUnit.wrap(.{ .decl = decl_index }));
     zcu.intern_pool.remove(ty);
     zcu.declPtr(decl_index).analysis = .dependency_failure;
     try zcu.markDependeeOutdated(.{ .decl_val = decl_index });
@@ -2834,7 +2840,7 @@ fn zirStructDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             sema.gpa,
-            InternPool.AnalUnit.wrap(.{ .decl = new_decl_index }),
+            AnalUnit.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3068,7 +3074,7 @@ fn zirEnumDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.AnalUnit.wrap(.{ .decl = new_decl_index }),
+            AnalUnit.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3334,7 +3340,7 @@ fn zirUnionDecl(
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
             sema.gpa,
-            InternPool.AnalUnit.wrap(.{ .decl = new_decl_index }),
+            AnalUnit.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -3422,7 +3428,7 @@ fn zirOpaqueDecl(
     if (sema.mod.comp.debug_incremental) {
         try ip.addDependency(
             gpa,
-            InternPool.AnalUnit.wrap(.{ .decl = new_decl_index }),
+            AnalUnit.wrap(.{ .decl = new_decl_index }),
             .{ .src_hash = try ip.trackZir(gpa, block.getFileScope(mod), inst) },
         );
     }
@@ -6423,10 +6429,9 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         return sema.analyzeExport(block, src, options, decl_index);
     }
 
-    try addExport(mod, .{
+    try sema.exports.append(mod.gpa, .{
         .opts = options,
         .src = src,
-        .owner_decl = sema.owner_decl_index,
         .exported = .{ .value = operand.toIntern() },
         .status = .in_progress,
     });
@@ -6469,44 +6474,12 @@ pub fn analyzeExport(
 
     try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
 
-    try addExport(mod, .{
+    try sema.exports.append(gpa, .{
         .opts = options,
         .src = src,
-        .owner_decl = sema.owner_decl_index,
         .exported = .{ .decl_index = exported_decl_index },
         .status = .in_progress,
     });
-}
-
-fn addExport(mod: *Module, export_init: Module.Export) error{OutOfMemory}!void {
-    const gpa = mod.gpa;
-
-    try mod.decl_exports.ensureUnusedCapacity(gpa, 1);
-    try mod.value_exports.ensureUnusedCapacity(gpa, 1);
-    try mod.export_owners.ensureUnusedCapacity(gpa, 1);
-
-    const new_export = try gpa.create(Module.Export);
-    errdefer gpa.destroy(new_export);
-
-    new_export.* = export_init;
-
-    const eo_gop = mod.export_owners.getOrPutAssumeCapacity(export_init.owner_decl);
-    if (!eo_gop.found_existing) eo_gop.value_ptr.* = .{};
-    try eo_gop.value_ptr.append(gpa, new_export);
-    errdefer _ = eo_gop.value_ptr.pop();
-
-    switch (export_init.exported) {
-        .decl_index => |decl_index| {
-            const de_gop = mod.decl_exports.getOrPutAssumeCapacity(decl_index);
-            if (!de_gop.found_existing) de_gop.value_ptr.* = .{};
-            try de_gop.value_ptr.append(gpa, new_export);
-        },
-        .value => |value| {
-            const ve_gop = mod.value_exports.getOrPutAssumeCapacity(value);
-            if (!ve_gop.found_existing) ve_gop.value_ptr.* = .{};
-            try ve_gop.value_ptr.append(gpa, new_export);
-        },
-    }
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -8410,6 +8383,9 @@ fn instantiateGenericCall(
         } },
     });
     sema.appendRefsAssumeCapacity(runtime_args.items);
+
+    // `child_sema` is owned by us, so just take its exports.
+    try sema.exports.appendSlice(sema.gpa, child_sema.exports.items);
 
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
@@ -35263,6 +35239,8 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
         const backing_int_ty = try mod.intType(.unsigned, @intCast(fields_bit_sum));
         struct_type.backingIntType(ip).* = backing_int_ty.toIntern();
     }
+
+    try sema.flushExports();
 }
 
 fn checkBackingIntType(sema: *Sema, block: *Block, src: LazySrcLoc, backing_int_ty: Type, fields_bit_sum: u64) CompileError!void {
@@ -36225,6 +36203,8 @@ fn semaStructFields(
 
     struct_type.clearTypesWip(ip);
     if (!any_inits) struct_type.setHaveFieldInits(ip);
+
+    try sema.flushExports();
 }
 
 // This logic must be kept in sync with `semaStructFields`
@@ -36365,6 +36345,8 @@ fn semaStructFieldInits(
             struct_type.field_inits.get(ip)[field_i] = default_val.toIntern();
         }
     }
+
+    try sema.flushExports();
 }
 
 fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.LoadedUnionType) CompileError!void {
@@ -36738,6 +36720,8 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
         const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl));
         union_type.tagTypePtr(ip).* = enum_ty;
     }
+
+    try sema.flushExports();
 }
 
 fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Type, tag_ref: Air.Inst.Ref) CompileError!Value {
@@ -38362,7 +38346,7 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
         return;
     }
 
-    const depender = InternPool.AnalUnit.wrap(
+    const depender = AnalUnit.wrap(
         if (sema.owner_func_index != .none)
             .{ .func = sema.owner_func_index }
         else
@@ -38491,6 +38475,52 @@ fn analyzeUnreachable(sema: *Sema, block: *Block, src: LazySrcLoc, safety_check:
         try sema.safetyPanic(block, src, .unreach);
     } else {
         _ = try block.addNoOp(.unreach);
+    }
+}
+
+/// This should be called exactly once, at the end of a `Sema`'s lifetime.
+/// It takes the exports stored in `sema.export` and flushes them to the `Zcu`
+/// to be processed by the linker after the update.
+pub fn flushExports(sema: *Sema) !void {
+    if (sema.exports.items.len == 0) return;
+
+    const zcu = sema.mod;
+    const gpa = zcu.gpa;
+
+    const unit: AnalUnit = if (sema.owner_func_index != .none)
+        AnalUnit.wrap(.{ .func = sema.owner_func_index })
+    else
+        AnalUnit.wrap(.{ .decl = sema.owner_decl_index });
+
+    // There may be existing exports. For instance, a struct may export
+    // things during both field type resolution and field default resolution.
+    //
+    // So, pick up and delete any existing exports. This strategy performs
+    // redundant work, but that's okay, because this case is exceedingly rare.
+    if (zcu.single_exports.get(unit)) |export_idx| {
+        try sema.exports.append(gpa, zcu.all_exports.items[export_idx]);
+    } else if (zcu.multi_exports.get(unit)) |info| {
+        try sema.exports.appendSlice(gpa, zcu.all_exports.items[info.index..][0..info.len]);
+    }
+    zcu.deleteUnitExports(unit);
+
+    // `sema.exports` is completed; store the data into the `Zcu`.
+    if (sema.exports.items.len == 1) {
+        try zcu.single_exports.ensureUnusedCapacity(gpa, 1);
+        const export_idx = zcu.free_exports.popOrNull() orelse idx: {
+            _ = try zcu.all_exports.addOne(gpa);
+            break :idx zcu.all_exports.items.len - 1;
+        };
+        zcu.all_exports.items[export_idx] = sema.exports.items[0];
+        zcu.single_exports.putAssumeCapacityNoClobber(unit, @intCast(export_idx));
+    } else {
+        try zcu.multi_exports.ensureUnusedCapacity(gpa, 1);
+        const exports_base = zcu.all_exports.items.len;
+        try zcu.all_exports.appendSlice(gpa, sema.exports.items);
+        zcu.multi_exports.putAssumeCapacityNoClobber(unit, .{
+            .index = @intCast(exports_base),
+            .len = @intCast(sema.exports.items.len),
+        });
     }
 }
 

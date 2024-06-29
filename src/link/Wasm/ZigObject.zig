@@ -833,13 +833,17 @@ pub fn getAnonDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     const mod = wasm_file.base.comp.module.?;
+    const decl_index = switch (exported) {
+        .decl_index => |decl_index| decl_index,
+        .value => @panic("TODO: implement Wasm linker code for exporting a constant value"),
+    };
     const decl_info = zig_object.decls_map.getPtr(decl_index) orelse return;
     if (decl_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
@@ -856,7 +860,7 @@ pub fn updateExports(
     wasm_file: *Wasm,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -873,9 +877,10 @@ pub fn updateExports(
     const gpa = mod.gpa;
     log.debug("Updating exports for decl '{}'", .{decl.name.fmt(&mod.intern_pool)});
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
-            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
                 decl.navSrcLoc(mod).upgrade(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
@@ -908,7 +913,7 @@ pub fn updateExports(
             },
             .strong => {}, // symbols are strong by default
             .link_once => {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
                     decl.navSrcLoc(mod).upgrade(mod),
                     "Unimplemented: LinkOnce",

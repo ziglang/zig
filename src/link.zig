@@ -606,12 +606,12 @@ pub const File = struct {
         base: *File,
         module: *Module,
         exported: Module.Exported,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, exports);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, export_indices);
             },
         }
     }
@@ -671,11 +671,11 @@ pub const File = struct {
         }
     }
 
-    pub fn deleteDeclExport(
+    pub fn deleteExport(
         base: *File,
-        decl_index: InternPool.DeclIndex,
+        exported: Zcu.Exported,
         name: InternPool.NullTerminatedString,
-    ) !void {
+    ) void {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .plan9,
@@ -685,7 +685,7 @@ pub const File = struct {
             => {},
 
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteDeclExport(decl_index, name);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteExport(exported, name);
             },
         }
     }

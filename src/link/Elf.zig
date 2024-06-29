@@ -3011,13 +3011,13 @@ pub fn updateExports(
     self: *Elf,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    return self.zigObjectPtr().?.updateExports(self, mod, exported, export_indices);
 }
 
 pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -3025,13 +3025,13 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.Dec
     return self.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *Elf,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.deleteDeclExport(self, decl_index, name);
+    return self.zigObjectPtr().?.deleteExport(self, exported, name);
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {

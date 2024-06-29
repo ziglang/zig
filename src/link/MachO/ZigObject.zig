@@ -713,9 +713,7 @@ pub fn updateFunc(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 pub fn updateDecl(
@@ -790,9 +788,7 @@ pub fn updateDecl(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also
-    // needs to be updated.
-    try self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 fn updateDeclCode(
@@ -1187,7 +1183,7 @@ pub fn updateExports(
     macho_file: *MachO,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1199,7 +1195,7 @@ pub fn updateExports(
             break :blk self.decls.getPtr(decl_index).?;
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
-            const first_exp = exports[0];
+            const first_exp = mod.all_exports.items[export_indices[0]];
             const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.getSrcLoc(mod));
             switch (res) {
                 .ok => {},
@@ -1207,7 +1203,7 @@ pub fn updateExports(
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
                     try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1218,11 +1214,12 @@ pub fn updateExports(
     const nlist_idx = macho_file.getSymbol(sym_index).nlist_idx;
     const nlist = self.symtab.items(.nlist)[nlist_idx];
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice("__text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
                     exp.getSrcLoc(mod),
                     "Unimplemented: ExportOptions.section",
@@ -1232,7 +1229,7 @@ pub fn updateExports(
             }
         }
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(mod.gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
                 exp.getSrcLoc(mod),
                 "Unimplemented: GlobalLinkage.link_once",
@@ -1364,15 +1361,18 @@ pub fn updateDeclLineNumber(self: *ZigObject, mod: *Module, decl_index: InternPo
     }
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *ZigObject,
     macho_file: *MachO,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     const mod = macho_file.base.comp.module.?;
 
-    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| self.decls.getPtr(decl_index) orelse return,
+        .value => |value| self.anon_decls.getPtr(value) orelse return,
+    };
     const nlist_index = metadata.@"export"(self, name.toSlice(&mod.intern_pool)) orelse return;
 
     log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
