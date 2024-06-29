@@ -2046,6 +2046,7 @@ pub const Object = struct {
                             debug_ptr_type,
                             debug_len_type,
                         }),
+                        isByRef(ty, pt),
                     );
 
                     o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_slice_type);
@@ -2215,6 +2216,7 @@ pub const Object = struct {
                         debug_data_type,
                         debug_some_type,
                     }),
+                    isByRef(ty, pt),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_optional_type);
@@ -2291,6 +2293,7 @@ pub const Object = struct {
                     ty.abiSize(pt) * 8,
                     (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&fields),
+                    isByRef(ty, pt),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_error_union_type);
@@ -2520,6 +2523,7 @@ pub const Object = struct {
                         0, // Size
                         0, // Align
                         .none, // Fields
+                        false, // ByRef
                     );
                     break :res debug_opaque_type;
                 },
@@ -2579,6 +2583,7 @@ pub const Object = struct {
                                 ty.abiSize(pt) * 8,
                                 (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
                                 try o.builder.debugTuple(fields.items),
+                                isByRef(ty, pt),
                             );
 
                             break :res debug_struct_type;
@@ -2634,6 +2639,7 @@ pub const Object = struct {
                         ty.abiSize(pt) * 8,
                         (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
                         try o.builder.debugTuple(fields.items),
+                        isByRef(ty, pt),
                     );
 
                     break :res debug_struct_type;
@@ -2661,6 +2667,7 @@ pub const Object = struct {
                             try o.builder.debugTuple(
                                 &.{try o.lowerDebugType(Type.fromInterned(union_type.enum_tag_ty), required_by_runtime)},
                             ),
+                            isByRef(ty, pt),
                         );
 
                         break :res debug_union_type;
@@ -2714,6 +2721,7 @@ pub const Object = struct {
                         ty.abiSize(pt) * 8,
                         (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
                         try o.builder.debugTuple(fields.items),
+                        isByRef(ty, pt),
                     );
 
                     if (layout.tag_size == 0) {
@@ -2769,6 +2777,7 @@ pub const Object = struct {
                         ty.abiSize(pt) * 8,
                         (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
                         try o.builder.debugTuple(&full_fields),
+                        isByRef(ty, pt),
                     );
 
                     break :res debug_tagged_union_type;
@@ -2802,6 +2811,7 @@ pub const Object = struct {
             0,
             0,
             if (fields.len == 0) .none else try o.builder.debugTuple(fields),
+            false, // is_byref
         );
     }
 
