@@ -3337,3 +3337,148 @@ pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost
 pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
 pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
 pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+
+pub extern "c" fn getattrlistbulk(dirfd: c_int, attr_list: *attrlist, attr_buf: *anyopaque, attr_buf_size: usize, options: u64) c_int;
+
+pub const FSOPT = struct {
+    pub const NOFOLLOW = 0x00000001;
+    pub const NOINMEMUPDATE = 0x00000002;
+    pub const REPORT_FULLSIZE = 0x00000004;
+    /// Only valid when requesting ATTR.CMN.RETURNED_ATTRS
+    pub const PACK_INVAL_ATTRS = 0x00000008;
+    pub const ATTR_CMN_EXTENDED = 0x00000020;
+    pub const RETURN_REALDEV = 0x00000200;
+    pub const NOFOLLOW_ANY = 0x00000800;
+};
+
+pub const text_encoding_t = u32;
+pub const fsobj_type_t = u32;
+pub const fsobj_tag_t = u32;
+pub const fsfile_type_t = u32;
+pub const fsvolid_t = u32;
+pub const attrgroup_t = u32;
+
+pub const attrlist = extern struct {
+    /// number of attr. bit sets in list (should be 5)
+    bitmapcount: c_ushort,
+    /// (to maintain 4-byte alignment)
+    reserved: u16,
+    /// common attribute group
+    commonattr: attrgroup_t,
+    /// Volume attribute group
+    volattr: attrgroup_t,
+    /// directory attribute group
+    dirattr: attrgroup_t,
+    /// file attribute group
+    fileattr: attrgroup_t,
+    /// fork attribute group
+    forkattr: attrgroup_t,
+};
+
+pub const attribute_set_t = extern struct {
+    /// common attribute group
+    commonattr: attrgroup_t,
+    /// Volume attribute group
+    volattr: attrgroup_t,
+    /// directory attribute group
+    dirattr: attrgroup_t,
+    /// file attribute group
+    fileattr: attrgroup_t,
+    /// fork attribute group
+    forkattr: attrgroup_t,
+};
+
+pub const attrreference_t = extern struct {
+    attr_dataoffset: i32,
+    attr_length: u32,
+};
+
+pub const ATTR = struct {
+    pub const BIT_MAP_COUNT = 5;
+
+    pub const CMN = struct {
+        pub const NAME = 0x00000001;
+        pub const DEVID = 0x00000002;
+        pub const FSID = 0x00000004;
+        pub const OBJTYPE = 0x00000008;
+        pub const OBJTAG = 0x00000010;
+        pub const OBJID = 0x00000020;
+        pub const OBJPERMANENTID = 0x00000040;
+        pub const PAROBJID = 0x00000080;
+        pub const SCRIPT = 0x00000100;
+        pub const CRTIME = 0x00000200;
+        pub const MODTIME = 0x00000400;
+        pub const CHGTIME = 0x00000800;
+        pub const ACCTIME = 0x00001000;
+        pub const BKUPTIME = 0x00002000;
+        pub const FNDRINFO = 0x00004000;
+        pub const OWNERID = 0x00008000;
+        pub const GRPID = 0x00010000;
+        pub const ACCESSMASK = 0x00020000;
+        pub const FLAGS = 0x00040000;
+        /// This can only be used with the FSOPT.ATTR_CMN_EXTENDED option flag.
+        pub const GEN_COUNT = 0x00080000;
+        /// This can only be used with the FSOPT.ATTR_CMN_EXTENDED option flag.
+        pub const DOCUMENT_ID = 0x00100000;
+        pub const USERACCESS = 0x00200000;
+        pub const EXTENDED_SECURITY = 0x00400000;
+        pub const UUID = 0x00800000;
+        pub const GRPUUID = 0x01000000;
+        pub const FILEID = 0x02000000;
+        pub const PARENTID = 0x04000000;
+        pub const FULLPATH = 0x08000000;
+        pub const ADDEDTIME = 0x10000000;
+        pub const ERROR = 0x20000000;
+        pub const DATA_PROTECT_FLAGS = 0x40000000;
+        /// Only valid with getattrlist(2) and getattrlistbulk(2).
+        /// It is always the first attribute in the return buffer.
+        pub const RETURNED_ATTRS = 0x80000000;
+    };
+
+    pub const CMNEXT = struct {
+        pub const RELPATH = 0x00000004;
+        pub const PRIVATESIZE = 0x00000008;
+        pub const LINKID = 0x00000010;
+        pub const NOFIRMLINKPATH = 0x00000020;
+        pub const REALDEVID = 0x00000040;
+        pub const REALFSID = 0x00000080;
+        pub const CLONEID = 0x00000100;
+        pub const EXT_FLAGS = 0x00000200;
+        pub const RECURSIVE_GENCOUNT = 0x00000400;
+        pub const ATTRIBUTION_TAG = 0x00000800;
+        pub const CLONE_REFCNT = 0x00001000;
+    };
+};
+
+pub const SF = struct {
+    /// file is archived
+    pub const ARCHIVED = 0x00010000;
+    /// file may not be changed
+    pub const IMMUTABLE = 0x00020000;
+    /// writes to file may only append
+    pub const APPEND = 0x00040000;
+    /// entitlement required for writing
+    pub const RESTRICTED = 0x00080000;
+    /// Item may not be removed, renamed or mounted on
+    pub const NOUNLINK = 0x00100000;
+    /// file is a firmlink
+    pub const FIRMLINK = 0x00800000;
+    /// file is dataless object
+    pub const DATALESS = 0x40000000;
+};
+
+/// Vnode types
+pub const vtype = enum(u32) {
+    /// no type
+    VNON,
+    VREG,
+    VDIR,
+    VBLK,
+    VCHR,
+    VLNK,
+    VSOCK,
+    VFIFO,
+    VBAD,
+    VSTR,
+    VCPLX,
+};
