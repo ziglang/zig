@@ -29597,6 +29597,7 @@ const InMemoryCoercionResult = union(enum) {
     ok,
     no_match: Pair,
     int_not_coercible: Int,
+    comptime_int_not_coercible: Pair,
     error_union_payload: PairAndChild,
     array_len: IntPair,
     array_sentinel: Sentinel,
@@ -29723,6 +29724,12 @@ const InMemoryCoercionResult = union(enum) {
             .int_not_coercible => |int| {
                 try sema.errNote(src, msg, "{s} {d}-bit int cannot represent all possible {s} {d}-bit values", .{
                     @tagName(int.wanted_signedness), int.wanted_bits, @tagName(int.actual_signedness), int.actual_bits,
+                });
+                break;
+            },
+            .comptime_int_not_coercible => |int| {
+                try sema.errNote(src, msg, "type '{}' cannot represent provided value of type '{}'", .{
+                    int.wanted.fmt(mod), int.actual.fmt(mod),
                 });
                 break;
             },
@@ -29999,6 +30006,22 @@ pub fn coerceInMemoryAllowed(
                 .wanted_bits = dest_info.bits,
             } };
         }
+    }
+
+    // Comptime to regular int.
+    if (dest_tag == .Int and src_tag == .ComptimeInt) {
+        const src_ty_inst = Air.internedToRef(src_ty.toIntern());
+        _ = sema.coerceExtra(block, dest_ty, src_ty_inst, src_src, .{ .report_err = false }) catch |err| switch (err) {
+            error.NotCoercible => {
+                return InMemoryCoercionResult{
+                    .comptime_int_not_coercible = .{
+                        .actual = src_ty,
+                        .wanted = dest_ty,
+                    },
+                };
+            },
+            else => {},
+        };
     }
 
     // Differently-named floats with the same number of bits.
