@@ -179,10 +179,15 @@ test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 /// TODO: the key here will be a `Cau.Index`.
 global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
 
-reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
-    referencer: Decl.Index,
-    src: LazySrcLoc,
-}) = .{},
+/// Key is the `AnalUnit` *performing* the reference. This representation allows
+/// incremental updates to quickly delete references caused by a specific `AnalUnit`.
+/// Value is index into `all_reference` of the first reference triggered by the unit.
+/// The `next` field on the `Reference` forms a linked list of all references
+/// triggered by the key `AnalUnit`.
+reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+all_references: std.ArrayListUnmanaged(Reference) = .{},
+/// Freelist of indices in `all_references`.
+free_references: std.ArrayListUnmanaged(u32) = .{},
 
 panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
 /// The panic function body.
@@ -290,44 +295,14 @@ pub const Export = struct {
     }
 };
 
-const ValueArena = struct {
-    state: std.heap.ArenaAllocator.State,
-    state_acquired: ?*std.heap.ArenaAllocator.State = null,
-
-    /// If this ValueArena replaced an existing one during re-analysis, this is the previous instance
-    prev: ?*ValueArena = null,
-
-    /// Returns an allocator backed by either promoting `state`, or by the existing ArenaAllocator
-    /// that has already promoted `state`. `out_arena_allocator` provides storage for the initial promotion,
-    /// and must live until the matching call to release().
-    pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
-        if (self.state_acquired) |state_acquired| {
-            return @as(*std.heap.ArenaAllocator, @fieldParentPtr("state", state_acquired)).allocator();
-        }
-
-        out_arena_allocator.* = self.state.promote(child_allocator);
-        self.state_acquired = &out_arena_allocator.state;
-        return out_arena_allocator.allocator();
-    }
-
-    /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
-    pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
-        if (@as(*std.heap.ArenaAllocator, @fieldParentPtr("state", self.state_acquired.?)) == arena_allocator) {
-            self.state = self.state_acquired.?.*;
-            self.state_acquired = null;
-        }
-    }
-
-    pub fn deinit(self: ValueArena, child_allocator: Allocator) void {
-        assert(self.state_acquired == null);
-
-        const prev = self.prev;
-        self.state.promote(child_allocator).deinit();
-
-        if (prev) |p| {
-            p.deinit(child_allocator);
-        }
-    }
+pub const Reference = struct {
+    /// The `AnalUnit` whose semantic analysis was triggered by this reference.
+    referenced: AnalUnit,
+    /// Index into `all_references` of the next `Reference` triggered by the same `AnalUnit`.
+    /// `std.math.maxInt(u32)` is the sentinel.
+    next: u32,
+    /// The source location of the reference.
+    src: LazySrcLoc,
 };
 
 pub const Decl = struct {
@@ -758,7 +733,7 @@ pub const File = struct {
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
     multi_pkg: bool = false,
     /// List of references to this file, used for multi-package errors.
-    references: std.ArrayListUnmanaged(Reference) = .{},
+    references: std.ArrayListUnmanaged(File.Reference) = .{},
     /// The hash of the path to this file, used to store `InternPool.TrackedInst`.
     path_digest: Cache.BinDigest,
 
@@ -925,7 +900,7 @@ pub const File = struct {
     }
 
     /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, mod: Module, ref: Reference) !void {
+    pub fn addReference(file: *File, mod: Module, ref: File.Reference) !void {
         // Don't add the same module root twice. Note that since we always add module roots at the
         // front of the references array (see below), this loop is actually O(1) on valid code.
         if (ref == .root) {
@@ -1002,8 +977,7 @@ pub const ErrorMsg = struct {
     src_loc: SrcLoc,
     msg: []const u8,
     notes: []ErrorMsg = &.{},
-    reference_trace: []Trace = &.{},
-    hidden_references: u32 = 0,
+    reference_trace_root: AnalUnit.Optional = .none,
 
     pub const Trace = struct {
         decl: InternPool.NullTerminatedString,
@@ -1048,7 +1022,6 @@ pub const ErrorMsg = struct {
         }
         gpa.free(err_msg.notes);
         gpa.free(err_msg.msg);
-        gpa.free(err_msg.reference_trace);
         err_msg.* = undefined;
     }
 };
@@ -2520,6 +2493,8 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.global_assembly.deinit(gpa);
 
     zcu.reference_table.deinit(gpa);
+    zcu.all_references.deinit(gpa);
+    zcu.free_references.deinit(gpa);
 
     {
         var it = zcu.intern_pool.allocated_namespaces.iterator(0);
@@ -3462,7 +3437,8 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         // The exports this Decl performs will be re-discovered, so we remove them here
         // prior to re-analysis.
         if (build_options.only_c) unreachable;
-        mod.deleteUnitExports(AnalUnit.wrap(.{ .decl = decl_index }));
+        mod.deleteUnitExports(decl_as_depender);
+        mod.deleteUnitReferences(decl_as_depender);
     }
 
     const sema_result: SemaDeclResult = blk: {
@@ -3591,7 +3567,8 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
     if (was_outdated) {
         if (build_options.only_c) unreachable;
         _ = zcu.outdated_ready.swapRemove(func_as_depender);
-        zcu.deleteUnitExports(AnalUnit.wrap(.{ .func = func_index }));
+        zcu.deleteUnitExports(func_as_depender);
+        zcu.deleteUnitReferences(func_as_depender);
     }
 
     switch (func.analysis(ip).state) {
@@ -4965,6 +4942,47 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     for (exports_base..exports_base + exports_len) |export_idx| {
         zcu.free_exports.appendAssumeCapacity(@intCast(export_idx));
     }
+}
+
+/// Delete all references in `reference_table` which are caused by this `AnalUnit`.
+/// Re-analysis of the `AnalUnit` will cause appropriate references to be recreated.
+fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
+    const gpa = zcu.gpa;
+
+    const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse return;
+    var idx = kv.value;
+
+    while (idx != std.math.maxInt(u32)) {
+        zcu.free_references.append(gpa, idx) catch {
+            // This space will be reused eventually, so we need not propagate this error.
+            // Just leak it for now, and let GC reclaim it later on.
+            return;
+        };
+        idx = zcu.all_references.items[idx].next;
+    }
+}
+
+pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit, ref_src: LazySrcLoc) Allocator.Error!void {
+    const gpa = zcu.gpa;
+
+    try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
+
+    const ref_idx = zcu.free_references.popOrNull() orelse idx: {
+        _ = try zcu.all_references.addOne(gpa);
+        break :idx zcu.all_references.items.len - 1;
+    };
+
+    errdefer comptime unreachable;
+
+    const gop = zcu.reference_table.getOrPutAssumeCapacity(src_unit);
+
+    zcu.all_references.items[ref_idx] = .{
+        .referenced = referenced_unit,
+        .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
+        .src = ref_src,
+    };
+
+    gop.value_ptr.* = @intCast(ref_idx);
 }
 
 pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocator) SemaError!Air {
@@ -6446,4 +6464,37 @@ pub fn structPackedFieldBitOffset(
         bit_sum += field_ty.bitSize(mod);
     }
     unreachable; // index out of bounds
+}
+
+pub const ResolvedReference = struct {
+    referencer: AnalUnit,
+    src: LazySrcLoc,
+};
+
+/// Returns a mapping from an `AnalUnit` to where it is referenced.
+/// TODO: in future, this must be adapted to traverse from roots of analysis. That way, we can
+/// use the returned map to determine which units have become unreferenced in an incremental update.
+pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) {
+    const gpa = zcu.gpa;
+
+    var result: std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) = .{};
+    errdefer result.deinit(gpa);
+
+    // This is not a sufficient size, but a lower bound.
+    try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
+
+    for (zcu.reference_table.keys(), zcu.reference_table.values()) |referencer, first_ref_idx| {
+        assert(first_ref_idx != std.math.maxInt(u32));
+        var ref_idx = first_ref_idx;
+        while (ref_idx != std.math.maxInt(u32)) {
+            const ref = zcu.all_references.items[ref_idx];
+            const gop = try result.getOrPut(gpa, ref.referenced);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = .{ .referencer = referencer, .src = ref.src };
+            }
+            ref_idx = ref.next;
+        }
+    }
+
+    return result;
 }

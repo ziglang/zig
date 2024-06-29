@@ -121,6 +121,11 @@ comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .{},
 /// these are flushed to `Zcu.single_exports` or `Zcu.multi_exports`.
 exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
 
+/// All references registered so far by this `Sema`. This is a temporary duplicate
+/// of data stored in `Zcu.all_references`. It exists to avoid adding references to
+/// a given `AnalUnit` multiple times.
+references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -2472,79 +2477,38 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
     @setCold(true);
     const gpa = sema.gpa;
     const mod = sema.mod;
-
-    ref: {
-        errdefer err_msg.destroy(gpa);
-
-        if (build_options.enable_debug_extensions and mod.comp.debug_compile_errors) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            wip_errors.init(gpa) catch unreachable;
-            Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*) catch unreachable;
-            std.debug.print("compile error during Sema:\n", .{});
-            var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
-            error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-            crash_report.compilerPanic("unexpected compile error occurred", null, null);
-        }
-
-        try mod.failed_analysis.ensureUnusedCapacity(gpa, 1);
-        try mod.failed_files.ensureUnusedCapacity(gpa, 1);
-
-        if (block) |start_block| {
-            var block_it = start_block;
-            while (block_it.inlining) |inlining| {
-                try sema.errNote(
-                    inlining.call_src,
-                    err_msg,
-                    "called from here",
-                    .{},
-                );
-                block_it = inlining.call_block;
-            }
-
-            const max_references = refs: {
-                if (mod.comp.reference_trace) |num| break :refs num;
-                // Do not add multiple traces without explicit request.
-                if (mod.failed_analysis.count() > 0) break :ref;
-                break :refs default_reference_trace_len;
-            };
-
-            var referenced_by = if (sema.owner_func_index != .none)
-                mod.funcOwnerDeclIndex(sema.owner_func_index)
-            else
-                sema.owner_decl_index;
-            var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(gpa);
-            defer reference_stack.deinit();
-
-            // Avoid infinite loops.
-            var seen = std.AutoHashMap(InternPool.DeclIndex, void).init(gpa);
-            defer seen.deinit();
-
-            while (mod.reference_table.get(referenced_by)) |ref| {
-                const gop = try seen.getOrPut(ref.referencer);
-                if (gop.found_existing) break;
-                if (reference_stack.items.len < max_references) {
-                    const decl = mod.declPtr(ref.referencer);
-                    try reference_stack.append(.{
-                        .decl = decl.name,
-                        .src_loc = ref.src.upgrade(mod),
-                    });
-                }
-                referenced_by = ref.referencer;
-            }
-            err_msg.reference_trace = try reference_stack.toOwnedSlice();
-            err_msg.hidden_references = @intCast(seen.count() -| max_references);
-        }
-    }
     const ip = &mod.intern_pool;
-    if (sema.owner_func_index != .none) {
-        ip.funcAnalysis(sema.owner_func_index).state = .sema_failure;
-    } else {
-        sema.owner_decl.analysis = .sema_failure;
+
+    if (build_options.enable_debug_extensions and mod.comp.debug_compile_errors) {
+        var all_references = mod.resolveReferences() catch @panic("out of memory");
+        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        wip_errors.init(gpa) catch @panic("out of memory");
+        Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*, &all_references) catch unreachable;
+        std.debug.print("compile error during Sema:\n", .{});
+        var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
+        error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
+        crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
-    if (sema.func_index != .none) {
-        ip.funcAnalysis(sema.func_index).state = .sema_failure;
+
+    if (block) |start_block| {
+        var block_it = start_block;
+        while (block_it.inlining) |inlining| {
+            try sema.errNote(
+                inlining.call_src,
+                err_msg,
+                "called from here",
+                .{},
+            );
+            block_it = inlining.call_block;
+        }
     }
-    const gop = mod.failed_analysis.getOrPutAssumeCapacity(sema.ownerUnit());
+
+    const use_ref_trace = if (mod.comp.reference_trace) |n| n > 0 else mod.failed_analysis.count() == 0;
+    if (use_ref_trace) {
+        err_msg.reference_trace_root = sema.ownerUnit().toOptional();
+    }
+
+    const gop = try mod.failed_analysis.getOrPut(gpa, sema.ownerUnit());
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
         sema.err = null;
@@ -2553,6 +2517,17 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
         sema.err = err_msg;
         gop.value_ptr.* = err_msg;
     }
+
+    if (sema.owner_func_index != .none) {
+        ip.funcAnalysis(sema.owner_func_index).state = .sema_failure;
+    } else {
+        sema.owner_decl.analysis = .sema_failure;
+    }
+
+    if (sema.func_index != .none) {
+        ip.funcAnalysis(sema.func_index).state = .sema_failure;
+    }
+
     return error.AnalysisFail;
 }
 
@@ -4235,6 +4210,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (mod.intern_pool.isFuncBody(val)) {
                 const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
                 if (try sema.fnHasRuntimeBits(ty)) {
+                    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = val }));
                     try mod.ensureFuncBodyAnalysisQueued(val);
                 }
             }
@@ -6395,6 +6371,7 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     } else try sema.lookupIdentifier(block, operand_src, decl_name);
     const options = try sema.resolveExportOptions(block, options_src, extra.options);
     {
+        try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = decl_index }));
         try sema.ensureDeclAnalyzed(decl_index);
         const exported_decl = mod.declPtr(decl_index);
         if (exported_decl.val.getFunction(mod)) |function| {
@@ -6446,6 +6423,7 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
+    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = exported_decl_index }));
     try sema.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
     const export_ty = exported_decl.typeOf(mod);
@@ -6468,7 +6446,7 @@ pub fn analyzeExport(
         return sema.fail(block, src, "export target cannot be extern", .{});
     }
 
-    try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
+    try sema.maybeQueueFuncBodyAnalysis(src, exported_decl_index);
 
     try sema.exports.append(gpa, .{
         .opts = options,
@@ -6699,8 +6677,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .no_embedded_nulls,
     );
     const decl_index = try sema.lookupIdentifier(block, src, decl_name);
-    try sema.addReferencedBy(src, decl_index);
-    return sema.analyzeDeclRef(decl_index);
+    return sema.analyzeDeclRef(src, decl_index);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7903,6 +7880,7 @@ fn analyzeCall(
 
         if (try sema.resolveValue(func)) |func_val| {
             if (mod.intern_pool.isFuncBody(func_val.toIntern())) {
+                try sema.addReferenceEntry(call_src, AnalUnit.wrap(.{ .func = func_val.toIntern() }));
                 try mod.ensureFuncBodyAnalysisQueued(func_val.toIntern());
             }
         }
@@ -8339,8 +8317,6 @@ fn instantiateGenericCall(
     const callee = mod.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
 
-    try sema.addReferencedBy(call_src, callee.owner_decl);
-
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = Type.fromInterned(callee.ty);
     const func_ty_info = mod.typeToFunc(func_ty).?;
@@ -8366,6 +8342,7 @@ fn instantiateGenericCall(
         ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn = true;
     }
 
+    try sema.addReferenceEntry(call_src, AnalUnit.wrap(.{ .func = callee_index }));
     try mod.ensureFuncBodyAnalysisQueued(callee_index);
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len + runtime_args.items.len);
@@ -17479,7 +17456,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         .@"comptime" => |index| return Air.internedToRef(index),
         .runtime => |index| index,
         .decl_val => |decl_index| return sema.analyzeDeclVal(block, src, decl_index),
-        .decl_ref => |decl_index| return sema.analyzeDeclRef(decl_index),
+        .decl_ref => |decl_index| return sema.analyzeDeclRef(src, decl_index),
     };
 
     // The comptime case is handled already above. Runtime case below.
@@ -27673,7 +27650,6 @@ fn fieldCallBind(
         const decl_idx = (try sema.namespaceLookup(block, src, namespace, field_name)) orelse
             break :found_decl null;
 
-        try sema.addReferencedBy(src, decl_idx);
         const decl_val = try sema.analyzeDeclVal(block, src, decl_idx);
         const decl_type = sema.typeOf(decl_val);
         if (mod.typeToFunc(decl_type)) |func_type| f: {
@@ -27829,8 +27805,7 @@ fn namespaceLookupRef(
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, opt_namespace, decl_name)) orelse return null;
-    try sema.addReferencedBy(src, decl);
-    return try sema.analyzeDeclRef(decl);
+    return try sema.analyzeDeclRef(src, decl);
 }
 
 fn namespaceLookupVal(
@@ -28968,7 +28943,7 @@ fn coerceExtra(
             if (inst_ty.zigTypeTag(zcu) == .Fn) {
                 const fn_val = try sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, inst, undefined);
                 const fn_decl = fn_val.pointerDecl(zcu).?;
-                const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
+                const inst_as_ptr = try sema.analyzeDeclRef(inst_src, fn_decl);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
 
@@ -30521,7 +30496,7 @@ fn coerceVarArgParam(
         .Fn => fn_ptr: {
             const fn_val = try sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, inst, undefined);
             const fn_decl = fn_val.pointerDecl(mod).?;
-            break :fn_ptr try sema.analyzeDeclRef(fn_decl);
+            break :fn_ptr try sema.analyzeDeclRef(inst_src, fn_decl);
         },
         .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
         .Float => float: {
@@ -31748,11 +31723,10 @@ fn analyzeDeclVal(
     src: LazySrcLoc,
     decl_index: InternPool.DeclIndex,
 ) CompileError!Air.Inst.Ref {
-    try sema.addReferencedBy(src, decl_index);
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    const decl_ref = try sema.analyzeDeclRefInner(decl_index, false);
+    const decl_ref = try sema.analyzeDeclRefInner(src, decl_index, false);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (result.toInterned() != null) {
         if (!block.is_typeof) {
@@ -31762,18 +31736,18 @@ fn analyzeDeclVal(
     return result;
 }
 
-fn addReferencedBy(
+fn addReferenceEntry(
     sema: *Sema,
     src: LazySrcLoc,
-    decl_index: InternPool.DeclIndex,
+    referenced_unit: AnalUnit,
 ) !void {
     if (sema.mod.comp.reference_trace == 0) return;
-    try sema.mod.reference_table.put(sema.gpa, decl_index, .{
-        // TODO: this can make the reference trace suboptimal. This will be fixed
-        // once the reference table is reworked for incremental compilation.
-        .referencer = sema.owner_decl_index,
-        .src = src,
-    });
+    const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
+    if (gop.found_existing) return;
+    // TODO: we need to figure out how to model inline calls here.
+    // They aren't references in the analysis sense, but ought to show up in the reference trace!
+    // Would representing inline calls in the reference table cause excessive memory usage?
+    try sema.mod.addUnitReference(sema.ownerUnit(), referenced_unit, src);
 }
 
 pub fn ensureDeclAnalyzed(sema: *Sema, decl_index: InternPool.DeclIndex) CompileError!void {
@@ -31823,16 +31797,17 @@ fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     } })));
 }
 
-fn analyzeDeclRef(sema: *Sema, decl_index: InternPool.DeclIndex) CompileError!Air.Inst.Ref {
-    return sema.analyzeDeclRefInner(decl_index, true);
+fn analyzeDeclRef(sema: *Sema, src: LazySrcLoc, decl_index: InternPool.DeclIndex) CompileError!Air.Inst.Ref {
+    return sema.analyzeDeclRefInner(src, decl_index, true);
 }
 
 /// Analyze a reference to the decl at the given index. Ensures the underlying decl is analyzed, but
 /// only triggers analysis for function bodies if `analyze_fn_body` is true. If it's possible for a
 /// decl_ref to end up in runtime code, the function body must be analyzed: `analyzeDeclRef` wraps
 /// this function with `analyze_fn_body` set to true.
-fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
+fn analyzeDeclRefInner(sema: *Sema, src: LazySrcLoc, decl_index: InternPool.DeclIndex, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = decl_index }));
     try sema.ensureDeclAnalyzed(decl_index);
 
     const decl_val = try mod.declPtr(decl_index).valueOrFail();
@@ -31853,7 +31828,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
         },
     });
     if (analyze_fn_body) {
-        try sema.maybeQueueFuncBodyAnalysis(decl_index);
+        try sema.maybeQueueFuncBodyAnalysis(src, decl_index);
     }
     return Air.internedToRef((try mod.intern(.{ .ptr = .{
         .ty = ptr_ty.toIntern(),
@@ -31862,12 +31837,13 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
     } })));
 }
 
-fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: InternPool.DeclIndex) !void {
+fn maybeQueueFuncBodyAnalysis(sema: *Sema, src: LazySrcLoc, decl_index: InternPool.DeclIndex) !void {
     const mod = sema.mod;
     const decl = mod.declPtr(decl_index);
     const decl_val = try decl.valueOrFail();
     if (!mod.intern_pool.isFuncBody(decl_val.toIntern())) return;
     if (!try sema.fnHasRuntimeBits(decl_val.typeOf(mod))) return;
+    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = decl_val.toIntern() }));
     try mod.ensureFuncBodyAnalysisQueued(decl_val.toIntern());
 }
 
@@ -31882,8 +31858,8 @@ fn analyzeRef(
 
     if (try sema.resolveValue(operand)) |val| {
         switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .extern_func => |extern_func| return sema.analyzeDeclRef(extern_func.decl),
-            .func => |func| return sema.analyzeDeclRef(func.owner_decl),
+            .extern_func => |extern_func| return sema.analyzeDeclRef(src, extern_func.decl),
+            .func => |func| return sema.analyzeDeclRef(src, func.owner_decl),
             else => return anonDeclRef(sema, val.toIntern()),
         }
     }
@@ -35834,6 +35810,7 @@ fn resolveInferredErrorSet(
         }
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
+        try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = func_index }));
         try sema.ensureFuncBodyAnalyzed(func_index);
     }
 
