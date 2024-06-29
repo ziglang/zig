@@ -1616,8 +1616,16 @@ test readVarInt {
     try testing.expect(readVarInt(u0, &[_]u8{}, .big) == 0x0);
     try testing.expect(readVarInt(u0, &[_]u8{}, .little) == 0x0);
 
-    try testing.expect(readVarInt(u9, &[_]u8{0x32}, .big) == 0x32);
+    // Return type can be undersized (bytes.len * 8 > @typeInfo(ReturnType).Int.bits)
+    try testing.expect(readVarInt(u7, &[_]u8{0x12}, .big) == 0x12);
+    try testing.expect(readVarInt(u7, &[_]u8{0xde}, .little) == 0x5e);
+
+    try testing.expect(readVarInt(u8, &[_]u8{0x12}, .big) == 0x12);
+    try testing.expect(readVarInt(u8, &[_]u8{0xde}, .little) == 0xde);
+
+    // Return type can be oversized (bytes.len * 8 < @typeInfo(ReturnType).Int.bits)
     try testing.expect(readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
+    try testing.expect(readVarInt(u9, &[_]u8{0xde}, .big) == 0xde);
 
     try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
     try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
@@ -1625,8 +1633,16 @@ test readVarInt {
     try testing.expect(readVarInt(u72, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
     try testing.expect(readVarInt(u72, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
 
+    // Return type can be undersized (bytes.len * 8 > @typeInfo(ReturnType).Int.bits)
+    try testing.expect(readVarInt(i7, &[_]u8{0xff}, .big) == -1);
+    try testing.expect(readVarInt(i7, &[_]u8{0xfe}, .little) == -2);
+
     try testing.expect(readVarInt(i8, &[_]u8{0xff}, .big) == -1);
     try testing.expect(readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
+
+    // Return type can be oversized (bytes.len * 8 < @typeInfo(ReturnType).Int.bits)
+    try testing.expect(readVarInt(i9, &[_]u8{0xff}, .big) == 0xff);
+    try testing.expect(readVarInt(i9, &[_]u8{0xfe}, .little) == 0xfe);
 
     try testing.expect(readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
     try testing.expect(readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
