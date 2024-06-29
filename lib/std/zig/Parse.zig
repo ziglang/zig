@@ -1906,7 +1906,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
         .l_bracket => switch (p.token_tags[p.tok_i + 1]) {
             .asterisk => {
                 const l_bracket = p.nextToken();
-                const asterisk = p.nextToken();
+                _ = p.nextToken();
                 var sentinel: Node.Index = 0;
                 if (p.eatToken(.identifier)) |ident| {
                     const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
@@ -1955,7 +1955,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                 } else {
                     return p.addNode(.{
                         .tag = .ptr_type_bit_range,
-                        .main_token = asterisk,
+                        .main_token = l_bracket,
                         .data = .{
                             .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                 .sentinel = sentinel,

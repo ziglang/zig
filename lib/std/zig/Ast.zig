@@ -3158,7 +3158,8 @@ pub const Node = struct {
         /// pointer type and may require special handling.
         ptr_type,
         /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_bit_range,
