@@ -1,3 +1,7 @@
+//! This library contains several variants of a data structure that
+//! maps keys to values. `StringHashMap` and `AutoHashMap` are
+//! easy-to-use, managed interfaces that allocate. For cases where iteration
+//! over table entries needs to be fast, see `std.ArrayHashMap`.
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -600,6 +604,9 @@ pub fn HashMap(
             return self.unmanaged.getAdapted(key, ctx);
         }
 
+        /// Get an optional pointer to the value associated with key,
+        /// if present. The pointer is invalidated if the map is
+        /// modified.
         pub fn getPtr(self: Self, key: K) ?*V {
             return self.unmanaged.getPtrContext(key, self.ctx);
         }
@@ -1277,7 +1284,9 @@ pub fn HashMapUnmanaged(
             return null;
         }
 
-        /// Get an optional pointer to the value associated with key, if present.
+        /// Get an optional pointer to the value associated with key,
+        /// if present. The pointer is invalidated if the map is
+        /// modified.
         pub fn getPtr(self: Self, key: K) ?*V {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call getPtrContext instead.");
