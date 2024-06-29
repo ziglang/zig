@@ -3337,3 +3337,23 @@ pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost
 pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
 pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
 pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]std.posix.iovec,
+    iovlen: i32,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const std.posix.iovec_const,
+    iovlen: i32,
+    control: ?*const anyopaque,
+    controllen: socklen_t,
+    flags: i32,
+};
