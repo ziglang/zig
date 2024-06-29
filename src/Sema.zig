@@ -13896,10 +13896,11 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     defer tracy.end();
 
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
-    const operand_src = block.tokenOffset(inst_data.src_tok);
-    const operand = inst_data.get(sema.code);
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
+    const operand = sema.code.nullTerminatedString(extra.name);
 
+    const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const result = mod.importFile(block.getFileScope(mod), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});

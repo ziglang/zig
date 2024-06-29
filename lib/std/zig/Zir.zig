@@ -1643,7 +1643,7 @@ pub const Inst = struct {
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
-                .import = .str_tok,
+                .import = .pl_node,
                 .int = .int,
                 .int_big = .str,
                 .float = .float,
@@ -3473,6 +3473,11 @@ pub const Inst = struct {
         block: Ref,
         /// If `.none`, restore unconditionally.
         operand: Ref,
+    };
+
+    pub const Import = struct {
+        result_ty: Ref,
+        name: NullTerminatedString,
     };
 };
 

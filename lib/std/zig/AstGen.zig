@@ -9130,7 +9130,11 @@ fn builtinCall(
             } else if (str.len == 0) {
                 return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
             }
-            const result = try gz.addStrTok(.import, str.index, str_lit_token);
+            const result_ty = try ri.rl.resultType(gz, node) orelse .none;
+            const result = try gz.addPlNode(.import, node, Zir.Inst.Import{
+                .result_ty = result_ty,
+                .name = str.index,
+            });
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = str_lit_token;
