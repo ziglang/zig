@@ -17,6 +17,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -449,7 +450,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
             func.analysis(&mod.intern_pool).state = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -513,7 +514,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -550,7 +551,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };

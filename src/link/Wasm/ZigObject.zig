@@ -280,7 +280,7 @@ pub fn updateDecl(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -320,7 +320,7 @@ pub fn updateFunc(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -501,7 +501,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
         },
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return error.CodegenFail;
         },
     }
@@ -1255,4 +1255,5 @@ const Symbol = @import("Symbol.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
 const Wasm = @import("../Wasm.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

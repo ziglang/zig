@@ -2486,7 +2486,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
             crash_report.compilerPanic("unexpected compile error occurred", null, null);
         }
 
-        try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+        try mod.failed_analysis.ensureUnusedCapacity(gpa, 1);
         try mod.failed_files.ensureUnusedCapacity(gpa, 1);
 
         if (block) |start_block| {
@@ -2504,7 +2504,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
             const max_references = refs: {
                 if (mod.comp.reference_trace) |num| break :refs num;
                 // Do not add multiple traces without explicit request.
-                if (mod.failed_decls.count() > 0) break :ref;
+                if (mod.failed_analysis.count() > 0) break :ref;
                 break :refs default_reference_trace_len;
             };
 
@@ -2544,7 +2544,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
     if (sema.func_index != .none) {
         ip.funcAnalysis(sema.func_index).state = .sema_failure;
     }
-    const gop = mod.failed_decls.getOrPutAssumeCapacity(sema.owner_decl_index);
+    const gop = mod.failed_analysis.getOrPutAssumeCapacity(sema.ownerUnit());
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
         sema.err = null;
@@ -5823,11 +5823,7 @@ fn zirCompileLog(
     }
     try writer.print("\n", .{});
 
-    const decl_index = if (sema.func_index != .none)
-        mod.funcOwnerDeclIndex(sema.func_index)
-    else
-        sema.owner_decl_index;
-    const gop = try mod.compile_log_decls.getOrPut(sema.gpa, decl_index);
+    const gop = try mod.compile_log_sources.getOrPut(sema.gpa, sema.ownerUnit());
     if (!gop.found_existing) gop.value_ptr.* = .{
         .base_node_inst = block.src_base_inst,
         .node_offset = src_node,
@@ -5980,7 +5976,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             if (!comp.config.link_libc)
                 try sema.errNote(src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-            const gop = try mod.cimport_errors.getOrPut(gpa, sema.owner_decl_index);
+            const gop = try mod.cimport_errors.getOrPut(gpa, sema.ownerUnit());
             if (!gop.found_existing) {
                 gop.value_ptr.* = c_import_res.errors;
                 c_import_res.errors = std.zig.ErrorBundle.empty;
@@ -38487,10 +38483,7 @@ pub fn flushExports(sema: *Sema) !void {
     const zcu = sema.mod;
     const gpa = zcu.gpa;
 
-    const unit: AnalUnit = if (sema.owner_func_index != .none)
-        AnalUnit.wrap(.{ .func = sema.owner_func_index })
-    else
-        AnalUnit.wrap(.{ .decl = sema.owner_decl_index });
+    const unit = sema.ownerUnit();
 
     // There may be existing exports. For instance, a struct may export
     // things during both field type resolution and field default resolution.
@@ -38521,6 +38514,14 @@ pub fn flushExports(sema: *Sema) !void {
             .index = @intCast(exports_base),
             .len = @intCast(sema.exports.items.len),
         });
+    }
+}
+
+pub fn ownerUnit(sema: Sema) AnalUnit {
+    if (sema.owner_func_index != .none) {
+        return AnalUnit.wrap(.{ .func = sema.owner_func_index });
+    } else {
+        return AnalUnit.wrap(.{ .decl = sema.owner_decl_index });
     }
 }
 

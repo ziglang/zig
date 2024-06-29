@@ -218,7 +218,7 @@ pub const Object = struct {
 
         decl_gen.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
-                try mod.failed_decls.put(mod.gpa, decl_index, decl_gen.error_msg.?);
+                try mod.failed_analysis.put(mod.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), decl_gen.error_msg.?);
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg

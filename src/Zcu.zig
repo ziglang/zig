@@ -108,15 +108,11 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
-/// We optimize memory usage for a compilation with no compile errors by storing the
-/// error messages and mapping outside of `Decl`.
-/// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
-/// Note that a Decl can succeed but the Fn it represents can fail. In this case,
-/// a Decl can have a failed_decls entry but have analysis status of success.
-failed_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, *ErrorMsg) = .{},
-/// Keep track of one `@compileLog` callsite per owner Decl.
+/// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
+failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .{},
+/// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
-compile_log_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, extern struct {
+compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
     base_node_inst: InternPool.TrackedInst.Index,
     node_offset: i32,
     pub fn src(self: @This()) LazySrcLoc {
@@ -133,9 +129,9 @@ failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
 failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 /// Key is index into `all_exports`.
 failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
-/// If a decl failed due to a cimport error, the corresponding Clang errors
+/// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(Decl.Index, std.zig.ErrorBundle) = .{},
+cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
 
 /// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
 global_error_set: GlobalErrorSet = .{},
@@ -180,6 +176,7 @@ emit_h: ?*GlobalEmitH,
 
 test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
+/// TODO: the key here will be a `Cau.Index`.
 global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
 
 reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
@@ -371,9 +368,9 @@ pub const Decl = struct {
         /// successfully complete semantic analysis.
         dependency_failure,
         /// Semantic analysis failure.
-        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_analysis.
         sema_failure,
-        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_analysis.
         codegen_failure,
         /// Sematic analysis and constant value codegen of this Decl has
         /// succeeded. However, the Decl may be outdated due to an in-progress
@@ -1001,11 +998,6 @@ pub const EmbedFile = struct {
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
 /// Its memory is managed with the general purpose allocator so that they
 /// can be created and destroyed in response to incremental updates.
-/// In some cases, the File could have been inferred from where the ErrorMsg
-/// is stored. For example, if it is stored in Module.failed_decls, then the File
-/// would be determined by the Decl Scope. However, the data structure contains the field
-/// anyway so that `ErrorMsg` can be reused for error notes, which may be in a different
-/// file than the parent error message. It also simplifies processing of error messages.
 pub const ErrorMsg = struct {
     src_loc: SrcLoc,
     msg: []const u8,
@@ -2454,8 +2446,6 @@ pub fn deinit(zcu: *Zcu) void {
     for (zcu.import_table.keys()) |key| {
         gpa.free(key);
     }
-    var failed_decls = zcu.failed_decls;
-    zcu.failed_decls = .{};
     for (zcu.import_table.values()) |value| {
         value.destroy(zcu);
     }
@@ -2473,10 +2463,10 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.local_zir_cache.handle.close();
     zcu.global_zir_cache.handle.close();
 
-    for (failed_decls.values()) |value| {
+    for (zcu.failed_analysis.values()) |value| {
         value.destroy(gpa);
     }
-    failed_decls.deinit(gpa);
+    zcu.failed_analysis.deinit(gpa);
 
     if (zcu.emit_h) |emit_h| {
         for (emit_h.failed_decls.values()) |value| {
@@ -2507,7 +2497,7 @@ pub fn deinit(zcu: *Zcu) void {
     }
     zcu.cimport_errors.deinit(gpa);
 
-    zcu.compile_log_decls.deinit(gpa);
+    zcu.compile_log_sources.deinit(gpa);
 
     zcu.all_exports.deinit(gpa);
     zcu.free_exports.deinit(gpa);
@@ -3508,9 +3498,9 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             error.GenericPoison => unreachable,
             else => |e| {
                 decl.analysis = .sema_failure;
-                try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+                try mod.failed_analysis.ensureUnusedCapacity(mod.gpa, 1);
                 try mod.retryable_failures.append(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }));
-                mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
+                mod.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try ErrorMsg.create(
                     mod.gpa,
                     decl.navSrcLoc(mod).upgrade(mod),
                     "unable to analyze: {s}",
@@ -3683,9 +3673,9 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
         verify.verify() catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
-                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_decls.putAssumeCapacityNoClobber(
-                    decl_index,
+                try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_analysis.putAssumeCapacityNoClobber(
+                    AnalUnit.wrap(.{ .decl = decl_index }),
                     try Module.ErrorMsg.create(
                         gpa,
                         decl.navSrcLoc(zcu).upgrade(zcu),
@@ -3709,8 +3699,8 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
                 func.analysis(ip).state = .codegen_failure;
             },
             else => {
-                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
+                try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try Module.ErrorMsg.create(
                     gpa,
                     decl.navSrcLoc(zcu).upgrade(zcu),
                     "unable to codegen: {s}",
@@ -5647,8 +5637,8 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
             },
             else => {
                 const gpa = zcu.gpa;
-                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
+                try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try ErrorMsg.create(
                     gpa,
                     decl.navSrcLoc(zcu).upgrade(zcu),
                     "unable to codegen: {s}",

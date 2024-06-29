@@ -694,7 +694,7 @@ pub fn updateFunc(
         .ok => code_buffer.items,
         .fail => |em| {
             func.analysis(&mod.intern_pool).state = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -762,7 +762,7 @@ pub fn updateDecl(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -1105,7 +1105,7 @@ pub fn lowerUnnamedConst(
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -1596,4 +1596,5 @@ const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

@@ -2831,11 +2831,11 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         }
     }
 
-    if (comp.module) |module| {
-        total += module.failed_exports.count();
-        total += module.failed_embed_files.count();
+    if (comp.module) |zcu| {
+        total += zcu.failed_exports.count();
+        total += zcu.failed_embed_files.count();
 
-        for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
+        for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |_| {
                 total += 1;
             } else {
@@ -2851,23 +2851,27 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         // When a parse error is introduced, we keep all the semantic analysis for
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
-        for (module.failed_decls.keys()) |key| {
-            if (module.declFileScope(key).okToReportErrors()) {
+        for (zcu.failed_analysis.keys()) |key| {
+            const decl_index = switch (key.unwrap()) {
+                .decl => |d| d,
+                .func => |ip_index| zcu.funcInfo(ip_index).owner_decl,
+            };
+            if (zcu.declFileScope(decl_index).okToReportErrors()) {
                 total += 1;
-                if (module.cimport_errors.get(key)) |errors| {
+                if (zcu.cimport_errors.get(key)) |errors| {
                     total += errors.errorMessageCount();
                 }
             }
         }
-        if (module.emit_h) |emit_h| {
+        if (zcu.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                if (module.declFileScope(key).okToReportErrors()) {
+                if (zcu.declFileScope(key).okToReportErrors()) {
                     total += 1;
                 }
             }
         }
 
-        if (module.global_error_set.entries.len - 1 > module.error_limit) {
+        if (zcu.global_error_set.entries.len - 1 > zcu.error_limit) {
             total += 1;
         }
     }
@@ -2882,8 +2886,8 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
-        if (comp.module) |module| {
-            total += @intFromBool(module.compile_log_decls.count() != 0);
+        if (comp.module) |zcu| {
+            total += @intFromBool(zcu.compile_log_sources.count() != 0);
         }
     }
 
@@ -2934,10 +2938,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             .msg = try bundle.addString("memory allocation failure"),
         });
     }
-    if (comp.module) |module| {
-        for (module.failed_files.keys(), module.failed_files.values()) |file, error_msg| {
+    if (comp.module) |zcu| {
+        for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
-                try addModuleErrorMsg(module, &bundle, msg.*);
+                try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
                 // Must be ZIR errors. Note that this may include AST errors.
                 // addZirErrorMessages asserts that the tree is loaded.
@@ -2945,54 +2949,59 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 try addZirErrorMessages(&bundle, file);
             }
         }
-        for (module.failed_embed_files.values()) |error_msg| {
-            try addModuleErrorMsg(module, &bundle, error_msg.*);
+        for (zcu.failed_embed_files.values()) |error_msg| {
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        for (module.failed_decls.keys(), module.failed_decls.values()) |decl_index, error_msg| {
+        for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
+            const decl_index = switch (anal_unit.unwrap()) {
+                .decl => |d| d,
+                .func => |ip_index| zcu.funcInfo(ip_index).owner_decl,
+            };
+
             // Skip errors for Decls within files that had a parse failure.
             // We'll try again once parsing succeeds.
-            if (module.declFileScope(decl_index).okToReportErrors()) {
-                try addModuleErrorMsg(module, &bundle, error_msg.*);
-                if (module.cimport_errors.get(decl_index)) |errors| {
-                    for (errors.getMessages()) |err_msg_index| {
-                        const err_msg = errors.getErrorMessage(err_msg_index);
-                        try bundle.addRootErrorMessage(.{
-                            .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
-                            .src_loc = if (err_msg.src_loc != .none) blk: {
-                                const src_loc = errors.getSourceLocation(err_msg.src_loc);
-                                break :blk try bundle.addSourceLocation(.{
-                                    .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
-                                    .span_start = src_loc.span_start,
-                                    .span_main = src_loc.span_main,
-                                    .span_end = src_loc.span_end,
-                                    .line = src_loc.line,
-                                    .column = src_loc.column,
-                                    .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
-                                });
-                            } else .none,
-                        });
-                    }
+            if (!zcu.declFileScope(decl_index).okToReportErrors()) continue;
+
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
+            if (zcu.cimport_errors.get(anal_unit)) |errors| {
+                for (errors.getMessages()) |err_msg_index| {
+                    const err_msg = errors.getErrorMessage(err_msg_index);
+                    try bundle.addRootErrorMessage(.{
+                        .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
+                        .src_loc = if (err_msg.src_loc != .none) blk: {
+                            const src_loc = errors.getSourceLocation(err_msg.src_loc);
+                            break :blk try bundle.addSourceLocation(.{
+                                .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
+                                .span_start = src_loc.span_start,
+                                .span_main = src_loc.span_main,
+                                .span_end = src_loc.span_end,
+                                .line = src_loc.line,
+                                .column = src_loc.column,
+                                .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
+                            });
+                        } else .none,
+                    });
                 }
             }
         }
-        if (module.emit_h) |emit_h| {
+        if (zcu.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys(), emit_h.failed_decls.values()) |decl_index, error_msg| {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (module.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(module, &bundle, error_msg.*);
+                if (zcu.declFileScope(decl_index).okToReportErrors()) {
+                    try addModuleErrorMsg(zcu, &bundle, error_msg.*);
                 }
             }
         }
-        for (module.failed_exports.values()) |value| {
-            try addModuleErrorMsg(module, &bundle, value.*);
+        for (zcu.failed_exports.values()) |value| {
+            try addModuleErrorMsg(zcu, &bundle, value.*);
         }
 
-        const actual_error_count = module.global_error_set.entries.len - 1;
-        if (actual_error_count > module.error_limit) {
+        const actual_error_count = zcu.global_error_set.entries.len - 1;
+        if (actual_error_count > zcu.error_limit) {
             try bundle.addRootErrorMessage(.{
-                .msg = try bundle.printString("module used more errors than possible: used {d}, max {d}", .{
-                    actual_error_count, module.error_limit,
+                .msg = try bundle.printString("ZCU used more errors than possible: used {d}, max {d}", .{
+                    actual_error_count, zcu.error_limit,
                 }),
                 .notes_len = 1,
             });
@@ -3041,14 +3050,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     }
 
     if (comp.module) |zcu| {
-        if (bundle.root_list.items.len == 0 and zcu.compile_log_decls.count() != 0) {
-            const values = zcu.compile_log_decls.values();
+        if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
+            const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src().upgrade(zcu);
             const err_msg: Module.ErrorMsg = .{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
-                .notes = try gpa.alloc(Module.ErrorMsg, zcu.compile_log_decls.count() - 1),
+                .notes = try gpa.alloc(Module.ErrorMsg, zcu.compile_log_sources.count() - 1),
             };
             defer gpa.free(err_msg.notes);
 
@@ -3486,13 +3495,16 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             const decl = module.declPtr(decl_index);
             const lf = comp.bin_file.?;
             lf.updateDeclLineNumber(module, decl_index) catch |err| {
-                try module.failed_decls.ensureUnusedCapacity(gpa, 1);
-                module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
-                    gpa,
-                    decl.navSrcLoc(module).upgrade(module),
-                    "unable to update line number: {s}",
-                    .{@errorName(err)},
-                ));
+                try module.failed_analysis.ensureUnusedCapacity(gpa, 1);
+                module.failed_analysis.putAssumeCapacityNoClobber(
+                    InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
+                    try Module.ErrorMsg.create(
+                        gpa,
+                        decl.navSrcLoc(module).upgrade(module),
+                        "unable to update line number: {s}",
+                        .{@errorName(err)},
+                    ),
+                );
                 decl.analysis = .codegen_failure;
                 try module.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
             };

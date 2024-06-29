@@ -1689,7 +1689,7 @@ pub const Object = struct {
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try zcu.failed_decls.put(zcu.gpa, decl_index, dg.err_msg.?);
+                try zcu.failed_analysis.put(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
@@ -1710,7 +1710,7 @@ pub const Object = struct {
         dg.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try module.failed_decls.put(module.gpa, decl_index, dg.err_msg.?);
+                try module.failed_analysis.put(module.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
