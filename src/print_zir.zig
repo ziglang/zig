@@ -574,6 +574,7 @@ const Writer = struct {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .type_id,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.operand);
