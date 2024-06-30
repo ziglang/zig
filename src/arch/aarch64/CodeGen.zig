@@ -59,7 +59,7 @@ args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: u32,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 stack_align: u32,
 
 /// MIR Instructions
@@ -331,7 +331,7 @@ const Self = @This();
 
 pub fn generate(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,

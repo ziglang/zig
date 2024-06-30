@@ -439,7 +439,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -505,7 +505,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), val, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = new_atom_idx,
@@ -544,7 +544,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{ .none = {} }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
@@ -1027,7 +1027,7 @@ fn addDeclExports(
             {
                 try mod.failed_exports.put(mod.gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    mod.declPtr(decl_index).navSrcLoc(mod).upgrade(mod),
+                    mod.declPtr(decl_index).navSrcLoc(mod),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -1225,14 +1225,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     self.syms.items[self.getAtomPtr(atom_index).sym_index.?] = symbol;
 
     // generate the code
-    const src = if (sym.ty.srcLocOrNull(mod)) |src|
-        src.upgrade(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .base_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
         src,
@@ -1553,7 +1546,7 @@ pub fn lowerAnonDecl(
     self: *Plan9,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     _ = explicit_alignment;
     // This is basically the same as lowerUnnamedConst.

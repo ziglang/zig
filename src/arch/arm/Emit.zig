@@ -26,7 +26,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,

@@ -686,7 +686,7 @@ pub fn lowerAnonDecl(
     elf_file: *Elf,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = elf_file.base.comp.gpa;
     const mod = elf_file.base.comp.module.?;
@@ -1074,7 +1074,7 @@ pub fn updateFunc(
     const res = if (decl_state) |*ds|
         try codegen.generateFunction(
             &elf_file.base,
-            decl.navSrcLoc(mod).upgrade(mod),
+            decl.navSrcLoc(mod),
             func_index,
             air,
             liveness,
@@ -1084,7 +1084,7 @@ pub fn updateFunc(
     else
         try codegen.generateFunction(
             &elf_file.base,
-            decl.navSrcLoc(mod).upgrade(mod),
+            decl.navSrcLoc(mod),
             func_index,
             air,
             liveness,
@@ -1156,13 +1156,13 @@ pub fn updateDecl(
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .{
             .dwarf = ds,
         }, .{
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .none, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .none, .{
             .parent_atom_index = sym_index,
         });
 
@@ -1217,14 +1217,7 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (sym.ty.srcLocOrNull(mod)) |src|
-        src.upgrade(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .base_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &elf_file.base,
         src,
@@ -1302,7 +1295,7 @@ pub fn lowerUnnamedConst(
         val,
         ty.abiAlignment(mod),
         elf_file.zig_data_rel_ro_section_index.?,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
@@ -1329,7 +1322,7 @@ fn lowerConst(
     val: Value,
     required_alignment: InternPool.Alignment,
     output_section_index: u32,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = elf_file.base.comp.gpa;
 
@@ -1395,7 +1388,7 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = mod.all_exports.items[export_indices[0]];
-            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.getSrcLoc(mod));
+            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
@@ -1421,7 +1414,7 @@ pub fn updateExports(
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1436,7 +1429,7 @@ pub fn updateExports(
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: GlobalLinkage.LinkOnce",
                     .{},
                 ));

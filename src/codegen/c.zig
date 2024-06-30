@@ -637,7 +637,7 @@ pub const DeclGen = struct {
         const zcu = dg.zcu;
         const decl_index = dg.pass.decl;
         const decl = zcu.declPtr(decl_index);
-        const src_loc = decl.navSrcLoc(zcu).upgrade(zcu);
+        const src_loc = decl.navSrcLoc(zcu);
         dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }

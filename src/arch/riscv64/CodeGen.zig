@@ -59,7 +59,7 @@ args: []MCValue,
 ret_mcv: InstTracking,
 fn_type: Type,
 arg_index: usize,
-src_loc: Zcu.SrcLoc,
+src_loc: Zcu.LazySrcLoc,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -696,7 +696,7 @@ const CallView = enum(u1) {
 
 pub fn generate(
     bin_file: *link.File,
-    src_loc: Zcu.SrcLoc,
+    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,

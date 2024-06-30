@@ -8,7 +8,7 @@ allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
 err_msg: ?*ErrorMsg = null,
-src_loc: Zcu.SrcLoc,
+src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [

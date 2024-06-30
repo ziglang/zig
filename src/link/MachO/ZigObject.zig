@@ -572,7 +572,7 @@ pub fn lowerAnonDecl(
     macho_file: *MachO,
     decl_val: InternPool.Index,
     explicit_alignment: Atom.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
@@ -682,7 +682,7 @@ pub fn updateFunc(
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
     const res = try codegen.generateFunction(
         &macho_file.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -754,7 +754,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
-    const res = try codegen.generateSymbol(&macho_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, dio, .{
+    const res = try codegen.generateSymbol(&macho_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
     });
 
@@ -1100,7 +1100,7 @@ pub fn lowerUnnamedConst(
         val,
         val.typeOf(mod).abiAlignment(mod),
         macho_file.zig_const_sect_index.?,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
@@ -1127,7 +1127,7 @@ fn lowerConst(
     val: Value,
     required_alignment: Atom.Alignment,
     output_section_index: u8,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = macho_file.base.comp.gpa;
 
@@ -1196,7 +1196,7 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = mod.all_exports.items[export_indices[0]];
-            const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.getSrcLoc(mod));
+            const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
@@ -1221,7 +1221,7 @@ pub fn updateExports(
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1231,7 +1231,7 @@ pub fn updateExports(
         if (exp.opts.linkage == .link_once) {
             try mod.failed_exports.putNoClobber(mod.gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                exp.getSrcLoc(mod),
+                exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
@@ -1291,14 +1291,7 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (lazy_sym.ty.srcLocOrNull(mod)) |src|
-        src.upgrade(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .base_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = lazy_sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &macho_file.base,
         src,

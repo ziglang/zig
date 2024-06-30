@@ -269,7 +269,7 @@ pub fn updateDecl(
 
     const res = try codegen.generateSymbol(
         &wasm_file.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         val,
         &code_writer,
         .none,
@@ -308,7 +308,7 @@ pub fn updateFunc(
     defer code_writer.deinit();
     const result = try codegen.generateFunction(
         &wasm_file.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -439,7 +439,7 @@ pub fn lowerAnonDecl(
     wasm_file: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.anon_decls.getOrPut(gpa, decl_val);
@@ -494,7 +494,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     else
         decl.navSrcLoc(mod);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src.upgrade(mod))) {
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src)) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
@@ -512,7 +512,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.LazySrcLoc) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
 
@@ -882,7 +882,7 @@ pub fn updateExports(
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
             try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                decl.navSrcLoc(mod).upgrade(mod),
+                decl.navSrcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -915,7 +915,7 @@ pub fn updateExports(
             .link_once => {
                 try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    decl.navSrcLoc(mod).upgrade(mod),
+                    decl.navSrcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));

@@ -1144,7 +1144,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -1179,7 +1179,7 @@ pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclInd
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(sym_name);
     const ty = val.typeOf(mod);
-    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.navSrcLoc(mod).upgrade(mod))) {
+    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.navSrcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1197,7 +1197,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.LazySrcLoc) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1270,7 +1270,7 @@ pub fn updateDecl(
     defer code_buffer.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1309,14 +1309,7 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (sym.ty.srcLocOrNull(mod)) |src|
-        src.upgrade(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .base_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
         src,
@@ -1560,7 +1553,7 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = mod.all_exports.items[export_indices[0]];
-            const res = try self.lowerAnonDecl(value, .none, first_exp.getSrcLoc(mod));
+            const res = try self.lowerAnonDecl(value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
@@ -1585,7 +1578,7 @@ pub fn updateExports(
             if (!mem.eql(u8, section_name, ".text")) {
                 try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1596,7 +1589,7 @@ pub fn updateExports(
         if (exp.opts.linkage == .link_once) {
             try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                exp.getSrcLoc(mod),
+                exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
@@ -1867,7 +1860,7 @@ pub fn lowerAnonDecl(
     self: *Coff,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;

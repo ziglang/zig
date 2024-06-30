@@ -3228,7 +3228,7 @@ pub fn lowerAnonDecl(
     self: *MachO,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }

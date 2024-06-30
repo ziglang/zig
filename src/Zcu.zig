@@ -289,10 +289,6 @@ pub const Export = struct {
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
     };
-
-    pub fn getSrcLoc(exp: Export, mod: *Module) SrcLoc {
-        return exp.src.upgrade(mod);
-    }
 };
 
 pub const Reference = struct {
@@ -746,7 +742,10 @@ pub const File = struct {
     /// A single reference to a file.
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
-        import: SrcLoc,
+        import: struct {
+            file: *File,
+            token: Ast.TokenIndex,
+        },
         /// The file is the root of a module.
         root: *Package.Module,
     };
@@ -900,7 +899,7 @@ pub const File = struct {
     }
 
     /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, mod: Module, ref: File.Reference) !void {
+    pub fn addReference(file: *File, zcu: Zcu, ref: File.Reference) !void {
         // Don't add the same module root twice. Note that since we always add module roots at the
         // front of the references array (see below), this loop is actually O(1) on valid code.
         if (ref == .root) {
@@ -917,17 +916,17 @@ pub const File = struct {
             // to make multi-module errors more helpful (since "root-of" notes are generally more
             // informative than "imported-from" notes). This path is hit very rarely, so the speed
             // of the insert operation doesn't matter too much.
-            .root => try file.references.insert(mod.gpa, 0, ref),
+            .root => try file.references.insert(zcu.gpa, 0, ref),
 
             // Other references we'll just put at the end.
-            else => try file.references.append(mod.gpa, ref),
+            else => try file.references.append(zcu.gpa, ref),
         }
 
-        const pkg = switch (ref) {
-            .import => |loc| loc.file_scope.mod,
-            .root => |pkg| pkg,
+        const mod = switch (ref) {
+            .import => |import| import.file.mod,
+            .root => |mod| mod,
         };
-        if (pkg != file.mod) file.multi_pkg = true;
+        if (mod != file.mod) file.multi_pkg = true;
     }
 
     /// Mark this file and every file referenced by it as multi_pkg and report an
@@ -967,30 +966,25 @@ pub const EmbedFile = struct {
     owner: *Package.Module,
     stat: Cache.File.Stat,
     val: InternPool.Index,
-    src_loc: SrcLoc,
+    src_loc: LazySrcLoc,
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
 /// Its memory is managed with the general purpose allocator so that they
 /// can be created and destroyed in response to incremental updates.
 pub const ErrorMsg = struct {
-    src_loc: SrcLoc,
+    src_loc: LazySrcLoc,
     msg: []const u8,
     notes: []ErrorMsg = &.{},
     reference_trace_root: AnalUnit.Optional = .none,
 
-    pub const Trace = struct {
-        decl: InternPool.NullTerminatedString,
-        src_loc: SrcLoc,
-    };
-
     pub fn create(
         gpa: Allocator,
-        src_loc: SrcLoc,
+        src_loc: LazySrcLoc,
         comptime format: []const u8,
         args: anytype,
     ) !*ErrorMsg {
-        assert(src_loc.lazy != .unneeded);
+        assert(src_loc.offset != .unneeded);
         const err_msg = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(err_msg);
         err_msg.* = try ErrorMsg.init(gpa, src_loc, format, args);
@@ -1006,7 +1000,7 @@ pub const ErrorMsg = struct {
 
     pub fn init(
         gpa: Allocator,
-        src_loc: SrcLoc,
+        src_loc: LazySrcLoc,
         comptime format: []const u8,
         args: anytype,
     ) !ErrorMsg {
@@ -1994,15 +1988,12 @@ pub const LazySrcLoc = struct {
         entire_file,
         /// The source location points to a byte offset within a source file,
         /// offset from 0. The source file is determined contextually.
-        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
         byte_abs: u32,
         /// The source location points to a token within a source file,
         /// offset from 0. The source file is determined contextually.
-        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
         token_abs: u32,
         /// The source location points to an AST node within a source file,
         /// offset from 0. The source file is determined contextually.
-        /// Inside a `SrcLoc`, the `file_scope` union field will be active.
         node_abs: u32,
         /// The source location points to a byte offset within a source file,
         /// offset from the byte offset of the base node within the file.
@@ -2373,8 +2364,7 @@ pub const LazySrcLoc = struct {
     }
 
     /// Resolve the file and AST node of `base_node_inst` to get a resolved `SrcLoc`.
-    /// TODO: it is incorrect to store a `SrcLoc` anywhere due to incremental compilation.
-    /// Probably the type should be removed entirely and this resolution performed on-the-fly when needed.
+    /// The resulting `SrcLoc` should only be used ephemerally, as it is not correct across incremental updates.
     pub fn upgrade(lazy: LazySrcLoc, zcu: *Zcu) SrcLoc {
         const file, const base_node = resolveBaseNode(lazy.base_node_inst, zcu);
         return .{
@@ -3478,7 +3468,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 try mod.retryable_failures.append(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }));
                 mod.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try ErrorMsg.create(
                     mod.gpa,
-                    decl.navSrcLoc(mod).upgrade(mod),
+                    decl.navSrcLoc(mod),
                     "unable to analyze: {s}",
                     .{@errorName(e)},
                 ));
@@ -3655,7 +3645,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
                     AnalUnit.wrap(.{ .decl = decl_index }),
                     try Module.ErrorMsg.create(
                         gpa,
-                        decl.navSrcLoc(zcu).upgrade(zcu),
+                        decl.navSrcLoc(zcu),
                         "invalid liveness: {s}",
                         .{@errorName(err)},
                     ),
@@ -3679,7 +3669,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try Module.ErrorMsg.create(
                     gpa,
-                    decl.navSrcLoc(zcu).upgrade(zcu),
+                    decl.navSrcLoc(zcu),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
@@ -4480,7 +4470,7 @@ pub fn embedFile(
     mod: *Module,
     cur_file: *File,
     import_string: []const u8,
-    src_loc: SrcLoc,
+    src_loc: LazySrcLoc,
 ) !InternPool.Index {
     const gpa = mod.gpa;
 
@@ -4555,7 +4545,7 @@ fn newEmbedFile(
     sub_file_path: []const u8,
     resolved_path: []const u8,
     result: **EmbedFile,
-    src_loc: SrcLoc,
+    src_loc: LazySrcLoc,
 ) !InternPool.Index {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
@@ -5320,17 +5310,13 @@ pub fn initNewAnonDecl(
     new_decl.analysis = .complete;
 }
 
-pub fn errNoteNonLazy(
+pub fn errNote(
     mod: *Module,
-    src_loc: SrcLoc,
+    src_loc: LazySrcLoc,
     parent: *ErrorMsg,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    if (src_loc.lazy == .unneeded) {
-        assert(parent.src_loc.lazy == .unneeded);
-        return;
-    }
     const msg = try std.fmt.allocPrint(mod.gpa, format, args);
     errdefer mod.gpa.free(msg);
 
@@ -5458,14 +5444,12 @@ fn processExportsInner(
         if (gop.found_existing) {
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const src_loc = new_export.getSrcLoc(zcu);
-            const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
+            const msg = try ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {}", .{
                 new_export.opts.name.fmt(&zcu.intern_pool),
             });
             errdefer msg.destroy(gpa);
             const other_export = zcu.all_exports.items[gop.value_ptr.*];
-            const other_src_loc = other_export.getSrcLoc(zcu);
-            try zcu.errNoteNonLazy(other_src_loc, msg, "other symbol here", .{});
+            try zcu.errNote(other_export.src, msg, "other symbol here", .{});
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
             new_export.status = .failed;
         } else {
@@ -5493,8 +5477,7 @@ fn handleUpdateExports(
             const new_export = &zcu.all_exports.items[export_idx];
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const src_loc = new_export.getSrcLoc(zcu);
-            const msg = try ErrorMsg.create(gpa, src_loc, "unable to export: {s}", .{
+            const msg = try ErrorMsg.create(gpa, new_export.src, "unable to export: {s}", .{
                 @errorName(err),
             });
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
@@ -5658,7 +5641,7 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try ErrorMsg.create(
                     gpa,
-                    decl.navSrcLoc(zcu).upgrade(zcu),
+                    decl.navSrcLoc(zcu),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
@@ -5685,9 +5668,8 @@ fn reportRetryableFileError(
     const err_msg = try ErrorMsg.create(
         mod.gpa,
         .{
-            .file_scope = file,
-            .base_node = 0,
-            .lazy = .entire_file,
+            .base_node_inst = try mod.intern_pool.trackZir(mod.gpa, file, .main_struct_inst),
+            .offset = .entire_file,
         },
         format,
         args,

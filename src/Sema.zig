@@ -2425,8 +2425,7 @@ pub fn errNote(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const zcu = sema.mod;
-    return zcu.errNoteNonLazy(src.upgrade(zcu), parent, format, args);
+    return sema.mod.errNote(src, parent, format, args);
 }
 
 fn addFieldErrNote(
@@ -2454,7 +2453,7 @@ pub fn errMsg(
     args: anytype,
 ) Allocator.Error!*Module.ErrorMsg {
     assert(src.offset != .unneeded);
-    return Module.ErrorMsg.create(sema.gpa, src.upgrade(sema.mod), format, args);
+    return Module.ErrorMsg.create(sema.gpa, src, format, args);
 }
 
 pub fn fail(
@@ -2542,7 +2541,6 @@ fn reparentOwnedErrorMsg(
     args: anytype,
 ) !void {
     const mod = sema.mod;
-    const resolved_src = src.upgrade(mod);
     const msg_str = try std.fmt.allocPrint(mod.gpa, format, args);
 
     const orig_notes = msg.notes.len;
@@ -2553,7 +2551,7 @@ fn reparentOwnedErrorMsg(
         .msg = msg.msg,
     };
 
-    msg.src_loc = resolved_src;
+    msg.src_loc = src;
     msg.msg = msg_str;
 }
 
@@ -13883,7 +13881,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.fail(block, operand_src, "file path name cannot be empty", .{});
     }
 
-    const val = mod.embedFile(block.getFileScope(mod), name, operand_src.upgrade(mod)) catch |err| switch (err) {
+    const val = mod.embedFile(block.getFileScope(mod), name, operand_src) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },

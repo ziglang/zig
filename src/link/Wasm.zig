@@ -1533,7 +1533,7 @@ pub fn lowerAnonDecl(
     wasm: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, decl_val, explicit_alignment, src_loc);
 }

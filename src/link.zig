@@ -646,7 +646,7 @@ pub const File = struct {
         base: *File,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
-        src_loc: Module.SrcLoc,
+        src_loc: Module.LazySrcLoc,
     ) !LowerResult {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
