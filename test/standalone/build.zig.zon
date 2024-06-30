@@ -170,6 +170,9 @@
         .run_output_paths = .{
             .path = "run_output_paths",
         },
+        .x86_cpu_model = .{
+            .path = "x86_cpu_model",
+        },
     },
     .paths = .{
         "build.zig",
