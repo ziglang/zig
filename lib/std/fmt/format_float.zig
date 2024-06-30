@@ -1521,15 +1521,13 @@ fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
     const s = try formatFloat(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
 
-    if (@bitSizeOf(T) != 80) {
-        const o = try std.fmt.parseFloat(T, s);
-        const o_bits: I = @bitCast(o);
+    const o = try std.fmt.parseFloat(T, s);
+    const o_bits: I = @bitCast(o);
 
-        if (std.math.isNan(value)) {
-            try std.testing.expect(std.math.isNan(o));
-        } else {
-            try std.testing.expectEqual(value_bits, o_bits);
-        }
+    if (std.math.isNan(value)) {
+        try std.testing.expect(std.math.isNan(o));
+    } else {
+        try std.testing.expectEqual(value_bits, o_bits);
     }
 }
 
