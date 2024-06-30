@@ -119,3 +119,15 @@ usingnamespace @Type(.{ .Struct = .{
     .decls = &.{},
     .is_tuple = false,
 } });
+
+pub const Recursion = struct {
+    usingnamespace struct {};
+
+    pub fn foo() void {
+        _ = Recursion.foo;
+    }
+};
+
+test "method is visible to itself when struct includes usingnamespace" {
+    Recursion.foo();
+}
