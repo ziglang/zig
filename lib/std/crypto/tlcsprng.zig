@@ -73,7 +73,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
     // std.crypto.random always make an OS syscall, rather than rely on an
     // application implementation of a CSPRNG.
     if (std.options.crypto_always_getrandom) {
-        return defaultRandomSeed(buffer);
+        return std.options.cryptoRandomSeed(buffer);
     }
 
     if (wipe_mem.len == 0) {
