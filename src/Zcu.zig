@@ -268,6 +268,20 @@ pub const Exported = union(enum) {
     decl_index: Decl.Index,
     /// Constant value being exported.
     value: InternPool.Index,
+
+    pub fn getValue(exported: Exported, zcu: *Zcu) Value {
+        return switch (exported) {
+            .decl_index => |decl_index| zcu.declPtr(decl_index).val,
+            .value => |value| Value.fromInterned(value),
+        };
+    }
+
+    pub fn getAlign(exported: Exported, zcu: *Zcu) Alignment {
+        return switch (exported) {
+            .decl_index => |decl_index| zcu.declPtr(decl_index).alignment,
+            .value => .none,
+        };
+    }
 };
 
 pub const Export = struct {

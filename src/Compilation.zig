@@ -3466,6 +3466,9 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             };
         },
         .emit_h_decl => |decl_index| {
+            if (true) @panic("regressed compiler feature: emit-h should hook into updateExports, " ++
+                "not decl analysis, which is too early to know about @export calls");
+
             const module = comp.module.?;
             const decl = module.declPtr(decl_index);
 

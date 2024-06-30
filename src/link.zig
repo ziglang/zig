@@ -679,7 +679,6 @@ pub const File = struct {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .plan9,
-            .c,
             .spirv,
             .nvptx,
             => {},

@@ -207,16 +207,16 @@ typedef char bool;
     __asm(zig_mangle_c(name) " = " zig_mangle_c(symbol))
 #endif
 
+#define zig_mangled_tentative zig_mangled
+#define zig_mangled_final zig_mangled
 #if _MSC_VER
-#define zig_mangled_tentative(mangled, unmangled)
-#define zig_mangled_final(mangled, unmangled) ; \
+#define zig_mangled(mangled, unmangled) ; \
     zig_export(#mangled, unmangled)
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_export(unmangled, #mangled) \
     zig_export(symbol, unmangled)
 #else /* _MSC_VER */
-#define zig_mangled_tentative(mangled, unmangled) __asm(zig_mangle_c(unmangled))
-#define zig_mangled_final(mangled, unmangled) zig_mangled_tentative(mangled, unmangled)
+#define zig_mangled(mangled, unmangled) __asm(zig_mangle_c(unmangled))
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_mangled_final(mangled, unmangled) \
     zig_export(symbol, unmangled)

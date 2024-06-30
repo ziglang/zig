@@ -731,8 +731,6 @@ pub const DeclGen = struct {
         if (decl.val.getExternFunc(zcu)) |extern_func| if (extern_func.decl != decl_index)
             return dg.renderDeclValue(writer, extern_func.decl, location);
 
-        if (decl.val.getVariable(zcu)) |variable| try dg.renderFwdDecl(decl_index, variable, .tentative);
-
         // We shouldn't cast C function pointers as this is UB (when you call
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
@@ -748,7 +746,7 @@ pub const DeclGen = struct {
             try writer.writeByte(')');
         }
         try writer.writeByte('&');
-        try dg.renderDeclName(writer, decl_index, 0);
+        try dg.renderDeclName(writer, decl_index);
         if (need_cast) try writer.writeByte(')');
     }
 
@@ -1765,19 +1763,22 @@ pub const DeclGen = struct {
     fn renderFunctionSignature(
         dg: *DeclGen,
         w: anytype,
-        fn_decl_index: InternPool.DeclIndex,
+        fn_val: Value,
+        fn_align: InternPool.Alignment,
         kind: CType.Kind,
         name: union(enum) {
-            export_index: u32,
-            ident: []const u8,
+            decl: InternPool.DeclIndex,
             fmt_ctype_pool_string: std.fmt.Formatter(formatCTypePoolString),
+            @"export": struct {
+                main_name: InternPool.NullTerminatedString,
+                extern_name: InternPool.NullTerminatedString,
+            },
         },
     ) !void {
         const zcu = dg.zcu;
         const ip = &zcu.intern_pool;
 
-        const fn_decl = zcu.declPtr(fn_decl_index);
-        const fn_ty = fn_decl.typeOf(zcu);
+        const fn_ty = fn_val.typeOf(zcu);
         const fn_ctype = try dg.ctypeFromType(fn_ty, kind);
 
         const fn_info = zcu.typeToFunc(fn_ty).?;
@@ -1788,7 +1789,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_decl.val.getFunction(zcu)) |func| if (func.analysis(ip).is_cold)
+        if (fn_val.getFunction(zcu)) |func| if (func.analysis(ip).is_cold)
             try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
@@ -1799,22 +1800,11 @@ pub const DeclGen = struct {
             trailing = .maybe_space;
         }
 
-        switch (kind) {
-            .forward => {},
-            .complete => if (fn_decl.alignment.toByteUnits()) |a| {
-                try w.print("{}zig_align_fn({})", .{ trailing, a });
-                trailing = .maybe_space;
-            },
-            else => unreachable,
-        }
-
+        try w.print("{}", .{trailing});
         switch (name) {
-            .export_index => |export_index| {
-                try w.print("{}", .{trailing});
-                try dg.renderDeclName(w, fn_decl_index, export_index);
-            },
-            .ident => |ident| try w.print("{}{ }", .{ trailing, fmtIdent(ident) }),
-            .fmt_ctype_pool_string => |fmt| try w.print("{}{ }", .{ trailing, fmt }),
+            .decl => |decl_index| try dg.renderDeclName(w, decl_index),
+            .fmt_ctype_pool_string => |fmt| try w.print("{ }", .{fmt}),
+            .@"export" => |@"export"| try w.print("{ }", .{fmtIdent(@"export".extern_name.toSlice(ip))}),
         }
 
         try renderTypeSuffix(
@@ -1833,44 +1823,30 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {
-                if (fn_decl.alignment.toByteUnits()) |a| {
-                    try w.print(" zig_align_fn({})", .{a});
-                }
+                if (fn_align.toByteUnits()) |a| try w.print(" zig_align_fn({})", .{a});
                 switch (name) {
-                    .export_index => |export_index| mangled: {
-                        const maybe_exports = zcu.decl_exports.get(fn_decl_index);
-                        const external_name = (if (maybe_exports) |exports|
-                            exports.items[export_index].opts.name
-                        else if (fn_decl.isExtern(zcu))
-                            fn_decl.name
-                        else
-                            break :mangled).toSlice(ip);
-                        const is_mangled = isMangledIdent(external_name, true);
-                        const is_export = export_index > 0;
+                    .decl, .fmt_ctype_pool_string => {},
+                    .@"export" => |@"export"| {
+                        const extern_name = @"export".extern_name.toSlice(ip);
+                        const is_mangled = isMangledIdent(extern_name, true);
+                        const is_export = @"export".extern_name != @"export".main_name;
                         if (is_mangled and is_export) {
                             try w.print(" zig_mangled_export({ }, {s}, {s})", .{
-                                fmtIdent(external_name),
-                                fmtStringLiteral(external_name, null),
-                                fmtStringLiteral(
-                                    maybe_exports.?.items[0].opts.name.toSlice(ip),
-                                    null,
-                                ),
+                                fmtIdent(extern_name),
+                                fmtStringLiteral(extern_name, null),
+                                fmtStringLiteral(@"export".main_name.toSlice(ip), null),
                             });
                         } else if (is_mangled) {
-                            try w.print(" zig_mangled_final({ }, {s})", .{
-                                fmtIdent(external_name), fmtStringLiteral(external_name, null),
+                            try w.print(" zig_mangled({ }, {s})", .{
+                                fmtIdent(extern_name), fmtStringLiteral(extern_name, null),
                             });
                         } else if (is_export) {
                             try w.print(" zig_export({s}, {s})", .{
-                                fmtStringLiteral(
-                                    maybe_exports.?.items[0].opts.name.toSlice(ip),
-                                    null,
-                                ),
-                                fmtStringLiteral(external_name, null),
+                                fmtStringLiteral(@"export".main_name.toSlice(ip), null),
+                                fmtStringLiteral(extern_name, null),
                             });
                         }
                     },
-                    .ident, .fmt_ctype_pool_string => {},
                 }
             },
             .complete => {},
@@ -2085,21 +2061,11 @@ pub const DeclGen = struct {
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, dg.zcu, w, ctype, .suffix, .{});
     }
 
-    fn declIsGlobal(dg: *DeclGen, val: Value) bool {
-        const zcu = dg.zcu;
-        return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
-            .variable => |variable| zcu.decl_exports.contains(variable.decl),
-            .extern_func => true,
-            .func => |func| zcu.decl_exports.contains(func.owner_decl),
-            else => unreachable,
-        };
-    }
-
     fn writeName(dg: *DeclGen, w: anytype, c_value: CValue) !void {
         switch (c_value) {
             .new_local, .local => |i| try w.print("t{d}", .{i}),
             .constant => |val| try renderAnonDeclName(w, val),
-            .decl => |decl| try dg.renderDeclName(w, decl, 0),
+            .decl => |decl| try dg.renderDeclName(w, decl),
             .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
             else => unreachable,
         }
@@ -2111,10 +2077,10 @@ pub const DeclGen = struct {
             .constant => |val| try renderAnonDeclName(w, val),
             .arg, .arg_array => unreachable,
             .field => |i| try w.print("f{d}", .{i}),
-            .decl => |decl| try dg.renderDeclName(w, decl, 0),
+            .decl => |decl| try dg.renderDeclName(w, decl),
             .decl_ref => |decl| {
                 try w.writeByte('&');
-                try dg.renderDeclName(w, decl, 0);
+                try dg.renderDeclName(w, decl);
             },
             .undef => |ty| try dg.renderUndefValue(w, ty, .Other),
             .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
@@ -2142,10 +2108,10 @@ pub const DeclGen = struct {
             .field => |i| try w.print("f{d}", .{i}),
             .decl => |decl| {
                 try w.writeAll("(*");
-                try dg.renderDeclName(w, decl, 0);
+                try dg.renderDeclName(w, decl);
                 try w.writeByte(')');
             },
-            .decl_ref => |decl| try dg.renderDeclName(w, decl, 0),
+            .decl_ref => |decl| try dg.renderDeclName(w, decl),
             .undef => unreachable,
             .identifier => |ident| try w.print("(*{ })", .{fmtIdent(ident)}),
             .payload_identifier => |ident| try w.print("(*{ }.{ })", .{
@@ -2195,19 +2161,12 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         decl_index: InternPool.DeclIndex,
         variable: InternPool.Key.Variable,
-        fwd_kind: enum { tentative, final },
     ) !void {
         const zcu = dg.zcu;
         const decl = zcu.declPtr(decl_index);
         const fwd = dg.fwdDeclWriter();
-        const is_global = variable.is_extern or dg.declIsGlobal(decl.val);
-        try fwd.writeAll(if (is_global) "zig_extern " else "static ");
-        const maybe_exports = zcu.decl_exports.get(decl_index);
-        const export_weak_linkage = if (maybe_exports) |exports|
-            exports.items[0].opts.linkage == .weak
-        else
-            false;
-        if (variable.is_weak_linkage or export_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
+        try fwd.writeAll(if (variable.is_extern) "zig_extern " else "static ");
+        if (variable.is_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
         if (variable.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
@@ -2217,38 +2176,17 @@ pub const DeclGen = struct {
             decl.alignment,
             .complete,
         );
-        mangled: {
-            const external_name = (if (maybe_exports) |exports|
-                exports.items[0].opts.name
-            else if (variable.is_extern)
-                decl.name
-            else
-                break :mangled).toSlice(&zcu.intern_pool);
-            if (isMangledIdent(external_name, true)) {
-                try fwd.print(" zig_mangled_{s}({ }, {s})", .{
-                    @tagName(fwd_kind),
-                    fmtIdent(external_name),
-                    fmtStringLiteral(external_name, null),
-                });
-            }
-        }
         try fwd.writeAll(";\n");
     }
 
-    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex, export_index: u32) !void {
+    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex) !void {
         const zcu = dg.zcu;
         const ip = &zcu.intern_pool;
         const decl = zcu.declPtr(decl_index);
 
-        if (zcu.decl_exports.get(decl_index)) |exports| {
-            try writer.print("{ }", .{
-                fmtIdent(exports.items[export_index].opts.name.toSlice(ip)),
-            });
-        } else if (decl.getExternDecl(zcu).unwrap()) |extern_decl_index| {
-            try writer.print("{ }", .{
-                fmtIdent(zcu.declPtr(extern_decl_index).name.toSlice(ip)),
-            });
-        } else {
+        if (decl.getExternDecl(zcu).unwrap()) |extern_decl_index| try writer.print("{ }", .{
+            fmtIdent(zcu.declPtr(extern_decl_index).name.toSlice(ip)),
+        }) else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
             var name: [100]u8 = undefined;
@@ -2761,69 +2699,6 @@ pub fn genErrDecls(o: *Object) !void {
     try writer.writeAll("};\n");
 }
 
-fn genExports(o: *Object) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const zcu = o.dg.zcu;
-    const ip = &zcu.intern_pool;
-    const decl_index = switch (o.dg.pass) {
-        .decl => |decl| decl,
-        .anon, .flush => return,
-    };
-    const decl = zcu.declPtr(decl_index);
-    const fwd = o.dg.fwdDeclWriter();
-
-    const exports = zcu.decl_exports.get(decl_index) orelse return;
-    if (exports.items.len < 2) return;
-
-    const is_variable_const = switch (ip.indexToKey(decl.val.toIntern())) {
-        .func => return for (exports.items[1..], 1..) |@"export", i| {
-            try fwd.writeAll("zig_extern ");
-            if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
-            try o.dg.renderFunctionSignature(
-                fwd,
-                decl_index,
-                .forward,
-                .{ .export_index = @intCast(i) },
-            );
-            try fwd.writeAll(";\n");
-        },
-        .extern_func => {
-            // TODO: when sema allows re-exporting extern decls
-            unreachable;
-        },
-        .variable => |variable| variable.is_const,
-        else => true,
-    };
-    for (exports.items[1..]) |@"export"| {
-        try fwd.writeAll("zig_extern ");
-        if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
-        const export_name = @"export".opts.name.toSlice(ip);
-        try o.dg.renderTypeAndName(
-            fwd,
-            decl.typeOf(zcu),
-            .{ .identifier = export_name },
-            CQualifiers.init(.{ .@"const" = is_variable_const }),
-            decl.alignment,
-            .complete,
-        );
-        if (isMangledIdent(export_name, true)) {
-            try fwd.print(" zig_mangled_export({ }, {s}, {s})", .{
-                fmtIdent(export_name),
-                fmtStringLiteral(export_name, null),
-                fmtStringLiteral(exports.items[0].opts.name.toSlice(ip), null),
-            });
-        } else {
-            try fwd.print(" zig_export({s}, {s})", .{
-                fmtStringLiteral(exports.items[0].opts.name.toSlice(ip), null),
-                fmtStringLiteral(export_name, null),
-            });
-        }
-        try fwd.writeAll(";\n");
-    }
-}
-
 pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFnMap.Entry) !void {
     const zcu = o.dg.zcu;
     const ip = &zcu.intern_pool;
@@ -2885,19 +2760,19 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             const fn_info = fn_ctype.info(ctype_pool).function;
             const fn_name = fmtCTypePoolString(val.fn_name, lazy_ctype_pool);
 
-            const fwd_decl_writer = o.dg.fwdDeclWriter();
-            try fwd_decl_writer.print("static zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(fwd_decl_writer, fn_decl_index, .forward, .{
+            const fwd = o.dg.fwdDeclWriter();
+            try fwd.print("static zig_{s} ", .{@tagName(key)});
+            try o.dg.renderFunctionSignature(fwd, fn_decl.val, fn_decl.alignment, .forward, .{
                 .fmt_ctype_pool_string = fn_name,
             });
-            try fwd_decl_writer.writeAll(";\n");
+            try fwd.writeAll(";\n");
 
-            try w.print("static zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(w, fn_decl_index, .complete, .{
+            try w.print("zig_{s} ", .{@tagName(key)});
+            try o.dg.renderFunctionSignature(w, fn_decl.val, .none, .complete, .{
                 .fmt_ctype_pool_string = fn_name,
             });
             try w.writeAll(" {\n return ");
-            try o.dg.renderDeclName(w, fn_decl_index, 0);
+            try o.dg.renderDeclName(w, fn_decl_index);
             try w.writeByte('(');
             for (0..fn_info.param_ctypes.len) |arg| {
                 if (arg > 0) try w.writeAll(", ");
@@ -2921,21 +2796,26 @@ pub fn genFunc(f: *Function) !void {
     o.code_header = std.ArrayList(u8).init(gpa);
     defer o.code_header.deinit();
 
-    const is_global = o.dg.declIsGlobal(decl.val);
-    const fwd_decl_writer = o.dg.fwdDeclWriter();
-    try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
+    const fwd = o.dg.fwdDeclWriter();
+    try fwd.writeAll("static ");
+    try o.dg.renderFunctionSignature(
+        fwd,
+        decl.val,
+        decl.alignment,
+        .forward,
+        .{ .decl = decl_index },
+    );
+    try fwd.writeAll(";\n");
 
-    if (zcu.decl_exports.get(decl_index)) |exports|
-        if (exports.items[0].opts.linkage == .weak) try fwd_decl_writer.writeAll("zig_weak_linkage_fn ");
-    try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
-    try fwd_decl_writer.writeAll(";\n");
-    try genExports(o);
-
-    try o.indent_writer.insertNewline();
-    if (!is_global) try o.writer().writeAll("static ");
     if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
         try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
-    try o.dg.renderFunctionSignature(o.writer(), decl_index, .complete, .{ .export_index = 0 });
+    try o.dg.renderFunctionSignature(
+        o.writer(),
+        decl.val,
+        .none,
+        .complete,
+        .{ .decl = decl_index },
+    );
     try o.writer().writeByte(' ');
 
     // In case we need to use the header, populate it with a copy of the function
@@ -2949,7 +2829,6 @@ pub fn genFunc(f: *Function) !void {
 
     const main_body = f.air.getMainBody();
     try genBodyResolveState(f, undefined, &.{}, main_body, false);
-
     try o.indent_writer.insertNewline();
 
     // Take advantage of the free_locals map to bucket locals per type. All
@@ -3007,20 +2886,25 @@ pub fn genDecl(o: *Object) !void {
 
     if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) return;
     if (decl.val.getExternFunc(zcu)) |_| {
-        const fwd_decl_writer = o.dg.fwdDeclWriter();
-        try fwd_decl_writer.writeAll("zig_extern ");
-        try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
-        try fwd_decl_writer.writeAll(";\n");
-        try genExports(o);
+        const fwd = o.dg.fwdDeclWriter();
+        try fwd.writeAll("zig_extern ");
+        try o.dg.renderFunctionSignature(
+            fwd,
+            decl.val,
+            decl.alignment,
+            .forward,
+            .{ .@"export" = .{
+                .main_name = decl.name,
+                .extern_name = decl.name,
+            } },
+        );
+        try fwd.writeAll(";\n");
     } else if (decl.val.getVariable(zcu)) |variable| {
-        try o.dg.renderFwdDecl(decl_index, variable, .final);
-        try genExports(o);
+        try o.dg.renderFwdDecl(decl_index, variable);
 
         if (variable.is_extern) return;
 
-        const is_global = variable.is_extern or o.dg.declIsGlobal(decl.val);
         const w = o.writer();
-        if (!is_global) try w.writeAll("static ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
         if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
         if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
@@ -3032,46 +2916,27 @@ pub fn genDecl(o: *Object) !void {
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
-        const is_global = o.dg.zcu.decl_exports.contains(decl_index);
         const decl_c_value = .{ .decl = decl_index };
-        try genDeclValue(o, decl.val, is_global, decl_c_value, decl.alignment, decl.@"linksection");
+        try genDeclValue(o, decl.val, decl_c_value, decl.alignment, decl.@"linksection");
     }
 }
 
 pub fn genDeclValue(
     o: *Object,
     val: Value,
-    is_global: bool,
     decl_c_value: CValue,
     alignment: Alignment,
     @"linksection": InternPool.OptionalNullTerminatedString,
 ) !void {
     const zcu = o.dg.zcu;
-    const fwd_decl_writer = o.dg.fwdDeclWriter();
-
     const ty = val.typeOf(zcu);
 
-    try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-    try o.dg.renderTypeAndName(fwd_decl_writer, ty, decl_c_value, Const, alignment, .complete);
-    switch (o.dg.pass) {
-        .decl => |decl_index| {
-            if (zcu.decl_exports.get(decl_index)) |exports| {
-                const export_name = exports.items[0].opts.name.toSlice(&zcu.intern_pool);
-                if (isMangledIdent(export_name, true)) {
-                    try fwd_decl_writer.print(" zig_mangled_final({ }, {s})", .{
-                        fmtIdent(export_name), fmtStringLiteral(export_name, null),
-                    });
-                }
-            }
-        },
-        .anon => {},
-        .flush => unreachable,
-    }
-    try fwd_decl_writer.writeAll(";\n");
-    try genExports(o);
+    const fwd = o.dg.fwdDeclWriter();
+    try fwd.writeAll("static ");
+    try o.dg.renderTypeAndName(fwd, ty, decl_c_value, Const, alignment, .complete);
+    try fwd.writeAll(";\n");
 
     const w = o.writer();
-    if (!is_global) try w.writeAll("static ");
     if (@"linksection".toSlice(&zcu.intern_pool)) |s|
         try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderTypeAndName(w, ty, decl_c_value, Const, alignment, .complete);
@@ -3080,24 +2945,73 @@ pub fn genDeclValue(
     try w.writeAll(";\n");
 }
 
-pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
-    if (true) @panic("TODO jacobly");
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
+pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const u32) !void {
     const zcu = dg.zcu;
-    const decl_index = dg.pass.decl;
-    const decl = zcu.declPtr(decl_index);
-    const writer = dg.fwdDeclWriter();
+    const ip = &zcu.intern_pool;
+    const fwd = dg.fwdDeclWriter();
 
-    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
-        .Fn => if (dg.declIsGlobal(decl.val)) {
-            try writer.writeAll("zig_extern ");
-            try dg.renderFunctionSignature(writer, dg.pass.decl, .complete, .{ .export_index = 0 });
-            try dg.fwd_decl.appendSlice(";\n");
+    const main_name = zcu.all_exports.items[export_indices[0]].opts.name;
+    try fwd.writeAll("#define ");
+    switch (exported) {
+        .decl_index => |decl_index| try dg.renderDeclName(fwd, decl_index),
+        .value => |value| try DeclGen.renderAnonDeclName(fwd, Value.fromInterned(value)),
+    }
+    try fwd.writeByte(' ');
+    try fwd.print("{ }", .{fmtIdent(main_name.toSlice(ip))});
+    try fwd.writeByte('\n');
+
+    const is_const = switch (ip.indexToKey(exported.getValue(zcu).toIntern())) {
+        .func, .extern_func => return for (export_indices) |export_index| {
+            const @"export" = &zcu.all_exports.items[export_index];
+            try fwd.writeAll("zig_extern ");
+            if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
+            try dg.renderFunctionSignature(
+                fwd,
+                exported.getValue(zcu),
+                exported.getAlign(zcu),
+                .forward,
+                .{ .@"export" = .{
+                    .main_name = main_name,
+                    .extern_name = @"export".opts.name,
+                } },
+            );
+            try fwd.writeAll(";\n");
         },
-        else => {},
+        .variable => |variable| variable.is_const,
+        else => true,
+    };
+    for (export_indices) |export_index| {
+        const @"export" = &zcu.all_exports.items[export_index];
+        try fwd.writeAll("zig_extern ");
+        if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
+        const extern_name = @"export".opts.name.toSlice(ip);
+        const is_mangled = isMangledIdent(extern_name, true);
+        const is_export = @"export".opts.name != main_name;
+        try dg.renderTypeAndName(
+            fwd,
+            exported.getValue(zcu).typeOf(zcu),
+            .{ .identifier = extern_name },
+            CQualifiers.init(.{ .@"const" = is_const }),
+            exported.getAlign(zcu),
+            .complete,
+        );
+        if (is_mangled and is_export) {
+            try fwd.print(" zig_mangled_export({ }, {s}, {s})", .{
+                fmtIdent(extern_name),
+                fmtStringLiteral(extern_name, null),
+                fmtStringLiteral(main_name.toSlice(ip), null),
+            });
+        } else if (is_mangled) {
+            try fwd.print(" zig_mangled({ }, {s})", .{
+                fmtIdent(extern_name), fmtStringLiteral(extern_name, null),
+            });
+        } else if (is_export) {
+            try fwd.print(" zig_export({s}, {s})", .{
+                fmtStringLiteral(main_name.toSlice(ip), null),
+                fmtStringLiteral(extern_name, null),
+            });
+        }
+        try fwd.writeAll(";\n");
     }
 }
 
@@ -4554,7 +4468,7 @@ fn airCall(
                 };
             };
             switch (modifier) {
-                .auto, .always_tail => try f.object.dg.renderDeclName(writer, fn_decl, 0),
+                .auto, .always_tail => try f.object.dg.renderDeclName(writer, fn_decl),
                 inline .never_tail, .never_inline => |m| try writer.writeAll(try f.getLazyFnName(
                     @unionInit(LazyFnKey, @tagName(m), fn_decl),
                     @unionInit(LazyFnValue.Data, @tagName(m), {}),
