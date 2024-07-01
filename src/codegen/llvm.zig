@@ -1692,6 +1692,10 @@ pub const Object = struct {
             }
         }
 
+        var arg_dis = std.ArrayList(Builder.Metadata).init(gpa);
+        try arg_dis.ensureUnusedCapacity(args.items.len);
+        defer arg_dis.deinit();
+
         function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         const file, const subprogram = if (!wip.strip) debug_info: {
@@ -1721,6 +1725,7 @@ pub const Object = struct {
                     },
                 },
                 o.debug_compile_unit,
+                .none, // will override later
             );
             function_index.setSubprogram(subprogram, &o.builder);
             break :debug_info .{ file, subprogram };
@@ -1736,6 +1741,7 @@ pub const Object = struct {
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
+            .arg_dis = &arg_dis,
             .func_inst_table = .{},
             .blocks = .{},
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
@@ -1758,6 +1764,11 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+
+        if (fg.arg_dis.items.len > 0) {
+            const retained_nodes = try o.builder.debugTuple(fg.arg_dis.items);
+            o.builder.debugSubprogramSetRetainedNodes(subprogram, retained_nodes);
+        }
 
         try fg.wip.finish();
 
@@ -4832,6 +4843,7 @@ pub const FuncGen = struct {
     /// this slice does not include it.
     args: []const Builder.Value,
     arg_index: usize,
+    arg_dis: *std.ArrayList(Builder.Metadata),
 
     err_ret_trace: Builder.Value = .none,
 
@@ -5216,6 +5228,7 @@ pub const FuncGen = struct {
                     },
                 },
                 o.debug_compile_unit,
+                .none,
             );
 
             self.base_line = decl.navSrcLine(zcu);
@@ -8869,6 +8882,7 @@ pub const FuncGen = struct {
             try o.lowerDebugType(inst_ty),
             @intCast(self.arg_index),
         );
+        self.arg_dis.appendAssumeCapacity(debug_parameter);
 
         const old_location = self.wip.debug_location;
         self.wip.debug_location = .{

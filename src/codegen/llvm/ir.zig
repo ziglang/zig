@@ -742,7 +742,7 @@ pub const MetadataBlock = struct {
             MetadataAbbrev, // compile unit
             .{ .literal = 0 }, // template params
             .{ .literal = 0 }, // declaration
-            .{ .literal = 0 }, // retained nodes
+            MetadataAbbrev, // retained nodes
             .{ .literal = 0 }, // this adjustment
             .{ .literal = 0 }, // thrown types
             .{ .literal = 0 }, // annotations
@@ -759,6 +759,7 @@ pub const MetadataBlock = struct {
         sp_flags: Builder.Metadata.Subprogram.DISPFlags,
         flags: Builder.Metadata.DIFlags,
         compile_unit: Builder.Metadata,
+        retained_nodes: Builder.Metadata,
     };
 
     pub const LexicalBlock = struct {
