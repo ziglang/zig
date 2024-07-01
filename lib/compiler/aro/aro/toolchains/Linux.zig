@@ -444,33 +444,41 @@ test Linux {
     try driver.link_objects.append(driver.comp.gpa, link_obj);
     driver.temp_file_count += 1;
 
-    var toolchain: Toolchain = .{ .driver = &driver, .arena = arena, .filesystem = .{ .fake = &.{
-        .{ .path = "/tmp" },
-        .{ .path = "/usr" },
-        .{ .path = "/usr/lib64" },
-        .{ .path = "/usr/bin" },
-        .{ .path = "/usr/bin/ld", .executable = true },
-        .{ .path = "/lib" },
-        .{ .path = "/lib/x86_64-linux-gnu" },
-        .{ .path = "/lib/x86_64-linux-gnu/crt1.o" },
-        .{ .path = "/lib/x86_64-linux-gnu/crti.o" },
-        .{ .path = "/lib/x86_64-linux-gnu/crtn.o" },
-        .{ .path = "/lib64" },
-        .{ .path = "/usr/lib" },
-        .{ .path = "/usr/lib/gcc" },
-        .{ .path = "/usr/lib/gcc/x86_64-linux-gnu" },
-        .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9" },
-        .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtbegin.o" },
-        .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtend.o" },
-        .{ .path = "/usr/lib/x86_64-linux-gnu" },
-        .{ .path = "/etc/lsb-release", .contents = 
-        \\DISTRIB_ID=Ubuntu
-        \\DISTRIB_RELEASE=20.04
-        \\DISTRIB_CODENAME=focal
-        \\DISTRIB_DESCRIPTION="Ubuntu 20.04.6 LTS"
-        \\
+    var toolchain: Toolchain = .{
+        .driver = &driver,
+        .arena = arena,
+        .filesystem = .{
+            .fake = &.{
+                .{ .path = "/tmp" },
+                .{ .path = "/usr" },
+                .{ .path = "/usr/lib64" },
+                .{ .path = "/usr/bin" },
+                .{ .path = "/usr/bin/ld", .executable = true },
+                .{ .path = "/lib" },
+                .{ .path = "/lib/x86_64-linux-gnu" },
+                .{ .path = "/lib/x86_64-linux-gnu/crt1.o" },
+                .{ .path = "/lib/x86_64-linux-gnu/crti.o" },
+                .{ .path = "/lib/x86_64-linux-gnu/crtn.o" },
+                .{ .path = "/lib64" },
+                .{ .path = "/usr/lib" },
+                .{ .path = "/usr/lib/gcc" },
+                .{ .path = "/usr/lib/gcc/x86_64-linux-gnu" },
+                .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9" },
+                .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtbegin.o" },
+                .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtend.o" },
+                .{ .path = "/usr/lib/x86_64-linux-gnu" },
+                .{
+                    .path = "/etc/lsb-release",
+                    .contents =
+                    \\DISTRIB_ID=Ubuntu
+                    \\DISTRIB_RELEASE=20.04
+                    \\DISTRIB_CODENAME=focal
+                    \\DISTRIB_DESCRIPTION="Ubuntu 20.04.6 LTS"
+                    \\
+                },
+            },
         },
-    } } };
+    };
     defer toolchain.deinit();
 
     try toolchain.discover();

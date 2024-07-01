@@ -154,6 +154,19 @@ test "zig fmt: respect line breaks after var declarations" {
     );
 }
 
+test "zig fmt: respect multiline strings in struct initialization without trailing comma" {
+    try testCanonical(
+        \\var bar = Bar{
+        \\    .a =
+        \\    \\a
+        \\    ,
+        \\    .b =
+        \\    \\b
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: multiline string mixed with comments" {
     try testCanonical(
         \\const s1 =
@@ -2605,6 +2618,104 @@ test "zig fmt: doc comments before struct field" {
         \\    /// slice's pointer aligned at least to alignment bytes.
         \\    allocFn: fn () void,
         \\};
+        \\
+    );
+}
+
+test "zig fmt: add trailing comma in error set with comments" {
+    try testTransform(
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another
+        \\};
+        \\
+        \\const Error = error{
+        \\    // no more memory
+        \\    OutOfMemory,
+        \\
+        \\    // another
+        \\    Another
+        \\};
+        \\
+    ,
+        \\const Error = error{
+        \\    /// no more memory
+        \\    OutOfMemory,
+        \\
+        \\    /// another
+        \\    Another,
+        \\};
+        \\
+        \\const Error = error{
+        \\    // no more memory
+        \\    OutOfMemory,
+        \\
+        \\    // another
+        \\    Another,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: add trailing comma in function prototype with comments" {
+    try testTransform(
+        \\fn foo(
+        \\    /// void
+        \\    _: void
+        \\) void {}
+        \\
+        \\fn foo(
+        \\    // void
+        \\    _: void
+        \\) void {}
+        \\
+    ,
+        \\fn foo(
+        \\    /// void
+        \\    _: void,
+        \\) void {}
+        \\
+        \\fn foo(
+        \\    // void
+        \\    _: void,
+        \\) void {}
+        \\
+    );
+}
+
+test "zig fmt: function prototype with doc comments in struct and trailing comma" {
+    try testCanonical(
+        \\fn foo(_: void, struct {
+        \\    /// void
+        \\    _: void,
+        \\    /// void
+        \\    _: void,
+        \\}) !void {}
+        \\
+    );
+}
+
+test "zig fmt: function prototype with parentheses and then a doc comment without trailing comma" {
+    try testTransform(
+        \\fn foo(
+        \\    bar: (i32),
+        \\    /// The second operand
+        \\    baz: i32
+        \\) i32 {
+        \\    return bar + baz;
+        \\}
+        \\
+    ,
+        \\fn foo(
+        \\    bar: (i32),
+        \\    /// The second operand
+        \\    baz: i32,
+        \\) i32 {
+        \\    return bar + baz;
+        \\}
         \\
     );
 }
