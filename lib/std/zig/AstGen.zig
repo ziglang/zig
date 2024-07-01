@@ -9130,10 +9130,17 @@ fn builtinCall(
             } else if (str.len == 0) {
                 return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
             }
-            const result_ty = try ri.rl.resultType(gz, node) orelse .none;
-            const result = try gz.addPlNode(.import, node, Zir.Inst.Import{
-                .result_ty = result_ty,
-                .name = str.index,
+            const res_ty = try ri.rl.resultType(gz, node) orelse .none;
+            const payload_index = try addExtra(gz.astgen, Zir.Inst.Import{
+                .res_ty = res_ty,
+                .path = str.index,
+            });
+            const result = try gz.add(.{
+                .tag = .import,
+                .data = .{ .pl_tok = .{
+                    .src_tok = gz.tokenIndexToRelative(str_lit_token),
+                    .payload_index = payload_index,
+                } },
             });
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {

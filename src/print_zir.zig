@@ -421,7 +421,6 @@ const Writer = struct {
             .elem_val,
             .array_type,
             .coerce_ptr_elem_ty,
-            .import,
             => try self.writePlNodeBin(stream, inst),
 
             .for_len => try self.writePlNodeMultiOp(stream, inst),
@@ -512,6 +511,8 @@ const Writer = struct {
             .declaration => try self.writeDeclaration(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
+
+            .import => try self.writeImport(stream, inst),
         }
     }
 
@@ -2950,5 +2951,14 @@ const Writer = struct {
             try self.writeInstToStream(stream, inst);
             try stream.writeByte('\n');
         }
+    }
+
+    fn writeImport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
+        const extra = self.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        const import_path = self.code.nullTerminatedString(extra.path);
+        try stream.print(", \"{}\") ", .{std.zig.fmtEscapes(import_path)});
+        try self.writeSrcTok(stream, inst_data.src_tok);
     }
 };
