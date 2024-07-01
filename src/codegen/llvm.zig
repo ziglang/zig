@@ -2201,7 +2201,8 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const debug_ptr_type = try o.builder.debugPointerType(
-                    try o.builder.metadataString(name),
+                    // BTF verifier seems not happy with pointer type with name
+                    if (target.cpu.arch.isBpf()) .none else try o.builder.metadataString(name),
                     .none, // File
                     .none, // Scope
                     0, // Line
