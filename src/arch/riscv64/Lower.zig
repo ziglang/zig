@@ -1,6 +1,6 @@
 //! This file contains the functionality for lowering RISC-V MIR to Instructions
 
-bin_file: *link.File,
+zcu: *Zcu,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 pic: bool,
@@ -46,7 +46,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
     insts: []const Instruction,
     relocs: []const Reloc,
 } {
-    const zcu = lower.bin_file.comp.module.?;
+    const zcu = lower.zcu;
 
     lower.result_insts = undefined;
     lower.result_relocs = undefined;
@@ -614,7 +614,7 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
 }
 
 fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
-    const target = lower.bin_file.comp.module.?.getTarget();
+    const target = lower.zcu.getTarget();
     const features = target.cpu.features;
     return std.Target.riscv.featureSetHas(features, feature);
 }
