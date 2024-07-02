@@ -25,6 +25,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = .right,
     fill: u21 = ' ',
+    signed: bool = false,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -33,7 +34,7 @@ pub const FormatOptions = struct {
 ///
 /// The format string must be comptime-known and may contain placeholders following
 /// this format:
-/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
+/// `{[argument][specifier]:[signed][fill][alignment][width].[precision]}`
 ///
 /// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
 ///
@@ -41,7 +42,10 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *signed* is always '+', when provided, the sign of the number will be explicitly included ('+' or '-' for non-zero numbers)
 /// - *fill* is a single unicode codepoint which is used to pad the formatted text
+///   - to use '+' as a fill character when *signed* is not provided, use "\\+"
+///   - when formatting numbers, if the fill character is '0' and the alignment is right, the sign will be placed before the leading zeros
 /// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
 /// - *width* is the total width of the field in unicode codepoints
 /// - *precision* specifies how many decimals a formatted number should have
@@ -186,6 +190,7 @@ pub fn format(
             @field(args, fields_info[arg_to_print].name),
             placeholder.specifier_arg,
             FormatOptions{
+                .signed = placeholder.signed,
                 .fill = placeholder.fill,
                 .alignment = placeholder.alignment,
                 .width = width,
@@ -212,6 +217,7 @@ fn cacheString(str: anytype) []const u8 {
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
+    signed: bool,
     fill: u21,
     alignment: Alignment,
     arg: Specifier,
@@ -236,6 +242,21 @@ pub const Placeholder = struct {
         if (comptime parser.char()) |ch| {
             if (ch != ':') {
                 @compileError("expected : or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
+            }
+        }
+
+        // Parse the signed character
+        const signed = comptime parser.maybe('+');
+
+        // When "\\+" is encountered, it means the fill character should be '+'
+        // so we skip '\\'
+        if (parser.peek(0)) |ch1| {
+            if (ch1 == '\\') {
+                if (parser.peek(1)) |ch2| {
+                    if (ch2 == '+') {
+                        _ = parser.char();
+                    }
+                }
             }
         }
 
@@ -284,6 +305,7 @@ pub const Placeholder = struct {
 
         return Placeholder{
             .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+            .signed = signed,
             .fill = fill,
             .alignment = alignment,
             .arg = arg,
@@ -766,23 +788,67 @@ fn formatFloatValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
+    const is_hex = comptime std.mem.eql(u8, fmt, "x");
+    var buf: [format_float.bufferSize(.decimal, f64) + 1]u8 = undefined;
+
+    var start: usize = 0;
+    var v = switch (@TypeOf(value)) {
+        // comptime_float internally is a f128; this preserves precision.
+        comptime_float => @as(f128, value),
+        else => value,
+    };
+    var opt = options;
+    if (options.fill == '0' and options.alignment == .right and !is_hex) {
+        // If the fill character is '0' and the alignment is right, we need to
+        // put the sign in front of padding zeros
+        var width = options.width;
+        if (math.signbit(v)) {
+            try writer.writeByte('-');
+            if (width != null and width.? > 0) width.? -= 1;
+            // The negative sign is printed, so we need to format the absolute value
+            v = @abs(v);
+        } else if (options.signed) {
+            try writer.writeByte('+');
+            if (width != null and width.? > 0) width.? -= 1;
+        }
+        opt = .{
+            .fill = '0',
+            .alignment = .right,
+            .width = width,
+        };
+    } else if (options.signed and !math.signbit(v)) {
+        buf[0] = '+';
+        start = 1;
+    }
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(buf[start..], v, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
-        return formatBuf(s, options, writer);
+        return formatBuf(buf[0 .. start + s.len], opt, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(buf[start..], v, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
-        return formatBuf(s, options, writer);
-    } else if (comptime std.mem.eql(u8, fmt, "x")) {
+        return formatBuf(buf[0 .. start + s.len], opt, writer);
+    } else if (is_hex) {
         var buf_stream = std.io.fixedBufferStream(&buf);
-        formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
+        formatFloatHexadecimal(v, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
         };
+        const s: []const u8 = buf_stream.getWritten();
+        if (options.fill == '0' and options.alignment == .right) {
+            var x_index: usize = s.len;
+            if (std.mem.indexOf(u8, s, "0x")) |idx| {
+                x_index = idx + 2;
+            }
+            try writer.writeAll(s[0..x_index]);
+            return formatBuf(s[x_index..], .{
+                .fill = '0',
+                .alignment = .right,
+                .width = if (options.width != null and options.width.? >= x_index) options.width.? - x_index else options.width,
+            }, writer);
+        }
         return formatBuf(buf_stream.getWritten(), options, writer);
     } else {
         invalidFmtError(fmt, value);
@@ -1051,6 +1117,8 @@ pub fn formatFloatHexadecimal(
 ) !void {
     if (math.signbit(value)) {
         try writer.writeByte('-');
+    } else if (options.signed) {
+        try writer.writeByte('+');
     }
     if (math.isNan(value)) {
         return writer.writeAll("nan");
@@ -1204,18 +1272,32 @@ pub fn formatInt(
         }
     }
 
-    if (value_info.signedness == .signed) {
+    if (options.fill == '0' and options.alignment == .right) {
+        // If the fill character is '0' and the alignment is right, we need to
+        // put the sign in front of padding zeros
+        var width = options.width;
         if (value < 0) {
-            // Negative integer
-            index -= 1;
-            buf[index] = '-';
-        } else if (options.width == null or options.width.? == 0) {
-            // Positive integer, omit the plus sign
-        } else {
-            // Positive integer
-            index -= 1;
-            buf[index] = '+';
+            try writer.writeByte('-');
+            if (width != null and width.? > 0) width.? -= 1;
+        } else if (options.signed and value > 0) {
+            try writer.writeByte('+');
+            if (width != null and width.? > 0) width.? -= 1;
         }
+        return formatBuf(buf[index..], .{
+            .alignment = .right,
+            .fill = '0',
+            .width = width,
+        }, writer);
+    }
+
+    if (value < 0) {
+        // Negative integer
+        index -= 1;
+        buf[index] = '-';
+    } else if (options.signed and value > 0) {
+        // Positive integer, sign explicitly requested
+        index -= 1;
+        buf[index] = '+';
     }
 
     return formatBuf(buf[index..], options, writer);
@@ -1827,7 +1909,7 @@ test bufPrintIntToSlice {
     try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 6 }));
     try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 1 }));
 
-    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, " 42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3 }));
     try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, FormatOptions{ .width = 3 }));
 }
 
@@ -1952,17 +2034,28 @@ test "int.specifier" {
 
 test "int.padded" {
     try expectFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '  +1'", "u8: '{:+4}'", .{@as(u8, 1)});
     try expectFmt("u8: '1000'", "u8: '{:0<4}'", .{@as(u8, 1)});
     try expectFmt("u8: '0001'", "u8: '{:0>4}'", .{@as(u8, 1)});
     try expectFmt("u8: '0100'", "u8: '{:0^4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '0+10'", "u8: '{:+0^4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '+001'", "u8: '{:+0>4}'", .{@as(u8, 1)});
     try expectFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
     try expectFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
     try expectFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
+    try expectFmt("i8: ' +1 '", "i8: '{:+^4}'", .{@as(i8, 1)});
+    try expectFmt("i8: '-001'", "i8: '{:0>4}'", .{@as(i8, -1)});
+    try expectFmt("i8: '+001'", "i8: '{:+0>4}'", .{@as(i8, 1)});
+    try expectFmt("i8: '\\\\\\1'", "i8: '{:\\>4}'", .{@as(i8, 1)});
+    try expectFmt("i8: '+++1'", "i8: '{:\\+>4}'", .{@as(i8, 1)});
+    try expectFmt("i8: '+1++'", "i8: '{:++<4}'", .{@as(i8, 1)});
     try expectFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
-    try expectFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
-    try expectFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
-    try expectFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
+    try expectFmt("i16: '1234'", "i16: '{:4}'", .{@as(i16, 1234)});
+    try expectFmt("i16: '-12345'", "i16: '{:+4}'", .{@as(i16, -12345)});
+    try expectFmt("i16: '+12345'", "i16: '{:+4}'", .{@as(i16, 12345)});
     try expectFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
+    try expectFmt("i16: '12345'", "i16: '{:0>4}'", .{@as(i16, 12345)});
+    try expectFmt("i16: '+12345'", "i16: '{:+0>4}'", .{@as(i16, 12345)});
 
     try expectFmt("UTF-8: 'ü   '", "UTF-8: '{u:<4}'", .{'ü'});
     try expectFmt("UTF-8: '   ü'", "UTF-8: '{u:>4}'", .{'ü'});
@@ -2215,6 +2308,10 @@ test "float.scientific.precision" {
     // libc rounds 1.000005e5 to 1.00000e5 but zig does 1.00001e5.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
     try expectFmt("f64: 1.00001e5", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64:   +1.00001e5", "f64: {e:+>12.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64: 0001.00001e5", "f64: {e:0>12.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64: +001.00001e5", "f64: {e:+0>12.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64: -001.00001e5", "f64: {e:0>12.5}", .{-@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
 }
 
 test "float.special" {
@@ -2280,13 +2377,27 @@ test "float.hexadecimal.precision" {
     try expectFmt("f64: 0x1.00000p0", "f64: {x:.5}", .{@as(f64, 1.0)});
     try expectFmt("f80: 0x1.00000p0", "f80: {x:.5}", .{@as(f80, 1.0)});
     try expectFmt("f128: 0x1.00000p0", "f128: {x:.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128: +0x1.00000p0", "f128: {x:+.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128:    0x1.00000p0", "f128: {x:>14.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128:   +0x1.00000p0", "f128: {x:+>14.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128:   -0x1.00000p0", "f128: {x:>14.5}", .{@as(f128, -1.0)});
+    try expectFmt("f128: 0x0001.00000p0", "f128: {x:0>14.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128: +0x001.00000p0", "f128: {x:+0>14.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128: -0x001.00000p0", "f128: {x:0>14.5}", .{@as(f128, -1.0)});
 }
 
 test "float.decimal" {
     try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
     try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
+    try expectFmt("f32: +0", "f32: {d:+.0}", .{@as(f32, 0.0)});
     try expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32: +1.1", "f32: {d:+.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32:  +1.1", "f32: {d:+>5.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32:  -1.1", "f32: {d:>5.1}", .{@as(f32, -1.1234)});
+    try expectFmt("f32: 001.1", "f32: {d:0>5.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32: +01.1", "f32: {d:+0>5.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32: -01.1", "f32: {d:0>5.1}", .{@as(f32, -1.1234)});
     try expectFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
@@ -2596,7 +2707,7 @@ test "vector" {
 
     try expectFmt("{ true, false, true, false }", "{}", .{vbool});
     try expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
+    try expectFmt("{    -2,    -1,     0,     1 }", "{d:5}", .{vi64});
     try expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
 }
