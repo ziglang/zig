@@ -51,10 +51,11 @@ fn addExpect(
         if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
     } else if (self.test_filters.len > 0) return;
 
-    const write_src = b.addWriteFile("source.zig", source);
+    const write_files = b.addWriteFiles();
+    const source_zig = write_files.add("source.zig", source);
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.files.items[0].getPath(),
+        .root_source_file = source_zig,
         .optimize = optimize_mode,
         .target = b.graph.host,
         .error_tracing = mode_config.error_tracing,

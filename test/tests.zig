@@ -783,7 +783,7 @@ pub fn addCliTests(b: *std.Build) *Step {
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
 
-        const writefile = b.addWriteFile("example.zig",
+        const example_zig = b.addWriteFiles().add("example.zig",
             \\// Type your code here, or load an example.
             \\export fn square(num: i32) i32 {
             \\    return num * num;
@@ -804,7 +804,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileArg(writefile.files.items[0].getPath());
+        run.addFileArg(example_zig);
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{

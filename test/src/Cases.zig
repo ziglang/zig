@@ -665,10 +665,12 @@ pub fn lowerToBuildSteps(
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
-        for (update.files.items) |file| {
+        const first_file = update.files.items[0];
+        const root_source_file = writefiles.add(first_file.path, first_file.src);
+        file_sources.put(first_file.path, root_source_file) catch @panic("OOM");
+        for (update.files.items[1..]) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.files.items[0].getPath();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
