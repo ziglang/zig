@@ -93,12 +93,14 @@ pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
     } else if (self.test_filters.len > 0) return;
 
     const write_src = b.addWriteFiles();
-    for (case.sources.items) |src_file| {
+    const first_src = case.sources.items[0];
+    const root_source_file = write_src.add(first_src.filename, first_src.source);
+    for (case.sources.items[1..]) |src_file| {
         _ = write_src.add(src_file.filename, src_file.source);
     }
 
     const translate_c = b.addTranslateC(.{
-        .root_source_file = write_src.files.items[0].getPath(),
+        .root_source_file = root_source_file,
         .target = b.resolveTargetQuery(case.target),
         .optimize = .Debug,
     });
