@@ -55,7 +55,7 @@ pub const ReverseBitReader = struct {
     }
 
     pub fn isEmpty(self: ReverseBitReader) bool {
-        return self.byte_reader.remaining_bytes == 0 and self.bit_reader.bit_count == 0;
+        return self.byte_reader.remaining_bytes == 0 and self.bit_reader.bit_buffer == null;
     }
 };
 
