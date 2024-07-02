@@ -1,8 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
+
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
+const Allocator = mem.Allocator;
+
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
@@ -14,18 +18,16 @@ const Zcu = @import("../../Zcu.zig");
 const Package = @import("../../Package.zig");
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
+const trace = @import("../../tracy.zig").trace;
+const codegen = @import("../../codegen.zig");
+
 const ErrorMsg = Zcu.ErrorMsg;
 const Target = std.Target;
-const Allocator = mem.Allocator;
-const trace = @import("../../tracy.zig").trace;
-const DW = std.dwarf;
-const leb128 = std.leb;
+
 const log = std.log.scoped(.riscv_codegen);
 const tracking_log = std.log.scoped(.tracking);
 const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 const wip_mir_log = std.log.scoped(.wip_mir);
-const build_options = @import("build_options");
-const codegen = @import("../../codegen.zig");
 const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
@@ -46,15 +48,16 @@ const RegisterLock = RegisterManager.RegisterLock;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
-gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
-mod: *Package.Module,
 liveness: Liveness,
+zcu: *Zcu,
 bin_file: *link.File,
+gpa: Allocator,
+
+mod: *Package.Module,
 target: *const std.Target,
 func_index: InternPool.Index,
-code: *std.ArrayList(u8),
 debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
@@ -63,9 +66,7 @@ fn_type: Type,
 arg_index: usize,
 src_loc: Zcu.LazySrcLoc,
 
-/// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
-/// MIR extra data
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
 
 /// Byte offset within the source file of the ending curly.
@@ -731,16 +732,16 @@ pub fn generate(
     }
     try branch_stack.append(.{});
 
-    var function = Func{
+    var function: Func = .{
         .gpa = gpa,
         .air = air,
         .pt = pt,
         .mod = mod,
+        .zcu = zcu,
+        .bin_file = bin_file,
         .liveness = liveness,
         .target = target,
-        .bin_file = bin_file,
         .func_index = func_index,
-        .code = code,
         .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
@@ -825,7 +826,7 @@ pub fn generate(
         else => |e| return e,
     };
 
-    var mir = Mir{
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
@@ -833,7 +834,6 @@ pub fn generate(
     defer mir.deinit(gpa);
 
     var emit: Emit = .{
-        .bin_file = bin_file,
         .lower = .{
             .pt = pt,
             .allocator = gpa,
@@ -844,6 +844,7 @@ pub fn generate(
             .link_mode = comp.config.link_mode,
             .pic = mod.pic,
         },
+        .bin_file = bin_file,
         .debug_output = debug_output,
         .code = code,
         .prev_di_pc = 0,
@@ -932,7 +933,7 @@ fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) 
 }
 
 const FormatDeclData = struct {
-    mod: *Zcu,
+    zcu: *Zcu,
     decl_index: InternPool.DeclIndex,
 };
 fn formatDecl(
@@ -941,11 +942,11 @@ fn formatDecl(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    try writer.print("{}", .{data.mod.declPtr(data.decl_index).fqn.fmt(&data.mod.intern_pool)});
+    try writer.print("{}", .{data.zcu.declPtr(data.decl_index).fqn.fmt(&data.zcu.intern_pool)});
 }
 fn fmtDecl(func: *Func, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{
-        .mod = func.pt.zcu,
+        .zcu = func.zcu,
         .decl_index = decl_index,
     } };
 }
@@ -1882,14 +1883,9 @@ fn symbolIndex(func: *Func) !u32 {
     const pt = func.pt;
     const zcu = pt.zcu;
     const decl_index = zcu.funcOwnerDeclIndex(func.func_index);
-    return switch (func.bin_file.tag) {
-        .elf => blk: {
-            const elf_file = func.bin_file.cast(link.File.Elf).?;
-            const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
-            break :blk atom_index;
-        },
-        else => return func.fail("TODO symbolIndex {s}", .{@tagName(func.bin_file.tag)}),
-    };
+    const elf_file = func.bin_file.cast(link.File.Elf).?;
+    const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+    return atom_index;
 }
 
 fn allocFrameIndex(func: *Func, alloc: FrameAlloc) !FrameIndex {
@@ -1940,9 +1936,7 @@ fn typeRegClass(func: *Func, ty: Type) abi.RegisterClass {
 }
 
 fn regGeneralClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    return switch (ty.zigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(func.pt.zcu)) {
         .Float => abi.Registers.Float.general_purpose,
         .Vector => abi.Registers.Vector.general_purpose,
         else => abi.Registers.Integer.general_purpose,
@@ -1950,9 +1944,7 @@ fn regGeneralClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet 
 }
 
 fn regTempClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    return switch (ty.zigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(func.pt.zcu)) {
         .Float => abi.Registers.Float.temporary,
         .Vector => abi.Registers.Vector.general_purpose, // there are no temporary vector registers
         else => abi.Registers.Integer.temporary,
@@ -1961,9 +1953,10 @@ fn regTempClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet {
 
 fn allocRegOrMem(func: *Func, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool) !MCValue {
     const pt = func.pt;
+    const zcu = pt.zcu;
 
     const bit_size = elem_ty.bitSize(pt);
-    const min_size: u64 = switch (elem_ty.zigTypeTag(pt.zcu)) {
+    const min_size: u64 = switch (elem_ty.zigTypeTag(zcu)) {
         .Float => if (func.hasFeature(.d)) 64 else 32,
         .Vector => 256, // TODO: calculate it from avl * vsew
         else => 64,
@@ -1973,7 +1966,7 @@ fn allocRegOrMem(func: *Func, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool
         if (func.register_manager.tryAllocReg(inst, func.regGeneralClassForType(elem_ty))) |reg| {
             return .{ .register = reg };
         }
-    } else if (reg_ok and elem_ty.zigTypeTag(pt.zcu) == .Vector) {
+    } else if (reg_ok and elem_ty.zigTypeTag(zcu) == .Vector) {
         return func.fail("did you forget to extend vector registers before allocating", .{});
     }
 
@@ -7270,9 +7263,7 @@ fn parseRegName(name: []const u8) ?Register {
 }
 
 fn typeOf(func: *Func, inst: Air.Inst.Ref) Type {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    return func.air.typeOf(inst, &zcu.intern_pool);
+    return func.air.typeOf(inst, &func.pt.zcu.intern_pool);
 }
 
 fn typeOfIndex(func: *Func, inst: Air.Inst.Index) Type {
