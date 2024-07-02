@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Order = std.math.Order;
 
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.

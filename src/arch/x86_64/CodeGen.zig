@@ -32,7 +32,7 @@ const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Target = std.Target;
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const Instruction = @import("encoder.zig").Instruction;
 

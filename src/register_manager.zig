@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;

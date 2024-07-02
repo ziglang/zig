@@ -9,7 +9,7 @@ const Zcu = @import("../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const Decl = Module.Decl;
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");

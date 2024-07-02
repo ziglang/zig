@@ -8,7 +8,7 @@ const std = @import("std");
 const Target = std.Target;
 const assert = std.debug.assert;
 
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 
 /// Defines how to pass a type as part of a function signature,

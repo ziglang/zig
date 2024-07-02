@@ -12,7 +12,7 @@ const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 
 const Value = @import("Value.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");

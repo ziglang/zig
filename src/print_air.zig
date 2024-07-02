@@ -4,7 +4,7 @@ const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Zcu = @import("Zcu.zig");
 const Value = @import("Value.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 const InternPool = @import("InternPool.zig");

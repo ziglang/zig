@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;

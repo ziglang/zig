@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 
 const Air = @This();
 const Value = @import("Value.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.

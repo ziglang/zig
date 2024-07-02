@@ -15,7 +15,7 @@ const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 

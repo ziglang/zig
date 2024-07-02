@@ -2,7 +2,7 @@
 //! It is a thin wrapper around a `Value` which also, redundantly, stores its `Type`.
 
 const std = @import("std");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.

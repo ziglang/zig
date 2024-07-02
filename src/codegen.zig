@@ -20,7 +20,7 @@ const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const Target = std.Target;
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;

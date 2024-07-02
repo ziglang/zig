@@ -33,7 +33,7 @@ const Zcu = @import("../Zcu.zig");
 const Module = Zcu;
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const ZigObject = @import("Wasm/ZigObject.zig");
 

@@ -18,7 +18,7 @@ const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;

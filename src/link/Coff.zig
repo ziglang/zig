@@ -2742,7 +2742,7 @@ const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 

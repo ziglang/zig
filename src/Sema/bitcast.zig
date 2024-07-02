@@ -767,6 +767,6 @@ const assert = std.debug.assert;
 const Sema = @import("../Sema.zig");
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const CompileError = Zcu.CompileError;

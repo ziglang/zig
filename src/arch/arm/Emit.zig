@@ -11,7 +11,7 @@ const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const assert = std.debug.assert;

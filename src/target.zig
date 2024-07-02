@@ -1,5 +1,5 @@
 const std = @import("std");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
 const Feature = @import("Zcu.zig").Feature;
