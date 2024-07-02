@@ -48,6 +48,9 @@ else switch (native_os) {
     else => struct {},
 };
 
+// riscv32-linux only has the statx syscall; no fstat or fstatat.
+const no_stat = !use_libc and native_os == .linux and builtin.cpu.arch == .riscv32;
+
 pub const AF = system.AF;
 pub const AF_SUN = system.AF_SUN;
 pub const ARCH = system.ARCH;
@@ -103,7 +106,35 @@ pub const STDIN_FILENO = system.STDIN_FILENO;
 pub const STDOUT_FILENO = system.STDOUT_FILENO;
 pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
-pub const Stat = system.Stat;
+pub const Stat = if (no_stat) struct {
+    // The system does not have a native stat structure. Make one up.
+
+    dev: dev_t,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    size: off_t,
+    blksize: blksize_t,
+    blocks: blkcnt_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
+    }
+} else system.Stat;
 pub const T = system.T;
 pub const TCSA = system.TCSA;
 pub const TCP = system.TCP;
@@ -4292,6 +4323,17 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         @compileError("fstat is not yet implemented on Windows");
     }
 
+    if (no_stat) {
+        return fstatatZ(fd, "\x00", AT.EMPTY_PATH) catch |err| switch (err) {
+            error.FileNotFound,
+            error.NameTooLong,
+            error.InvalidUtf8,
+            error.SymLinkLoop,
+            => unreachable,
+            else => |e| return e,
+        };
+    }
+
     const fstat_sym = if (lfs64_abi) system.fstat64 else system.fstat;
     var stat = mem.zeroes(Stat);
     switch (errno(fstat_sym(fd, &stat))) {
@@ -4331,6 +4373,46 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
     }
 }
 
+// MKDEV in the kernel.
+inline fn makedevLinux(major: u32, minor: u32) dev_t {
+    return (major << 20) | minor;
+}
+
+fn fstatatStatxZ(dirfd: fd_t, pathname: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
+    var statx = mem.zeroes(linux.Statx);
+    const rc = linux.statx(dirfd, pathname, flags | AT.NO_AUTOMOUNT, linux.STATX_BASIC_STATS, &statx);
+    const rcs: isize = @bitCast(rc);
+
+    if (rcs > -4096) return rc;
+
+    stat_buf.* = .{
+        .dev = makedevLinux(statx.dev_major, statx.dev_minor),
+        .rdev = makedevLinux(statx.rdev_major, statx.rdev_minor),
+        .ino = statx.ino,
+        .mode = statx.mode,
+        .nlink = statx.nlink,
+        .uid = statx.uid,
+        .gid = statx.gid,
+        .atim = .{
+            .tv_sec = statx.atime.tv_sec,
+            .tv_nsec = statx.atime.tv_nsec,
+        },
+        .mtim = .{
+            .tv_sec = statx.mtime.tv_sec,
+            .tv_nsec = statx.mtime.tv_nsec,
+        },
+        .ctim = .{
+            .tv_sec = statx.ctime.tv_sec,
+            .tv_nsec = statx.ctime.tv_nsec,
+        },
+        .size = @as(i64, @intCast(statx.size)),
+        .blocks = @as(i64, @intCast(statx.blocks)),
+        .blksize = @as(i32, @intCast(statx.blksize)),
+    };
+
+    return rc;
+}
+
 /// Same as `fstatat` but `pathname` is null-terminated.
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
@@ -4341,7 +4423,13 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         return Stat.fromFilestat(filestat);
     }
 
-    const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
+    const fstatat_sym = if (no_stat)
+        fstatatStatxZ
+    else if (lfs64_abi)
+        system.fstatat64
+    else
+        system.fstatat;
+
     var stat = mem.zeroes(Stat);
     switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
         .SUCCESS => return stat,

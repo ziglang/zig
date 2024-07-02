@@ -203,7 +203,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 
 pub const have_ucontext = @hasDecl(posix.system, "ucontext_t") and
     (native_os != .linux or switch (builtin.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
+    .mips, .mipsel, .mips64, .mips64el, .riscv32, .riscv64 => false,
     else => true,
 });
 

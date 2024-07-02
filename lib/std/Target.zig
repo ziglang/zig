@@ -722,7 +722,17 @@ pub const Abi = enum {
 
     pub inline fn isGnu(abi: Abi) bool {
         return switch (abi) {
-            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+            .gnu,
+            .gnuabin32,
+            .gnuabi64,
+            .gnueabi,
+            .gnueabihf,
+            .gnuf32,
+            .gnuf64,
+            .gnusf,
+            .gnux32,
+            .gnuilp32,
+            => true,
             else => false,
         };
     }
@@ -744,6 +754,14 @@ pub const Abi = enum {
             .ohos => .soft,
             else => .soft,
         };
+    }
+
+    pub inline fn isSoftFloat(abi: Abi) bool {
+        return abi.floatAbi().isSoft();
+    }
+
+    pub inline fn isHardFloat(abi: Abi) bool {
+        return abi.floatAbi().isHard();
     }
 };
 
@@ -1635,13 +1653,39 @@ pub inline fn isSpirV(target: Target) bool {
     return target.cpu.arch.isSpirV();
 }
 
+/// Most architectures only make the distinction between soft float and hard float, and assume that
+/// hard float implies that both `f32` and `f64` have hardware support, while soft float implies
+/// that both are emulated. We use `.soft` and `.hard` for these cases.
+///
+/// Some architectures, however, have three floating point ABIs: Soft float, hard float for just
+/// `f32`, and hard float for both `f32` and `f64`. Here, hard float for both is usually the norm,
+/// with hard float for just `f32` being more common in embedded scenarios. This is the case for
+/// RISC-V and LoongArch, for example. We use `.hard32` to refer to the case where only `f32` has
+/// hardware support.
 pub const FloatAbi = enum {
-    hard,
     soft,
+    hard32,
+    hard,
+
+    pub inline fn isSoft(abi: FloatAbi) bool {
+        return abi == .soft;
+    }
+
+    pub inline fn isHard(abi: FloatAbi) bool {
+        return !abi.isSoft();
+    }
 };
 
-pub inline fn getFloatAbi(target: Target) FloatAbi {
+pub inline fn floatAbi(target: Target) FloatAbi {
     return target.abi.floatAbi();
+}
+
+pub inline fn isSoftFloat(target: Target) bool {
+    return target.floatAbi().isSoft();
+}
+
+pub inline fn isHardFloat(target: Target) bool {
+    return target.floatAbi().isHard();
 }
 
 pub inline fn hasDynamicLinker(target: Target) bool {
@@ -1723,7 +1767,7 @@ pub const DynamicLinker = struct {
                 .thumbeb => .armeb,
                 else => cpu.arch,
             }),
-            if (cpu.arch.isArmOrThumb() and abi.floatAbi() == .hard) "hf" else "",
+            if (cpu.arch.isArmOrThumb() and abi.isHardFloat()) "hf" else "",
         }) catch unreachable else switch (os_tag) {
             .freebsd => init("/libexec/ld-elf.so.1"),
             .netbsd => init("/libexec/ld.elf_so"),
@@ -1744,10 +1788,7 @@ pub const DynamicLinker = struct {
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => initFmt("/lib/ld-linux{s}.so.3", .{switch (abi.floatAbi()) {
-                    .hard => "-armhf",
-                    else => "",
-                }}) catch unreachable,
+                => initFmt("/lib/ld-linux{s}.so.3", .{if (abi.isHardFloat()) "-armhf" else ""}) catch unreachable,
 
                 .mips,
                 .mipsel,

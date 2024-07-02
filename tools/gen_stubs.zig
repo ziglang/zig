@@ -2,13 +2,14 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv64  x86_64
+//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
 //! When building the resulting libc.S file, these defines are required:
 //! * `-DPTR64`: when the architecture is 64-bit
 //! * One of the following, corresponding to the CPU architecture:
+//!   - `-DARCH_riscv32`
 //!   - `-DARCH_riscv64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
@@ -68,7 +69,8 @@ const MultiSym = struct {
     }
 
     fn is32Only(ms: MultiSym) bool {
-        return ms.present[archIndex(.riscv64)] == false and
+        return ms.present[archIndex(.riscv32)] == true and
+            ms.present[archIndex(.riscv64)] == false and
             ms.present[archIndex(.mips)] == true and
             ms.present[archIndex(.mips64)] == false and
             ms.present[archIndex(.x86)] == true and
@@ -110,6 +112,7 @@ const MultiSym = struct {
 
     fn isPtrSize(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 4 },
             .{ .riscv64, 8 },
             .{ .mips, 4 },
             .{ .mips64, 8 },
@@ -132,6 +135,7 @@ const MultiSym = struct {
 
     fn isPtr2Size(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 8 },
             .{ .riscv64, 16 },
             .{ .mips, 8 },
             .{ .mips64, 16 },
@@ -154,6 +158,7 @@ const MultiSym = struct {
 
     fn isWeak64(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 1 },
             .{ .riscv64, 2 },
             .{ .mips, 1 },
             .{ .mips64, 2 },
