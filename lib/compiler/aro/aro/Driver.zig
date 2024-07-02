@@ -730,8 +730,8 @@ fn processSource(
     defer obj.deinit();
 
     // If it's used, name_buf will either hold a filename or `/tmp/<12 random bytes with base-64 encoding>.<extension>`
-    // both of which should fit into MAX_NAME_BYTES for all systems
-    var name_buf: [std.fs.MAX_NAME_BYTES]u8 = undefined;
+    // both of which should fit into max_name_bytes for all systems
+    var name_buf: [std.fs.max_name_bytes]u8 = undefined;
 
     const out_file_name = if (d.only_compile) blk: {
         const fmt_template = "{s}{s}";

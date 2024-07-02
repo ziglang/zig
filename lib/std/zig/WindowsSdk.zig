@@ -750,7 +750,7 @@ const MsvcLibDir = struct {
         var instances_dir = try findInstancesDir(allocator);
         defer instances_dir.close();
 
-        var state_subpath_buf: [std.fs.MAX_NAME_BYTES + 32]u8 = undefined;
+        var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
         var latest_version_lib_dir = std.ArrayListUnmanaged(u8){};
         errdefer latest_version_lib_dir.deinit(allocator);
 
