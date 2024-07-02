@@ -221,7 +221,26 @@ fn riscv_start() callconv(.C) noreturn {
             }
             break :ret root.main();
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'u8'"),
+        .ErrorUnion => ret: {
+            const result = root.main() catch {
+                const stderr = std.io.getStdErr().writer();
+                stderr.writeAll("failed with error\n") catch {
+                    @panic("failed to print when main returned error");
+                };
+                break :ret 1;
+            };
+            switch (@typeInfo(@TypeOf(result))) {
+                .Void => break :ret 0,
+                .Int => |info| {
+                    if (info.bits != 8 or info.signedness == .signed) {
+                        @compileError(bad_main_ret);
+                    }
+                    return result;
+                },
+                else => @compileError(bad_main_ret),
+            }
+        },
+        else => @compileError(bad_main_ret),
     });
 }
 

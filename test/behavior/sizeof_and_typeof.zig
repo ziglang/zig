@@ -19,8 +19,6 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;

@@ -41,7 +41,7 @@ pub const Memory = struct {
                 2...2 => .hword,
                 3...4 => .word,
                 5...8 => .dword,
-                else => unreachable,
+                else => std.debug.panic("fromByteSize {}", .{size}),
             };
         }
 
@@ -221,7 +221,7 @@ pub const Register = enum(u8) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => 64,
             @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => if (Target.riscv.featureSetHas(features, .d)) 64 else 32,
-            @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => 1024, // TODO: look at suggestVectorSize
+            @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => 256, // TODO: look at suggestVectorSize
             else => unreachable,
             // zig fmt: on
         };
