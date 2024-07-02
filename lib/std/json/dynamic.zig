@@ -147,7 +147,19 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
 
                 // stack: [..., .object]
                 var object = &stack.items[stack.items.len - 1].object;
-                try object.put(key, value);
+
+                const gop = try object.getOrPut(key);
+                if (gop.found_existing) {
+                    switch (options.duplicate_field_behavior) {
+                        .use_first => {},
+                        .@"error" => return error.DuplicateField,
+                        .use_last => {
+                            gop.value_ptr.* = value;
+                        },
+                    }
+                } else {
+                    gop.value_ptr.* = value;
+                }
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.

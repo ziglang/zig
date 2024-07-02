@@ -181,6 +181,34 @@ test "escaped characters" {
     try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.string, "😂");
 }
 
+test "Value with duplicate fields" {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+
+    const doc =
+        \\{
+        \\  "abc": 0,
+        \\  "abc": 1
+        \\}
+    ;
+
+    try testing.expectError(error.DuplicateField, parseFromSliceLeaky(std.json.Value, arena_allocator.allocator(), doc, .{
+        .duplicate_field_behavior = .@"error",
+    }));
+
+    const first = try parseFromSliceLeaky(std.json.Value, arena_allocator.allocator(), doc, .{
+        .duplicate_field_behavior = .use_first,
+    });
+    try testing.expectEqual(@as(usize, 1), first.object.count());
+    try testing.expectEqual(@as(i64, 0), first.object.get("abc").?.integer);
+
+    const last = try parseFromSliceLeaky(std.json.Value, arena_allocator.allocator(), doc, .{
+        .duplicate_field_behavior = .use_last,
+    });
+    try testing.expectEqual(@as(usize, 1), last.object.count());
+    try testing.expectEqual(@as(i64, 1), last.object.get("abc").?.integer);
+}
+
 test "Value.jsonStringify" {
     var vals = [_]Value{
         .{ .integer = 1 },
