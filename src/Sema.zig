@@ -187,6 +187,7 @@ const Compilation = @import("Compilation.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
+const zon = @import("zon.zig");
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -13895,9 +13896,12 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     defer tracy.end();
 
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
+    const extra = sema.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
     const operand_src = block.tokenOffset(inst_data.src_tok);
-    const operand = inst_data.get(sema.code);
+    const operand = sema.code.nullTerminatedString(extra.path);
+
+    _ = extra.res_ty;
 
     const result = mod.importFile(block.getFileScope(mod), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
@@ -13914,9 +13918,22 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    try mod.ensureFileAnalyzed(result.file);
-    const file_root_decl_index = result.file.root_decl.unwrap().?;
-    return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
+    switch (result.file.mode) {
+        .zig => {
+            try mod.ensureFileAnalyzed(result.file);
+            const file_root_decl_index = result.file.root_decl.unwrap().?;
+            return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
+        },
+        .zon => {
+            _ = result.file.getTree(mod.gpa) catch |err| {
+                // TODO: these errors are file system errors; make sure an update() will
+                // retry this and not cache the file system error, which may be transient.
+                return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
+            };
+            const interned = try zon.lower(mod, result.file);
+            return Air.internedToRef(interned);
+        },
+    }
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

@@ -5969,6 +5969,7 @@ fn cmdAstCheck(
         .mod = undefined,
         .root_decl = .none,
         .path_digest = undefined,
+        .mode = .zig,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6288,6 +6289,7 @@ fn cmdDumpZir(
         .mod = undefined,
         .root_decl = .none,
         .path_digest = undefined,
+        .mode = .zig,
     };
     defer file.zir.deinit(gpa);
 
@@ -6359,6 +6361,7 @@ fn cmdChangelist(
         .mod = undefined,
         .root_decl = .none,
         .path_digest = undefined,
+        .mode = Module.File.modeFromPath(old_source_file),
     };
 
     file.mod = try Package.Module.createLimited(arena, .{

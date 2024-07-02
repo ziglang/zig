@@ -233,7 +233,7 @@ test parseCharLiteral {
 
 /// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
 /// Asserts `bytes` has '"' at beginning and end.
-pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
+pub fn parseWrite(writer: anytype, bytes: []const u8) !Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var index: usize = 1;
@@ -297,4 +297,144 @@ test parseAlloc {
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
     try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
+}
+
+/// Parses one line at a time of a multiline Zig string literal to a std.io.Writer type. Does not append a null terminator.
+pub fn MultilineParser(comptime Writer: type) type {
+    return struct {
+        writer: Writer,
+        first_line: bool,
+
+        pub fn init(writer: Writer) @This() {
+            return .{
+                .writer = writer,
+                .first_line = true,
+            };
+        }
+
+        /// Parse one line of a multiline string, writing the result to the writer prepending a newline if necessary.
+        ///
+        /// Asserts bytes begins with "\\". The line may be terminated with '\n' or  "\r\n", but may not contain any interior newlines.
+        /// contain any interior newlines.
+        pub fn line(self: *@This(), bytes: []const u8) Writer.Error!void {
+            assert(bytes.len >= 2 and bytes[0] == '\\' and bytes[1] == '\\');
+            if (self.first_line) {
+                self.first_line = false;
+            } else {
+                try self.writer.writeByte('\n');
+            }
+            const carriage_return_ending: usize = if (bytes[bytes.len - 2] == '\r') 2 else if (bytes[bytes.len - 1] == '\n') 1 else 0;
+            const line_bytes = bytes[2 .. bytes.len - carriage_return_ending];
+            try self.writer.writeAll(line_bytes);
+        }
+    };
+}
+
+pub fn multilineParser(writer: anytype) MultilineParser(@TypeOf(writer)) {
+    return MultilineParser(@TypeOf(writer)).init(writer);
+}
+
+test "parse multiline" {
+    // Varying newlines
+    {
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\bar");
+            try std.testing.expectEqualStrings("foo\nbar", parsed.items);
+        }
+
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\bar\n");
+            try std.testing.expectEqualStrings("foo\nbar", parsed.items);
+        }
+
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\bar\r\n");
+            try std.testing.expectEqualStrings("foo\nbar", parsed.items);
+        }
+
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo\n");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\bar");
+            try std.testing.expectEqualStrings("foo\nbar", parsed.items);
+        }
+
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo\r\n");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\bar");
+            try std.testing.expectEqualStrings("foo\nbar", parsed.items);
+        }
+    }
+
+    // Empty lines
+    {
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\");
+            try std.testing.expectEqualStrings("", parsed.items);
+            try parser.line("\\\\");
+            try std.testing.expectEqualStrings("\n", parsed.items);
+            try parser.line("\\\\foo");
+            try std.testing.expectEqualStrings("\n\nfoo", parsed.items);
+            try parser.line("\\\\bar");
+            try std.testing.expectEqualStrings("\n\nfoo\nbar", parsed.items);
+        }
+
+        {
+            var parsed = std.ArrayList(u8).init(std.testing.allocator);
+            defer parsed.deinit();
+            const writer = parsed.writer();
+            var parser = multilineParser(writer);
+            try parser.line("\\\\foo");
+            try std.testing.expectEqualStrings("foo", parsed.items);
+            try parser.line("\\\\");
+            try std.testing.expectEqualStrings("foo\n", parsed.items);
+            try parser.line("\\\\bar");
+            try std.testing.expectEqualStrings("foo\n\nbar", parsed.items);
+            try parser.line("\\\\");
+            try std.testing.expectEqualStrings("foo\n\nbar\n", parsed.items);
+        }
+    }
+
+    // No escapes
+    {
+        var parsed = std.ArrayList(u8).init(std.testing.allocator);
+        defer parsed.deinit();
+        const writer = parsed.writer();
+        var parser = multilineParser(writer);
+        try parser.line("\\\\no \\n escape");
+        try std.testing.expectEqualStrings("no \\n escape", parsed.items);
+        try parser.line("\\\\still no \\n escape");
+        try std.testing.expectEqualStrings("no \\n escape\nstill no \\n escape", parsed.items);
+    }
 }

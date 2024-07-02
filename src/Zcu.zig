@@ -769,6 +769,9 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
+    /// Whether the file is Zig or ZON. This filed is always populated.
+    mode: Ast.Mode,
+
     /// A single reference to a file.
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
@@ -776,6 +779,14 @@ pub const File = struct {
         /// The file is the root of a module.
         root: *Package.Module,
     };
+
+    pub fn modeFromPath(path: []const u8) Ast.Mode {
+        if (std.mem.endsWith(u8, path, ".zon")) {
+            return .zon;
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
+            return .zig;
+        } else unreachable;
+    }
 
     pub fn unload(file: *File, gpa: Allocator) void {
         file.unloadTree(gpa);
@@ -873,7 +884,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, .zig);
+        file.tree = try Ast.parse(gpa, source.bytes, file.mode);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -986,6 +997,7 @@ pub const File = struct {
     }
 };
 
+/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
     /// Relative to the owning module's root directory.
     sub_file_path: InternPool.NullTerminatedString,
@@ -2792,7 +2804,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, source, .zig);
+    file.tree = try Ast.parse(gpa, source, file.mode);
     file.tree_loaded = true;
 
     // Any potential AST errors are converted to ZIR errors here.
@@ -3938,6 +3950,8 @@ fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
 /// Regardless of the file status, will create a `Decl` if none exists so that we can track
 /// dependencies and re-analyze when the file becomes outdated.
 fn semaFile(mod: *Module, file: *File) SemaError!void {
+    assert(file.mode == .zig);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4409,6 +4423,7 @@ pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
             path_hash.hasher.final(&bin);
             break :digest bin;
         },
+        .mode = File.modeFromPath(sub_file_path),
     };
     try new_file.addReference(zcu.*, .{ .root = mod });
     try zcu.path_digest_map.put(gpa, new_file.path_digest, {});
@@ -4433,7 +4448,7 @@ pub fn importFile(
     if (cur_file.mod.deps.get(import_string)) |pkg| {
         return zcu.importPkg(pkg);
     }
-    if (!mem.endsWith(u8, import_string, ".zig")) {
+    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
         return error.ModuleNotFound;
     }
     const gpa = zcu.gpa;
@@ -4512,6 +4527,7 @@ pub fn importFile(
             path_hash.hasher.final(&bin);
             break :digest bin;
         },
+        .mode = Module.File.modeFromPath(sub_file_path),
     };
     try zcu.path_digest_map.put(gpa, new_file.path_digest, {});
     return ImportFileResult{
