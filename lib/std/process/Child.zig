@@ -103,6 +103,25 @@ resource_usage_statistics: ResourceUsageStatistics = .{},
 /// by substituting this node with the child's root node.
 progress_node: std.Progress.Node = std.Progress.Node.none,
 
+/// When provided, ensures that the child process will have access to the
+/// jobserver provided by the thread pool.
+///
+/// If the thread pool represents the root process, the child process will be
+/// supplied with the `JOBSERVERV2` environment variable so that it can
+/// connect.
+///
+/// If the thread pool represents a client, its connection address will be
+/// passed into the `JOBSERVERV2` environment variable. This potentially
+/// overrides the global environment variable.
+///
+/// If the thread pool is in abstinance mode, any `JOBSERVERV2` environment
+/// variable will be elided from being passed down to the child. This differs
+/// from leaving the field as `null` in which case no modifications to
+/// jobserver environment variables will occur.
+///
+/// A provided thread pool must live longer than this `Child` instance.
+thread_pool: ?*std.Thread.Pool = null,
+
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
 
@@ -377,6 +396,7 @@ pub fn run(args: struct {
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
     progress_node: std.Progress.Node = std.Progress.Node.none,
+    thread_pool: ?*std.Thread.Pool = null,
 }) RunError!RunResult {
     var child = ChildProcess.init(args.argv, args.allocator);
     child.stdin_behavior = .Ignore;
@@ -387,6 +407,7 @@ pub fn run(args: struct {
     child.env_map = args.env_map;
     child.expand_arg0 = args.expand_arg0;
     child.progress_node = args.progress_node;
+    child.thread_pool = args.thread_pool;
 
     var stdout = std.ArrayList(u8).init(args.allocator);
     var stderr = std.ArrayList(u8).init(args.allocator);
@@ -616,19 +637,26 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
     const envp: [*:null]const ?[*:0]const u8 = m: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
+        const job_server_path: process.CreateEnvironOptions.String = if (self.thread_pool) |thread_pool| switch (thread_pool.job_server_options) {
+            .host, .connect => |addr| .{ .updated = mem.sliceTo(&addr.un.path, 0) },
+            .abstain => .deleted,
+        } else .unchanged;
         if (self.env_map) |env_map| {
             break :m (try process.createEnvironFromMap(arena, env_map, .{
                 .zig_progress_fd = prog_fd,
+                .job_server_path = job_server_path,
             })).ptr;
         } else if (builtin.link_libc) {
             break :m (try process.createEnvironFromExisting(arena, std.c.environ, .{
                 .zig_progress_fd = prog_fd,
+                .job_server_path = job_server_path,
             })).ptr;
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
             break :m (try process.createEnvironFromExisting(arena, @ptrCast(std.os.environ.ptr), .{
                 .zig_progress_fd = prog_fd,
+                .job_server_path = job_server_path,
             })).ptr;
         } else {
             // TODO come up with a solution for this.

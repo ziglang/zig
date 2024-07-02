@@ -1011,6 +1011,7 @@ pub fn spawnLld(
     defer comp.gpa.free(stderr);
 
     var child = std.process.Child.init(argv, arena);
+    child.thread_pool = comp.thread_pool;
     const term = (if (comp.clang_passthrough_mode) term: {
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;

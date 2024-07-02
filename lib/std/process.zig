@@ -1816,6 +1816,14 @@ pub const CreateEnvironOptions = struct {
     /// If non-null, negative means to remove the environment variable, and >= 0
     /// means to provide it with the given integer.
     zig_progress_fd: ?i32 = null,
+
+    job_server_path: String = .unchanged,
+
+    pub const String = union(enum) {
+        unchanged,
+        deleted,
+        updated: []const u8,
+    };
 };
 
 /// Creates a null-deliminated environment variable block in the format
@@ -1825,8 +1833,8 @@ pub fn createEnvironFromMap(
     map: *const EnvMap,
     options: CreateEnvironOptions,
 ) Allocator.Error![:null]?[*:0]u8 {
-    const ZigProgressAction = enum { nothing, edit, delete, add };
-    const zig_progress_action: ZigProgressAction = a: {
+    const EnvVarAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: EnvVarAction = a: {
         const fd = options.zig_progress_fd orelse break :a .nothing;
         const contains = map.get("ZIG_PROGRESS") != null;
         if (fd >= 0) {
@@ -1836,10 +1844,20 @@ pub fn createEnvironFromMap(
         }
         break :a .nothing;
     };
+    const job_server_action: EnvVarAction = switch (options.job_server_path) {
+        .unchanged => .nothing,
+        .deleted => if (map.get("JOBSERVERV2") != null) .delete else .nothing,
+        .updated => if (map.get("JOBSERVERV2") != null) .edit else .add,
+    };
 
     const envp_count: usize = c: {
         var count: usize = map.count();
         switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        switch (job_server_action) {
             .add => count += 1,
             .delete => count -= 1,
             .nothing, .edit => {},
@@ -1855,6 +1873,11 @@ pub fn createEnvironFromMap(
         i += 1;
     }
 
+    if (job_server_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "JOBSERVERV2={s}", .{options.job_server_path.updated});
+        i += 1;
+    }
+
     {
         var it = map.iterator();
         while (it.next()) |pair| {
@@ -1864,6 +1887,19 @@ pub fn createEnvironFromMap(
                 .edit => {
                     envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={d}", .{
                         pair.key_ptr.*, options.zig_progress_fd.?,
+                    });
+                    i += 1;
+                    continue;
+                },
+                .nothing => {},
+            };
+
+            if (mem.eql(u8, pair.key_ptr.*, "JOBSERVERV2")) switch (job_server_action) {
+                .add => unreachable,
+                .delete => continue,
+                .edit => {
+                    envp_buf[i] = try std.fmt.allocPrintZ(arena, "{s}={s}", .{
+                        pair.key_ptr.*, options.job_server_path.updated,
                     });
                     i += 1;
                     continue;
@@ -1887,16 +1923,19 @@ pub fn createEnvironFromExisting(
     existing: [*:null]const ?[*:0]const u8,
     options: CreateEnvironOptions,
 ) Allocator.Error![:null]?[*:0]u8 {
-    const existing_count, const contains_zig_progress = c: {
+    const existing_count, const contains_zig_progress, const contains_job_server = c: {
         var count: usize = 0;
-        var contains = false;
+        var contains_zig_progress = false;
+        var contains_job_server = false;
         while (existing[count]) |line| : (count += 1) {
-            contains = contains or mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS");
+            const name = mem.sliceTo(line, '=');
+            contains_zig_progress = contains_zig_progress or mem.eql(u8, name, "ZIG_PROGRESS");
+            contains_job_server = contains_job_server or mem.eql(u8, name, "JOBSERVERV2");
         }
-        break :c .{ count, contains };
+        break :c .{ count, contains_zig_progress, contains_job_server };
     };
-    const ZigProgressAction = enum { nothing, edit, delete, add };
-    const zig_progress_action: ZigProgressAction = a: {
+    const EnvVarAction = enum { nothing, edit, delete, add };
+    const zig_progress_action: EnvVarAction = a: {
         const fd = options.zig_progress_fd orelse break :a .nothing;
         if (fd >= 0) {
             break :a if (contains_zig_progress) .edit else .add;
@@ -1905,10 +1944,20 @@ pub fn createEnvironFromExisting(
         }
         break :a .nothing;
     };
+    const job_server_action: EnvVarAction = switch (options.job_server_path) {
+        .unchanged => .nothing,
+        .deleted => if (contains_job_server) .delete else .nothing,
+        .updated => if (contains_job_server) .edit else .add,
+    };
 
     const envp_count: usize = c: {
         var count: usize = existing_count;
         switch (zig_progress_action) {
+            .add => count += 1,
+            .delete => count -= 1,
+            .nothing, .edit => {},
+        }
+        switch (job_server_action) {
             .add => count += 1,
             .delete => count -= 1,
             .nothing, .edit => {},
@@ -1924,6 +1973,10 @@ pub fn createEnvironFromExisting(
         envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
         i += 1;
     }
+    if (job_server_action == .add) {
+        envp_buf[i] = try std.fmt.allocPrintZ(arena, "JOBSERVERV2={s}", .{options.job_server_path.updated});
+        i += 1;
+    }
 
     while (existing[existing_index]) |line| : (existing_index += 1) {
         if (mem.eql(u8, mem.sliceTo(line, '='), "ZIG_PROGRESS")) switch (zig_progress_action) {
@@ -1931,6 +1984,16 @@ pub fn createEnvironFromExisting(
             .delete => continue,
             .edit => {
                 envp_buf[i] = try std.fmt.allocPrintZ(arena, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?});
+                i += 1;
+                continue;
+            },
+            .nothing => {},
+        };
+        if (mem.eql(u8, mem.sliceTo(line, '='), "JOBSERVERV2")) switch (job_server_action) {
+            .add => unreachable,
+            .delete => continue,
+            .edit => {
+                envp_buf[i] = try std.fmt.allocPrintZ(arena, "JOBSERVERV2={s}", .{options.job_server_path.updated});
                 i += 1;
                 continue;
             },

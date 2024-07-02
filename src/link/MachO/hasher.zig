@@ -12,8 +12,6 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             const tracy = trace(@src());
             defer tracy.end();
 
-            var wg: WaitGroup = .{};
-
             const file_size = blk: {
                 const file_size = opts.max_file_size orelse try file.getEndPos();
                 break :blk std.math.cast(usize, file_size) orelse return error.Overflow;
@@ -27,8 +25,8 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             defer self.allocator.free(results);
 
             {
-                wg.reset();
-                defer wg.wait();
+                var wg: WaitGroup = .{};
+                defer self.thread_pool.waitAndWork(&wg);
 
                 for (out, results, 0..) |*out_buf, *result, i| {
                     const fstart = i * chunk_size;

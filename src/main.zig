@@ -10,7 +10,6 @@ const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const Color = std.zig.Color;
 const warn = std.log.warn;
-const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
 const native_os = builtin.os.tag;
 
@@ -3093,10 +3092,6 @@ fn buildOutputType(
     };
     defer emit_implib_resolved.deinit();
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
-    defer thread_pool.deinit();
-
     var cleanup_local_cache_dir: ?fs.Dir = null;
     defer if (cleanup_local_cache_dir) |*dir| dir.close();
 
@@ -3140,6 +3135,13 @@ fn buildOutputType(
         // so we utilize the global one.
         break :l global_cache_directory;
     };
+
+    var thread_pool: std.Thread.Pool = undefined;
+    try std.zig.initThreadPool(&thread_pool, .{
+        .allocator = gpa,
+        .cache_directory = local_cache_directory,
+    });
+    defer thread_pool.deinit();
 
     for (create_module.c_source_files.items) |*src| {
         if (!mem.eql(u8, src.src_path, "-")) continue;
@@ -4250,6 +4252,7 @@ fn runOrTest(
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
         child.stderr_behavior = .Inherit;
+        child.thread_pool = comp.thread_pool;
 
         // Here we release all the locks associated with the Compilation so
         // that whatever this child process wants to do won't deadlock.
@@ -4395,6 +4398,7 @@ fn runOrTestHotSwap(
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
+            child.thread_pool = comp.thread_pool;
 
             try child.spawn();
 
@@ -4896,8 +4900,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
+    var thread_pool: std.Thread.Pool = undefined;
+    try std.zig.initThreadPool(&thread_pool, .{
+        .allocator = gpa,
+        .cache_directory = local_cache_directory,
+    });
     defer thread_pool.deinit();
 
     // Dummy http client that is not actually used when only_core_functionality is enabled.
@@ -5055,7 +5062,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 job_queue.thread_pool.spawnWg(&job_queue.wait_group, Package.Fetch.workerRun, .{
                     &fetch, "root",
                 });
-                job_queue.wait_group.wait();
+                job_queue.thread_pool.waitAndWork(&job_queue.wait_group);
 
                 try job_queue.consolidateErrors();
 
@@ -5184,6 +5191,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
+            child.thread_pool = &thread_pool;
 
             const term = t: {
                 std.debug.lockStdErr();
@@ -5330,8 +5338,11 @@ fn jitCmd(
     };
     defer global_cache_directory.handle.close();
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
+    var thread_pool: std.Thread.Pool = undefined;
+    try std.zig.initThreadPool(&thread_pool, .{
+        .allocator = gpa,
+        .cache_directory = global_cache_directory,
+    });
     defer thread_pool.deinit();
 
     var child_argv: std.ArrayListUnmanaged([]const u8) = .{};
@@ -5472,6 +5483,7 @@ fn jitCmd(
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = if (options.capture == null) .Inherit else .Pipe;
     child.stderr_behavior = .Inherit;
+    child.thread_pool = &thread_pool;
 
     try child.spawn();
 
@@ -6876,10 +6888,6 @@ fn cmdFetch(
 
     const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
 
-    var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
-    defer thread_pool.deinit();
-
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
@@ -6898,6 +6906,13 @@ fn cmdFetch(
         };
     };
     defer global_cache_directory.handle.close();
+
+    var thread_pool: std.Thread.Pool = undefined;
+    try std.zig.initThreadPool(&thread_pool, .{
+        .allocator = gpa,
+        .cache_directory = global_cache_directory,
+    });
+    defer thread_pool.deinit();
 
     var job_queue: Package.Fetch.JobQueue = .{
         .http_client = &http_client,
