@@ -142,11 +142,10 @@ pub const Inst = struct {
         vsetivli,
         vsetvl,
         vaddvv,
+        vfaddvv,
         vsubvv,
+        vfsubvv,
         vslidedownvx,
-
-        // A Extension Instructions
-        amo,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
