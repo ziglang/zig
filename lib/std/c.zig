@@ -36,7 +36,7 @@ pub usingnamespace switch (native_os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macos, .ios, .tvos, .watchos, .visionos => @import("c/darwin.zig"),
-    .freebsd, .kfreebsd => @import("c/freebsd.zig"),
+    .freebsd => @import("c/freebsd.zig"),
     .netbsd => @import("c/netbsd.zig"),
     .dragonfly => @import("c/dragonfly.zig"),
     .openbsd => @import("c/openbsd.zig"),
@@ -69,7 +69,7 @@ pub const pthread_mutex_t = switch (native_os) {
 
         const data_len = if (@sizeOf(usize) == 8) 56 else 40;
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         inner: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -118,7 +118,7 @@ pub const pthread_cond_t = switch (native_os) {
         data: [data_len]u8 = [_]u8{0} ** data_len,
         const data_len = if (@sizeOf(usize) == 8) 40 else 24;
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         inner: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -170,7 +170,7 @@ pub const pthread_rwlock_t = switch (native_os) {
         sig: c_long = 0x2DA8B3B4,
         data: [192]u8 = [_]u8{0} ** 192,
     },
-    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .dragonfly, .openbsd => extern struct {
         ptr: ?*anyopaque = null,
     },
     .hermit => extern struct {
@@ -225,7 +225,7 @@ pub const AT = switch (native_os) {
         /// Path refers to directory
         pub const REMOVEDIR = 0x0080;
     },
-    .freebsd, .kfreebsd => struct {
+    .freebsd => struct {
         /// Magic value that specify the use of the current working directory
         /// to determine the target of relative file paths in the openat() and
         /// similar syscalls.
@@ -706,7 +706,7 @@ pub const V = switch (native_os) {
         TIME,
         STATUS,
     },
-    .freebsd, .kfreebsd => enum {
+    .freebsd => enum {
         EOF,
         EOL,
         EOL2,
@@ -784,7 +784,7 @@ pub const V = switch (native_os) {
 
 pub const NCCS = switch (native_os) {
     .linux => linux.NCCS,
-    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .kfreebsd, .netbsd, .openbsd, .dragonfly => 20,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly => 20,
     .haiku => 11,
     .solaris, .illumos => 19,
     .emscripten, .wasi => 32,
@@ -802,7 +802,7 @@ pub const termios = switch (native_os) {
         ispeed: speed_t align(8),
         ospeed: speed_t,
     },
-    .freebsd, .kfreebsd, .netbsd, .dragonfly, .openbsd => extern struct {
+    .freebsd, .netbsd, .dragonfly, .openbsd => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
@@ -861,7 +861,7 @@ pub const tc_iflag_t = switch (native_os) {
         IUTF8: bool = false,
         _: u49 = 0,
     },
-    .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .netbsd, .freebsd, .dragonfly => packed struct(u32) {
         IGNBRK: bool = false,
         BRKINT: bool = false,
         IGNPAR: bool = false,
@@ -993,7 +993,7 @@ pub const tc_oflag_t = switch (native_os) {
         ONLRET: bool = false,
         _: u24 = 0,
     },
-    .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .freebsd, .dragonfly => packed struct(u32) {
         OPOST: bool = false,
         ONLCR: bool = false,
         _2: u1 = 0,
@@ -1069,7 +1069,7 @@ pub const tc_cflag_t = switch (native_os) {
         CCAR_OFLOW: bool = false,
         _: u43 = 0,
     },
-    .freebsd, .kfreebsd => packed struct(u32) {
+    .freebsd => packed struct(u32) {
         CIGNORE: bool = false,
         _1: u7 = 0,
         CSIZE: CSIZE = .CS5,
@@ -1210,7 +1210,7 @@ pub const tc_lflag_t = switch (native_os) {
         NOFLSH: bool = false,
         _: u32 = 0,
     },
-    .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .netbsd, .freebsd, .dragonfly => packed struct(u32) {
         ECHOKE: bool = false,
         ECHOE: bool = false,
         ECHOK: bool = false,
@@ -1337,7 +1337,7 @@ pub const speed_t = switch (native_os) {
         B115200 = 115200,
         B230400 = 230400,
     },
-    .freebsd, .kfreebsd, .netbsd => enum(c_uint) {
+    .freebsd, .netbsd => enum(c_uint) {
         B0 = 0,
         B50 = 50,
         B75 = 75,
