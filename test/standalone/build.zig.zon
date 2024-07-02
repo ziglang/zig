@@ -86,6 +86,9 @@
         .dirname = .{
             .path = "dirname",
         },
+        .dep_duplicate_module = .{
+            .path = "dep_duplicate_module",
+        },
         .empty_env = .{
             .path = "empty_env",
         },
