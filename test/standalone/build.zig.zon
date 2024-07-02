@@ -83,6 +83,9 @@
         .dep_shared_builtin = .{
             .path = "dep_shared_builtin",
         },
+        .dep_lazypath = .{
+            .path = "dep_lazypath",
+        },
         .dirname = .{
             .path = "dirname",
         },

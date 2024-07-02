@@ -668,7 +668,7 @@ pub fn lowerToBuildSteps(
         for (update.files.items) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.files.items[0].getPath();
+        const root_source_file = writefiles.getFile(0);
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,

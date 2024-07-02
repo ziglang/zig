@@ -26,20 +26,14 @@ generated_directory: std.Build.GeneratedFile,
 pub const base_id: Step.Id = .write_file;
 
 pub const File = struct {
-    generated_file: std.Build.GeneratedFile,
     sub_path: []const u8,
     contents: Contents,
-
-    pub fn getPath(file: *File) std.Build.LazyPath {
-        return .{ .generated = .{ .file = &file.generated_file } };
-    }
 };
 
 pub const Directory = struct {
     source: std.Build.LazyPath,
     sub_path: []const u8,
     options: Options,
-    generated_dir: std.Build.GeneratedFile,
 
     pub const Options = struct {
         /// File paths that end in any of these suffixes will be excluded from copying.
@@ -56,10 +50,6 @@ pub const Directory = struct {
             };
         }
     };
-
-    pub fn getPath(dir: *Directory) std.Build.LazyPath {
-        return .{ .generated = .{ .file = &dir.generated_dir } };
-    }
 };
 
 pub const OutputSourceFile = struct {
@@ -89,18 +79,35 @@ pub fn create(owner: *std.Build) *WriteFile {
     return write_file;
 }
 
+pub fn getFile(write_file: *WriteFile, index: usize) std.Build.LazyPath {
+    if (index >= write_file.files.items.len) std.debug.panic(
+        "file index {} is too big for only having {} file(s)",
+        .{ index, write_file.files.items.len },
+    );
+    return .{
+        .generated = .{
+            .file = &write_file.generated_directory,
+            .sub_path = write_file.files.items[index].sub_path,
+        },
+    };
+}
+
 pub fn add(write_file: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.LazyPath {
     const b = write_file.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
     file.* = .{
-        .generated_file = .{ .step = &write_file.step },
         .sub_path = b.dupePath(sub_path),
         .contents = .{ .bytes = b.dupe(bytes) },
     };
     write_file.files.append(gpa, file) catch @panic("OOM");
     write_file.maybeUpdateName();
-    return file.getPath();
+    return .{
+        .generated = .{
+            .file = &write_file.generated_directory,
+            .sub_path = file.sub_path,
+        },
+    };
 }
 
 /// Place the file into the generated directory within the local cache,
@@ -115,7 +122,6 @@ pub fn addCopyFile(write_file: *WriteFile, source: std.Build.LazyPath, sub_path:
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
     file.* = .{
-        .generated_file = .{ .step = &write_file.step },
         .sub_path = b.dupePath(sub_path),
         .contents = .{ .copy = source },
     };
@@ -123,7 +129,12 @@ pub fn addCopyFile(write_file: *WriteFile, source: std.Build.LazyPath, sub_path:
 
     write_file.maybeUpdateName();
     source.addStepDependencies(&write_file.step);
-    return file.getPath();
+    return .{
+        .generated = .{
+            .file = &write_file.generated_directory,
+            .sub_path = file.sub_path,
+        },
+    };
 }
 
 /// Copy files matching the specified exclude/include patterns to the specified subdirectory
@@ -142,13 +153,17 @@ pub fn addCopyDirectory(
         .source = source.dupe(b),
         .sub_path = b.dupePath(sub_path),
         .options = options.dupe(b),
-        .generated_dir = .{ .step = &write_file.step },
     };
     write_file.directories.append(gpa, dir) catch @panic("OOM");
 
     write_file.maybeUpdateName();
     source.addStepDependencies(&write_file.step);
-    return dir.getPath();
+    return .{
+        .generated = .{
+            .file = &write_file.generated_directory,
+            .sub_path = dir.sub_path,
+        },
+    };
 }
 
 /// A path relative to the package root.
@@ -278,11 +293,6 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        for (write_file.files.items) |file| {
-            file.generated_file.path = try b.cache_root.join(b.allocator, &.{
-                "o", &digest, file.sub_path,
-            });
-        }
         write_file.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
         return;
     }
@@ -342,10 +352,6 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 _ = prev_status;
             },
         }
-
-        file.generated_file.path = try b.cache_root.join(b.allocator, &.{
-            cache_path, file.sub_path,
-        });
     }
     for (write_file.directories.items) |dir| {
         const full_src_dir_path = dir.source.getPath2(b, step);

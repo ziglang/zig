@@ -804,7 +804,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileArg(writefile.files.items[0].getPath());
+        run.addFileArg(writefile.getFile(0));
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
