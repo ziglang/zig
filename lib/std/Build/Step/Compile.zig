@@ -989,10 +989,10 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     return path;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn getZigArgs(compile: *Compile) ![][]const u8 {
+    const step = &compile.step;
     const b = step.owner;
     const arena = b.allocator;
-    const compile: *Compile = @fieldParentPtr("step", step);
 
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
@@ -1298,6 +1298,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             // We need to emit the --mod argument here so that the above link objects
             // have the correct parent module, but only if the module is part of
             // this compilation.
+            if (!my_responsibility) continue;
             if (cli_named_modules.modules.getIndex(dep.module)) |module_cli_index| {
                 const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
                 try dep.module.appendZigProcessFlags(&zig_args, step);
@@ -1724,7 +1725,16 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+    return try zig_args.toOwnedSlice();
+}
+
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
+    const b = step.owner;
+    const compile: *Compile = @fieldParentPtr("step", step);
+
+    const zig_args = try getZigArgs(compile);
+
+    const maybe_output_bin_path = step.evalZigProcess(zig_args, prog_node) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);

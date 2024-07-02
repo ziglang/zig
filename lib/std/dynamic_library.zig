@@ -31,7 +31,7 @@ pub const DynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn openZ(path_c: [*:0]const u8) Error!DynLib {
-        return .{ .inner = try InnerType.open(path_c) };
+        return .{ .inner = try InnerType.openZ(path_c) };
     }
 
     /// Trusts the file.
@@ -376,7 +376,7 @@ pub const WindowsDynLib = struct {
     /// WindowsDynLib specific
     /// Opens dynamic library with specified library loading flags.
     pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
-        const path_w = try windows.cStrToPrefixedFileW(null, path_c);
+        const path_w = windows.cStrToPrefixedFileW(null, path_c) catch return error.InvalidPath;
         return openExW(path_w.span().ptr, flags);
     }
 
@@ -466,4 +466,5 @@ test "dynamic_library" {
     };
 
     try testing.expectError(error.FileNotFound, DynLib.open(libname));
+    try testing.expectError(error.FileNotFound, DynLib.openZ(libname.ptr));
 }
