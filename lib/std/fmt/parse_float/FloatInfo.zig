@@ -106,6 +106,26 @@ pub fn from(comptime T: type) Self {
             .min_exponent_round_to_even = -4,
             .max_exponent_round_to_even = 23,
         },
+        f80 => .{
+            // Fast-Path
+            .min_exponent_fast_path = -27,
+            .max_exponent_fast_path = 27,
+            .max_exponent_fast_path_disguised = 46,
+            .max_mantissa_fast_path = 2 << std.math.floatMantissaBits(T),
+            // Slow + Eisel-Lemire
+            .mantissa_explicit_bits = std.math.floatFractionalBits(T),
+            .infinite_power = 0x7fff,
+            // Eisel-Lemire.
+            // NOTE: Not yet tested (no f80 eisel-lemire implementation)
+            .smallest_power_of_ten = -4966,
+            .largest_power_of_ten = 4932,
+            .minimum_exponent = -16382,
+            // 2^65 * 5^-q < 2^80
+            // 5^-q < 2^15
+            // => q >= -6
+            .min_exponent_round_to_even = -6,
+            .max_exponent_round_to_even = 28,
+        },
         f128 => .{
             // Fast-Path
             .min_exponent_fast_path = -48,
