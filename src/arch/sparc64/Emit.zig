@@ -5,7 +5,9 @@ const std = @import("std");
 const Endian = std.builtin.Endian;
 const assert = std.debug.assert;
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const ErrorMsg = Module.ErrorMsg;
 const Liveness = @import("../../Liveness.zig");
 const log = std.log.scoped(.sparcv9_emit);

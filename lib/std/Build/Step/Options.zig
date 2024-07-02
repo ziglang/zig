@@ -410,7 +410,7 @@ pub fn getOutput(options: *Options) LazyPath {
     return .{ .generated = .{ .file = &options.generated_file } };
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     // This step completes so quickly that no progress is necessary.
     _ = prog_node;
 

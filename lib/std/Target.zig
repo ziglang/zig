@@ -231,10 +231,16 @@ pub const Os = struct {
         win10_vb = 0x0A000008, //aka win10_19h2
         win10_mn = 0x0A000009, //aka win10_20h1
         win10_fe = 0x0A00000A, //aka win10_20h2
+        win10_co = 0x0A00000B, //aka win10_21h1
+        win10_ni = 0x0A00000C, //aka win10_21h2
+        win10_cu = 0x0A00000D, //aka win10_22h2
+        win11_zn = 0x0A00000E, //aka win11_21h2
+        win11_ga = 0x0A00000F, //aka win11_22h2
+        win11_ge = 0x0A000010, //aka win11_23h2
         _,
 
         /// Latest Windows version that the Zig Standard Library is aware of
-        pub const latest = WindowsVersion.win10_fe;
+        pub const latest = WindowsVersion.win11_ge;
 
         /// Compared against build numbers reported by the runtime to distinguish win10 versions,
         /// where 0x0A000000 + index corresponds to the WindowsVersion u32 value.
@@ -250,6 +256,12 @@ pub const Os = struct {
             18363, //win10_vb aka win10_19h2
             19041, //win10_mn aka win10_20h1
             19042, //win10_fe aka win10_20h2
+            19043, //win10_co aka win10_21h1
+            19044, //win10_ni aka win10_21h2
+            19045, //win10_cu aka win10_22h2
+            22000, //win11_zn aka win11_21h2
+            22621, //win11_ga aka win11_22h2
+            22631, //win11_ge aka win11_23h2
         };
 
         /// Returns whether the first version `ver` is newer (greater) than or equal to the second version `ver`.
@@ -649,6 +661,7 @@ pub const Abi = enum {
     callable,
     mesh,
     amplification,
+    ohos,
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
         return if (arch.isWasm()) .musl else switch (os.tag) {
@@ -688,6 +701,7 @@ pub const Abi = enum {
             .wasi,
             .emscripten,
             => .musl,
+            .liteos => .ohos,
             .opencl, // TODO: SPIR-V ABIs with Linkage capability
             .glsl450,
             .vulkan,
@@ -699,7 +713,6 @@ pub const Abi = enum {
             .visionos,
             .driverkit,
             .shadermodel,
-            .liteos, // TODO: audit this
             .solaris,
             .illumos,
             .serenity,
@@ -716,7 +729,8 @@ pub const Abi = enum {
 
     pub inline fn isMusl(abi: Abi) bool {
         return switch (abi) {
-            .musl, .musleabi, .musleabihf => true,
+            .musl, .musleabi, .musleabihf, .muslx32 => true,
+            .ohos => true,
             else => false,
         };
     }
@@ -727,6 +741,7 @@ pub const Abi = enum {
             .eabihf,
             .musleabihf,
             => .hard,
+            .ohos => .soft,
             else => .soft,
         };
     }
@@ -1534,6 +1549,7 @@ pub const Cpu = struct {
                 .x86 => &x86.cpu.pentium4,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .sparc, .sparcel => &sparc.cpu.v8,
+                .loongarch64 => &loongarch.cpu.loongarch64,
 
                 else => generic(arch),
             };
@@ -1983,6 +1999,7 @@ pub fn stackAlignment(target: Target) u16 {
         .ve,
         .wasm32,
         .wasm64,
+        .loongarch64,
         => 16,
         .powerpc64,
         .powerpc64le,

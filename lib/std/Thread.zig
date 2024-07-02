@@ -75,7 +75,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 }
             } else {
                 const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-                switch (err) {
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return,
                     .RANGE => unreachable,
                     else => |e| return posix.unexpectedErrno(e),
@@ -119,14 +119,14 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
 
             const err = std.c.pthread_setname_np(name_with_terminator.ptr);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 .INVAL => unreachable,
                 .SRCH => unreachable,
@@ -144,7 +144,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         },
         .dragonfly => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 .INVAL => unreachable,
                 .FAULT => unreachable,
@@ -180,7 +180,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 }
             } else {
                 const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-                switch (err) {
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
                     .RANGE => unreachable,
                     else => |e| return posix.unexpectedErrno(e),
@@ -219,7 +219,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .macos, .ios, .watchos, .tvos, .visionos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .SRCH => unreachable,
                 else => |e| return posix.unexpectedErrno(e),
@@ -227,7 +227,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .INVAL => unreachable,
                 .SRCH => unreachable,
@@ -243,7 +243,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .dragonfly => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .INVAL => unreachable,
                 .FAULT => unreachable,
@@ -398,7 +398,7 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     else => unreachable,
 } {
     const default_value = if (Impl == PosixThreadImpl) null else 0;
-    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
     switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
         .NoReturn => {
@@ -422,18 +422,21 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             return default_value;
         },
         .ErrorUnion => |info| {
-            if (info.payload != void) {
-                @compileError(bad_fn_ret);
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+
+                    return default_value;
+                },
+                else => {
+                    @compileError(bad_fn_ret);
+                },
             }
-
-            @call(.auto, f, args) catch |err| {
-                std.debug.print("error: {s}\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-            };
-
-            return default_value;
         },
         else => {
             @compileError(bad_fn_ret);

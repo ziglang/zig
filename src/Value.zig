@@ -6,7 +6,8 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
 const Module = Zcu;
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -4014,7 +4015,6 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, zcu: *Zcu) Allocator.
     return ptr_val.pointerDerivationAdvanced(arena, zcu, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.AnalysisFail,
-        error.NeededSourceLocation,
         error.GenericPoison,
         error.ComptimeReturn,
         error.ComptimeBreak,

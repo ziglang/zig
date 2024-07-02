@@ -893,7 +893,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     }
 }
 
-fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
@@ -901,7 +901,7 @@ fn debugMem(allocator: Allocator, handle: std.ChildProcess.Id, pvaddr: std.os.wi
     log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
 }
 
-fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const old_prot = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, std.os.windows.PAGE_EXECUTE_WRITECOPY);
     try writeMem(handle, pvaddr, code);
     // TODO: We can probably just set the pages writeable and leave it at that without having to restore the attributes.
@@ -909,7 +909,7 @@ fn writeMemProtected(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID,
     _ = try std.os.windows.VirtualProtectEx(handle, pvaddr, code.len, old_prot);
 }
 
-fn writeMem(handle: std.ChildProcess.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
+fn writeMem(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
     const amt = try std.os.windows.WriteProcessMemory(handle, pvaddr, code);
     if (amt != code.len) return error.InputOutput;
 }
@@ -1031,7 +1031,7 @@ fn resolveRelocs(self: *Coff, atom_index: Atom.Index, relocs: []*const Relocatio
     }
 }
 
-pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
+pub fn ptraceAttach(self: *Coff, handle: std.process.Child.Id) !void {
     if (!is_hot_update_compatible) return;
 
     log.debug("attaching to process with handle {*}", .{handle});
@@ -1041,7 +1041,7 @@ pub fn ptraceAttach(self: *Coff, handle: std.ChildProcess.Id) !void {
     };
 }
 
-pub fn ptraceDetach(self: *Coff, handle: std.ChildProcess.Id) void {
+pub fn ptraceDetach(self: *Coff, handle: std.process.Child.Id) void {
     if (!is_hot_update_compatible) return;
 
     log.debug("detaching from process with handle {*}", .{handle});
@@ -1144,7 +1144,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod).upgrade(mod),
         func_index,
         air,
         liveness,
@@ -1181,7 +1181,7 @@ pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclInd
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
     defer gpa.free(sym_name);
     const ty = val.typeOf(mod);
-    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.navSrcLoc(mod).upgrade(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1272,7 +1272,7 @@ pub fn updateDecl(
     defer code_buffer.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1313,12 +1313,12 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
+    const src = if (sym.ty.srcLocOrNull(mod)) |src|
+        src.upgrade(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
-            .parent_decl_node = undefined,
+            .base_node = undefined,
             .lazy = .unneeded,
         };
     const res = try codegen.generateLazySymbol(
@@ -1702,7 +1702,7 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) {
@@ -1714,7 +1714,7 @@ pub fn flush(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.
     }
 }
 
-pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1726,8 +1726,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         return;
     }
 
-    var sub_prog_node = prog_node.start("COFF Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
     const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
@@ -2741,7 +2740,9 @@ const Compilation = @import("../Compilation.zig");
 const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");

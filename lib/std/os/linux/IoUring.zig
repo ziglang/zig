@@ -3524,30 +3524,33 @@ test "accept/connect/send_zc/recv" {
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
+    var cqe_send = try ring.copy_cqe();
     // First completion of zero-copy send.
     // IORING_CQE_F_MORE, means that there
     // will be a second completion event / notification for the
     // request, with the user_data field set to the same value.
     // buffer_send must be keep alive until second cqe.
-    var cqe_send = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
         .flags = linux.IORING_CQE_F_MORE,
     }, cqe_send);
 
-    const cqe_recv = try ring.copy_cqe();
+    cqe_send, const cqe_recv = brk: {
+        const cqe1 = try ring.copy_cqe();
+        const cqe2 = try ring.copy_cqe();
+        break :brk if (cqe1.user_data == 0xeeeeeeee) .{ cqe1, cqe2 } else .{ cqe2, cqe1 };
+    };
+
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
         .flags = cqe_recv.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recv);
-
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
 
     // Second completion of zero-copy send.
     // IORING_CQE_F_NOTIF in flags signals that kernel is done with send_buffer
-    cqe_send = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,
@@ -3992,7 +3995,7 @@ test "ring mapped buffers recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(0);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times
@@ -4078,7 +4081,7 @@ test "ring mapped buffers multishot recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(0);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times

@@ -14,7 +14,7 @@ pub const BuildError = error{
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
-pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }

@@ -2,13 +2,13 @@ const std = @import("std");
 const Type = @import("type.zig").Type;
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
-const Feature = @import("Module.zig").Feature;
+const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
-        .freestanding, .other => true,
+        .freestanding => true,
         else => target.isSpirV(),
     };
 }
@@ -45,7 +45,8 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC());
+        (linking_libc and target.isGnuLibC()) or
+        (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
@@ -430,6 +431,23 @@ pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     };
 }
 
+pub fn minFunctionAlignment(target: std.Target) Alignment {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcel,
+        .sparc64,
+        => .@"2",
+        else => .@"1",
+    };
+}
+
 pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => false,
@@ -507,7 +525,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+        .wasm32, .wasm64 => .stage2_wasm,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
         .x86_64 => .stage2_x86_64,
         .x86 => .stage2_x86,
@@ -526,7 +544,7 @@ pub fn backendSupportsFeature(
     feature: Feature,
 ) bool {
     return switch (feature) {
-        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
+        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64 or cpu_arch == .riscv64,
         .panic_unwrap_error => ofmt == .c or use_llvm,
         .safety_check_formatted => ofmt == .c or use_llvm,
         .error_return_trace => use_llvm,

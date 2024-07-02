@@ -1064,7 +1064,7 @@ pub fn markDirty(self: *Elf, shdr_index: u32) void {
     }
 }
 
-pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
         return self.linkWithLLD(arena, prog_node);
@@ -1072,7 +1072,7 @@ pub fn flush(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.F
     try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1085,8 +1085,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
         if (use_lld) return;
     }
 
-    var sub_prog_node = prog_node.start("ELF Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
     const target = comp.root_mod.resolved_target.result;
@@ -1832,7 +1831,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                         break :success;
                 }
             } else {
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buffer: [fs.max_path_bytes]u8 = undefined;
                 if (fs.realpath(scr_obj.path, &buffer)) |path| {
                     test_path.clearRetainingCapacity();
                     try test_path.writer().writeAll(path);
@@ -2147,7 +2146,7 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
-fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !void {
+fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2169,9 +2168,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const output_mode = comp.config.output_mode;
@@ -3709,7 +3706,7 @@ fn sortInitFini(self: *Elf) !void {
                 }
                 const default: i32 = if (is_ctor_dtor) -1 else std.math.maxInt(i32);
                 const name = atom_ptr.name(self);
-                var it = mem.splitBackwards(u8, name, ".");
+                var it = mem.splitBackwardsScalar(u8, name, '.');
                 const priority = std.fmt.parseUnsigned(u16, it.first(), 10) catch default;
                 break :blk priority;
             };
@@ -5100,9 +5097,9 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
     switch (target.cpu.arch) {
         .x86 => return "elf_i386",
         .aarch64 => return "aarch64linux",
-        .aarch64_be => return "aarch64_be_linux",
+        .aarch64_be => return "aarch64linuxb",
         .arm, .thumb => return "armelf_linux_eabi",
-        .armeb, .thumbeb => return "armebelf_linux_eabi",
+        .armeb, .thumbeb => return "armelfb_linux_eabi",
         .powerpc => return "elf32ppclinux",
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
@@ -5845,7 +5842,8 @@ pub fn tpAddress(self: *Elf) i64 {
     const addr = switch (self.getTarget().cpu.arch) {
         .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
         .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
-        else => @panic("TODO implement getTpAddress for this arch"),
+        .riscv64 => phdr.p_vaddr,
+        else => |arch| std.debug.panic("TODO implement getTpAddress for {s}", .{@tagName(arch)}),
     };
     return @intCast(addr);
 }
@@ -6409,6 +6407,8 @@ const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 // TODO: add comptime check we don't clobber any reloc for any ISA
 pub const R_ZIG_GOT32: u32 = 0xff00;
 pub const R_ZIG_GOTPCREL: u32 = 0xff01;
+pub const R_ZIG_GOT_HI20: u32 = 0xff02;
+pub const R_ZIG_GOT_LO12: u32 = 0xff03;
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {
@@ -6466,7 +6466,9 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const MergeSection = merge_section.MergeSection;
 const MergeSubsection = merge_section.MergeSubsection;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
 const PltSection = synthetic_sections.PltSection;

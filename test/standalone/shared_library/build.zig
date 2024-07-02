@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
     const lib = b.addSharedLibrary(.{
         .name = "mathtest",
         .root_source_file = b.path("mathtest.zig"),

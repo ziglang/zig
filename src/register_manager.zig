@@ -6,7 +6,9 @@ const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
 const Type = @import("type.zig").Type;
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -102,7 +104,7 @@ pub fn RegisterManager(
             }
 
             const OptionalIndex = std.math.IntFittingRange(0, set.len);
-            comptime var map = [1]OptionalIndex{set.len} ** (max_id + 1 - min_id);
+            comptime var map = [1]OptionalIndex{set.len} ** (max_id - min_id + 1);
             inline for (set, 0..) |elem, elem_index| map[comptime elem.id() - min_id] = elem_index;
 
             const id_index = reg.id() -% min_id;
@@ -360,6 +362,7 @@ pub fn RegisterManager(
             } else self.getRegIndexAssumeFree(tracked_index, inst);
         }
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
+            log.debug("getting reg: {}", .{reg});
             return self.getRegIndex(indexOfRegIntoTracked(reg) orelse return, inst);
         }
         pub fn getKnownReg(

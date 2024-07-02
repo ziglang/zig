@@ -3089,7 +3089,7 @@ typedef _Float32 zig_f32;
 #undef zig_has_f32
 #define zig_has_f32 0
 #define zig_repr_f32 u32
-ypedef uint32_t zig_f32;
+typedef uint32_t zig_f32;
 #define zig_make_f32(fp, repr) repr
 #undef zig_make_special_f32
 #define zig_make_special_f32(sign, name, arg, repr) repr

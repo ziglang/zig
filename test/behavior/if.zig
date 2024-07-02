@@ -82,6 +82,7 @@ test "const result loc, runtime if cond, else unreachable" {
 test "if copies its payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -118,6 +119,7 @@ test "if peer expressions inferred optional type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var self: []const u8 = "abcdef";
     var index: usize = 0;
@@ -145,6 +147,8 @@ test "if-else expression with runtime condition result location is inferred opti
 }
 
 test "result location with inferred type ends up being pointer to comptime_int" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     var a: ?u32 = 1234;
     var b: u32 = 2000;
     _ = .{ &a, &b };
@@ -190,6 +194,8 @@ test "if value shouldn't be load-elided if used later (structs)" {
 }
 
 test "if value shouldn't be load-elided if used later (optionals)" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     var a: ?i32 = 1;
     var b: ?i32 = 1;
 

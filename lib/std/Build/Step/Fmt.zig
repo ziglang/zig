@@ -36,10 +36,7 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     return fmt;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    // zig fmt is fast enough that no progress is needed.
-    _ = prog_node;
-
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     // TODO: if check=false, this means we are modifying source files in place, which
     // is an operation that could race against other operations also modifying source files
     // in place. In this case, this step should obtain a write lock while making those
@@ -68,5 +65,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         argv.appendAssumeCapacity(b.pathFromRoot(p));
     }
 
-    return step.evalChildProcess(argv.items);
+    const run_result = try step.captureChildProcess(prog_node, argv.items);
+    if (fmt.check) switch (run_result.term) {
+        .Exited => |code| if (code != 0 and run_result.stdout.len != 0) {
+            var it = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
+            while (it.next()) |bad_file_name| {
+                try step.addError("{s}: non-conforming formatting", .{bad_file_name});
+            }
+        },
+        else => {},
+    };
+    try step.handleChildProcessTerm(run_result.term, null, argv.items);
 }

@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const math = std.math;
 const testing = std.testing;
 const expect = testing.expect;
@@ -149,6 +149,12 @@ test "largest normals" {
 
 test "#11169" {
     try expectEqual(try parseFloat(f128, "9007199254740993.0"), 9007199254740993.0);
+}
+
+test "many_digits hex" {
+    const a: f32 = try std.fmt.parseFloat(f32, "0xffffffffffffffff.0p0");
+    const b: f32 = @floatCast(try std.fmt.parseFloat(f128, "0xffffffffffffffff.0p0"));
+    try std.testing.expectEqual(a, b);
 }
 
 test "hex.special" {

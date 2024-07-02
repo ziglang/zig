@@ -46,7 +46,7 @@ pub fn setName(check_file: *CheckFile, name: []const u8) void {
     check_file.step.name = name;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const check_file: *CheckFile = @fieldParentPtr("step", step);

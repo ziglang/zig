@@ -11,7 +11,9 @@ const Air = @This();
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -782,13 +784,13 @@ pub const Inst = struct {
         field_parent_ptr,
 
         /// Implements @wasmMemorySize builtin.
-        /// Result type is always `u32`,
+        /// Result type is always `usize`,
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         /// The operand is unused and always set to `Ref.none`.
         wasm_memory_size,
 
         /// Implements @wasmMemoryGrow builtin.
-        /// Result type is always `i32`,
+        /// Result type is always `isize`,
         /// Uses the `pl_op` field, payload represents the index of the target memory.
         wasm_memory_grow,
 
@@ -1471,8 +1473,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .save_err_return_trace_index,
         => return Type.usize,
 
-        .wasm_memory_grow => return Type.i32,
-        .wasm_memory_size => return Type.u32,
+        .wasm_memory_grow => return Type.isize,
+        .wasm_memory_size => return Type.usize,
 
         .int_from_bool => return Type.u1,
 

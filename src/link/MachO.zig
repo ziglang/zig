@@ -192,7 +192,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse comp.config.any_sanitize_thread;
 
     const self = try arena.create(MachO);
     self.* = .{
@@ -360,11 +360,11 @@ pub fn deinit(self: *MachO) void {
     self.unwind_records.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     try self.flushModule(arena, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -375,8 +375,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
     }
 
-    var sub_prog_node = prog_node.start("MachO Flush", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
     const directory = self.base.emit.directory;
@@ -411,6 +410,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     }
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    // TSAN
+    if (comp.config.any_sanitize_thread) {
+        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+    }
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
@@ -535,10 +539,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     try self.addUndefinedGlobals();
     try self.resolveSymbols();
+    try self.parseDebugInfo();
     try self.resolveSyntheticSymbols();
 
     try self.convertTentativeDefinitions();
     try self.createObjcSections();
+    try self.dedupLiterals();
     try self.claimUnresolved();
 
     if (self.base.gc_sections) {
@@ -822,6 +828,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (comp.config.any_sanitize_thread) {
+            try argv.append(comp.tsan_static_lib.?.full_object_path);
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -1229,7 +1239,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
                         const rel_path = try fs.path.join(arena, &.{ prefix, path });
                         try checked_paths.append(rel_path);
-                        var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                        var buffer: [fs.max_path_bytes]u8 = undefined;
                         const full_path = fs.realpath(rel_path, &buffer) catch continue;
                         break :full_path try arena.dupe(u8, full_path);
                     }
@@ -1242,7 +1252,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                 }
 
                 try checked_paths.append(try arena.dupe(u8, id.name));
-                var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var buffer: [fs.max_path_bytes]u8 = undefined;
                 if (fs.realpath(id.name, &buffer)) |full_path| {
                     break :full_path try arena.dupe(u8, full_path);
                 } else |_| {
@@ -1408,6 +1418,12 @@ fn markLive(self: *MachO) void {
     }
 }
 
+pub fn parseDebugInfo(self: *MachO) !void {
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.parseDebugInfo(self);
+    }
+}
+
 fn resolveSyntheticSymbols(self: *MachO) !void {
     const internal = self.getInternalObject() orelse return;
 
@@ -1491,6 +1507,33 @@ fn createObjcSections(self: *MachO) !void {
         const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
         const selrefs_index = try internal.addObjcMsgsendSections(name, self);
         try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
+        sym.flags.objc_stubs = true;
+    }
+}
+
+pub fn dedupLiterals(self: *MachO) !void {
+    const gpa = self.base.comp.gpa;
+    var lp: LiteralPool = .{};
+    defer lp.deinit(gpa);
+
+    if (self.getZigObject()) |zo| {
+        try zo.resolveLiterals(&lp, self);
+    }
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.object.resolveLiterals(&lp, self);
+    }
+    if (self.getInternalObject()) |object| {
+        try object.resolveLiterals(&lp, self);
+    }
+
+    if (self.getZigObject()) |zo| {
+        zo.dedupLiterals(lp, self);
+    }
+    for (self.objects.items) |index| {
+        self.getFile(index).?.object.dedupLiterals(lp, self);
+    }
+    if (self.getInternalObject()) |object| {
+        object.dedupLiterals(lp, self);
     }
 }
 
@@ -1728,20 +1771,18 @@ fn initOutputSections(self: *MachO) !void {
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
         }
     }
-    if (self.text_sect_index == null) {
-        self.text_sect_index = try self.addSection("__TEXT", "__text", .{
-            .alignment = switch (self.getTarget().cpu.arch) {
-                .x86_64 => 0,
-                .aarch64 => 2,
-                else => unreachable,
-            },
-            .flags = macho.S_REGULAR |
-                macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
-        });
-    }
-    if (self.data_sect_index == null) {
-        self.data_sect_index = try self.addSection("__DATA", "__data", .{});
-    }
+    self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
+        try self.addSection("__TEXT", "__text", .{
+        .alignment = switch (self.getTarget().cpu.arch) {
+            .x86_64 => 0,
+            .aarch64 => 2,
+            else => unreachable,
+        },
+        .flags = macho.S_REGULAR |
+            macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+    });
+    self.data_sect_index = self.getSectionByName("__DATA", "__data") orelse
+        try self.addSection("__DATA", "__data", .{});
 }
 
 fn initSyntheticSections(self: *MachO) !void {
@@ -4387,6 +4428,87 @@ const Section = struct {
     last_atom_index: Atom.Index = 0,
 };
 
+pub const LiteralPool = struct {
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+    keys: std.ArrayListUnmanaged(Key) = .{},
+    values: std.ArrayListUnmanaged(Atom.Index) = .{},
+    data: std.ArrayListUnmanaged(u8) = .{},
+
+    pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
+        lp.table.deinit(allocator);
+        lp.keys.deinit(allocator);
+        lp.values.deinit(allocator);
+        lp.data.deinit(allocator);
+    }
+
+    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
+        assert(index < lp.values.items.len);
+        return macho_file.getAtom(lp.values.items[index]).?;
+    }
+
+    const InsertResult = struct {
+        found_existing: bool,
+        index: Index,
+        atom: *Atom.Index,
+    };
+
+    pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
+        const size: u32 = @intCast(string.len);
+        try lp.data.ensureUnusedCapacity(allocator, size);
+        const off: u32 = @intCast(lp.data.items.len);
+        lp.data.appendSliceAssumeCapacity(string);
+        const adapter = Adapter{ .lp = lp };
+        const key = Key{ .off = off, .size = size, .seed = @"type" };
+        const gop = try lp.table.getOrPutAdapted(allocator, key, adapter);
+        if (!gop.found_existing) {
+            try lp.keys.append(allocator, key);
+            _ = try lp.values.addOne(allocator);
+        }
+        return .{
+            .found_existing = gop.found_existing,
+            .index = @intCast(gop.index),
+            .atom = &lp.values.items[gop.index],
+        };
+    }
+
+    const Key = struct {
+        off: u32,
+        size: u32,
+        seed: u8,
+
+        fn getData(key: Key, lp: *const LiteralPool) []const u8 {
+            return lp.data.items[key.off..][0..key.size];
+        }
+
+        fn eql(key: Key, other: Key, lp: *const LiteralPool) bool {
+            const key_data = key.getData(lp);
+            const other_data = other.getData(lp);
+            return mem.eql(u8, key_data, other_data);
+        }
+
+        fn hash(key: Key, lp: *const LiteralPool) u32 {
+            const data = key.getData(lp);
+            return @truncate(Hash.hash(key.seed, data));
+        }
+    };
+
+    const Adapter = struct {
+        lp: *const LiteralPool,
+
+        pub fn eql(ctx: @This(), key: Key, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            const other = ctx.lp.keys.items[b_map_index];
+            return key.eql(other, ctx.lp);
+        }
+
+        pub fn hash(ctx: @This(), key: Key) u32 {
+            return key.hash(ctx.lp);
+        }
+    };
+
+    pub const Index = u32;
+};
+
 const HotUpdateState = struct {
     mach_task: ?std.c.MachTask = null,
 };
@@ -4733,11 +4855,11 @@ const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-const DwarfInfo = @import("MachO/DwarfInfo.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const ExportTrieSection = synthetic.ExportTrieSection;
 const File = @import("MachO/file.zig").File;
 const GotSection = synthetic.GotSection;
+const Hash = std.hash.Wyhash;
 const Indsymtab = synthetic.Indsymtab;
 const InternalObject = @import("MachO/InternalObject.zig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;
@@ -4748,7 +4870,9 @@ const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const RebaseSection = synthetic.RebaseSection;
 pub const Relocation = @import("MachO/Relocation.zig");

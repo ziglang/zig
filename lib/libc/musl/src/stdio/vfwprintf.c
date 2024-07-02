@@ -45,7 +45,7 @@ static const unsigned char states[]['z'-'A'+1] = {
 		S('o') = UINT, S('u') = UINT, S('x') = UINT, S('X') = UINT,
 		S('e') = DBL, S('f') = DBL, S('g') = DBL, S('a') = DBL,
 		S('E') = DBL, S('F') = DBL, S('G') = DBL, S('A') = DBL,
-		S('c') = CHAR, S('C') = INT,
+		S('c') = INT, S('C') = UINT,
 		S('s') = PTR, S('S') = PTR, S('p') = UIPTR, S('n') = PTR,
 		S('m') = NOARG,
 		S('l') = LPRE, S('h') = HPRE, S('L') = BIGLPRE,
@@ -55,7 +55,7 @@ static const unsigned char states[]['z'-'A'+1] = {
 		S('o') = ULONG, S('u') = ULONG, S('x') = ULONG, S('X') = ULONG,
 		S('e') = DBL, S('f') = DBL, S('g') = DBL, S('a') = DBL,
 		S('E') = DBL, S('F') = DBL, S('G') = DBL, S('A') = DBL,
-		S('c') = INT, S('s') = PTR, S('n') = PTR,
+		S('c') = UINT, S('s') = PTR, S('n') = PTR,
 		S('l') = LLPRE,
 	}, { /* 2: ll-prefixed */
 		S('d') = LLONG, S('i') = LLONG,

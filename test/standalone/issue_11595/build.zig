@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
 
     if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/12419

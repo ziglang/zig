@@ -60,6 +60,59 @@ pub fn lessThan(ctx: void, lhs: Relocation, rhs: Relocation) bool {
     return lhs.offset < rhs.offset;
 }
 
+const FormatCtx = struct { Relocation, std.Target.Cpu.Arch };
+
+pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatPretty) {
+    return .{ .data = .{ rel, cpu_arch } };
+}
+
+fn formatPretty(
+    ctx: FormatCtx,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = options;
+    _ = unused_fmt_string;
+    const rel, const cpu_arch = ctx;
+    const str = switch (rel.type) {
+        .signed => "X86_64_RELOC_SIGNED",
+        .signed1 => "X86_64_RELOC_SIGNED_1",
+        .signed2 => "X86_64_RELOC_SIGNED_2",
+        .signed4 => "X86_64_RELOC_SIGNED_4",
+        .got_load => "X86_64_RELOC_GOT_LOAD",
+        .tlv => "X86_64_RELOC_TLV",
+        .zig_got_load => "ZIG_GOT_LOAD",
+        .page => "ARM64_RELOC_PAGE21",
+        .pageoff => "ARM64_RELOC_PAGEOFF12",
+        .got_load_page => "ARM64_RELOC_GOT_LOAD_PAGE21",
+        .got_load_pageoff => "ARM64_RELOC_GOT_LOAD_PAGEOFF12",
+        .tlvp_page => "ARM64_RELOC_TLVP_LOAD_PAGE21",
+        .tlvp_pageoff => "ARM64_RELOC_TLVP_LOAD_PAGEOFF12",
+        .branch => switch (cpu_arch) {
+            .x86_64 => "X86_64_RELOC_BRANCH",
+            .aarch64 => "ARM64_RELOC_BRANCH26",
+            else => unreachable,
+        },
+        .got => switch (cpu_arch) {
+            .x86_64 => "X86_64_RELOC_GOT",
+            .aarch64 => "ARM64_RELOC_POINTER_TO_GOT",
+            else => unreachable,
+        },
+        .subtractor => switch (cpu_arch) {
+            .x86_64 => "X86_64_RELOC_SUBTRACTOR",
+            .aarch64 => "ARM64_RELOC_SUBTRACTOR",
+            else => unreachable,
+        },
+        .unsigned => switch (cpu_arch) {
+            .x86_64 => "X86_64_RELOC_UNSIGNED",
+            .aarch64 => "ARM64_RELOC_UNSIGNED",
+            else => unreachable,
+        },
+    };
+    try writer.writeAll(str);
+}
+
 pub const Type = enum {
     // x86_64
     /// RIP-relative displacement (X86_64_RELOC_SIGNED)

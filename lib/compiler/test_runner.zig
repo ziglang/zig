@@ -12,8 +12,8 @@ var cmdline_buffer: [4096]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&cmdline_buffer);
 
 pub fn main() void {
-    if (builtin.zig_backend == .stage2_aarch64) {
-        return mainSimple() catch @panic("test failure");
+    if (builtin.zig_backend == .stage2_riscv64) {
+        return mainSimple() catch @panic("test failure\n");
     }
 
     const args = std.process.argsAlloc(fba.allocator()) catch
@@ -127,12 +127,11 @@ fn mainTerminal() void {
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
-    var progress = std.Progress{
-        .dont_print_on_dumb = true,
-    };
-    const root_node = progress.start("Test", test_fn_list.len);
-    const have_tty = progress.terminal != null and
-        (progress.supports_ansi_escape_codes or progress.is_windows_terminal);
+    const root_node = std.Progress.start(.{
+        .root_name = "Test",
+        .estimated_total_items = test_fn_list.len,
+    });
+    const have_tty = std.io.getStdErr().isTty();
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
@@ -149,11 +148,9 @@ fn mainTerminal() void {
         }
         std.testing.log_level = .warn;
 
-        var test_node = root_node.start(test_fn.name, 0);
-        test_node.activate();
-        progress.refresh();
+        const test_node = root_node.start(test_fn.name, 0);
         if (!have_tty) {
-            std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
+            std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
         if (test_fn.func()) |_| {
             ok_count += 1;
@@ -162,12 +159,22 @@ fn mainTerminal() void {
         } else |err| switch (err) {
             error.SkipZigTest => {
                 skip_count += 1;
-                progress.log("SKIP\n", .{});
+                if (have_tty) {
+                    std.debug.print("{d}/{d} {s}...SKIP\n", .{ i + 1, test_fn_list.len, test_fn.name });
+                } else {
+                    std.debug.print("SKIP\n", .{});
+                }
                 test_node.end();
             },
             else => {
                 fail_count += 1;
-                progress.log("FAIL ({s})\n", .{@errorName(err)});
+                if (have_tty) {
+                    std.debug.print("{d}/{d} {s}...FAIL ({s})\n", .{
+                        i + 1, test_fn_list.len, test_fn.name, @errorName(err),
+                    });
+                } else {
+                    std.debug.print("FAIL ({s})\n", .{@errorName(err)});
+                }
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -212,20 +219,30 @@ pub fn log(
 /// Simpler main(), exercising fewer language features, so that
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
-    const enable_print = false;
-    const print_all = false;
+    // is the backend capable of printing to stderr?
+    const enable_print = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
+        else => false,
+    };
+    // is the backend capable of using std.fmt.format to print a summary at the end?
+    const print_summary = switch (builtin.zig_backend) {
+        else => false,
+    };
 
     var passed: u64 = 0;
     var skipped: u64 = 0;
     var failed: u64 = 0;
-    const stderr = if (enable_print) std.io.getStdErr() else {};
+
+    // we don't want to bring in File and Writer if the backend doesn't support it
+    const stderr = if (comptime enable_print) std.io.getStdErr() else {};
+
     for (builtin.test_functions) |test_fn| {
-        if (enable_print and print_all) {
+        if (enable_print) {
             stderr.writeAll(test_fn.name) catch {};
             stderr.writeAll("... ") catch {};
         }
         test_fn.func() catch |err| {
-            if (enable_print and !print_all) {
+            if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
             }
@@ -239,11 +256,11 @@ pub fn mainSimple() anyerror!void {
             skipped += 1;
             continue;
         };
-        if (enable_print and print_all) stderr.writeAll("PASS\n") catch {};
+        if (enable_print) stderr.writeAll("PASS\n") catch {};
         passed += 1;
     }
-    if (enable_print) {
+    if (enable_print and print_summary) {
         stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
-        if (failed != 0) std.process.exit(1);
     }
+    if (failed != 0) std.process.exit(1);
 }

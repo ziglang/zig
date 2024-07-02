@@ -26,7 +26,9 @@ const wasi_libc = @import("wasi_libc.zig");
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
@@ -123,6 +125,7 @@ const debug_usage = normal_usage ++
 ;
 
 const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
+const default_local_zig_cache_basename = ".zig-cache";
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
@@ -993,11 +996,16 @@ fn buildOutputType(
         .native_system_include_paths = &.{},
     };
 
-    // before arg parsing, check for the NO_COLOR environment variable
-    // if it exists, default the color setting to .off
+    // before arg parsing, check for the NO_COLOR and CLICOLOR_FORCE environment variables
+    // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+        .off
+    else if (EnvVar.CLICOLOR_FORCE.isSet())
+        .on
+    else
+        .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -2246,19 +2254,19 @@ fn buildOutputType(
                     entry = .disabled;
                 } else if (mem.eql(u8, arg, "--initial-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_initial_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_initial_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse initial memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--max-memory")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_max_memory = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_max_memory = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse max memory size '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--shared-memory")) {
                     create_module.opts.shared_memory = true;
                 } else if (mem.eql(u8, arg, "--global-base")) {
                     const next_arg = linker_args_it.nextOrFatal();
-                    linker_global_base = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                    linker_global_base = std.fmt.parseUnsigned(u32, next_arg, 10) catch |err| {
                         fatal("unable to parse global base '{s}': {s}", .{ next_arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--export")) {
@@ -3107,14 +3115,13 @@ fn buildOutputType(
 
         // search upwards from cwd until we find directory with build.zig
         const cwd_path = try process.getCwdAlloc(arena);
-        const zig_cache = "zig-cache";
         var dirname: []const u8 = cwd_path;
         while (true) {
             const joined_path = try fs.path.join(arena, &.{
                 dirname, Package.build_zig_basename,
             });
             if (fs.cwd().access(joined_path, .{})) |_| {
-                const cache_dir_path = try fs.path.join(arena, &.{ dirname, zig_cache });
+                const cache_dir_path = try fs.path.join(arena, &.{ dirname, default_local_zig_cache_basename });
                 const dir = try fs.cwd().makeOpenPath(cache_dir_path, .{});
                 cleanup_local_cache_dir = dir;
                 break :l .{ .handle = dir, .path = cache_dir_path };
@@ -3404,18 +3411,25 @@ fn buildOutputType(
         },
     }
 
-    if (arg_mode == .translate_c) {
-        return cmdTranslateC(comp, arena, null);
-    }
+    {
+        const root_prog_node = std.Progress.start(.{
+            .disable_printing = (color == .off),
+        });
+        defer root_prog_node.end();
 
-    updateModule(comp, color) catch |err| switch (err) {
-        error.SemanticAnalyzeFail => {
-            assert(listen == .none);
-            saveState(comp, debug_incremental);
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
+        if (arg_mode == .translate_c) {
+            return cmdTranslateC(comp, arena, null, root_prog_node);
+        }
+
+        updateModule(comp, color, root_prog_node) catch |err| switch (err) {
+            error.SemanticAnalyzeFail => {
+                assert(listen == .none);
+                saveState(comp, debug_incremental);
+                process.exit(1);
+            },
+            else => |e| return e,
+        };
+    }
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
     saveState(comp, debug_incremental);
@@ -3937,6 +3951,7 @@ fn createModule(
             error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
             error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
             error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.LldCannotIncrementallyLink => fatal("self-hosted backends do not support linking with LLD", .{}),
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
@@ -4026,24 +4041,9 @@ fn serve(
     });
     defer server.deinit();
 
-    var child_pid: ?std.ChildProcess.Id = null;
+    var child_pid: ?std.process.Child.Id = null;
 
-    var progress: std.Progress = .{
-        .terminal = null,
-        .root = .{
-            .context = undefined,
-            .parent = null,
-            .name = "",
-            .unprotected_estimated_total_items = 0,
-            .unprotected_completed_items = 0,
-        },
-        .columns_written = 0,
-        .prev_refresh_timestamp = 0,
-        .timer = null,
-        .done = false,
-    };
-    const main_progress_node = &progress.root;
-    main_progress_node.context = &progress;
+    const main_progress_node = std.Progress.start(.{});
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -4051,7 +4051,6 @@ fn serve(
         switch (hdr.tag) {
             .exit => return cleanExit(),
             .update => {
-                assert(main_progress_node.recently_updated_child == null);
                 tracy.frameMark();
 
                 if (arg_mode == .translate_c) {
@@ -4059,7 +4058,7 @@ fn serve(
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
                     var output: Compilation.CImportResult = undefined;
-                    try cmdTranslateC(comp, arena, &output);
+                    try cmdTranslateC(comp, arena, &output, main_progress_node);
                     defer output.deinit(gpa);
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
@@ -4075,21 +4074,7 @@ fn serve(
                     try comp.makeBinFileWritable();
                 }
 
-                if (builtin.single_threaded) {
-                    try comp.update(main_progress_node);
-                } else {
-                    var reset: std.Thread.ResetEvent = .{};
-
-                    var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
-                        &progress, &server, &reset,
-                    });
-                    defer {
-                        reset.set();
-                        progress_thread.join();
-                    }
-
-                    try comp.update(main_progress_node);
-                }
+                try comp.update(main_progress_node);
 
                 try comp.makeBinFileExecutable();
                 try serveUpdateResults(&server, comp);
@@ -4116,7 +4101,6 @@ fn serve(
             },
             .hot_update => {
                 tracy.frameMark();
-                assert(main_progress_node.recently_updated_child == null);
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(&server, comp);
@@ -4143,63 +4127,6 @@ fn serve(
                 fatal("unrecognized message from client: 0x{x}", .{@intFromEnum(hdr.tag)});
             },
         }
-    }
-}
-
-fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Thread.ResetEvent) void {
-    while (true) {
-        if (reset.timedWait(500 * std.time.ns_per_ms)) |_| {
-            // The Compilation update has completed.
-            return;
-        } else |err| switch (err) {
-            error.Timeout => {},
-        }
-
-        var buf: std.BoundedArray(u8, 160) = .{};
-
-        {
-            progress.update_mutex.lock();
-            defer progress.update_mutex.unlock();
-
-            var need_ellipse = false;
-            var maybe_node: ?*std.Progress.Node = &progress.root;
-            while (maybe_node) |node| {
-                if (need_ellipse) {
-                    buf.appendSlice("... ") catch {};
-                }
-                need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
-                const current_item = completed_items + 1;
-                if (node.name.len != 0 or eti > 0) {
-                    if (node.name.len != 0) {
-                        buf.appendSlice(node.name) catch {};
-                        need_ellipse = true;
-                    }
-                    if (eti > 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}/{d}] ", .{ current_item, eti }) catch {};
-                        need_ellipse = false;
-                    } else if (completed_items != 0) {
-                        if (need_ellipse) buf.appendSlice(" ") catch {};
-                        buf.writer().print("[{d}] ", .{current_item}) catch {};
-                        need_ellipse = false;
-                    }
-                }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .acquire);
-            }
-        }
-
-        const progress_string = buf.slice();
-
-        server.serveMessage(.{
-            .tag = .progress,
-            .bytes_len = @as(u32, @intCast(progress_string.len)),
-        }, &.{
-            progress_string,
-        }) catch |err| {
-            fatal("unable to write to client: {s}", .{@errorName(err)});
-        };
     }
 }
 
@@ -4311,12 +4238,14 @@ fn runOrTest(
     // the error message and invocation below.
     if (process.can_execv and arg_mode == .run) {
         // execv releases the locks; no need to destroy the Compilation here.
+        std.debug.lockStdErr();
         const err = process.execve(gpa, argv.items, &env_map);
+        std.debug.unlockStdErr();
         try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (process.can_spawn) {
-        var child = std.ChildProcess.init(argv.items, gpa);
+        var child = std.process.Child.init(argv.items, gpa);
         child.env_map = &env_map;
         child.stdin_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
@@ -4327,7 +4256,12 @@ fn runOrTest(
         comp.destroy();
         comp_destroyed.* = true;
 
-        const term = child.spawnAndWait() catch |err| {
+        const term_result = t: {
+            std.debug.lockStdErr();
+            defer std.debug.unlockStdErr();
+            break :t child.spawnAndWait();
+        };
+        const term = term_result catch |err| {
             try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
@@ -4379,7 +4313,7 @@ fn runOrTestHotSwap(
     arg_mode: ArgMode,
     all_args: []const []const u8,
     runtime_args_start: ?usize,
-) !std.ChildProcess.Id {
+) !std.process.Child.Id {
     const lf = comp.bin_file.?;
 
     const exe_path = switch (builtin.target.os.tag) {
@@ -4456,7 +4390,7 @@ fn runOrTestHotSwap(
             return pid;
         },
         else => {
-            var child = std.ChildProcess.init(argv.items, gpa);
+            var child = std.process.Child.init(argv.items, gpa);
 
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
@@ -4469,25 +4403,8 @@ fn runOrTestHotSwap(
     }
 }
 
-fn updateModule(comp: *Compilation, color: Color) !void {
-    {
-        // If the terminal is dumb, we dont want to show the user all the output.
-        var progress: std.Progress = .{ .dont_print_on_dumb = true };
-        const main_progress_node = progress.start("", 0);
-        defer main_progress_node.end();
-        switch (color) {
-            .off => {
-                progress.terminal = null;
-            },
-            .on => {
-                progress.terminal = std.io.getStdErr();
-                progress.supports_ansi_escape_codes = true;
-            },
-            .auto => {},
-        }
-
-        try comp.update(main_progress_node);
-    }
+fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) !void {
+    try comp.update(prog_node);
 
     var errors = try comp.getAllErrorsAlloc();
     defer errors.deinit(comp.gpa);
@@ -4498,7 +4415,12 @@ fn updateModule(comp: *Compilation, color: Color) !void {
     }
 }
 
-fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilation.CImportResult) !void {
+fn cmdTranslateC(
+    comp: *Compilation,
+    arena: Allocator,
+    fancy_output: ?*Compilation.CImportResult,
+    prog_node: std.Progress.Node,
+) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
     const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
@@ -4559,6 +4481,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                     .root_src_path = "aro_translate_c.zig",
                     .depend_on_aro = true,
                     .capture = &stdout,
+                    .progress_node = prog_node,
                 });
                 break :f stdout;
             },
@@ -4736,8 +4659,6 @@ const usage_build =
 ;
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-
     var build_file: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -4797,6 +4718,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     // exits with code 3.
     const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
+
+    var color: Color = .auto;
 
     {
         var i: usize = 0;
@@ -4882,6 +4805,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     verbose_cimport = true;
                 } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                     verbose_llvm_cpu_features = true;
+                } else if (mem.eql(u8, arg, "--color")) {
+                    if (i + 1 >= args.len) fatal("expected [auto|on|off] after {s}", .{arg});
+                    i += 1;
+                    color = std.meta.stringToEnum(Color, args[i]) orelse {
+                        fatal("expected [auto|on|off] after {s}, found '{s}'", .{ arg, args[i] });
+                    };
+                    try child_argv.appendSlice(&.{ arg, args[i] });
+                    continue;
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -4895,7 +4826,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
-    const color: Color = .auto;
+    const root_prog_node = std.Progress.start(.{
+        .disable_printing = (color == .off),
+        .root_name = "Compile Build Script",
+    });
+    defer root_prog_node.end();
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
@@ -4951,9 +4886,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .path = local_cache_dir_path,
             };
         }
-        const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
+        const cache_dir_path = try build_root.directory.join(arena, &.{default_local_zig_cache_basename});
         break :l .{
-            .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
+            .handle = try build_root.directory.handle.makeOpenPath(default_local_zig_cache_basename, .{}),
             .path = cache_dir_path,
         };
     };
@@ -5051,8 +4986,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     config,
                 );
             } else {
-                const root_prog_node = progress.start("Fetch Packages", 0);
-                defer root_prog_node.end();
+                const fetch_prog_node = root_prog_node.start("Fetch Packages", 0);
+                defer fetch_prog_node.end();
 
                 var job_queue: Package.Fetch.JobQueue = .{
                     .http_client = &http_client,
@@ -5093,10 +5028,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .lazy_status = .eager,
                     .parent_package_root = build_mod.root,
                     .parent_manifest_ast = null,
-                    .prog_node = root_prog_node,
+                    .prog_node = fetch_prog_node,
                     .job_queue = &job_queue,
                     .omit_missing_hash_error = true,
                     .allow_missing_paths_field = false,
+                    .use_latest_commit = false,
 
                     .package_root = undefined,
                     .error_bundle = undefined,
@@ -5105,6 +5041,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .actual_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
+                    .latest_commit = null,
 
                     .module = build_mod,
                 };
@@ -5230,7 +5167,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             };
             defer comp.destroy();
 
-            updateModule(comp, color) catch |err| switch (err) {
+            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
                 error.SemanticAnalyzeFail => process.exit(2),
                 else => |e| return e,
             };
@@ -5243,12 +5180,17 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
 
         if (process.can_spawn) {
-            var child = std.ChildProcess.init(child_argv.items, gpa);
+            var child = std.process.Child.init(child_argv.items, gpa);
             child.stdin_behavior = .Inherit;
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
 
-            const term = try child.spawnAndWait();
+            const term = t: {
+                std.debug.lockStdErr();
+                defer std.debug.unlockStdErr();
+                break :t try child.spawnAndWait();
+            };
+
             switch (term) {
                 .Exited => |code| {
                     if (code == 0) return cleanExit();
@@ -5324,8 +5266,9 @@ const JitCmdOptions = struct {
     prepend_zig_exe_path: bool = false,
     depend_on_aro: bool = false,
     capture: ?*[]u8 = null,
-    /// Send progress and error bundles via std.zig.Server over stdout
+    /// Send error bundles via std.zig.Server over stdout
     server: bool = false,
+    progress_node: ?std.Progress.Node = null,
 };
 
 fn jitCmd(
@@ -5335,6 +5278,9 @@ fn jitCmd(
     options: JitCmdOptions,
 ) !void {
     const color: Color = .auto;
+    const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(.{
+        .disable_printing = (color == .off),
+    });
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
@@ -5471,39 +5417,14 @@ fn jitCmd(
         };
         defer comp.destroy();
 
-        if (options.server and !builtin.single_threaded) {
-            var reset: std.Thread.ResetEvent = .{};
-            var progress: std.Progress = .{
-                .terminal = null,
-                .root = .{
-                    .context = undefined,
-                    .parent = null,
-                    .name = "",
-                    .unprotected_estimated_total_items = 0,
-                    .unprotected_completed_items = 0,
-                },
-                .columns_written = 0,
-                .prev_refresh_timestamp = 0,
-                .timer = null,
-                .done = false,
-            };
-            const main_progress_node = &progress.root;
-            main_progress_node.context = &progress;
+        if (options.server) {
             var server = std.zig.Server{
                 .out = std.io.getStdOut(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             };
 
-            var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
-                &progress, &server, &reset,
-            });
-            defer {
-                reset.set();
-                progress_thread.join();
-            }
-
-            try comp.update(main_progress_node);
+            try comp.update(root_prog_node);
 
             var error_bundle = try comp.getAllErrorsAlloc();
             defer error_bundle.deinit(comp.gpa);
@@ -5512,7 +5433,7 @@ fn jitCmd(
                 process.exit(2);
             }
         } else {
-            updateModule(comp, color) catch |err| switch (err) {
+            updateModule(comp, color, root_prog_node) catch |err| switch (err) {
                 error.SemanticAnalyzeFail => process.exit(2),
                 else => |e| return e,
             };
@@ -5547,7 +5468,7 @@ fn jitCmd(
         });
     }
 
-    var child = std.ChildProcess.init(child_argv.items, gpa);
+    var child = std.process.Child.init(child_argv.items, gpa);
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = if (options.capture == null) .Inherit else .Pipe;
     child.stderr_behavior = .Inherit;
@@ -6047,6 +5968,7 @@ fn cmdAstCheck(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6365,6 +6287,7 @@ fn cmdDumpZir(
         .zir = try Module.loadZirCache(gpa, f),
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
     defer file.zir.deinit(gpa);
 
@@ -6435,6 +6358,7 @@ fn cmdChangelist(
         .zir = undefined,
         .mod = undefined,
         .root_decl = .none,
+        .path_digest = undefined,
     };
 
     file.mod = try Package.Module.createLimited(arena, .{
@@ -6961,6 +6885,8 @@ const usage_fetch =
     \\  --debug-hash                  Print verbose hash information to stdout
     \\  --save                        Add the fetched package to build.zig.zon
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
+    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
+    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
     \\
 ;
 
@@ -6975,7 +6901,11 @@ fn cmdFetch(
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
-    var save: union(enum) { no, yes, name: []const u8 } = .no;
+    var save: union(enum) {
+        no,
+        yes: ?[]const u8,
+        exact: ?[]const u8,
+    } = .no;
 
     {
         var i: usize = 0;
@@ -6993,9 +6923,13 @@ fn cmdFetch(
                 } else if (mem.eql(u8, arg, "--debug-hash")) {
                     debug_hash = true;
                 } else if (mem.eql(u8, arg, "--save")) {
-                    save = .yes;
+                    save = .{ .yes = null };
                 } else if (mem.startsWith(u8, arg, "--save=")) {
-                    save = .{ .name = arg["--save=".len..] };
+                    save = .{ .yes = arg["--save=".len..] };
+                } else if (mem.eql(u8, arg, "--save-exact")) {
+                    save = .{ .exact = null };
+                } else if (mem.startsWith(u8, arg, "--save-exact=")) {
+                    save = .{ .exact = arg["--save=".len..] };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -7018,8 +6952,9 @@ fn cmdFetch(
 
     try http_client.initDefaultProxies(arena);
 
-    var progress: std.Progress = .{ .dont_print_on_dumb = true };
-    const root_prog_node = progress.start("Fetch", 0);
+    var root_prog_node = std.Progress.start(.{
+        .root_name = "Fetch",
+    });
     defer root_prog_node.end();
 
     var global_cache_directory: Compilation.Directory = l: {
@@ -7055,6 +6990,7 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
+        .use_latest_commit = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
@@ -7063,6 +6999,7 @@ fn cmdFetch(
         .actual_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
+        .latest_commit = null,
 
         .module = null,
     };
@@ -7081,20 +7018,20 @@ fn cmdFetch(
 
     const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
 
-    progress.done = true;
-    progress.refresh();
+    root_prog_node.end();
+    root_prog_node = .{ .index = .none };
 
     const name = switch (save) {
         .no => {
             try io.getStdOut().writeAll(hex_digest ++ "\n");
             return cleanExit();
         },
-        .yes => n: {
+        .yes, .exact => |name| name: {
+            if (name) |n| break :name n;
             const fetched_manifest = fetch.manifest orelse
                 fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
-            break :n fetched_manifest.name;
+            break :name fetched_manifest.name;
         },
-        .name => |n| n,
     };
 
     const cwd_path = try process.getCwdAlloc(arena);
@@ -7119,13 +7056,43 @@ fn cmdFetch(
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
 
+    var saved_path_or_url = path_or_url;
+
+    if (fetch.latest_commit) |*latest_commit| resolved: {
+        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{std.fmt.fmtSliceHexLower(latest_commit)});
+
+        var uri = try std.Uri.parse(path_or_url);
+
+        if (uri.fragment) |fragment| {
+            const target_ref = try fragment.toRawMaybeAlloc(arena);
+
+            // the refspec may already be fully resolved
+            if (std.mem.eql(u8, target_ref, latest_commit_hex)) break :resolved;
+
+            std.log.info("resolved ref '{s}' to commit {s}", .{ target_ref, latest_commit_hex });
+
+            // include the original refspec in a query parameter, could be used to check for updates
+            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={%}", .{fragment}) };
+        } else {
+            std.log.info("resolved to commit {s}", .{latest_commit_hex});
+        }
+
+        // replace the refspec with the resolved commit SHA
+        uri.fragment = .{ .raw = latest_commit_hex };
+
+        switch (save) {
+            .yes => saved_path_or_url = try std.fmt.allocPrint(arena, "{}", .{uri}),
+            .no, .exact => {}, // keep the original URL
+        }
+    }
+
     const new_node_init = try std.fmt.allocPrint(arena,
         \\.{{
         \\            .url = "{}",
         \\            .hash = "{}",
         \\        }}
     , .{
-        std.zig.fmtEscapes(path_or_url),
+        std.zig.fmtEscapes(saved_path_or_url),
         std.zig.fmtEscapes(&hex_digest),
     });
 
@@ -7145,7 +7112,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, path_or_url)) {
+                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }

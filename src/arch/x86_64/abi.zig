@@ -539,4 +539,4 @@ const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
-const Zcu = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");

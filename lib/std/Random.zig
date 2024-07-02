@@ -9,7 +9,7 @@ const math = std.math;
 const mem = std.mem;
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-pub const Random = @This(); // Remove pub when `std.rand` namespace is removed.
+const Random = @This();
 
 /// Fast unbiased random numbers.
 pub const DefaultPrng = Xoshiro256;

@@ -108,8 +108,8 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.io.tty.Config) void {
-        std.debug.getStderrMutex().lock();
-        defer std.debug.getStderrMutex().unlock();
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
         const stderr = std.io.getStdErr().writer();
         self.renderToWriter(args, stderr, config) catch return;
     }
@@ -846,7 +846,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     arg_i += 1;
                     break :next_arg;
                 };
-                var tokenizer = std.mem.tokenize(u8, value.slice, "=");
+                var tokenizer = std.mem.tokenizeScalar(u8, value.slice, '=');
                 // guaranteed to exist since an empty value.slice would invoke
                 // the 'missing symbol to define' branch above
                 const symbol = tokenizer.next().?;

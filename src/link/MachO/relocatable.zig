@@ -46,6 +46,8 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
 
     try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
+    try macho_file.parseDebugInfo();
+    try macho_file.dedupLiterals();
     markExports(macho_file);
     claimUnresolved(macho_file);
     try initOutputSections(macho_file);
@@ -542,6 +544,9 @@ fn writeAtoms(macho_file: *MachO) !void {
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
 
+    var relocs = std.ArrayList(macho.relocation_info).init(gpa);
+    defer relocs.deinit();
+
     for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
         if (atoms.items.len == 0) continue;
         if (header.isZerofill()) continue;
@@ -553,8 +558,7 @@ fn writeAtoms(macho_file: *MachO) !void {
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(code, padding_byte);
 
-        var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-        defer relocs.deinit();
+        try relocs.ensureTotalCapacity(header.nreloc);
 
         for (atoms.items) |atom_index| {
             const atom = macho_file.getAtom(atom_index).?;
@@ -572,22 +576,24 @@ fn writeAtoms(macho_file: *MachO) !void {
         // TODO scattered writes?
         try macho_file.base.file.?.pwriteAll(code, header.offset);
         try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+
+        relocs.clearRetainingCapacity();
     }
 
     if (macho_file.getZigObject()) |zo| {
         // TODO: this is ugly; perhaps we should aggregrate before?
-        var relocs = std.AutoArrayHashMap(u8, std.ArrayList(macho.relocation_info)).init(gpa);
+        var zo_relocs = std.AutoArrayHashMap(u8, std.ArrayList(macho.relocation_info)).init(gpa);
         defer {
-            for (relocs.values()) |*list| {
+            for (zo_relocs.values()) |*list| {
                 list.deinit();
             }
-            relocs.deinit();
+            zo_relocs.deinit();
         }
 
         for (macho_file.sections.items(.header), 0..) |header, n_sect| {
             if (header.isZerofill()) continue;
             if (!macho_file.isZigSection(@intCast(n_sect)) and !macho_file.isDebugSection(@intCast(n_sect))) continue;
-            const gop = try relocs.getOrPut(@intCast(n_sect));
+            const gop = try zo_relocs.getOrPut(@intCast(n_sect));
             if (gop.found_existing) continue;
             gop.value_ptr.* = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
         }
@@ -618,12 +624,12 @@ fn writeAtoms(macho_file: *MachO) !void {
                 },
             };
             const file_offset = header.offset + atom.value;
-            const rels = relocs.getPtr(atom.out_n_sect).?;
+            const rels = zo_relocs.getPtr(atom.out_n_sect).?;
             try atom.writeRelocs(macho_file, code, rels);
             try macho_file.base.file.?.pwriteAll(code, file_offset);
         }
 
-        for (relocs.keys(), relocs.values()) |sect_id, rels| {
+        for (zo_relocs.keys(), zo_relocs.values()) |sect_id, rels| {
             const header = macho_file.sections.items(.header)[sect_id];
             assert(rels.items.len == header.nreloc);
             mem.sort(macho.relocation_info, rels.items, {}, sortReloc);

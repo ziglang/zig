@@ -632,7 +632,7 @@ fn XChaChaIETF(comptime rounds_nb: usize) type {
         /// Write the output of the XChaCha20 stream cipher into `out`.
         pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
             const extended = extend(key, nonce, rounds_nb);
-            ChaChaIETF(rounds_nb).xor(out, counter, extended.key, extended.nonce);
+            ChaChaIETF(rounds_nb).stream(out, counter, extended.key, extended.nonce);
         }
     };
 }
