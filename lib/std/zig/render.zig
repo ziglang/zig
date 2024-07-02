@@ -961,22 +961,22 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
         },
         .Many => {
             if (ptr_type.ast.sentinel == 0) {
-                try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-                try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-                try renderToken(r, ptr_type.ast.main_token + 1, .none); // rbracket
+                try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+                try renderToken(r, ptr_type.ast.main_token + 2, .none); // rbracket
             } else {
-                try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-                try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-                try renderToken(r, ptr_type.ast.main_token + 1, .none); // colon
+                try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+                try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+                try renderToken(r, ptr_type.ast.main_token + 2, .none); // colon
                 try renderExpression(r, ptr_type.ast.sentinel, .none);
                 try renderToken(r, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
             }
         },
         .C => {
-            try renderToken(r, ptr_type.ast.main_token - 1, .none); // lbracket
-            try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
-            try renderToken(r, ptr_type.ast.main_token + 1, .none); // c
-            try renderToken(r, ptr_type.ast.main_token + 2, .none); // rbracket
+            try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
+            try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
+            try renderToken(r, ptr_type.ast.main_token + 2, .none); // c
+            try renderToken(r, ptr_type.ast.main_token + 3, .none); // rbracket
         },
         .Slice => {
             if (ptr_type.ast.sentinel == 0) {

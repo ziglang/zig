@@ -730,19 +730,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .ptr_type_sentinel,
         .ptr_type,
         .ptr_type_bit_range,
-        => {
-            const main_token = main_tokens[n];
-            return switch (token_tags[main_token]) {
-                .asterisk,
-                .asterisk_asterisk,
-                => switch (token_tags[main_token -| 1]) {
-                    .l_bracket => main_token -| 1,
-                    else => main_token,
-                },
-                .l_bracket => main_token,
-                else => unreachable,
-            } - end_offset;
-        },
+        => return main_tokens[n] - end_offset,
 
         .switch_case_one => {
             if (datas[n].lhs == 0) {
@@ -2160,12 +2148,11 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     const size: Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
-        => switch (token_tags[info.main_token + 1]) {
-            .r_bracket, .colon => .Many,
-            .identifier => if (token_tags[info.main_token -| 1] == .l_bracket) Size.C else .One,
-            else => .One,
+        => .One,
+        .l_bracket => switch (token_tags[info.main_token + 1]) {
+            .asterisk => if (token_tags[info.main_token + 2] == .identifier) Size.C else Size.Many,
+            else => Size.Slice,
         },
-        .l_bracket => Size.Slice,
         else => unreachable,
     };
     var result: full.PtrType = .{
@@ -2179,7 +2166,10 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // here while looking for modifiers as that could result in false
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
-    var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else info.main_token;
+    var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else switch (size) {
+        .Many, .C => info.main_token + 1,
+        else => info.main_token,
+    };
     const end = tree.firstToken(info.child_type);
     while (i < end) : (i += 1) {
         switch (token_tags[i]) {
@@ -3148,24 +3138,28 @@ pub const Node = struct {
         /// `[*]align(lhs) rhs`. lhs can be omitted.
         /// `*align(lhs) rhs`. lhs can be omitted.
         /// `[]rhs`.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_aligned,
         /// `[*:lhs]rhs`. lhs can be omitted.
         /// `*rhs`.
         /// `[:lhs]rhs`.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_sentinel,
         /// lhs is index into ptr_type. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type,
         /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
-        /// main_token is the asterisk if a pointer or the lbracket if a slice
+        /// main_token is the asterisk if a single item pointer or the lbracket
+        /// if a slice, many-item pointer, or C-pointer
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_bit_range,
