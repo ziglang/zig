@@ -3,6 +3,7 @@
 lower: Lower,
 debug_output: DebugInfoOutput,
 code: *std.ArrayList(u8),
+bin_file: *link.File,
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -25,7 +26,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             mir_index,
             @intCast(emit.code.items.len),
         );
-        const lowered = try emit.lower.lowerMir(mir_index);
+        const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
@@ -48,7 +49,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Lib => emit.lower.link_mode == .static,
                     };
 
-                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                    if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
                         const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
                         const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
                         const sym = elf_file.symbol(sym_index);
@@ -74,10 +75,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
                             .r_addend = 0,
                         });
-                    } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
+                    } else unreachable;
                 },
                 .call_extern_fn_reloc => |symbol| {
-                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                    if (emit.bin_file.cast(link.File.Elf)) |elf_file| {
                         const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
 
                         const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
