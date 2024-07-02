@@ -1,7 +1,7 @@
 //! SIMD (Single Instruction; Multiple Data) convenience functions.
 //!
 //! May offer a potential boost in performance on some targets by performing
-//! the same operations on multiple elements at once.
+//! the same operation on multiple elements at once.
 //!
 //! Some functions are known to not work on MIPS.
 
@@ -10,7 +10,6 @@ const builtin = @import("builtin");
 
 pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
     // This is guesswork, if you have better suggestions can add it or edit the current here
-    // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
@@ -37,8 +36,37 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
             //       the 2048 bits or using just 64 per vector or something in between
             if (std.Target.mips.featureSetHas(cpu.features, std.Target.mips.Feature.mips3d)) break :blk 64;
         } else if (cpu.arch.isRISCV()) {
-            // in risc-v the Vector Extension allows configurable vector sizes, but a standard size of 128 is a safe estimate
-            if (std.Target.riscv.featureSetHas(cpu.features, .v)) break :blk 128;
+            // In RISC-V Vector Registers are length agnostic so there's no good way to determine the best size.
+            // The usual vector length in most RISC-V cpus is 256 bits, however it can get to multiple kB.
+            if (std.Target.riscv.featureSetHas(cpu.features, .v)) {
+                var vec_bit_length: u32 = 256;
+                if (std.Target.riscv.featureSetHas(cpu.features, .zvl32b)) {
+                    vec_bit_length = 32;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl64b)) {
+                    vec_bit_length = 64;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl128b)) {
+                    vec_bit_length = 128;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl256b)) {
+                    vec_bit_length = 256;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl512b)) {
+                    vec_bit_length = 512;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl1024b)) {
+                    vec_bit_length = 1024;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl2048b)) {
+                    vec_bit_length = 2048;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl4096b)) {
+                    vec_bit_length = 4096;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl8192b)) {
+                    vec_bit_length = 8192;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl16384b)) {
+                    vec_bit_length = 16384;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl32768b)) {
+                    vec_bit_length = 32768;
+                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl65536b)) {
+                    vec_bit_length = 65536;
+                }
+                break :blk vec_bit_length;
+            }
         } else if (cpu.arch.isSPARC()) {
             // TODO: Test Sparc capability to handle bigger vectors
             //       In theory Sparc have 32 registers of 64 bits which can use in parallel
