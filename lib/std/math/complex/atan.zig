@@ -7,18 +7,6 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
-
-/// Returns the arc-tangent of z.
-pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
-    return switch (T) {
-        f32 => atan32(z),
-        f64 => atan64(z),
-        else => @compileError("atan not implemented for " ++ @typeName(z)),
-    };
-}
 
 fn redupif32(x: f32) f32 {
     const DP1 = 3.140625;
@@ -32,41 +20,23 @@ fn redupif32(x: f32) f32 {
         t -= 0.5;
     }
 
-    const u = @as(f32, @floatFromInt(@as(i32, @intFromFloat(t))));
-    return ((x - u * DP1) - u * DP2) - t * DP3;
+    const u = @trunc(t);
+    return ((x - u * DP1) - u * DP2) - u * DP3;
 }
 
-fn atan32(z: Complex(f32)) Complex(f32) {
-    const maxnum = 1.0e38;
-
-    const x = z.re;
-    const y = z.im;
-
-    if ((x == 0.0) and (y > 1.0)) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
-
+pub fn atan32(x: f32, y: f32) [2]f32 {
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif32(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) {
-        // overflow
-        return Complex(f32).init(maxnum, maxnum);
-    }
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f32).init(w, 0.25 * @log(a));
+    return .{ w, 0.25 * @log(a) };
 }
 
 fn redupif64(x: f64) f64 {
@@ -81,57 +51,62 @@ fn redupif64(x: f64) f64 {
         t -= 0.5;
     }
 
-    const u = @as(f64, @floatFromInt(@as(i64, @intFromFloat(t))));
-    return ((x - u * DP1) - u * DP2) - t * DP3;
+    const u: f64 = @trunc(t);
+    return ((x - u * DP1) - u * DP2) - u * DP3;
 }
 
-fn atan64(z: Complex(f64)) Complex(f64) {
-    const maxnum = 1.0e308;
-
-    const x = z.re;
-    const y = z.im;
-
-    if ((x == 0.0) and (y > 1.0)) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
-
+pub fn atan64(x: f64, y: f64) [2]f64 {
     const x2 = x * x;
     var a = 1.0 - x2 - (y * y);
-    if (a == 0.0) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
 
     var t = 0.5 * math.atan2(2.0 * x, a);
     const w = redupif64(t);
 
     t = y - 1.0;
     a = x2 + t * t;
-    if (a == 0.0) {
-        // overflow
-        return Complex(f64).init(maxnum, maxnum);
-    }
 
     t = y + 1.0;
     a = (x2 + (t * t)) / a;
-    return Complex(f64).init(w, 0.25 * @log(a));
+    return .{ w, 0.25 * @log(a) };
 }
 
-const epsilon = 0.0001;
+pub fn atanFallback(comptime T: type, x: T, y: T) [2]T {
+    const x2 = x * x;
+    var a = 1.0 - x2 - (y * y);
+
+    var t = 0.5 * math.atan2(2.0 * x, a);
+    const w = t;
+
+    t = y - 1.0;
+    a = x2 + t * t;
+
+    t = y + 1.0;
+    a = (x2 + (t * t)) / a;
+    return .{ w, 0.25 * @log(a) };
+}
 
 test atan32 {
-    const a = Complex(f32).init(5, 3);
-    const c = atan(a);
-
-    try testing.expect(math.approxEqAbs(f32, c.re, 1.423679, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
+    const z = atan32(5, 3);
+    const re: f32 = 1.4236790442393028;
+    const im: f32 = 0.08656905917945844;
+    try testing.expect(math.approxEqAbs(f32, z[0], re, @sqrt(math.floatEpsAt(f32, re))));
+    try testing.expect(math.approxEqAbs(f32, z[1], im, @sqrt(math.floatEpsAt(f32, im))));
 }
 
 test atan64 {
-    const a = Complex(f64).init(5, 3);
-    const c = atan(a);
+    const z = atan64(5, 3);
+    const re: f64 = 1.4236790442393028;
+    const im: f64 = 0.08656905917945844;
+    try testing.expect(math.approxEqAbs(f64, z[0], re, @sqrt(math.floatEpsAt(f64, re))));
+    try testing.expect(math.approxEqAbs(f64, z[1], im, @sqrt(math.floatEpsAt(f64, im))));
+}
 
-    try testing.expect(math.approxEqAbs(f64, c.re, 1.423679, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 0.086569, epsilon));
+test atanFallback {
+    const re = 1.4236790442393028;
+    const im = 0.08656905917945844;
+    inline for (.{ f32, f64 }) |F| {
+        const z = atanFallback(F, 5, 3);
+        try testing.expect(math.approxEqAbs(F, z[0], re, @sqrt(math.floatEpsAt(F, re))));
+        try testing.expect(math.approxEqAbs(F, z[1], im, @sqrt(math.floatEpsAt(F, im))));
+    }
 }
