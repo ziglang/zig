@@ -13,37 +13,43 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const no_export = b.addExecutable(.{
-        .name = "no-export",
+    const main_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = optimize,
+    });
+
+    const no_export = b.addExecutable2(.{
+        .name = "no-export",
+        .root_module = main_mod,
+        .use_llvm = false,
+        .use_lld = false,
     });
     no_export.entry = .disabled;
-    no_export.use_llvm = false;
-    no_export.use_lld = false;
 
-    const dynamic_export = b.addExecutable(.{
+    const dynamic_export = b.addExecutable2(.{
         .name = "dynamic",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .root_module = main_mod,
+        .use_llvm = false,
+        .use_lld = false,
     });
     dynamic_export.entry = .disabled;
     dynamic_export.rdynamic = true;
-    dynamic_export.use_llvm = false;
-    dynamic_export.use_lld = false;
 
-    const force_export = b.addExecutable(.{
-        .name = "force",
+    const force_export_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = optimize,
+    });
+    force_export_mod.export_symbol_names = &.{"foo"};
+
+    const force_export = b.addExecutable2(.{
+        .name = "force",
+        .root_module = force_export_mod,
+        .use_llvm = false,
+        .use_lld = false,
     });
     force_export.entry = .disabled;
-    force_export.root_module.export_symbol_names = &.{"foo"};
-    force_export.use_llvm = false;
-    force_export.use_lld = false;
 
     const check_no_export = no_export.checkObject();
     check_no_export.checkInHeaders();

@@ -11,29 +11,46 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib_a = b.addStaticLibrary(.{
+    const a_mod = b.createModule(.{
+        .root_source_file = null,
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    a_mod.addIncludePath(b.path("."));
+    a_mod.addCSourceFile(.{ .file = b.path("a.c") });
+
+    const b_mod = b.createModule(.{
+        .root_source_file = null,
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    b_mod.addIncludePath(b.path("."));
+    b_mod.addCSourceFile(.{ .file = b.path("b.c") });
+
+    const a_lib = b.addLibrary(.{
         .name = "a",
-        .optimize = optimize,
-        .target = b.graph.host,
+        .root_module = a_mod,
+        .linkage = .static,
     });
-    lib_a.addCSourceFile(.{ .file = b.path("a.c"), .flags = &[_][]const u8{} });
-    lib_a.addIncludePath(b.path("."));
 
-    const lib_b = b.addStaticLibrary(.{
+    const b_lib = b.addLibrary(.{
         .name = "b",
-        .optimize = optimize,
-        .target = b.graph.host,
+        .root_module = b_mod,
+        .linkage = .static,
     });
-    lib_b.addCSourceFile(.{ .file = b.path("b.c"), .flags = &[_][]const u8{} });
-    lib_b.addIncludePath(b.path("."));
 
-    const test_exe = b.addTest(.{
+    const test_mod = b.createModule(.{
         .root_source_file = b.path("main.zig"),
+        .target = b.graph.host,
         .optimize = optimize,
     });
-    test_exe.linkLibrary(lib_a);
-    test_exe.linkLibrary(lib_b);
-    test_exe.addIncludePath(b.path("."));
+    test_mod.addIncludePath(b.path("."));
+    test_mod.linkLibrary(a_lib);
+    test_mod.linkLibrary(b_lib);
+
+    const test_exe = b.addTest2(.{
+        .root_module = test_mod,
+    });
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

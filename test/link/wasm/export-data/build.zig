@@ -9,15 +9,19 @@ pub fn build(b: *std.Build) void {
         return;
     }
 
-    const lib = b.addExecutable(.{
-        .name = "lib",
+    const mod = b.createModule(.{
         .root_source_file = b.path("lib.zig"),
-        .optimize = .ReleaseSafe, // to make the output deterministic in address positions
         .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = .ReleaseSafe, // to make the output deterministic in address positions
+    });
+    mod.export_symbol_names = &.{ "foo", "bar" };
+
+    const lib = b.addExecutable2(.{
+        .name = "lib",
+        .root_module = mod,
+        .use_lld = false,
     });
     lib.entry = .disabled;
-    lib.use_lld = false;
-    lib.root_module.export_symbol_names = &.{ "foo", "bar" };
     lib.global_base = 0; // put data section at address 0 to make data symbols easier to parse
 
     const check_lib = lib.checkObject();

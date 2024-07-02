@@ -11,13 +11,22 @@ pub fn build(b: *std.Build) void {
     });
     foo.addImport("foo", foo);
 
-    const exe = b.addExecutable(.{
-        .name = "test",
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path("test.zig"),
         .target = b.graph.host,
         .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "foo",
+                .module = foo,
+            },
+        },
     });
-    exe.root_module.addImport("foo", foo);
+
+    const exe = b.addExecutable2(.{
+        .name = "test",
+        .root_module = exe_mod,
+    });
 
     const run = b.addRunArtifact(exe);
     test_step.dependOn(&run.step);

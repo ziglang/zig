@@ -191,44 +191,56 @@ pub const Import = struct {
     module: *Module,
 };
 
-pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*Step.Compile) void {
+pub fn init(
+    m: *Module,
+    owner: *std.Build,
+    value: union(enum) { options: CreateOptions, existing: *const Module },
+    compile: ?*Step.Compile,
+) void {
     const allocator = owner.allocator;
 
-    m.* = .{
-        .owner = owner,
-        .depending_steps = .{},
-        .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
-        .import_table = .{},
-        .resolved_target = options.target,
-        .optimize = options.optimize,
-        .link_libc = options.link_libc,
-        .link_libcpp = options.link_libcpp,
-        .dwarf_format = options.dwarf_format,
-        .c_macros = .{},
-        .include_dirs = .{},
-        .lib_paths = .{},
-        .rpaths = .{},
-        .frameworks = .{},
-        .link_objects = .{},
-        .strip = options.strip,
-        .unwind_tables = options.unwind_tables,
-        .single_threaded = options.single_threaded,
-        .stack_protector = options.stack_protector,
-        .stack_check = options.stack_check,
-        .sanitize_c = options.sanitize_c,
-        .sanitize_thread = options.sanitize_thread,
-        .code_model = options.code_model,
-        .valgrind = options.valgrind,
-        .pic = options.pic,
-        .red_zone = options.red_zone,
-        .omit_frame_pointer = options.omit_frame_pointer,
-        .error_tracing = options.error_tracing,
-        .export_symbol_names = &.{},
-    };
+    switch (value) {
+        .options => |options| {
+            m.* = .{
+                .owner = owner,
+                .depending_steps = .{},
+                .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
+                .import_table = .{},
+                .resolved_target = options.target,
+                .optimize = options.optimize,
+                .link_libc = options.link_libc,
+                .link_libcpp = options.link_libcpp,
+                .dwarf_format = options.dwarf_format,
+                .c_macros = .{},
+                .include_dirs = .{},
+                .lib_paths = .{},
+                .rpaths = .{},
+                .frameworks = .{},
+                .link_objects = .{},
+                .strip = options.strip,
+                .unwind_tables = options.unwind_tables,
+                .single_threaded = options.single_threaded,
+                .stack_protector = options.stack_protector,
+                .stack_check = options.stack_check,
+                .sanitize_c = options.sanitize_c,
+                .sanitize_thread = options.sanitize_thread,
+                .code_model = options.code_model,
+                .valgrind = options.valgrind,
+                .pic = options.pic,
+                .red_zone = options.red_zone,
+                .omit_frame_pointer = options.omit_frame_pointer,
+                .error_tracing = options.error_tracing,
+                .export_symbol_names = &.{},
+            };
 
-    m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
-    for (options.imports) |dep| {
-        m.import_table.putAssumeCapacity(dep.name, dep.module);
+            m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
+            for (options.imports) |dep| {
+                m.import_table.putAssumeCapacity(dep.name, dep.module);
+            }
+        },
+        .existing => |existing| {
+            m.* = existing.*;
+        },
     }
 
     if (compile) |c| {
@@ -242,7 +254,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
 
 pub fn create(owner: *std.Build, options: CreateOptions) *Module {
     const m = owner.allocator.create(Module) catch @panic("OOM");
-    m.init(owner, options, null);
+    m.init(owner, .{ .options = options }, null);
     return m;
 }
 
@@ -277,7 +289,12 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
         => |lp| addLazyPathDependencies(m, dependee, lp),
 
         .c_source_file => |x| addLazyPathDependencies(m, dependee, x.file),
-        .win32_resource_file => |x| addLazyPathDependencies(m, dependee, x.file),
+        .win32_resource_file => |x| {
+            addLazyPathDependencies(m, dependee, x.file);
+            for (x.include_paths) |include_path| {
+                addLazyPathDependencies(m, dependee, include_path);
+            }
+        },
 
         .c_source_files,
         .system_lib,
@@ -378,7 +395,7 @@ pub const DependencyIterator = struct {
                     if (!it.chase_dyn_libs and compile.isDynamicLibrary()) continue;
 
                     it.set.put(it.allocator, .{
-                        .module = &compile.root_module,
+                        .module = compile.root_module,
                         .compile = compile,
                     }, "root") catch @panic("OOM");
                 },

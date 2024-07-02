@@ -9,45 +9,56 @@ pub fn build(b: *std.Build) !void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const lib_gnu = b.addStaticLibrary(.{
+    const lib_gnu = b.addLibrary(.{
         .name = "toargv-gnu",
-        .root_source_file = b.path("lib.zig"),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{
+                .abi = .gnu,
+            }),
+            .optimize = optimize,
+        }),
+        .linkage = .static,
+    });
+
+    const verify_gnu_mod = b.createModule(.{
+        .root_source_file = null,
         .target = b.resolveTargetQuery(.{
             .abi = .gnu,
         }),
         .optimize = optimize,
+        .link_libc = true,
     });
-    const verify_gnu = b.addExecutable(.{
-        .name = "verify-gnu",
-        .target = b.resolveTargetQuery(.{
-            .abi = .gnu,
-        }),
-        .optimize = optimize,
-    });
-    verify_gnu.addCSourceFile(.{
+    verify_gnu_mod.addCSourceFile(.{
         .file = b.path("verify.c"),
         .flags = &.{ "-DUNICODE", "-D_UNICODE" },
     });
-    verify_gnu.mingw_unicode_entry_point = true;
-    verify_gnu.linkLibrary(lib_gnu);
-    verify_gnu.linkLibC();
+    verify_gnu_mod.linkLibrary(lib_gnu);
 
-    const fuzz = b.addExecutable(.{
+    const verify_gnu = b.addExecutable2(.{
+        .name = "verify-gnu",
+        .root_module = verify_gnu_mod,
+    });
+    verify_gnu.mingw_unicode_entry_point = true;
+
+    const fuzz = b.addExecutable2(.{
         .name = "fuzz",
-        .root_source_file = b.path("fuzz.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("fuzz.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
 
     const fuzz_max_iterations = b.option(u64, "iterations", "The max fuzz iterations (default: 100)") orelse 100;
-    const fuzz_iterations_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_max_iterations}) catch @panic("oom");
+    const fuzz_iterations_arg = b.fmt("{}", .{fuzz_max_iterations});
 
     const fuzz_seed = b.option(u64, "seed", "Seed to use for the PRNG (default: random)") orelse seed: {
         var buf: [8]u8 = undefined;
         try std.posix.getrandom(&buf);
         break :seed std.mem.readInt(u64, &buf, builtin.cpu.arch.endian());
     };
-    const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
+    const fuzz_seed_arg = b.fmt("{}", .{fuzz_seed});
 
     const run_gnu = b.addRunArtifact(fuzz);
     run_gnu.setName("fuzz-gnu");
@@ -67,27 +78,36 @@ pub fn build(b: *std.Build) !void {
         break :has_msvc true;
     };
     if (has_msvc) {
-        const lib_msvc = b.addStaticLibrary(.{
+        const lib_msvc = b.addLibrary(.{
             .name = "toargv-msvc",
-            .root_source_file = b.path("lib.zig"),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("lib.zig"),
+                .target = b.resolveTargetQuery(.{
+                    .abi = .msvc,
+                }),
+                .optimize = optimize,
+            }),
+            .linkage = .static,
+        });
+
+        const verify_msvc_mod = b.createModule(.{
+            .root_source_file = null,
             .target = b.resolveTargetQuery(.{
                 .abi = .msvc,
             }),
             .optimize = optimize,
+            .link_libc = true,
         });
-        const verify_msvc = b.addExecutable(.{
-            .name = "verify-msvc",
-            .target = b.resolveTargetQuery(.{
-                .abi = .msvc,
-            }),
-            .optimize = optimize,
-        });
-        verify_msvc.addCSourceFile(.{
+        verify_msvc_mod.addCSourceFile(.{
             .file = b.path("verify.c"),
             .flags = &.{ "-DUNICODE", "-D_UNICODE" },
         });
-        verify_msvc.linkLibrary(lib_msvc);
-        verify_msvc.linkLibC();
+        verify_msvc_mod.linkLibrary(lib_msvc);
+
+        const verify_msvc = b.addExecutable2(.{
+            .name = "verify-msvc",
+            .root_module = verify_msvc_mod,
+        });
 
         const run_msvc = b.addRunArtifact(fuzz);
         run_msvc.setName("fuzz-msvc");

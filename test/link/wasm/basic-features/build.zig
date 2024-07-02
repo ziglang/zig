@@ -4,20 +4,22 @@ pub const requires_stage2 = true;
 
 pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
-    const lib = b.addExecutable(.{
+    const lib = b.addExecutable2(.{
         .name = "lib",
-        .root_source_file = b.path("main.zig"),
-        .optimize = .Debug,
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = .wasm32,
-            .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
-            .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
-            .os_tag = .freestanding,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .wasm32,
+                .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
+                .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
+                .os_tag = .freestanding,
+            }),
+            .optimize = .Debug,
         }),
+        .use_llvm = false,
+        .use_lld = false,
     });
     lib.entry = .disabled;
-    lib.use_llvm = false;
-    lib.use_lld = false;
 
     // Verify the result contains the features explicitly set on the target for the library.
     const check = lib.checkObject();
