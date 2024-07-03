@@ -347,23 +347,20 @@ pub const DepEntry = extern struct {
 const Local = struct {
     aligned: void align(std.atomic.cache_line) = {},
 
-    /// node: Garbage.Node,
     /// header: List.Header,
     /// data: [capacity]u32,
     /// tag: [header.capacity]Tag,
     items: List,
 
-    /// node: Garbage.Node,
     /// header: List.Header,
     /// extra: [header.capacity]u32,
     extra: List,
 
-    /// node: Garbage.Node,
     /// header: List.Header,
     /// bytes: [header.capacity]u8,
     strings: List,
 
-    garbage: Garbage,
+    arena: std.heap.ArenaAllocator.State,
 
     const List = struct {
         entries: [*]u32,
@@ -393,13 +390,6 @@ const Local = struct {
             return @ptrCast(list.entries - Header.fields_len);
         }
     };
-
-    const Garbage = std.SinglyLinkedList(struct { buf_len: usize });
-    const garbage_align = @max(@alignOf(Garbage.Node), @alignOf(u32));
-
-    fn freeGarbage(garbage: *const Garbage.Node, gpa: Allocator) void {
-        gpa.free(@as([*]align(Local.garbage_align) const u8, @ptrCast(garbage))[0..garbage.data.buf_len]);
-    }
 };
 
 const Shard = struct {
@@ -427,7 +417,6 @@ const Shard = struct {
         comptime assert(@typeInfo(Value).Enum.tag_type == u32);
         _ = @as(Value, .none); // expected .none key
         return struct {
-            /// node: Local.Garbage.Node,
             /// header: Header,
             /// entries: [header.capacity]Entry,
             entries: [*]Entry,
@@ -439,6 +428,9 @@ const Shard = struct {
                 .header = .{ .capacity = 1 },
                 .entries = .{.{ .value = .none, .hash = undefined }},
             }).entries) };
+
+            const alignment = @max(@alignOf(Header), @alignOf(Entry));
+            const entries_offset = std.mem.alignForward(usize, @sizeOf(Header), @alignOf(Entry));
 
             fn acquire(map: *const @This()) @This() {
                 return .{ .entries = @atomicLoad([*]Entry, &map.entries, .acquire) };
@@ -4660,7 +4652,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, total_threads: usize) !void {
         .items = Local.List.empty,
         .extra = Local.List.empty,
         .strings = Local.List.empty,
-        .garbage = .{},
+        .arena = .{},
     });
 
     ip.shard_shift = @intCast(std.math.log2_int_ceil(usize, total_threads));
@@ -4740,13 +4732,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.files.deinit(gpa);
 
     gpa.free(ip.shards);
-    for (ip.local) |*local| {
-        var next = local.garbage.first;
-        while (next) |cur| {
-            next = cur.next;
-            Local.freeGarbage(cur, gpa);
-        }
-    }
+    for (ip.local) |*local| local.arena.promote(gpa).deinit();
     gpa.free(ip.local);
 
     ip.* = undefined;
@@ -5451,23 +5437,17 @@ fn getOrPutKey(
     }
     const map_header = map.header().*;
     if (shard.mutate.map.len >= map_header.capacity * 3 / 5) {
+        var arena = ip.local[@intFromEnum(tid)].arena.promote(gpa);
+        defer ip.local[@intFromEnum(tid)].arena = arena.state;
         const new_map_capacity = map_header.capacity * 2;
-        const new_map_buf = try gpa.alignedAlloc(
+        const new_map_buf = try arena.allocator().alignedAlloc(
             u8,
-            Local.garbage_align,
-            @sizeOf(Local.Garbage.Node) + @sizeOf(Map.Header) +
-                new_map_capacity * @sizeOf(Map.Entry),
+            Map.alignment,
+            Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
         );
-        const new_node: *Local.Garbage.Node = @ptrCast(new_map_buf.ptr);
-        new_node.* = .{ .data = .{ .buf_len = new_map_buf.len } };
-        ip.local[@intFromEnum(tid)].garbage.prepend(new_node);
-        const new_map_entries = std.mem.bytesAsSlice(
-            Map.Entry,
-            new_map_buf[@sizeOf(Local.Garbage.Node) + @sizeOf(Map.Header) ..],
-        );
-        const new_map: Map = .{ .entries = new_map_entries.ptr };
+        const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
         new_map.header().* = .{ .capacity = new_map_capacity };
-        @memset(new_map_entries, .{ .value = .none, .hash = undefined });
+        @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
         const new_map_mask = new_map.header().mask();
         map_index = 0;
         while (map_index < map_header.capacity) : (map_index += 1) {
@@ -9181,23 +9161,17 @@ fn getOrPutStringValue(
         entry.release(value.toOptional());
         return .none;
     }
+    var arena = ip.local[@intFromEnum(tid)].arena.promote(gpa);
+    defer ip.local[@intFromEnum(tid)].arena = arena.state;
     const new_map_capacity = map_header.capacity * 2;
-    const new_map_buf = try gpa.alignedAlloc(
+    const new_map_buf = try arena.allocator().alignedAlloc(
         u8,
-        Local.garbage_align,
-        @sizeOf(Local.Garbage.Node) + @sizeOf(Map.Header) +
-            new_map_capacity * @sizeOf(Map.Entry),
+        Map.alignment,
+        Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
     );
-    const new_node: *Local.Garbage.Node = @ptrCast(new_map_buf.ptr);
-    new_node.* = .{ .data = .{ .buf_len = new_map_buf.len } };
-    ip.local[@intFromEnum(tid)].garbage.prepend(new_node);
-    const new_map_entries = std.mem.bytesAsSlice(
-        Map.Entry,
-        new_map_buf[@sizeOf(Local.Garbage.Node) + @sizeOf(Map.Header) ..],
-    );
-    const new_map: Map = .{ .entries = new_map_entries.ptr };
+    const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
     new_map.header().* = .{ .capacity = new_map_capacity };
-    @memset(new_map_entries, .{ .value = .none, .hash = undefined });
+    @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
     const new_map_mask = new_map.header().mask();
     map_index = 0;
     while (map_index < map_header.capacity) : (map_index += 1) {
