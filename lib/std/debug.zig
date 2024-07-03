@@ -398,18 +398,28 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     }
 }
 
-/// This function invokes undefined behavior when `ok` is `false`.
+/// Invokes detectable illegal behavior when `ok` is `false`.
+///
 /// In Debug and ReleaseSafe modes, calls to this function are always
 /// generated, and the `unreachable` statement triggers a panic.
-/// In ReleaseFast and ReleaseSmall modes, calls to this function are
-/// optimized away, and in fact the optimizer is able to use the assertion
-/// in its heuristics.
-/// Inside a test block, it is best to use the `std.testing` module rather
-/// than this function, because this function may not detect a test failure
-/// in ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
+///
+/// In ReleaseFast and ReleaseSmall modes, calls to this function are optimized
+/// away, and in fact the optimizer is able to use the assertion in its
+/// heuristics.
+///
+/// Inside a test block, it is best to use the `std.testing` module rather than
+/// this function, because this function may not detect a test failure in
+/// ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
 /// function is the correct function to use.
 pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
+}
+
+/// Invokes detectable illegal behavior when the provided slice is not mapped
+/// or lacks read permissions.
+pub fn assertReadable(slice: []const volatile u8) void {
+    if (!runtime_safety) return;
+    for (slice) |*byte| _ = byte.*;
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
