@@ -150,7 +150,9 @@ pub fn calcLoadCommandsSizeObject(macho_file: *MachO) u32 {
 }
 
 pub fn calcMinHeaderPadSize(macho_file: *MachO) !u32 {
-    var padding: u32 = (try calcLoadCommandsSize(macho_file, false)) + (macho_file.headerpad_size orelse 0);
+    // We match Apple's ld and LLVM's lld here.
+    const default_headerpad_size = macho_file.headerpad_size orelse 32;
+    var padding: u32 = (try calcLoadCommandsSize(macho_file, false)) + default_headerpad_size;
     log.debug("minimum requested headerpad size 0x{x}", .{padding + @sizeOf(macho.mach_header_64)});
 
     if (macho_file.headerpad_max_install_names) {
