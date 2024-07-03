@@ -2333,7 +2333,7 @@ pub const LazyPath = union(enum) {
         };
     }
 
-    /// Adds dependencies this file source implies to the given step.
+    /// Add given `lazy_path` to dependenies of `other_step` when it's a generated one.
     pub fn addStepDependencies(lazy_path: LazyPath, other_step: *Step) void {
         switch (lazy_path) {
             .src_path, .cwd_relative, .dependency => {},
