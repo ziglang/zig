@@ -2827,6 +2827,9 @@ pub fn saveState(comp: *Compilation) !void {
 }
 
 fn addBuf(bufs_list: []std.posix.iovec_const, bufs_len: *usize, buf: []const u8) void {
+    // Even when len=0, the undefined pointer might cause EFAULT.
+    if (buf.len == 0) return;
+
     const i = bufs_len.*;
     bufs_len.* = i + 1;
     bufs_list[i] = .{
