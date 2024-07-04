@@ -3593,7 +3593,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
         },
         error.OutOfMemory => return error.OutOfMemory,
     };
-    defer air.deinit(gpa);
+    errdefer air.deinit(gpa);
 
     const invalidate_ies_deps = i: {
         if (!was_outdated) break :i false;
@@ -3615,13 +3615,36 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
     const dump_llvm_ir = build_options.enable_debug_extensions and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
     if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
+        air.deinit(gpa);
         return;
     }
+
+    try comp.work_queue.writeItem(.{ .codegen_func = .{
+        .func = func_index,
+        .air = air,
+    } });
+}
+
+/// Takes ownership of `air`, even on error.
+/// If any types referenced by `air` are unresolved, marks the codegen as failed.
+pub fn linkerUpdateFunc(zcu: *Zcu, func_index: InternPool.Index, air: Air) Allocator.Error!void {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const comp = zcu.comp;
+
+    defer {
+        var air_mut = air;
+        air_mut.deinit(gpa);
+    }
+
+    const func = zcu.funcInfo(func_index);
+    const decl_index = func.owner_decl;
+    const decl = zcu.declPtr(decl_index);
 
     var liveness = try Liveness.analyze(gpa, air, ip);
     defer liveness.deinit(gpa);
 
-    if (dump_air) {
+    if (build_options.enable_debug_extensions and comp.verbose_air) {
         const fqn = try decl.fullyQualifiedName(zcu);
         std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
         @import("print_air.zig").dump(zcu, air, liveness);
@@ -3629,7 +3652,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
     }
 
     if (std.debug.runtime_safety) {
-        var verify = Liveness.Verify{
+        var verify: Liveness.Verify = .{
             .gpa = gpa,
             .air = air,
             .liveness = liveness,
@@ -3642,7 +3665,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
             else => {
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_analysis.putAssumeCapacityNoClobber(
-                    AnalUnit.wrap(.{ .decl = decl_index }),
+                    AnalUnit.wrap(.{ .func = func_index }),
                     try Module.ErrorMsg.create(
                         gpa,
                         decl.navSrcLoc(zcu),
@@ -3659,7 +3682,13 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
     const codegen_prog_node = zcu.codegen_prog_node.start((try decl.fullyQualifiedName(zcu)).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!air.typesFullyResolved(zcu)) {
+        // A type we depend on failed to resolve. This is a transitive failure.
+        // Correcting this failure will involve changing a type this function
+        // depends on, hence triggering re-analysis of this function, so this
+        // interacts correctly with incremental compilation.
+        func.analysis(ip).state = .codegen_failure;
+    } else if (comp.bin_file) |lf| {
         lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
@@ -3667,7 +3696,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.In
             },
             else => {
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .decl = decl_index }), try Module.ErrorMsg.create(
+                zcu.failed_analysis.putAssumeCapacityNoClobber(AnalUnit.wrap(.{ .func = func_index }), try Module.ErrorMsg.create(
                     gpa,
                     decl.navSrcLoc(zcu),
                     "unable to codegen: {s}",
@@ -3735,7 +3764,7 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
     // Decl itself is safely analyzed, and body analysis is not yet queued
 
-    try mod.comp.work_queue.writeItem(.{ .codegen_func = func_index });
+    try mod.comp.work_queue.writeItem(.{ .analyze_func = func_index });
     if (mod.emit_h != null) {
         // TODO: we ideally only want to do this if the function's type changed
         // since the last update
@@ -3812,7 +3841,7 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
     decl.analysis = .complete;
 
     try zcu.scanNamespace(namespace_index, decls, decl);
-
+    try zcu.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
@@ -4103,7 +4132,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(decl_ty);
+    try decl_ty.resolveLayout(mod);
 
     if (decl.kind == .@"usingnamespace") {
         if (!decl_ty.eql(Type.type, mod)) {
@@ -4220,7 +4249,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     if (has_runtime_bits) {
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl_ty);
+        try decl_ty.resolveFully(mod);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
@@ -5212,23 +5241,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         else => |e| return e,
     };
 
-    // Similarly, resolve any queued up types that were requested to be resolved for
-    // the backends.
-    for (sema.types_to_resolve.keys()) |ty| {
-        sema.resolveTypeFully(Type.fromInterned(ty)) catch |err| switch (err) {
-            error.GenericPoison => unreachable,
-            error.ComptimeReturn => unreachable,
-            error.ComptimeBreak => unreachable,
-            error.AnalysisFail => {
-                // In this case our function depends on a type that had a compile error.
-                // We should not try to lower this function.
-                decl.analysis = .dependency_failure;
-                return error.AnalysisFail;
-            },
-            else => |e| return e,
-        };
-    }
-
     try sema.flushExports();
 
     return .{
@@ -5791,6 +5803,16 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
     }
 
     return Type.fromInterned((try intern(mod, .{ .ptr_type = canon_info })));
+}
+
+/// Like `ptrType`, but if `info` specifies an `alignment`, first ensures the pointer
+/// child type's alignment is resolved so that an invalid alignment is not used.
+/// In general, prefer this function during semantic analysis.
+pub fn ptrTypeSema(zcu: *Zcu, info: InternPool.Key.PtrType) SemaError!Type {
+    if (info.flags.alignment != .none) {
+        _ = try Type.fromInterned(info.child).abiAlignmentAdvanced(zcu, .sema);
+    }
+    return zcu.ptrType(info);
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
@@ -6368,15 +6390,21 @@ pub fn unionAbiAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType)
     return max_align;
 }
 
-/// Returns the field alignment, assuming the union is not packed.
-/// Keep implementation in sync with `Sema.unionFieldAlignment`.
-/// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
-    const ip = &mod.intern_pool;
+/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
+pub fn unionFieldNormalAlignment(zcu: *Zcu, loaded_union: InternPool.LoadedUnionType, field_index: u32) Alignment {
+    return zcu.unionFieldNormalAlignmentAdvanced(loaded_union, field_index, .normal) catch unreachable;
+}
+
+/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
+/// If `strat` is `.sema`, may perform type resolution.
+pub fn unionFieldNormalAlignmentAdvanced(zcu: *Zcu, loaded_union: InternPool.LoadedUnionType, field_index: u32, strat: Type.ResolveStrat) SemaError!Alignment {
+    const ip = &zcu.intern_pool;
+    assert(loaded_union.flagsPtr(ip).layout != .@"packed");
     const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
     const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-    return field_ty.abiAlignment(mod);
+    if (field_ty.isNoReturn(zcu)) return .none;
+    return (try field_ty.abiAlignmentAdvanced(zcu, strat.toLazy())).scalar;
 }
 
 /// Returns the index of the active field, given the current tag value
@@ -6387,41 +6415,37 @@ pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType
     return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
-/// Returns the field alignment of a non-packed struct in byte units.
-/// Keep implementation in sync with `Sema.structFieldAlignment`.
-/// asserts the layout is not packed.
+/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
 pub fn structFieldAlignment(
-    mod: *Module,
+    zcu: *Zcu,
     explicit_alignment: InternPool.Alignment,
     field_ty: Type,
     layout: std.builtin.Type.ContainerLayout,
 ) Alignment {
-    assert(layout != .@"packed");
-    if (explicit_alignment != .none) return explicit_alignment;
-    switch (layout) {
-        .@"packed" => unreachable,
-        .auto => {
-            if (mod.getTarget().ofmt == .c) {
-                return structFieldAlignmentExtern(mod, field_ty);
-            } else {
-                return field_ty.abiAlignment(mod);
-            }
-        },
-        .@"extern" => return structFieldAlignmentExtern(mod, field_ty),
-    }
+    return zcu.structFieldAlignmentAdvanced(explicit_alignment, field_ty, layout, .normal) catch unreachable;
 }
 
-/// Returns the field alignment of an extern struct in byte units.
-/// This logic is duplicated in Type.abiAlignmentAdvanced.
-pub fn structFieldAlignmentExtern(mod: *Module, field_ty: Type) Alignment {
-    const ty_abi_align = field_ty.abiAlignment(mod);
-
-    if (field_ty.isAbiInt(mod) and field_ty.intInfo(mod).bits >= 128) {
-        // The C ABI requires 128 bit integer fields of structs
-        // to be 16-bytes aligned.
-        return ty_abi_align.max(.@"16");
+/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
+/// If `strat` is `.sema`, may perform type resolution.
+pub fn structFieldAlignmentAdvanced(
+    zcu: *Zcu,
+    explicit_alignment: InternPool.Alignment,
+    field_ty: Type,
+    layout: std.builtin.Type.ContainerLayout,
+    strat: Type.ResolveStrat,
+) SemaError!Alignment {
+    assert(layout != .@"packed");
+    if (explicit_alignment != .none) return explicit_alignment;
+    const ty_abi_align = (try field_ty.abiAlignmentAdvanced(zcu, strat.toLazy())).scalar;
+    switch (layout) {
+        .@"packed" => unreachable,
+        .auto => if (zcu.getTarget().ofmt != .c) return ty_abi_align,
+        .@"extern" => {},
     }
-
+    // extern
+    if (field_ty.isAbiInt(zcu) and field_ty.intInfo(zcu).bits >= 128) {
+        return ty_abi_align.maxStrict(.@"16");
+    }
     return ty_abi_align;
 }
 
@@ -6479,4 +6503,30 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, Resolved
     }
 
     return result;
+}
+
+pub fn getBuiltin(zcu: *Zcu, name: []const u8) Allocator.Error!Air.Inst.Ref {
+    const decl_index = try zcu.getBuiltinDecl(name);
+    zcu.ensureDeclAnalyzed(decl_index) catch @panic("std.builtin is corrupt");
+    return Air.internedToRef(zcu.declPtr(decl_index).val.toIntern());
+}
+
+pub fn getBuiltinDecl(zcu: *Zcu, name: []const u8) Allocator.Error!InternPool.DeclIndex {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const std_file = (zcu.importPkg(zcu.std_mod) catch @panic("failed to import lib/std.zig")).file;
+    const std_namespace = zcu.declPtr(std_file.root_decl.unwrap().?).getOwnedInnerNamespace(zcu).?;
+    const builtin_str = try ip.getOrPutString(gpa, "builtin", .no_embedded_nulls);
+    const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Zcu.DeclAdapter{ .zcu = zcu }) orelse @panic("lib/std.zig is corrupt and missing 'builtin'");
+    zcu.ensureDeclAnalyzed(builtin_decl) catch @panic("std.builtin is corrupt");
+    const builtin_namespace = zcu.declPtr(builtin_decl).getInnerNamespace(zcu) orelse @panic("std.builtin is corrupt");
+    const name_str = try ip.getOrPutString(gpa, name, .no_embedded_nulls);
+    return builtin_namespace.decls.getKeyAdapted(name_str, Zcu.DeclAdapter{ .zcu = zcu }) orelse @panic("lib/std/builtin.zig is corrupt");
+}
+
+pub fn getBuiltinType(zcu: *Zcu, name: []const u8) Allocator.Error!Type {
+    const ty_inst = try zcu.getBuiltin(name);
+    const ty = Type.fromInterned(ty_inst.toInterned() orelse @panic("std.builtin is corrupt"));
+    ty.resolveFully(zcu) catch @panic("std.builtin is corrupt");
+    return ty;
 }

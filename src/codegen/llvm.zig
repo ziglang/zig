@@ -2603,7 +2603,10 @@ pub const Object = struct {
                     if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     const field_size = Type.fromInterned(field_ty).abiSize(mod);
-                    const field_align = mod.unionFieldNormalAlignment(union_type, @intCast(field_index));
+                    const field_align: InternPool.Alignment = switch (union_type.flagsPtr(ip).layout) {
+                        .@"packed" => .none,
+                        .auto, .@"extern" => mod.unionFieldNormalAlignment(union_type, @intCast(field_index)),
+                    };
 
                     const field_name = tag_type.names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(

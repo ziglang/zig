@@ -1801,3 +1801,5 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
     };
 }
+
+pub const typesFullyResolved = @import("Air/types_resolved.zig").typesFullyResolved;

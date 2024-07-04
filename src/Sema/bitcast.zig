@@ -78,8 +78,8 @@ fn bitCastInner(
 
     const val_ty = val.typeOf(zcu);
 
-    try sema.resolveTypeLayout(val_ty);
-    try sema.resolveTypeLayout(dest_ty);
+    try val_ty.resolveLayout(zcu);
+    try dest_ty.resolveLayout(zcu);
 
     assert(val_ty.hasWellDefinedLayout(zcu));
 
@@ -136,8 +136,8 @@ fn bitCastSpliceInner(
     const val_ty = val.typeOf(zcu);
     const splice_val_ty = splice_val.typeOf(zcu);
 
-    try sema.resolveTypeLayout(val_ty);
-    try sema.resolveTypeLayout(splice_val_ty);
+    try val_ty.resolveLayout(zcu);
+    try splice_val_ty.resolveLayout(zcu);
 
     const splice_bits = splice_val_ty.bitSize(zcu);
 

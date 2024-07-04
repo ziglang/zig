@@ -37,6 +37,7 @@ const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = std.zig.Zir;
+const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 
@@ -316,18 +317,29 @@ const Job = union(enum) {
     codegen_decl: InternPool.DeclIndex,
     /// Write the machine code for a function to the output file.
     /// This will either be a non-generic `func_decl` or a `func_instance`.
-    codegen_func: InternPool.Index,
+    codegen_func: struct {
+        func: InternPool.Index,
+        /// This `Air` is owned by the `Job` and allocated with `gpa`.
+        /// It must be deinited when the job is processed.
+        air: Air,
+    },
     /// Render the .h file snippet for the Decl.
     emit_h_decl: InternPool.DeclIndex,
     /// The Decl needs to be analyzed and possibly export itself.
     /// It may have already be analyzed, or it may have been determined
     /// to be outdated; in this case perform semantic analysis again.
     analyze_decl: InternPool.DeclIndex,
+    /// Analyze the body of a runtime function.
+    /// After analysis, a `codegen_func` job will be queued.
+    /// These must be separate jobs to ensure any needed type resolution occurs *before* codegen.
+    analyze_func: InternPool.Index,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
     update_line_number: InternPool.DeclIndex,
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
+    /// Fully resolve the given `struct` or `union` type.
+    resolve_type_fully: InternPool.Index,
 
     /// one of the glibc static objects
     glibc_crt_file: glibc.CRTFile,
@@ -3389,7 +3401,7 @@ pub fn performAllTheWork(
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
                 switch (outdated.unwrap()) {
                     .decl => |decl| try comp.work_queue.writeItem(.{ .analyze_decl = decl }),
-                    .func => |func| try comp.work_queue.writeItem(.{ .codegen_func = func }),
+                    .func => |func| try comp.work_queue.writeItem(.{ .analyze_func = func }),
                 }
                 continue;
             }
@@ -3437,6 +3449,14 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
         },
         .codegen_func => |func| {
             const named_frame = tracy.namedFrame("codegen_func");
+            defer named_frame.end();
+
+            const module = comp.module.?;
+            // This call takes ownership of `func.air`.
+            try module.linkerUpdateFunc(func.func, func.air);
+        },
+        .analyze_func => |func| {
+            const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
             const module = comp.module.?;
@@ -3517,6 +3537,16 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                 // that now.
                 try module.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
+        },
+        .resolve_type_fully => |ty| {
+            const named_frame = tracy.namedFrame("resolve_type_fully");
+            defer named_frame.end();
+
+            const zcu = comp.module.?;
+            Type.fromInterned(ty).resolveFully(zcu) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => return,
+            };
         },
         .update_line_number => |decl_index| {
             const named_frame = tracy.namedFrame("update_line_number");
