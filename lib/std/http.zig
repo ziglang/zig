@@ -311,13 +311,13 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 
 test {
-    _ = Client;
-    _ = Method;
-    _ = Server;
-    _ = Status;
-    _ = HeadParser;
-    _ = ChunkParser;
     if (builtin.os.tag != .wasi) {
+        _ = Client;
+        _ = Method;
+        _ = Server;
+        _ = Status;
+        _ = HeadParser;
+        _ = ChunkParser;
         _ = @import("http/test.zig");
     }
 }

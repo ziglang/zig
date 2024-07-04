@@ -1930,8 +1930,10 @@ pub const Server = struct {
 };
 
 test {
-    _ = @import("net/test.zig");
-    _ = Server;
-    _ = Stream;
-    _ = Address;
+    if (builtin.os.tag != .wasi) {
+        _ = Server;
+        _ = Stream;
+        _ = Address;
+        _ = @import("net/test.zig");
+    }
 }
