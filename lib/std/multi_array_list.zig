@@ -534,7 +534,7 @@ pub fn MultiArrayList(comptime T: type) type {
             self.sortInternal(a, b, ctx, .unstable);
         }
 
-        fn capacityInBytes(capacity: usize) usize {
+        pub fn capacityInBytes(capacity: usize) usize {
             comptime var elem_bytes: usize = 0;
             inline for (sizes.bytes) |size| elem_bytes += size;
             return elem_bytes * capacity;

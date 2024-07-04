@@ -693,38 +693,39 @@ pub const Namespace = struct {
     ) !InternPool.NullTerminatedString {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        const count = count: {
+
+        const gpa = zcu.gpa;
+        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+        // Protects reads of interned strings from being reallocated during the call to
+        // renderFullyQualifiedName.
+        const slice = try strings.addManyAsSlice(count: {
             var count: usize = name.length(ip) + 1;
             var cur_ns = &ns;
             while (true) {
                 const decl = zcu.declPtr(cur_ns.decl_index);
-                count += decl.name.length(ip) + 1;
                 cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
-                    count += ns.fileScope(zcu).sub_file_path.len;
+                    count += ns.fileScope(zcu).fullyQualifiedNameLen();
                     break :count count;
                 });
+                count += decl.name.length(ip) + 1;
             }
-        };
-
-        const gpa = zcu.gpa;
-        const start = ip.string_bytes.items.len;
-        // Protects reads of interned strings from being reallocated during the call to
-        // renderFullyQualifiedName.
-        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
-        ns.renderFullyQualifiedName(zcu, name, ip.string_bytes.writer(gpa)) catch unreachable;
+        });
+        var fbs = std.io.fixedBufferStream(slice[0]);
+        ns.renderFullyQualifiedName(zcu, name, fbs.writer()) catch unreachable;
+        assert(fbs.pos == slice[0].len);
 
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
         // look at how the C backend does it for inspiration.
         const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
         if (cpu_arch.isNvptx()) {
-            for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
+            for (slice[0]) |*byte| switch (byte.*) {
                 '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
                 else => {},
             };
         }
 
-        return ip.getOrPutTrailingString(gpa, pt.tid, ip.string_bytes.items.len - start, .no_embedded_nulls);
+        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
     pub fn getType(ns: Namespace, zcu: *Zcu) Type {
@@ -859,6 +860,11 @@ pub const File = struct {
         return &file.tree;
     }
 
+    pub fn fullyQualifiedNameLen(file: File) usize {
+        const ext = std.fs.path.extension(file.sub_file_path);
+        return file.sub_file_path.len - ext.len;
+    }
+
     pub fn renderFullyQualifiedName(file: File, writer: anytype) !void {
         // Convert all the slashes into dots and truncate the extension.
         const ext = std.fs.path.extension(file.sub_file_path);
@@ -879,9 +885,12 @@ pub const File = struct {
     pub fn fullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
-        const start = ip.string_bytes.items.len;
-        try file.renderFullyQualifiedName(ip.string_bytes.writer(gpa));
-        return ip.getOrPutTrailingString(gpa, pt.tid, ip.string_bytes.items.len - start, .no_embedded_nulls);
+        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+        const slice = try strings.addManyAsSlice(file.fullyQualifiedNameLen());
+        var fbs = std.io.fixedBufferStream(slice[0]);
+        file.renderFullyQualifiedName(fbs.writer()) catch unreachable;
+        assert(fbs.pos == slice[0].len);
+        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {

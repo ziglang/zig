@@ -2,9 +2,11 @@
 //! This data structure is self-contained, with the following exceptions:
 //! * Module.Namespace has a pointer to Module.File
 
-local: []Local = &.{},
-shard_shift: std.math.Log2Int(usize) = 0,
+locals: []Local = &.{},
 shards: []Shard = &.{},
+tid_width: std.math.Log2Int(u32) = 0,
+tid_shift_31: std.math.Log2Int(u32) = 31,
+tid_shift_32: std.math.Log2Int(u32) = 31,
 
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
@@ -13,12 +15,6 @@ extra: std.ArrayListUnmanaged(u32) = .{},
 /// Use the helper methods instead of accessing this directly in order to not
 /// violate the above mechanism.
 limbs: std.ArrayListUnmanaged(u64) = .{},
-/// In order to store references to strings in fewer bytes, we copy all
-/// string bytes into here. String bytes can be null. It is up to whomever
-/// is referencing the data here whether they want to store both index and length,
-/// thus allowing null bytes, or store only index, and use null-termination. The
-/// `string_bytes` array is agnostic to either usage.
-string_bytes: std.ArrayListUnmanaged(u8) = .{},
 
 /// Rather than allocating Decl objects with an Allocator, we instead allocate
 /// them with this SegmentedList. This provides four advantages:
@@ -345,52 +341,237 @@ pub const DepEntry = extern struct {
 };
 
 const Local = struct {
-    aligned: void align(std.atomic.cache_line) = {},
+    shared: Shared align(std.atomic.cache_line),
+    mutate: struct {
+        arena: std.heap.ArenaAllocator.State,
+        strings: Mutate,
+    } align(std.atomic.cache_line),
 
-    /// header: List.Header,
-    /// data: [capacity]u32,
-    /// tag: [header.capacity]Tag,
-    items: List,
-
-    /// header: List.Header,
-    /// extra: [header.capacity]u32,
-    extra: List,
-
-    /// header: List.Header,
-    /// bytes: [header.capacity]u8,
-    strings: List,
-
-    arena: std.heap.ArenaAllocator.State,
-
-    const List = struct {
-        entries: [*]u32,
-
-        const empty: List = .{ .entries = @constCast(&(extern struct {
-            header: Header,
-            entries: [0]u32,
-        }{
-            .header = .{ .len = 0, .capacity = 0 },
-            .entries = .{},
-        }).entries) };
-
-        fn acquire(list: *const List) List {
-            return .{ .entries = @atomicLoad([*]u32, &list.entries, .acquire) };
-        }
-        fn release(list: *List, new_list: List) void {
-            @atomicStore([*]u32, &list.entries, new_list.entries, .release);
-        }
-
-        const Header = extern struct {
-            len: u32,
-            capacity: u32,
-
-            const fields_len = @typeInfo(Header).Struct.fields.len;
-        };
-        fn header(list: List) *Header {
-            return @ptrCast(list.entries - Header.fields_len);
-        }
+    const Shared = struct {
+        strings: Strings,
     };
+
+    const Strings = List(struct { u8 });
+
+    const Mutate = struct {
+        len: u32,
+
+        const empty: Mutate = .{
+            .len = 0,
+        };
+    };
+
+    fn List(comptime Elem: type) type {
+        assert(@typeInfo(Elem) == .Struct);
+        return struct {
+            bytes: [*]align(@alignOf(Elem)) u8,
+
+            const ListSelf = @This();
+            const Mutable = struct {
+                gpa: std.mem.Allocator,
+                arena: *std.heap.ArenaAllocator.State,
+                mutate: *Mutate,
+                list: *ListSelf,
+
+                const fields = std.enums.values(std.meta.FieldEnum(Elem));
+
+                fn Slice(comptime opts: struct { is_const: bool = false }) type {
+                    const elem_info = @typeInfo(Elem).Struct;
+                    const elem_fields = elem_info.fields;
+                    var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
+                    for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
+                        .name = elem_field.name,
+                        .type = @Type(.{ .Pointer = .{
+                            .size = .Slice,
+                            .is_const = opts.is_const,
+                            .is_volatile = false,
+                            .alignment = 0,
+                            .address_space = .generic,
+                            .child = elem_field.type,
+                            .is_allowzero = false,
+                            .sentinel = null,
+                        } }),
+                        .default_value = null,
+                        .is_comptime = false,
+                        .alignment = 0,
+                    };
+                    return @Type(.{ .Struct = .{
+                        .layout = .auto,
+                        .fields = &new_fields,
+                        .decls = &.{},
+                        .is_tuple = elem_info.is_tuple,
+                    } });
+                }
+
+                pub fn appendAssumeCapacity(mutable: Mutable, elem: Elem) void {
+                    var mutable_view = mutable.view();
+                    defer mutable.lenPtr().* = @intCast(mutable_view.len);
+                    mutable_view.appendAssumeCapacity(elem);
+                }
+
+                pub fn appendSliceAssumeCapacity(
+                    mutable: Mutable,
+                    slice: Slice(.{ .is_const = true }),
+                ) void {
+                    if (fields.len == 0) return;
+                    const mutable_len = mutable.lenPtr();
+                    const start = mutable_len.*;
+                    const slice_len = @field(slice, @tagName(fields[0])).len;
+                    assert(slice_len < mutable.capacityPtr().* - start);
+                    mutable_len.* = @intCast(start + slice_len);
+                    const mutable_view = mutable.view();
+                    inline for (fields) |field| {
+                        const field_slice = @field(slice, @tagName(field));
+                        assert(field_slice.len == slice_len);
+                        @memcpy(mutable_view.items(field)[start..][0..slice_len], field_slice);
+                    }
+                }
+
+                pub fn appendNTimes(mutable: Mutable, elem: Elem, len: usize) Allocator.Error!void {
+                    try mutable.ensureUnusedCapacity(len);
+                    mutable.appendNTimesAssumeCapacity(elem, len);
+                }
+
+                pub fn appendNTimesAssumeCapacity(mutable: Mutable, elem: Elem, len: usize) void {
+                    const mutable_len = mutable.lenPtr();
+                    const start = mutable_len.*;
+                    assert(len <= mutable.capacityPtr().* - start);
+                    mutable_len.* = @intCast(start + len);
+                    const mutable_view = mutable.view();
+                    inline for (fields) |field| {
+                        @memset(mutable_view.items(field)[start..][0..len], @field(elem, @tagName(field)));
+                    }
+                }
+
+                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!Slice(.{}) {
+                    try mutable.ensureUnusedCapacity(len);
+                    return mutable.addManyAsSliceAssumeCapacity(len);
+                }
+
+                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) Slice(.{}) {
+                    const mutable_len = mutable.lenPtr();
+                    const start = mutable_len.*;
+                    assert(len <= mutable.capacityPtr().* - start);
+                    mutable_len.* = @intCast(start + len);
+                    const mutable_view = mutable.view();
+                    var slice: Slice(.{}) = undefined;
+                    inline for (fields) |field| {
+                        @field(slice, @tagName(field)) = mutable_view.items(field)[start..][0..len];
+                    }
+                    return slice;
+                }
+
+                pub fn shrinkRetainingCapacity(mutable: Mutable, len: usize) void {
+                    const mutable_len = mutable.lenPtr();
+                    assert(len <= mutable_len.*);
+                    mutable_len.* = @intCast(len);
+                }
+
+                pub fn ensureUnusedCapacity(mutable: Mutable, unused_capacity: usize) Allocator.Error!void {
+                    try mutable.ensureTotalCapacity(@intCast(mutable.lenPtr().* + unused_capacity));
+                }
+
+                pub fn ensureTotalCapacity(mutable: Mutable, total_capacity: usize) Allocator.Error!void {
+                    const old_capacity = mutable.capacityPtr().*;
+                    if (old_capacity >= total_capacity) return;
+                    var new_capacity = old_capacity;
+                    while (new_capacity < total_capacity) new_capacity = (new_capacity + 10) * 2;
+                    try mutable.setCapacity(new_capacity);
+                }
+
+                fn setCapacity(mutable: Mutable, capacity: u32) Allocator.Error!void {
+                    var arena = mutable.arena.promote(mutable.gpa);
+                    defer mutable.arena.* = arena.state;
+                    const buf = try arena.allocator().alignedAlloc(
+                        u8,
+                        alignment,
+                        bytes_offset + View.capacityInBytes(capacity),
+                    );
+                    var new_list: ListSelf = .{ .bytes = @ptrCast(buf[bytes_offset..].ptr) };
+                    new_list.header().* = .{ .capacity = capacity };
+                    const len = mutable.lenPtr().*;
+                    const old_slice = mutable.list.view().slice();
+                    const new_slice = new_list.view().slice();
+                    inline for (fields) |field| {
+                        @memcpy(new_slice.items(field)[0..len], old_slice.items(field)[0..len]);
+                    }
+                    mutable.list.release(new_list);
+                }
+
+                fn view(mutable: Mutable) View {
+                    return .{
+                        .bytes = mutable.list.bytes,
+                        .len = mutable.lenPtr().*,
+                        .capacity = mutable.capacityPtr().*,
+                    };
+                }
+
+                pub fn lenPtr(mutable: Mutable) *u32 {
+                    return &mutable.mutate.len;
+                }
+
+                pub fn capacityPtr(mutable: Mutable) *u32 {
+                    return &mutable.list.header().capacity;
+                }
+            };
+
+            const empty: ListSelf = .{ .bytes = @constCast(&(extern struct {
+                header: Header,
+                bytes: [0]u8,
+            }{
+                .header = .{ .capacity = 0 },
+                .bytes = .{},
+            }).bytes) };
+
+            const alignment = @max(@alignOf(Header), @alignOf(Elem));
+            const bytes_offset = std.mem.alignForward(usize, @sizeOf(Header), @alignOf(Elem));
+            const View = std.MultiArrayList(Elem);
+
+            fn acquire(list: *const ListSelf) ListSelf {
+                return .{ .bytes = @atomicLoad([*]align(@alignOf(Elem)) u8, &list.bytes, .acquire) };
+            }
+            fn release(list: *ListSelf, new_list: ListSelf) void {
+                @atomicStore([*]align(@alignOf(Elem)) u8, &list.bytes, new_list.bytes, .release);
+            }
+
+            const Header = extern struct {
+                capacity: u32,
+            };
+            fn header(list: ListSelf) *Header {
+                return @ptrFromInt(@intFromPtr(list.bytes) - bytes_offset);
+            }
+
+            fn view(list: ListSelf) View {
+                const capacity = list.header().capacity;
+                return .{
+                    .bytes = list.bytes,
+                    .len = capacity,
+                    .capacity = capacity,
+                };
+            }
+        };
+    }
+
+    /// In order to store references to strings in fewer bytes, we copy all
+    /// string bytes into here. String bytes can be null. It is up to whomever
+    /// is referencing the data here whether they want to store both index and length,
+    /// thus allowing null bytes, or store only index, and use null-termination. The
+    /// `strings` array is agnostic to either usage.
+    pub fn getMutableStrings(local: *Local, gpa: std.mem.Allocator) Strings.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.strings,
+            .list = &local.shared.strings,
+        };
+    }
 };
+pub fn getLocal(ip: *InternPool, tid: Zcu.PerThread.Id) *Local {
+    return &ip.locals[@intFromEnum(tid)];
+}
+pub fn getLocalShared(ip: *const InternPool, tid: Zcu.PerThread.Id) *const Local.Shared {
+    return &ip.locals[@intFromEnum(tid)].shared;
+}
 
 const Shard = struct {
     shared: struct {
@@ -448,7 +629,7 @@ const Shard = struct {
                 }
             };
             fn header(map: @This()) *Header {
-                return &(@as([*]Header, @ptrCast(map.entries)) - 1)[0];
+                return @ptrFromInt(@intFromPtr(map.entries) - entries_offset);
             }
 
             const Entry = extern struct {
@@ -465,6 +646,17 @@ const Shard = struct {
         };
     }
 };
+fn getShard(ip: *InternPool, tid: Zcu.PerThread.Id) *Shard {
+    return &ip.shards[@intFromEnum(tid)];
+}
+
+fn getTidMask(ip: *const InternPool) u32 {
+    assert(std.math.isPowerOfTwo(ip.shards.len));
+    return @intCast(ip.shards.len - 1);
+}
+fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
+    return @as(u32, std.math.maxInt(BackingInt)) >> ip.tid_width;
+}
 
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
@@ -560,18 +752,18 @@ pub const OptionalNamespaceIndex = enum(u32) {
     }
 };
 
-/// An index into `string_bytes`.
+/// An index into `strings`.
 pub const String = enum(u32) {
     /// An empty string.
     empty = 0,
     _,
 
     pub fn toSlice(string: String, len: u64, ip: *const InternPool) []const u8 {
-        return ip.string_bytes.items[@intFromEnum(string)..][0..@intCast(len)];
+        return string.toOverlongSlice(ip)[0..@intCast(len)];
     }
 
     pub fn at(string: String, index: u64, ip: *const InternPool) u8 {
-        return ip.string_bytes.items[@intCast(@intFromEnum(string) + index)];
+        return string.toOverlongSlice(ip)[@intCast(index)];
     }
 
     pub fn toNullTerminatedString(string: String, len: u64, ip: *const InternPool) NullTerminatedString {
@@ -579,9 +771,32 @@ pub const String = enum(u32) {
         assert(string.at(len, ip) == 0);
         return @enumFromInt(@intFromEnum(string));
     }
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) String {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.index <= ip.getIndexMask(u32));
+            return @enumFromInt(@intFromEnum(unwrapped.tid) << ip.tid_shift_32 | unwrapped.index);
+        }
+    };
+    fn unwrap(string: String, ip: *const InternPool) Unwrapped {
+        return .{
+            .tid = @enumFromInt(@intFromEnum(string) >> ip.tid_shift_32 & ip.getTidMask()),
+            .index = @intFromEnum(string) & ip.getIndexMask(u32),
+        };
+    }
+
+    fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
+        const unwrapped = string.unwrap(ip);
+        const strings = ip.getLocalShared(unwrapped.tid).strings.acquire();
+        return strings.view().items(.@"0")[unwrapped.index..];
+    }
 };
 
-/// An index into `string_bytes` which might be `none`.
+/// An index into `strings` which might be `none`.
 pub const OptionalString = enum(u32) {
     /// This is distinct from `none` - it is a valid index that represents empty string.
     empty = 0,
@@ -597,7 +812,7 @@ pub const OptionalString = enum(u32) {
     }
 };
 
-/// An index into `string_bytes`.
+/// An index into `strings`.
 pub const NullTerminatedString = enum(u32) {
     /// An empty string.
     empty = 0,
@@ -623,12 +838,8 @@ pub const NullTerminatedString = enum(u32) {
         return @enumFromInt(@intFromEnum(self));
     }
 
-    fn toOverlongSlice(string: NullTerminatedString, ip: *const InternPool) []const u8 {
-        return ip.string_bytes.items[@intFromEnum(string)..];
-    }
-
     pub fn toSlice(string: NullTerminatedString, ip: *const InternPool) [:0]const u8 {
-        const overlong_slice = string.toOverlongSlice(ip);
+        const overlong_slice = string.toString().toOverlongSlice(ip);
         return overlong_slice[0..std.mem.indexOfScalar(u8, overlong_slice, 0).? :0];
     }
 
@@ -637,7 +848,7 @@ pub const NullTerminatedString = enum(u32) {
     }
 
     pub fn eqlSlice(string: NullTerminatedString, slice: []const u8, ip: *const InternPool) bool {
-        const overlong_slice = string.toOverlongSlice(ip);
+        const overlong_slice = string.toString().toOverlongSlice(ip);
         return overlong_slice.len > slice.len and
             std.mem.eql(u8, overlong_slice[0..slice.len], slice) and
             overlong_slice[slice.len] == 0;
@@ -688,12 +899,12 @@ pub const NullTerminatedString = enum(u32) {
         } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
     }
 
-    pub fn fmt(self: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
-        return .{ .data = .{ .string = self, .ip = ip } };
+    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
+        return .{ .data = .{ .string = string, .ip = ip } };
     }
 };
 
-/// An index into `string_bytes` which might be `none`.
+/// An index into `strings` which might be `none`.
 pub const OptionalNullTerminatedString = enum(u32) {
     /// This is distinct from `none` - it is a valid index that represents empty string.
     empty = 0,
@@ -4077,7 +4288,7 @@ pub const FuncAnalysis = packed struct(u32) {
 pub const Bytes = struct {
     /// The type of the aggregate
     ty: Index,
-    /// Index into string_bytes, of len ip.aggregateTypeLen(ty)
+    /// Index into strings, of len ip.aggregateTypeLen(ty)
     bytes: String,
 };
 
@@ -4647,16 +4858,21 @@ pub fn init(ip: *InternPool, gpa: Allocator, total_threads: usize) !void {
     errdefer ip.deinit(gpa);
     assert(ip.items.len == 0);
 
-    ip.local = try gpa.alloc(Local, total_threads);
-    @memset(ip.local, .{
-        .items = Local.List.empty,
-        .extra = Local.List.empty,
-        .strings = Local.List.empty,
-        .arena = .{},
+    ip.locals = try gpa.alloc(Local, total_threads);
+    @memset(ip.locals, .{
+        .shared = .{
+            .strings = Local.Strings.empty,
+        },
+        .mutate = .{
+            .arena = .{},
+            .strings = Local.Mutate.empty,
+        },
     });
 
-    ip.shard_shift = @intCast(std.math.log2_int_ceil(usize, total_threads));
-    ip.shards = try gpa.alloc(Shard, @as(usize, 1) << ip.shard_shift);
+    ip.tid_width = @intCast(std.math.log2_int_ceil(usize, total_threads));
+    ip.tid_shift_31 = 31 - ip.tid_width;
+    ip.tid_shift_32 = ip.tid_shift_31 +| 1;
+    ip.shards = try gpa.alloc(Shard, @as(usize, 1) << ip.tid_width);
     @memset(ip.shards, .{
         .shared = .{
             .map = Shard.Map(Index).empty,
@@ -4705,7 +4921,6 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.items.deinit(gpa);
     ip.extra.deinit(gpa);
     ip.limbs.deinit(gpa);
-    ip.string_bytes.deinit(gpa);
 
     ip.decls_free_list.deinit(gpa);
     ip.allocated_decls.deinit(gpa);
@@ -4732,8 +4947,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.files.deinit(gpa);
 
     gpa.free(ip.shards);
-    for (ip.local) |*local| local.arena.promote(gpa).deinit();
-    gpa.free(ip.local);
+    for (ip.locals) |*local| local.mutate.arena.promote(gpa).deinit();
+    gpa.free(ip.locals);
 
     ip.* = undefined;
 }
@@ -5437,8 +5652,9 @@ fn getOrPutKey(
     }
     const map_header = map.header().*;
     if (shard.mutate.map.len >= map_header.capacity * 3 / 5) {
-        var arena = ip.local[@intFromEnum(tid)].arena.promote(gpa);
-        defer ip.local[@intFromEnum(tid)].arena = arena.state;
+        const arena_state = &ip.getLocal(tid).mutate.arena;
+        var arena = arena_state.promote(gpa);
+        defer arena_state.* = arena.state;
         const new_map_capacity = map_header.capacity * 2;
         const new_map_buf = try arena.allocator().alignedAlloc(
             u8,
@@ -6194,33 +6410,32 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
 
             if (child == .u8_type) bytes: {
-                const string_bytes_index = ip.string_bytes.items.len;
-                try ip.string_bytes.ensureUnusedCapacity(gpa, @intCast(len_including_sentinel + 1));
+                const strings = ip.getLocal(tid).getMutableStrings(gpa);
+                const start = strings.lenPtr().*;
+                try strings.ensureUnusedCapacity(@intCast(len_including_sentinel + 1));
                 try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
                 switch (aggregate.storage) {
-                    .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes.toSlice(len, ip)),
+                    .bytes => |bytes| strings.appendSliceAssumeCapacity(.{bytes.toSlice(len, ip)}),
                     .elems => |elems| for (elems[0..@intCast(len)]) |elem| switch (ip.indexToKey(elem)) {
                         .undef => {
-                            ip.string_bytes.shrinkRetainingCapacity(string_bytes_index);
+                            strings.shrinkRetainingCapacity(start);
                             break :bytes;
                         },
-                        .int => |int| ip.string_bytes.appendAssumeCapacity(
-                            @intCast(int.storage.u64),
-                        ),
+                        .int => |int| strings.appendAssumeCapacity(.{@intCast(int.storage.u64)}),
                         else => unreachable,
                     },
                     .repeated_elem => |elem| switch (ip.indexToKey(elem)) {
                         .undef => break :bytes,
                         .int => |int| @memset(
-                            ip.string_bytes.addManyAsSliceAssumeCapacity(@intCast(len)),
+                            strings.addManyAsSliceAssumeCapacity(@intCast(len))[0],
                             @intCast(int.storage.u64),
                         ),
                         else => unreachable,
                     },
                 }
-                if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
+                if (sentinel != .none) strings.appendAssumeCapacity(.{
                     @intCast(ip.indexToKey(sentinel).int.storage.u64),
-                );
+                });
                 const string = try ip.getOrPutTrailingString(
                     gpa,
                     tid,
@@ -9050,10 +9265,11 @@ pub fn getOrPutString(
     slice: []const u8,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    try ip.string_bytes.ensureUnusedCapacity(gpa, slice.len + 1);
-    ip.string_bytes.appendSliceAssumeCapacity(slice);
-    ip.string_bytes.appendAssumeCapacity(0);
-    return ip.getOrPutTrailingString(gpa, tid, slice.len + 1, embedded_nulls);
+    const strings = ip.getLocal(tid).getMutableStrings(gpa);
+    try strings.ensureUnusedCapacity(slice.len + 1);
+    strings.appendSliceAssumeCapacity(.{slice});
+    strings.appendAssumeCapacity(.{0});
+    return ip.getOrPutTrailingString(gpa, tid, @intCast(slice.len + 1), embedded_nulls);
 }
 
 pub fn getOrPutStringFmt(
@@ -9064,11 +9280,12 @@ pub fn getOrPutStringFmt(
     args: anytype,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    // ensure that references to string_bytes in args do not get invalidated
-    const len: usize = @intCast(std.fmt.count(format, args) + 1);
-    try ip.string_bytes.ensureUnusedCapacity(gpa, len);
-    ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
-    ip.string_bytes.appendAssumeCapacity(0);
+    // ensure that references to strings in args do not get invalidated
+    const format_z = format ++ .{0};
+    const len: u32 = @intCast(std.fmt.count(format_z, args));
+    const strings = ip.getLocal(tid).getMutableStrings(gpa);
+    const slice = try strings.addManyAsSlice(len);
+    assert((std.fmt.bufPrint(slice[0], format_z, args) catch unreachable).len == len);
     return ip.getOrPutTrailingString(gpa, tid, len, embedded_nulls);
 }
 
@@ -9083,47 +9300,33 @@ pub fn getOrPutStringOpt(
     return string.toOptional();
 }
 
-/// Uses the last len bytes of ip.string_bytes as the key.
+/// Uses the last len bytes of strings as the key.
 pub fn getOrPutTrailingString(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
-    len: usize,
+    len: u32,
     comptime embedded_nulls: EmbeddedNulls,
 ) Allocator.Error!embedded_nulls.StringType() {
-    const string_bytes = &ip.string_bytes;
-    const str_index: u32 = @intCast(string_bytes.items.len - len);
-    if (len > 0 and string_bytes.getLast() == 0) {
-        _ = string_bytes.pop();
+    const strings = ip.getLocal(tid).getMutableStrings(gpa);
+    const start: u32 = @intCast(strings.lenPtr().* - len);
+    if (len > 0 and strings.view().items(.@"0")[strings.lenPtr().* - 1] == 0) {
+        strings.lenPtr().* -= 1;
     } else {
-        try string_bytes.ensureUnusedCapacity(gpa, 1);
+        try strings.ensureUnusedCapacity(1);
     }
-    const key: []const u8 = string_bytes.items[str_index..];
+    const key: []const u8 = strings.view().items(.@"0")[start..];
+    const value: embedded_nulls.StringType() =
+        @enumFromInt(@intFromEnum(tid) << ip.tid_shift_32 | start);
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),
         .maybe_embedded_nulls => if (has_embedded_null) {
-            string_bytes.appendAssumeCapacity(0);
-            return @enumFromInt(str_index);
+            strings.appendAssumeCapacity(.{0});
+            return value;
         },
     }
-    const maybe_existing_index = try ip.getOrPutStringValue(gpa, tid, key, @enumFromInt(str_index));
-    if (maybe_existing_index.unwrap()) |existing_index| {
-        string_bytes.shrinkRetainingCapacity(str_index);
-        return @enumFromInt(@intFromEnum(existing_index));
-    } else {
-        string_bytes.appendAssumeCapacity(0);
-        return @enumFromInt(str_index);
-    }
-}
 
-fn getOrPutStringValue(
-    ip: *InternPool,
-    gpa: Allocator,
-    tid: Zcu.PerThread.Id,
-    key: []const u8,
-    value: NullTerminatedString,
-) Allocator.Error!OptionalNullTerminatedString {
     const full_hash = Hash.hash(0, key);
     const hash: u32 = @truncate(full_hash >> 32);
     const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
@@ -9136,7 +9339,9 @@ fn getOrPutStringValue(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (index.eqlSlice(key, ip)) return index.toOptional();
+        if (!index.eqlSlice(key, ip)) continue;
+        strings.shrinkRetainingCapacity(start);
+        return @enumFromInt(@intFromEnum(index));
     }
     shard.mutate.string_map.mutex.lock();
     defer shard.mutate.string_map.mutex.unlock();
@@ -9151,18 +9356,22 @@ fn getOrPutStringValue(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (index.eqlSlice(key, ip)) return index.toOptional();
+        if (!index.eqlSlice(key, ip)) continue;
+        strings.shrinkRetainingCapacity(start);
+        return @enumFromInt(@intFromEnum(index));
     }
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
         const entry = &map.entries[map_index];
         entry.hash = hash;
-        entry.release(value.toOptional());
-        return .none;
+        entry.release(@enumFromInt(@intFromEnum(value)));
+        strings.appendAssumeCapacity(.{0});
+        return value;
     }
-    var arena = ip.local[@intFromEnum(tid)].arena.promote(gpa);
-    defer ip.local[@intFromEnum(tid)].arena = arena.state;
+    const arena_state = &ip.getLocal(tid).mutate.arena;
+    var arena = arena_state.promote(gpa);
+    defer arena_state.* = arena.state;
     const new_map_capacity = map_header.capacity * 2;
     const new_map_buf = try arena.allocator().alignedAlloc(
         u8,
@@ -9197,11 +9406,12 @@ fn getOrPutStringValue(
         if (map.entries[map_index].value == .none) break;
     }
     map.entries[map_index] = .{
-        .value = value.toOptional(),
+        .value = @enumFromInt(@intFromEnum(value)),
         .hash = hash,
     };
     shard.shared.string_map.release(new_map);
-    return .none;
+    strings.appendAssumeCapacity(.{0});
+    return value;
 }
 
 pub fn getString(ip: *InternPool, key: []const u8) OptionalNullTerminatedString {

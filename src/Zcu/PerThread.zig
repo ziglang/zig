@@ -1377,10 +1377,11 @@ fn newEmbedFile(
     };
     const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
 
-    const bytes = try ip.string_bytes.addManyAsSlice(gpa, try std.math.add(usize, size, 1));
-    const actual_read = try file.readAll(bytes[0..size]);
+    const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+    const bytes = try strings.addManyAsSlice(try std.math.add(usize, size, 1));
+    const actual_read = try file.readAll(bytes[0][0..size]);
     if (actual_read != size) return error.UnexpectedEndOfFile;
-    bytes[size] = 0;
+    bytes[0][size] = 0;
 
     const comp = mod.comp;
     switch (comp.cache_use) {
@@ -1389,7 +1390,7 @@ fn newEmbedFile(
             errdefer gpa.free(copied_resolved_path);
             whole.cache_manifest_mutex.lock();
             defer whole.cache_manifest_mutex.unlock();
-            try man.addFilePostContents(copied_resolved_path, bytes[0..size], stat);
+            try man.addFilePostContents(copied_resolved_path, bytes[0][0..size], stat);
         },
         .incremental => {},
     }
@@ -1401,7 +1402,7 @@ fn newEmbedFile(
     } });
     const array_val = try pt.intern(.{ .aggregate = .{
         .ty = array_ty,
-        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, pt.tid, bytes.len, .maybe_embedded_nulls) },
+        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, pt.tid, @intCast(bytes[0].len), .maybe_embedded_nulls) },
     } });
 
     const ptr_ty = (try pt.ptrType(.{

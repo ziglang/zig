@@ -65,8 +65,9 @@ pub fn toIpString(val: Value, ty: Type, pt: Zcu.PerThread) !InternPool.NullTermi
         .elems => return arrayToIpString(val, ty.arrayLen(mod), pt),
         .repeated_elem => |elem| {
             const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(pt));
-            const len: usize = @intCast(ty.arrayLen(mod));
-            try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
+            const len: u32 = @intCast(ty.arrayLen(mod));
+            const strings = ip.getLocal(pt.tid).getMutableStrings(mod.gpa);
+            try strings.appendNTimes(.{byte}, len);
             return ip.getOrPutTrailingString(mod.gpa, pt.tid, len, .no_embedded_nulls);
         },
     }
@@ -107,16 +108,18 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
     const mod = pt.zcu;
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const len: usize = @intCast(len_u64);
-    try ip.string_bytes.ensureUnusedCapacity(gpa, len);
+    const len: u32 = @intCast(len_u64);
+    const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+    const strings_len = strings.lenPtr();
+    try strings.ensureUnusedCapacity(len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
         // assert just to be sure.
-        const prev = ip.string_bytes.items.len;
+        const prev_len = strings_len.*;
         const elem_val = try val.elemValue(pt, i);
-        assert(ip.string_bytes.items.len == prev);
+        assert(strings_len.* == prev_len);
         const byte: u8 = @intCast(elem_val.toUnsignedInt(pt));
-        ip.string_bytes.appendAssumeCapacity(byte);
+        strings.appendAssumeCapacity(.{byte});
     }
     return ip.getOrPutTrailingString(gpa, pt.tid, len, .no_embedded_nulls);
 }
