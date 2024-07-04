@@ -208,6 +208,8 @@ pub fn updateFunc(
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
 
+    const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
+
     var function: codegen.Function = .{
         .value_map = codegen.CValueMap.init(gpa),
         .air = air,
@@ -217,7 +219,7 @@ pub fn updateFunc(
             .dg = .{
                 .gpa = gpa,
                 .zcu = zcu,
-                .mod = zcu.namespacePtr(decl.src_namespace).file_scope.mod,
+                .mod = file_scope.mod,
                 .error_msg = null,
                 .pass = .{ .decl = decl_index },
                 .is_naked_fn = decl.typeOf(zcu).fnCallingConvention(zcu) == .Naked,
@@ -335,11 +337,13 @@ pub fn updateDecl(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
     fwd_decl.clearRetainingCapacity();
     code.clearRetainingCapacity();
 
+    const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
+
     var object: codegen.Object = .{
         .dg = .{
             .gpa = gpa,
             .zcu = zcu,
-            .mod = zcu.namespacePtr(decl.src_namespace).file_scope.mod,
+            .mod = file_scope.mod,
             .error_msg = null,
             .pass = .{ .decl = decl_index },
             .is_naked_fn = false,
@@ -491,7 +495,7 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
         for (self.decl_table.keys(), self.decl_table.values()) |decl_index, *decl_block| {
             const decl = zcu.declPtr(decl_index);
             const extern_name = if (decl.isExtern(zcu)) decl.name.toOptional() else .none;
-            const mod = zcu.namespacePtr(decl.src_namespace).file_scope.mod;
+            const mod = zcu.namespacePtr(decl.src_namespace).fileScope(zcu).mod;
             try self.flushDeclBlock(
                 zcu,
                 mod,
@@ -848,7 +852,7 @@ pub fn updateExports(
     const gpa = self.base.comp.gpa;
     const mod, const pass: codegen.DeclGen.Pass, const decl_block, const exported_block = switch (exported) {
         .decl_index => |decl_index| .{
-            zcu.namespacePtr(zcu.declPtr(decl_index).src_namespace).file_scope.mod,
+            zcu.namespacePtr(zcu.declPtr(decl_index).src_namespace).fileScope(zcu).mod,
             .{ .decl = decl_index },
             self.decl_table.getPtr(decl_index).?,
             (try self.exported_decls.getOrPut(gpa, decl_index)).value_ptr,

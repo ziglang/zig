@@ -712,8 +712,8 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.file_scope.mod.resolved_target.result;
-    const mod = namespace.file_scope.mod;
+    const target = &namespace.fileScope(zcu).mod.resolved_target.result;
+    const mod = namespace.fileScope(zcu).mod;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {

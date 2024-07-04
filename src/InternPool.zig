@@ -123,9 +123,14 @@ pub const TrackedInst = extern struct {
     };
 };
 
-pub fn trackZir(ip: *InternPool, gpa: Allocator, file: *Module.File, inst: Zir.Inst.Index) Allocator.Error!TrackedInst.Index {
+pub fn trackZir(
+    ip: *InternPool,
+    gpa: Allocator,
+    path_digest: Cache.BinDigest,
+    inst: Zir.Inst.Index,
+) Allocator.Error!TrackedInst.Index {
     const key: TrackedInst = .{
-        .path_digest = file.path_digest,
+        .path_digest = path_digest,
         .inst = inst,
     };
     const gop = try ip.tracked_insts.getOrPut(gpa, key);

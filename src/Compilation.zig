@@ -116,7 +116,7 @@ win32_resource_work_queue: if (build_options.only_core_functionality) void else 
 /// These jobs are to tokenize, parse, and astgen files, which may be outdated
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
-astgen_work_queue: std.fifo.LinearFifo(*Module.File, .Dynamic),
+astgen_work_queue: std.fifo.LinearFifo(Zcu.File.Index, .Dynamic),
 /// These jobs are to inspect the file system stat() and if the embedded file has changed
 /// on disk, mark the corresponding Decl outdated and queue up an `analyze_decl`
 /// task for it.
@@ -1433,7 +1433,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (build_options.only_core_functionality) {} else std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
-            .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
+            .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
             .embed_file_work_queue = std.fifo.LinearFifo(*Module.EmbedFile, .Dynamic).init(gpa),
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
@@ -2095,13 +2095,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         }
     }
 
-    if (comp.module) |module| {
-        module.compile_log_text.shrinkAndFree(gpa, 0);
+    if (comp.module) |zcu| {
+        zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
-        const std_mod = module.std_mod;
-        _ = try module.importPkg(std_mod);
+        const std_mod = zcu.std_mod;
+        _ = try zcu.importPkg(std_mod);
 
         // Normally we rely on importing std to in turn import the root source file
         // in the start code, but when using the stage1 backend that won't happen,
@@ -2110,64 +2110,65 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
         if (comp.config.is_test) {
-            _ = try module.importPkg(module.main_mod);
+            _ = try zcu.importPkg(zcu.main_mod);
         }
 
-        if (module.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            _ = try module.importPkg(compiler_rt_mod);
+        if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
+            _ = try zcu.importPkg(compiler_rt_mod);
         }
 
         // Put a work item in for every known source file to detect if
         // it changed, and, if so, re-compute ZIR and then queue the job
         // to update it.
-        try comp.astgen_work_queue.ensureUnusedCapacity(module.import_table.count());
-        for (module.import_table.values()) |file| {
+        try comp.astgen_work_queue.ensureUnusedCapacity(zcu.import_table.count());
+        for (zcu.import_table.values(), 0..) |file, file_index_usize| {
+            const file_index: Zcu.File.Index = @enumFromInt(file_index_usize);
             if (file.mod.isBuiltin()) continue;
-            comp.astgen_work_queue.writeItemAssumeCapacity(file);
+            comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
 
         // Put a work item in for checking if any files used with `@embedFile` changed.
-        try comp.embed_file_work_queue.ensureUnusedCapacity(module.embed_table.count());
-        for (module.embed_table.values()) |embed_file| {
+        try comp.embed_file_work_queue.ensureUnusedCapacity(zcu.embed_table.count());
+        for (zcu.embed_table.values()) |embed_file| {
             comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
         }
 
         try comp.work_queue.writeItem(.{ .analyze_mod = std_mod });
         if (comp.config.is_test) {
-            try comp.work_queue.writeItem(.{ .analyze_mod = module.main_mod });
+            try comp.work_queue.writeItem(.{ .analyze_mod = zcu.main_mod });
         }
 
-        if (module.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
+        if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             try comp.work_queue.writeItem(.{ .analyze_mod = compiler_rt_mod });
         }
     }
 
     try comp.performAllTheWork(main_progress_node);
 
-    if (comp.module) |module| {
+    if (comp.module) |zcu| {
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.root_name,
             });
-            module.intern_pool.dump();
+            zcu.intern_pool.dump();
         }
 
         if (build_options.enable_debug_extensions and comp.verbose_generic_instances) {
             std.debug.print("generic instances for '{s}:0x{x}':\n", .{
                 comp.root_name,
-                @as(usize, @intFromPtr(module)),
+                @as(usize, @intFromPtr(zcu)),
             });
-            module.intern_pool.dumpGenericInstances(gpa);
+            zcu.intern_pool.dumpGenericInstances(gpa);
         }
 
         if (comp.config.is_test and comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
-            try module.populateTestFunctions(main_progress_node);
+            try zcu.populateTestFunctions(main_progress_node);
         }
 
-        try module.processExports();
+        try zcu.processExports();
     }
 
     if (comp.totalErrorCount() != 0) {
@@ -2615,7 +2616,9 @@ fn resolveEmitLoc(
     return slice.ptr;
 }
 
-fn reportMultiModuleErrors(mod: *Module) !void {
+fn reportMultiModuleErrors(zcu: *Zcu) !void {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
     // Some cases can give you a whole bunch of multi-module errors, which it's not helpful to
     // print all of, so we'll cap the number of these to emit.
     var num_errors: u32 = 0;
@@ -2623,11 +2626,13 @@ fn reportMultiModuleErrors(mod: *Module) !void {
     // Attach the "some omitted" note to the final error message
     var last_err: ?*Module.ErrorMsg = null;
 
-    for (mod.import_table.values()) |file| {
+    for (zcu.import_table.values(), 0..) |file, file_index_usize| {
         if (!file.multi_pkg) continue;
 
         num_errors += 1;
         if (num_errors > max_errors) continue;
+
+        const file_index: Zcu.File.Index = @enumFromInt(file_index_usize);
 
         const err = err_blk: {
             // Like with errors, let's cap the number of notes to prevent a huge error spew.
@@ -2635,25 +2640,25 @@ fn reportMultiModuleErrors(mod: *Module) !void {
             const omitted = file.references.items.len -| max_notes;
             const num_notes = file.references.items.len - omitted;
 
-            const notes = try mod.gpa.alloc(Module.ErrorMsg, if (omitted > 0) num_notes + 1 else num_notes);
-            errdefer mod.gpa.free(notes);
+            const notes = try gpa.alloc(Module.ErrorMsg, if (omitted > 0) num_notes + 1 else num_notes);
+            errdefer gpa.free(notes);
 
             for (notes[0..num_notes], file.references.items[0..num_notes], 0..) |*note, ref, i| {
-                errdefer for (notes[0..i]) |*n| n.deinit(mod.gpa);
+                errdefer for (notes[0..i]) |*n| n.deinit(gpa);
                 note.* = switch (ref) {
                     .import => |import| try Module.ErrorMsg.init(
-                        mod.gpa,
+                        gpa,
                         .{
-                            .base_node_inst = try mod.intern_pool.trackZir(mod.gpa, import.file, .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(import.file), .main_struct_inst),
                             .offset = .{ .token_abs = import.token },
                         },
                         "imported from module {s}",
-                        .{import.file.mod.fully_qualified_name},
+                        .{zcu.fileByIndex(import.file).mod.fully_qualified_name},
                     ),
                     .root => |pkg| try Module.ErrorMsg.init(
-                        mod.gpa,
+                        gpa,
                         .{
-                            .base_node_inst = try mod.intern_pool.trackZir(mod.gpa, file, .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
                             .offset = .entire_file,
                         },
                         "root of module {s}",
@@ -2661,25 +2666,25 @@ fn reportMultiModuleErrors(mod: *Module) !void {
                     ),
                 };
             }
-            errdefer for (notes[0..num_notes]) |*n| n.deinit(mod.gpa);
+            errdefer for (notes[0..num_notes]) |*n| n.deinit(gpa);
 
             if (omitted > 0) {
                 notes[num_notes] = try Module.ErrorMsg.init(
-                    mod.gpa,
+                    gpa,
                     .{
-                        .base_node_inst = try mod.intern_pool.trackZir(mod.gpa, file, .main_struct_inst),
+                        .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
                         .offset = .entire_file,
                     },
                     "{} more references omitted",
                     .{omitted},
                 );
             }
-            errdefer if (omitted > 0) notes[num_notes].deinit(mod.gpa);
+            errdefer if (omitted > 0) notes[num_notes].deinit(gpa);
 
             const err = try Module.ErrorMsg.create(
-                mod.gpa,
+                gpa,
                 .{
-                    .base_node_inst = try mod.intern_pool.trackZir(mod.gpa, file, .main_struct_inst),
+                    .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
                     .offset = .entire_file,
                 },
                 "file exists in multiple modules",
@@ -2688,8 +2693,8 @@ fn reportMultiModuleErrors(mod: *Module) !void {
             err.notes = notes;
             break :err_blk err;
         };
-        errdefer err.destroy(mod.gpa);
-        try mod.failed_files.putNoClobber(mod.gpa, file, err);
+        errdefer err.destroy(gpa);
+        try zcu.failed_files.putNoClobber(gpa, file, err);
         last_err = err;
     }
 
@@ -2700,15 +2705,15 @@ fn reportMultiModuleErrors(mod: *Module) !void {
         // There isn't really any meaningful place to put this note, so just attach it to the
         // last failed file
         var note = try Module.ErrorMsg.init(
-            mod.gpa,
+            gpa,
             err.src_loc,
             "{} more errors omitted",
             .{num_errors - max_errors},
         );
-        errdefer note.deinit(mod.gpa);
+        errdefer note.deinit(gpa);
 
         const i = err.notes.len;
-        err.notes = try mod.gpa.realloc(err.notes, i + 1);
+        err.notes = try gpa.realloc(err.notes, i + 1);
         err.notes[i] = note;
     }
 
@@ -2719,8 +2724,8 @@ fn reportMultiModuleErrors(mod: *Module) !void {
     // to add this flag after reporting the errors however, as otherwise
     // we'd get an error for every single downstream file, which wouldn't be
     // very useful.
-    for (mod.import_table.values()) |file| {
-        if (file.multi_pkg) file.recursiveMarkMultiPkg(mod);
+    for (zcu.import_table.values()) |file| {
+        if (file.multi_pkg) file.recursiveMarkMultiPkg(zcu);
     }
 }
 
@@ -2752,6 +2757,7 @@ const Header = extern struct {
         first_dependency_len: u32,
         dep_entries_len: u32,
         free_dep_entries_len: u32,
+        files_len: u32,
     },
 };
 
@@ -2759,7 +2765,7 @@ const Header = extern struct {
 /// saved, such as the target and most CLI flags. A cache hit will only occur
 /// when subsequent compiler invocations use the same set of flags.
 pub fn saveState(comp: *Compilation) !void {
-    var bufs_list: [19]std.posix.iovec_const = undefined;
+    var bufs_list: [21]std.posix.iovec_const = undefined;
     var bufs_len: usize = 0;
 
     const lf = comp.bin_file orelse return;
@@ -2780,6 +2786,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
                 .dep_entries_len = @intCast(ip.dep_entries.items.len),
                 .free_dep_entries_len = @intCast(ip.free_dep_entries.items.len),
+                .files_len = @intCast(zcu.files.entries.len),
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
@@ -2804,8 +2811,10 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.dep_entries.items));
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.free_dep_entries.items));
 
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(zcu.files.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(zcu.files.values()));
+
         // TODO: compilation errors
-        // TODO: files
         // TODO: namespaces
         // TODO: decls
         // TODO: linker state
@@ -3353,16 +3362,31 @@ pub fn performAllTheWork(
             }
         }
 
-        while (comp.astgen_work_queue.readItem()) |file| {
-            comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerAstGenFile, .{
-                comp, file, zir_prog_node, &comp.astgen_wait_group, .root,
-            });
-        }
+        if (comp.module) |zcu| {
+            {
+                // Worker threads may append to zcu.files and zcu.import_table
+                // so we must hold the lock while spawning those tasks, since
+                // we access those tables in this loop.
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
 
-        while (comp.embed_file_work_queue.readItem()) |embed_file| {
-            comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerCheckEmbedFile, .{
-                comp, embed_file,
-            });
+                while (comp.astgen_work_queue.readItem()) |file_index| {
+                    // Pre-load these things from our single-threaded context since they
+                    // will be needed by the worker threads.
+                    const path_digest = zcu.filePathDigest(file_index);
+                    const root_decl = zcu.fileRootDecl(file_index);
+                    const file = zcu.fileByIndex(file_index);
+                    comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerAstGenFile, .{
+                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &comp.astgen_wait_group, .root,
+                    });
+                }
+            }
+
+            while (comp.embed_file_work_queue.readItem()) |embed_file| {
+                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerCheckEmbedFile, .{
+                    comp, embed_file,
+                });
+            }
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
@@ -3426,8 +3450,8 @@ pub fn performAllTheWork(
 fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !void {
     switch (job) {
         .codegen_decl => |decl_index| {
-            const module = comp.module.?;
-            const decl = module.declPtr(decl_index);
+            const zcu = comp.module.?;
+            const decl = zcu.declPtr(decl_index);
 
             switch (decl.analysis) {
                 .unreferenced => unreachable,
@@ -3445,7 +3469,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
 
                     assert(decl.has_tv);
 
-                    try module.linkerUpdateDecl(decl_index);
+                    try zcu.linkerUpdateDecl(decl_index);
                     return;
                 },
             }
@@ -3454,16 +3478,16 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             const named_frame = tracy.namedFrame("codegen_func");
             defer named_frame.end();
 
-            const module = comp.module.?;
+            const zcu = comp.module.?;
             // This call takes ownership of `func.air`.
-            try module.linkerUpdateFunc(func.func, func.air);
+            try zcu.linkerUpdateFunc(func.func, func.air);
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
-            const module = comp.module.?;
-            module.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
+            const zcu = comp.module.?;
+            zcu.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -3472,8 +3496,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             if (true) @panic("regressed compiler feature: emit-h should hook into updateExports, " ++
                 "not decl analysis, which is too early to know about @export calls");
 
-            const module = comp.module.?;
-            const decl = module.declPtr(decl_index);
+            const zcu = comp.module.?;
+            const decl = zcu.declPtr(decl_index);
 
             switch (decl.analysis) {
                 .unreferenced => unreachable,
@@ -3491,7 +3515,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                     defer named_frame.end();
 
                     const gpa = comp.gpa;
-                    const emit_h = module.emit_h.?;
+                    const emit_h = zcu.emit_h.?;
                     _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
                     const decl_emit_h = emit_h.declPtr(decl_index);
                     const fwd_decl = &decl_emit_h.fwd_decl;
@@ -3499,10 +3523,12 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
                     var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
                     defer ctypes_arena.deinit();
 
+                    const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
+
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
-                        .zcu = module,
-                        .mod = module.namespacePtr(decl.src_namespace).file_scope.mod,
+                        .zcu = zcu,
+                        .mod = file_scope.mod,
                         .error_msg = null,
                         .pass = .{ .decl = decl_index },
                         .is_naked_fn = false,
@@ -3531,17 +3557,17 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             }
         },
         .analyze_decl => |decl_index| {
-            const module = comp.module.?;
-            module.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
+            const zcu = comp.module.?;
+            zcu.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
-            const decl = module.declPtr(decl_index);
+            const decl = zcu.declPtr(decl_index);
             if (decl.kind == .@"test" and comp.config.is_test) {
                 // Tests are always emitted in test binaries. The decl_refs are created by
-                // Module.populateTestFunctions, but this will not queue body analysis, so do
+                // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try module.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
+                try zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
         },
         .resolve_type_fully => |ty| {
@@ -3559,30 +3585,30 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: std.Progress.Node) !vo
             defer named_frame.end();
 
             const gpa = comp.gpa;
-            const module = comp.module.?;
-            const decl = module.declPtr(decl_index);
+            const zcu = comp.module.?;
+            const decl = zcu.declPtr(decl_index);
             const lf = comp.bin_file.?;
-            lf.updateDeclLineNumber(module, decl_index) catch |err| {
-                try module.failed_analysis.ensureUnusedCapacity(gpa, 1);
-                module.failed_analysis.putAssumeCapacityNoClobber(
+            lf.updateDeclLineNumber(zcu, decl_index) catch |err| {
+                try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_analysis.putAssumeCapacityNoClobber(
                     InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
-                    try Module.ErrorMsg.create(
+                    try Zcu.ErrorMsg.create(
                         gpa,
-                        decl.navSrcLoc(module),
+                        decl.navSrcLoc(zcu),
                         "unable to update line number: {s}",
                         .{@errorName(err)},
                     ),
                 );
                 decl.analysis = .codegen_failure;
-                try module.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
+                try zcu.retryable_failures.append(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
             };
         },
         .analyze_mod => |pkg| {
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const module = comp.module.?;
-            module.semaPkg(pkg) catch |err| switch (err) {
+            const zcu = comp.module.?;
+            zcu.semaPkg(pkg) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
@@ -4015,14 +4041,17 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
 const AstGenSrc = union(enum) {
     root,
     import: struct {
-        importing_file: *Module.File,
+        importing_file: Zcu.File.Index,
         import_tok: std.zig.Ast.TokenIndex,
     },
 };
 
 fn workerAstGenFile(
     comp: *Compilation,
-    file: *Module.File,
+    file: *Zcu.File,
+    file_index: Zcu.File.Index,
+    path_digest: Cache.BinDigest,
+    root_decl: Zcu.Decl.OptionalIndex,
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
     src: AstGenSrc,
@@ -4030,12 +4059,12 @@ fn workerAstGenFile(
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
-    const mod = comp.module.?;
-    mod.astGenFile(file) catch |err| switch (err) {
+    const zcu = comp.module.?;
+    zcu.astGenFile(file, path_digest, root_decl) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
-            comp.reportRetryableAstGenError(src, file, err) catch |oom| switch (oom) {
+            comp.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
                 // there is a missing `failed_files` error message.
                 error.OutOfMemory => {},
@@ -4062,29 +4091,31 @@ fn workerAstGenFile(
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const import_result = blk: {
+            const import_result, const imported_path_digest, const imported_root_decl = blk: {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
-                const res = mod.importFile(file, import_path) catch continue;
+                const res = zcu.importFile(file, import_path) catch continue;
                 if (!res.is_pkg) {
-                    res.file.addReference(mod.*, .{ .import = .{
-                        .file = file,
+                    res.file.addReference(zcu.*, .{ .import = .{
+                        .file = file_index,
                         .token = item.data.token,
                     } }) catch continue;
                 }
-                break :blk res;
+                const imported_path_digest = zcu.filePathDigest(res.file_index);
+                const imported_root_decl = zcu.fileRootDecl(res.file_index);
+                break :blk .{ res, imported_path_digest, imported_root_decl };
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });
                 const sub_src: AstGenSrc = .{ .import = .{
-                    .importing_file = file,
+                    .importing_file = file_index,
                     .import_tok = item.data.token,
                 } };
                 comp.thread_pool.spawnWg(wg, workerAstGenFile, .{
-                    comp, import_result.file, prog_node, wg, sub_src,
+                    comp, import_result.file, import_result.file_index, imported_path_digest, imported_root_decl, prog_node, wg, sub_src,
                 });
             }
         }
@@ -4435,21 +4466,22 @@ fn reportRetryableWin32ResourceError(
 fn reportRetryableAstGenError(
     comp: *Compilation,
     src: AstGenSrc,
-    file: *Module.File,
+    file_index: Zcu.File.Index,
     err: anyerror,
 ) error{OutOfMemory}!void {
-    const mod = comp.module.?;
-    const gpa = mod.gpa;
+    const zcu = comp.module.?;
+    const gpa = zcu.gpa;
 
+    const file = zcu.fileByIndex(file_index);
     file.status = .retryable_failure;
 
     const src_loc: Module.LazySrcLoc = switch (src) {
         .root => .{
-            .base_node_inst = try mod.intern_pool.trackZir(gpa, file, .main_struct_inst),
+            .base_node_inst = try zcu.intern_pool.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
             .offset = .entire_file,
         },
         .import => |info| .{
-            .base_node_inst = try mod.intern_pool.trackZir(gpa, info.importing_file, .main_struct_inst),
+            .base_node_inst = try zcu.intern_pool.trackZir(gpa, zcu.filePathDigest(info.importing_file), .main_struct_inst),
             .offset = .{ .token_abs = info.import_tok },
         },
     };
@@ -4462,7 +4494,7 @@ fn reportRetryableAstGenError(
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
-        try mod.failed_files.putNoClobber(gpa, file, err_msg);
+        try zcu.failed_files.putNoClobber(gpa, file, err_msg);
     }
 }
 

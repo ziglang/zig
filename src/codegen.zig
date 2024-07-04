@@ -58,7 +58,7 @@ pub fn generateFunction(
     const func = zcu.funcInfo(func_index);
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     switch (target.cpu.arch) {
         .arm,
         .armeb,
@@ -88,7 +88,7 @@ pub fn generateLazyFunction(
     const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     switch (target.cpu.arch) {
         .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, src_loc, lazy_sym, code, debug_output),
         else => unreachable,
@@ -742,7 +742,7 @@ fn lowerDeclRef(
     const zcu = lf.comp.module.?;
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
 
     const ptr_width = target.ptrBitWidth();
     const is_fn_body = decl.typeOf(zcu).zigTypeTag(zcu) == .Fn;
@@ -836,7 +836,7 @@ fn genDeclRef(
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
 
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -875,7 +875,7 @@ fn genDeclRef(
     }
 
     const decl_namespace = zcu.namespacePtr(decl.src_namespace);
-    const single_threaded = decl_namespace.file_scope.mod.single_threaded;
+    const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
     const is_threadlocal = val.isPtrToThreadLocal(zcu) and !single_threaded;
     const is_extern = decl.isExtern(zcu);
 
@@ -985,7 +985,7 @@ pub fn genTypedValue(
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     const ptr_bits = target.ptrBitWidth();
 
     if (!ty.isSlice(zcu)) switch (ip.indexToKey(val.toIntern())) {
