@@ -11920,9 +11920,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
             else => return self.fail("TODO implement arg for {}", .{src_mcv}),
         };
 
-        const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
-        const name = mod.getParamName(self.owner.func_index, src_index);
-        try self.genArgDbgInfo(arg_ty, name, src_mcv);
+        const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+        switch (name_nts) {
+            .none => {},
+            _ => try self.genArgDbgInfo(arg_ty, self.air.nullTerminatedString(@intFromEnum(name_nts)), src_mcv),
+        }
 
         break :result dst_mcv;
     };

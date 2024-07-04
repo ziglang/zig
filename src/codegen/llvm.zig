@@ -8859,19 +8859,21 @@ pub const FuncGen = struct {
         self.arg_index += 1;
 
         // llvm does not support debug info for naked function arguments
-        if (self.wip.strip or self.is_naked) return arg_val;
+        if (self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
         if (needDbgVarWorkaround(o)) return arg_val;
 
-        const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
+        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+        if (name == .none) return arg_val;
+
         const func_index = self.dg.decl.getOwnedFunctionIndex();
         const func = mod.funcInfo(func_index);
         const lbrace_line = mod.declPtr(func.owner_decl).navSrcLine(mod) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(mod.getParamName(func_index, src_index)),
+            try o.builder.metadataString(self.air.nullTerminatedString(@intFromEnum(name))),
             self.file,
             self.scope,
             lbrace_line,

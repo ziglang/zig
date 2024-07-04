@@ -3614,7 +3614,8 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
     const owner_decl = mod.funcOwnerDeclIndex(self.func_index);
-    const name = mod.getParamName(self.func_index, arg.src_index);
+    if (arg.name == .none) return;
+    const name = self.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {

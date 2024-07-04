@@ -2585,11 +2585,13 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (func.debug_output) {
         .dwarf => |dwarf| {
-            const src_index = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
-            const name = mod.getParamName(func.func_index, src_index);
-            try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
-                .wasm_local = arg.local.value,
-            });
+            const name_nts = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+            if (name_nts != .none) {
+                const name = func.air.nullTerminatedString(@intFromEnum(name_nts));
+                try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
+                    .wasm_local = arg.local.value,
+                });
+            }
         },
         else => {},
     }

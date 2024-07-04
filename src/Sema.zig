@@ -6718,13 +6718,7 @@ fn addDbgVar(
     if (block.need_debug_scope) |ptr| ptr.* = true;
 
     // Add the name to the AIR.
-    const name_extra_index: u32 = @intCast(sema.air_extra.items.len);
-    const elements_used = name.len / 4 + 1;
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, elements_used);
-    const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-    @memcpy(buffer[0..name.len], name);
-    buffer[name.len] = 0;
-    sema.air_extra.items.len += elements_used;
+    const name_extra_index = try sema.appendAirString(name);
 
     _ = try block.addInst(.{
         .tag = air_tag,
@@ -6733,6 +6727,16 @@ fn addDbgVar(
             .operand = operand,
         } },
     });
+}
+
+pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!u32 {
+    const str_extra_index: u32 = @intCast(sema.air_extra.items.len);
+    const elements_used = str.len / 4 + 1;
+    const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
+    const buffer = mem.sliceAsBytes(elements);
+    @memcpy(buffer[0..str.len], str);
+    buffer[str.len] = 0;
+    return str_extra_index;
 }
 
 fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8354,13 +8358,6 @@ fn instantiateGenericCall(
             }
         } else {
             // The parameter is runtime-known.
-            child_sema.inst_map.putAssumeCapacityNoClobber(param_inst, try child_block.addInst(.{
-                .tag = .arg,
-                .data = .{ .arg = .{
-                    .ty = Air.internedToRef(arg_ty.toIntern()),
-                    .src_index = @intCast(arg_index),
-                } },
-            }));
             const param_name: Zir.NullTerminatedString = switch (param_tag) {
                 .param_anytype => fn_zir.instructions.items(.data)[@intFromEnum(param_inst)].str_tok.start,
                 .param => name: {
@@ -8370,6 +8367,16 @@ fn instantiateGenericCall(
                 },
                 else => unreachable,
             };
+            child_sema.inst_map.putAssumeCapacityNoClobber(param_inst, try child_block.addInst(.{
+                .tag = .arg,
+                .data = .{ .arg = .{
+                    .ty = Air.internedToRef(arg_ty.toIntern()),
+                    .name = if (child_block.ownerModule().strip)
+                        .none
+                    else
+                        @enumFromInt(try sema.appendAirString(fn_zir.nullTerminatedString(param_name))),
+                } },
+            }));
             try child_block.params.append(sema.arena, .{
                 .ty = arg_ty.toIntern(), // This is the type after coercion
                 .is_comptime = false, // We're adding only runtime args to the instantiation
