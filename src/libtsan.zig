@@ -25,10 +25,19 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const root_name = "tsan";
-    const output_mode = .Lib;
-    const link_mode = .static;
     const target = comp.getTarget();
+    const root_name = switch (target.os.tag) {
+        // On Apple platforms, we use the same name as LLVM because the
+        // TSAN library implementation hard-codes a check for these names.
+        .macos => "clang_rt.tsan_osx_dynamic",
+        .ios => switch (target.abi) {
+            .simulator => "clang_rt.tsan_iossim_dynamic",
+            else => "clang_rt.tsan_ios_dynamic",
+        },
+        else => "tsan",
+    };
+    const link_mode: std.builtin.LinkMode = if (target.isDarwin()) .dynamic else .static;
+    const output_mode = .Lib;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -43,6 +52,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
+    const link_libcpp = target.isDarwin();
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -54,6 +64,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
+        .link_libcpp = link_libcpp,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -272,6 +283,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         });
     }
 
+    const skip_linker_dependencies = !target.isDarwin();
+    const linker_allow_shlib_undefined = target.isDarwin();
+    const install_name = if (target.isDarwin())
+        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+    else
+        null;
+    // Workaround for https://github.com/llvm/llvm-project/issues/97627
+    const headerpad_size: ?u32 = if (target.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -294,7 +313,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .skip_linker_dependencies = true,
+        .skip_linker_dependencies = skip_linker_dependencies,
+        .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
+        .install_name = install_name,
+        .headerpad_size = headerpad_size,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -317,8 +339,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         },
     };
 
-    assert(comp.tsan_static_lib == null);
-    comp.tsan_static_lib = try sub_compilation.toCrtFile();
+    assert(comp.tsan_lib == null);
+    comp.tsan_lib = try sub_compilation.toCrtFile();
 }
 
 const tsan_sources = [_][]const u8{

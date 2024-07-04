@@ -192,7 +192,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-    const allow_shlib_undefined = options.allow_shlib_undefined orelse comp.config.any_sanitize_thread;
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
 
     const self = try arena.create(MachO);
     self.* = .{
@@ -413,7 +413,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
 
     // TSAN
     if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
@@ -831,7 +831,9 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            const path = comp.tsan_lib.?.full_object_path;
+            try argv.append(path);
+            try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -2959,7 +2961,8 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
 }
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -3015,8 +3018,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    try load_commands.writeRpathLCs(self.base.rpath_list, writer);
-    ncmds += self.base.rpath_list.len;
+    for (self.base.rpath_list) |rpath| {
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
+    if (comp.config.any_sanitize_thread) {
+        const path = comp.tsan_lib.?.full_object_path;
+        const rpath = std.fs.path.dirname(path) orelse ".";
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
 
     try writer.writeStruct(macho.source_version_command{ .version = 0 });
     ncmds += 1;
