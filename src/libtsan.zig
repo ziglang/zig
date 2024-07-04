@@ -290,6 +290,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
     else
         null;
+    // This is temp conditional on resolving https://github.com/llvm/llvm-project/issues/97627 upstream.
+    const headerpad_size: ?u32 = if (target.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -315,6 +317,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .skip_linker_dependencies = skip_linker_dependencies,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .install_name = install_name,
+        .headerpad_size = headerpad_size,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
