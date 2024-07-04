@@ -1,8 +1,10 @@
-archive: ?InArchive = null,
+/// Non-zero for fat object files or archives
+offset: u64,
 path: []const u8,
 file_handle: File.HandleIndex,
 mtime: u64,
 index: File.Index,
+in_archive: ?InArchive = null,
 
 header: ?macho.mach_header_64 = null,
 sections: std.MultiArrayList(Section) = .{},
@@ -21,7 +23,8 @@ compact_unwind_sect_index: ?u8 = null,
 cies: std.ArrayListUnmanaged(Cie) = .{},
 fdes: std.ArrayListUnmanaged(Fde) = .{},
 eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
+unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
+unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
 data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 alive: bool = true,
@@ -39,7 +42,7 @@ pub fn isObject(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.archive) |*ar| allocator.free(ar.path);
+    if (self.in_archive) |*ar| allocator.free(ar.path);
     allocator.free(self.path);
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
         relocs.deinit(allocator);
@@ -54,6 +57,7 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.fdes.deinit(allocator);
     self.eh_frame_data.deinit(allocator);
     self.unwind_records.deinit(allocator);
+    self.unwind_records_indexes.deinit(allocator);
     for (self.stab_files.items) |*sf| {
         sf.stabs.deinit(allocator);
     }
@@ -66,12 +70,11 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
-    const offset = if (self.archive) |ar| ar.offset else 0;
     const handle = macho_file.getFileHandle(self.file_handle);
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
-        const amt = try handle.preadAll(&header_buffer, offset);
+        const amt = try handle.preadAll(&header_buffer, self.offset);
         if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
     }
     self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
@@ -92,7 +95,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
     defer gpa.free(lc_buffer);
     {
-        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        const amt = try handle.preadAll(lc_buffer, self.offset + @sizeOf(macho.mach_header_64));
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
@@ -119,14 +122,14 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             const cmd = lc.cast(macho.symtab_command).?;
             try self.strtab.resize(gpa, cmd.strsize);
             {
-                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + self.offset);
                 if (amt != self.strtab.items.len) return error.InputOutput;
             }
 
             const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
             defer gpa.free(symtab_buffer);
             {
-                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + self.offset);
                 if (amt != symtab_buffer.len) return error.InputOutput;
             }
             const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
@@ -144,7 +147,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             const buffer = try gpa.alloc(u8, cmd.datasize);
             defer gpa.free(buffer);
             {
-                const amt = try handle.preadAll(buffer, offset + cmd.dataoff);
+                const amt = try handle.preadAll(buffer, self.offset + cmd.dataoff);
                 if (amt != buffer.len) return error.InputOutput;
             }
             const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
@@ -218,11 +221,11 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
 
     // Parse Apple's __LD,__compact_unwind section
     if (self.compact_unwind_sect_index) |index| {
-        try self.initUnwindRecords(index, macho_file);
+        try self.initUnwindRecords(gpa, index, handle, macho_file);
     }
 
     if (self.hasUnwindRecords() or self.hasEhFrameRecords()) {
-        try self.parseUnwindRecords(macho_file);
+        try self.parseUnwindRecords(gpa, macho_file.getTarget().cpu.arch, macho_file);
     }
 
     if (self.platform) |platform| {
@@ -987,7 +990,7 @@ fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     }
 }
 
-fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
+fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: File.Handle, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1003,19 +1006,22 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
         }
     };
 
-    const gpa = macho_file.base.comp.gpa;
-    const data = try self.getSectionData(sect_id, macho_file);
-    defer gpa.free(data);
+    const header = self.sections.items(.header)[sect_id];
+    const data = try allocator.alloc(u8, header.size);
+    defer allocator.free(data);
+    const amt = try file.preadAll(data, header.offset + self.offset);
+    if (amt != data.len) return error.InputOutput;
+
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
     const sym_lookup = SymbolLookup{ .ctx = self };
 
-    try self.unwind_records.resize(gpa, nrecs);
+    try self.unwind_records.ensureTotalCapacityPrecise(allocator, nrecs);
+    try self.unwind_records_indexes.ensureTotalCapacityPrecise(allocator, nrecs);
 
-    const header = self.sections.items(.header)[sect_id];
     const relocs = self.sections.items(.relocs)[sect_id].items;
     var reloc_idx: usize = 0;
-    for (recs, self.unwind_records.items, 0..) |rec, *out_index, rec_idx| {
+    for (recs, 0..) |rec, rec_idx| {
         const rec_start = rec_idx * @sizeOf(macho.compact_unwind_entry);
         const rec_end = rec_start + @sizeOf(macho.compact_unwind_entry);
         const reloc_start = reloc_idx;
@@ -1023,11 +1029,11 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
             relocs[reloc_idx].offset < rec_end) : (reloc_idx += 1)
         {}
 
-        out_index.* = try macho_file.addUnwindRecord();
-        const out = macho_file.getUnwindRecord(out_index.*);
+        const out_index = self.addUnwindRecordAssumeCapacity();
+        self.unwind_records_indexes.appendAssumeCapacity(out_index);
+        const out = self.getUnwindRecord(out_index);
         out.length = rec.rangeLength;
         out.enc = .{ .enc = rec.compactUnwindEncoding };
-        out.file = self.index;
 
         for (relocs[reloc_start..reloc_idx]) |rel| {
             if (rel.type != .unsigned or rel.meta.length != 3) {
@@ -1090,7 +1096,7 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     }
 }
 
-fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
+fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, macho_file: *MachO) !void {
     // Synthesise missing unwind records.
     // The logic here is as follows:
     // 1. if an atom has unwind info record that is not DWARF, FDE is marked dead
@@ -1100,8 +1106,7 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
 
     const Superposition = struct { atom: Atom.Index, size: u64, cu: ?UnwindInfo.Record.Index = null, fde: ?Fde.Index = null };
 
-    const gpa = macho_file.base.comp.gpa;
-    var superposition = std.AutoArrayHashMap(u64, Superposition).init(gpa);
+    var superposition = std.AutoArrayHashMap(u64, Superposition).init(allocator);
     defer superposition.deinit();
 
     const slice = self.symtab.slice();
@@ -1119,8 +1124,8 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
         }
     }
 
-    for (self.unwind_records.items) |rec_index| {
-        const rec = macho_file.getUnwindRecord(rec_index);
+    for (self.unwind_records_indexes.items) |rec_index| {
+        const rec = self.getUnwindRecord(rec_index);
         const atom = rec.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + rec.atom_offset;
         superposition.getPtr(addr).?.cu = rec_index;
@@ -1137,7 +1142,7 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
             const fde = &self.fdes.items[fde_index];
 
             if (meta.cu) |rec_index| {
-                const rec = macho_file.getUnwindRecord(rec_index);
+                const rec = self.getUnwindRecord(rec_index);
                 if (!rec.enc.isDwarf(macho_file)) {
                     // Mark FDE dead
                     fde.alive = false;
@@ -1147,15 +1152,14 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
                 }
             } else {
                 // Synthesise new unwind info record
-                const rec_index = try macho_file.addUnwindRecord();
-                const rec = macho_file.getUnwindRecord(rec_index);
-                try self.unwind_records.append(gpa, rec_index);
+                const rec_index = try self.addUnwindRecord(allocator);
+                const rec = self.getUnwindRecord(rec_index);
+                try self.unwind_records_indexes.append(allocator, rec_index);
                 rec.length = @intCast(meta.size);
                 rec.atom = fde.atom;
                 rec.atom_offset = fde.atom_offset;
                 rec.fde = fde_index;
-                rec.file = fde.file;
-                switch (macho_file.getTarget().cpu.arch) {
+                switch (cpu_arch) {
                     .x86_64 => rec.enc.setMode(macho.UNWIND_X86_64_MODE.DWARF),
                     .aarch64 => rec.enc.setMode(macho.UNWIND_ARM64_MODE.DWARF),
                     else => unreachable,
@@ -1163,10 +1167,10 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
             }
         } else if (meta.cu == null and meta.fde == null) {
             // Create a null record
-            const rec_index = try macho_file.addUnwindRecord();
-            const rec = macho_file.getUnwindRecord(rec_index);
+            const rec_index = try self.addUnwindRecord(allocator);
+            const rec = self.getUnwindRecord(rec_index);
             const atom = macho_file.getAtom(meta.atom).?;
-            try self.unwind_records.append(gpa, rec_index);
+            try self.unwind_records_indexes.append(allocator, rec_index);
             rec.length = @intCast(meta.size);
             rec.atom = meta.atom;
             rec.atom_offset = @intCast(addr - atom.getInputAddress(macho_file));
@@ -1174,25 +1178,31 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
         }
     }
 
-    const sortFn = struct {
-        fn sortFn(ctx: *MachO, lhs_index: UnwindInfo.Record.Index, rhs_index: UnwindInfo.Record.Index) bool {
-            const lhs = ctx.getUnwindRecord(lhs_index);
-            const rhs = ctx.getUnwindRecord(rhs_index);
-            const lhsa = lhs.getAtom(ctx);
-            const rhsa = rhs.getAtom(ctx);
-            return lhsa.getInputAddress(ctx) + lhs.atom_offset < rhsa.getInputAddress(ctx) + rhs.atom_offset;
+    const SortCtx = struct {
+        object: *Object,
+        mfile: *MachO,
+
+        fn sort(ctx: @This(), lhs_index: UnwindInfo.Record.Index, rhs_index: UnwindInfo.Record.Index) bool {
+            const lhs = ctx.object.getUnwindRecord(lhs_index);
+            const rhs = ctx.object.getUnwindRecord(rhs_index);
+            const lhsa = lhs.getAtom(ctx.mfile);
+            const rhsa = rhs.getAtom(ctx.mfile);
+            return lhsa.getInputAddress(ctx.mfile) + lhs.atom_offset < rhsa.getInputAddress(ctx.mfile) + rhs.atom_offset;
         }
-    }.sortFn;
-    mem.sort(UnwindInfo.Record.Index, self.unwind_records.items, macho_file, sortFn);
+    };
+    mem.sort(UnwindInfo.Record.Index, self.unwind_records_indexes.items, SortCtx{
+        .object = self,
+        .mfile = macho_file,
+    }, SortCtx.sort);
 
     // Associate unwind records to atoms
     var next_cu: u32 = 0;
-    while (next_cu < self.unwind_records.items.len) {
+    while (next_cu < self.unwind_records_indexes.items.len) {
         const start = next_cu;
-        const rec_index = self.unwind_records.items[start];
-        const rec = macho_file.getUnwindRecord(rec_index);
-        while (next_cu < self.unwind_records.items.len and
-            macho_file.getUnwindRecord(self.unwind_records.items[next_cu]).atom == rec.atom) : (next_cu += 1)
+        const rec_index = self.unwind_records_indexes.items[start];
+        const rec = self.getUnwindRecord(rec_index);
+        while (next_cu < self.unwind_records_indexes.items.len and
+            self.getUnwindRecord(self.unwind_records_indexes.items[next_cu]).atom == rec.atom) : (next_cu += 1)
         {}
 
         const atom = rec.getAtom(macho_file);
@@ -1441,7 +1451,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, macho_file: *MachO) error{
     }
 }
 
-pub fn scanRelocs(self: Object, macho_file: *MachO) !void {
+pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1453,8 +1463,8 @@ pub fn scanRelocs(self: Object, macho_file: *MachO) !void {
         try atom.scanRelocs(macho_file);
     }
 
-    for (self.unwind_records.items) |rec_index| {
-        const rec = macho_file.getUnwindRecord(rec_index);
+    for (self.unwind_records_indexes.items) |rec_index| {
+        const rec = self.getUnwindRecord(rec_index);
         if (!rec.alive) continue;
         if (rec.getFde(macho_file)) |fde| {
             if (fde.getCie(macho_file).getPersonality(macho_file)) |sym| {
@@ -1532,12 +1542,11 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
-    const offset = if (self.archive) |ar| ar.offset else 0;
     const handle = macho_file.getFileHandle(self.file_handle);
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
-        const amt = try handle.preadAll(&header_buffer, offset);
+        const amt = try handle.preadAll(&header_buffer, self.offset);
         if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
     }
     self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
@@ -1558,7 +1567,7 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
     const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
     defer gpa.free(lc_buffer);
     {
-        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        const amt = try handle.preadAll(lc_buffer, self.offset + @sizeOf(macho.mach_header_64));
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
@@ -1571,14 +1580,14 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
             const cmd = lc.cast(macho.symtab_command).?;
             try self.strtab.resize(gpa, cmd.strsize);
             {
-                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + self.offset);
                 if (amt != self.strtab.items.len) return error.InputOutput;
             }
 
             const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
             defer gpa.free(symtab_buffer);
             {
-                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + self.offset);
                 if (amt != symtab_buffer.len) return error.InputOutput;
             }
             const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
@@ -1613,7 +1622,7 @@ pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, macho_file: *M
 }
 
 pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
-    self.output_ar_state.size = if (self.archive) |ar| ar.size else size: {
+    self.output_ar_state.size = if (self.in_archive) |ar| ar.size else size: {
         const file = macho_file.getFileHandle(self.file_handle);
         break :size (try file.stat()).size;
     };
@@ -1622,7 +1631,6 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
 pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    const offset: u64 = if (self.archive) |ar| ar.offset else 0;
     try Archive.writeHeader(self.path, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
@@ -1630,7 +1638,7 @@ pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writ
     const gpa = macho_file.base.comp.gpa;
     const data = try gpa.alloc(u8, size);
     defer gpa.free(data);
-    const amt = try file.preadAll(data, offset);
+    const amt = try file.preadAll(data, self.offset);
     if (amt != size) return error.InputOutput;
     try writer.writeAll(data);
 }
@@ -1680,7 +1688,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
         self.output_symtab_ctx.strsize += @as(u32, @intCast(comp_dir.len + 1)); // comp_dir
         self.output_symtab_ctx.strsize += @as(u32, @intCast(tu_name.len + 1)); // tu_name
 
-        if (self.archive) |ar| {
+        if (self.in_archive) |ar| {
             self.output_symtab_ctx.strsize += @as(u32, @intCast(ar.path.len + 1 + self.path.len + 1 + 1));
         } else {
             self.output_symtab_ctx.strsize += @as(u32, @intCast(self.path.len + 1));
@@ -1820,7 +1828,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
         index += 1;
         // N_OSO path
         n_strx = @as(u32, @intCast(ctx.strtab.items.len));
-        if (self.archive) |ar| {
+        if (self.in_archive) |ar| {
             ctx.strtab.appendSliceAssumeCapacity(ar.path);
             ctx.strtab.appendAssumeCapacity('(');
             ctx.strtab.appendSliceAssumeCapacity(self.path);
@@ -1989,11 +1997,10 @@ fn getSectionData(self: *const Object, index: u32, macho_file: *MachO) ![]u8 {
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
     const handle = macho_file.getFileHandle(self.file_handle);
-    const offset = if (self.archive) |ar| ar.offset else 0;
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
     const buffer = try gpa.alloc(u8, size);
     errdefer gpa.free(buffer);
-    const amt = try handle.preadAll(buffer, sect.offset + offset);
+    const amt = try handle.preadAll(buffer, sect.offset + self.offset);
     if (amt != buffer.len) return error.InputOutput;
     return buffer;
 }
@@ -2002,9 +2009,8 @@ pub fn getAtomData(self: *const Object, macho_file: *MachO, atom: Atom, buffer: 
     assert(buffer.len == atom.size);
     const slice = self.sections.slice();
     const handle = macho_file.getFileHandle(self.file_handle);
-    const offset = if (self.archive) |ar| ar.offset else 0;
     const sect = slice.items(.header)[atom.n_sect];
-    const amt = try handle.preadAll(buffer, sect.offset + offset + atom.off);
+    const amt = try handle.preadAll(buffer, sect.offset + self.offset + atom.off);
     if (amt != buffer.len) return error.InputOutput;
 }
 
@@ -2066,6 +2072,23 @@ pub inline fn hasSubsections(self: Object) bool {
 
 pub fn asFile(self: *Object) File {
     return .{ .object = self };
+}
+
+fn addUnwindRecord(self: *Object, allocator: Allocator) !UnwindInfo.Record.Index {
+    try self.unwind_records.ensureUnusedCapacity(allocator, 1);
+    return self.addUnwindRecordAssumeCapacity();
+}
+
+fn addUnwindRecordAssumeCapacity(self: *Object) UnwindInfo.Record.Index {
+    const index = @as(UnwindInfo.Record.Index, @intCast(self.unwind_records.items.len));
+    const rec = self.unwind_records.addOneAssumeCapacity();
+    rec.* = .{ .file = self.index };
+    return index;
+}
+
+pub fn getUnwindRecord(self: *Object, index: UnwindInfo.Record.Index) *UnwindInfo.Record {
+    assert(index < self.unwind_records.items.len);
+    return &self.unwind_records.items[index];
 }
 
 pub fn format(
@@ -2171,8 +2194,8 @@ fn formatUnwindRecords(
     const object = ctx.object;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  unwind records\n");
-    for (object.unwind_records.items) |rec| {
-        try writer.print("    rec({d}) : {}\n", .{ rec, macho_file.getUnwindRecord(rec).fmt(macho_file) });
+    for (object.unwind_records_indexes.items) |rec| {
+        try writer.print("    rec({d}) : {}\n", .{ rec, object.getUnwindRecord(rec).fmt(macho_file) });
     }
 }
 
@@ -2211,7 +2234,7 @@ fn formatPath(
 ) !void {
     _ = unused_fmt_string;
     _ = options;
-    if (object.archive) |ar| {
+    if (object.in_archive) |ar| {
         try writer.writeAll(ar.path);
         try writer.writeByte('(');
         try writer.writeAll(object.path);
@@ -2285,7 +2308,6 @@ const CompileUnit = struct {
 
 const InArchive = struct {
     path: []const u8,
-    offset: u64,
     size: u32,
 };
 
@@ -2300,11 +2322,10 @@ const x86_64 = struct {
         const gpa = macho_file.base.comp.gpa;
 
         const handle = macho_file.getFileHandle(self.file_handle);
-        const offset = if (self.archive) |ar| ar.offset else 0;
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
         {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
             if (amt != relocs_buffer.len) return error.InputOutput;
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
@@ -2463,11 +2484,10 @@ const aarch64 = struct {
         const gpa = macho_file.base.comp.gpa;
 
         const handle = macho_file.getFileHandle(self.file_handle);
-        const offset = if (self.archive) |ar| ar.offset else 0;
         const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
         defer gpa.free(relocs_buffer);
         {
-            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + self.offset);
             if (amt != relocs_buffer.len) return error.InputOutput;
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];

@@ -286,12 +286,15 @@ fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
     const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-    macho_file.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
-        .file_handle = handle,
-        .mtime = mtime,
-        .index = index,
-    } });
+    macho_file.files.set(index, .{
+        .object = .{
+            .offset = 0, // TODO FAT objects
+            .path = try gpa.dupe(u8, path),
+            .file_handle = handle,
+            .mtime = mtime,
+            .index = index,
+        },
+    });
     try macho_file.objects.append(gpa, index);
 
     const object = macho_file.getFile(index).?.object;
@@ -420,8 +423,8 @@ fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
 
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
+        for (object.unwind_records_indexes.items) |irec| {
+            const rec = object.getUnwindRecord(irec);
             if (!rec.alive) continue;
             size += @sizeOf(macho.compact_unwind_entry);
             nreloc += 1;
@@ -670,8 +673,8 @@ fn writeCompactUnwind(macho_file: *MachO) !void {
     var offset: i32 = 0;
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
+        for (object.unwind_records_indexes.items) |irec| {
+            const rec = object.getUnwindRecord(irec);
             if (!rec.alive) continue;
 
             var out: macho.compact_unwind_entry = .{

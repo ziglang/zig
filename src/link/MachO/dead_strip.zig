@@ -41,8 +41,9 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
     }
 
     for (macho_file.objects.items) |index| {
-        for (macho_file.getFile(index).?.object.unwind_records.items) |cu_index| {
-            const cu = macho_file.getUnwindRecord(cu_index);
+        const object = macho_file.getFile(index).?.object;
+        for (object.unwind_records_indexes.items) |cu_index| {
+            const cu = object.getUnwindRecord(cu_index);
             if (!cu.alive) continue;
             if (cu.getFde(macho_file)) |fde| {
                 if (fde.getCie(macho_file).getPersonality(macho_file)) |sym| try markSymbol(sym, roots, macho_file);
@@ -127,8 +128,9 @@ fn markLive(atom: *Atom, macho_file: *MachO) void {
         }
     }
 
+    const file = atom.getFile(macho_file);
     for (atom.getUnwindRecords(macho_file)) |cu_index| {
-        const cu = macho_file.getUnwindRecord(cu_index);
+        const cu = file.object.getUnwindRecord(cu_index);
         const cu_atom = cu.getAtom(macho_file);
         if (markAtom(cu_atom)) markLive(cu_atom, macho_file);
 

@@ -1,6 +1,6 @@
 /// List of all unwind records gathered from all objects and sorted
 /// by allocated relative function address within the section.
-records: std.ArrayListUnmanaged(Record.Index) = .{},
+records: std.ArrayListUnmanaged(Record.Ref) = .{},
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
@@ -25,10 +25,10 @@ pub fn deinit(info: *UnwindInfo, allocator: Allocator) void {
     info.lsdas_lookup.deinit(allocator);
 }
 
-fn canFold(macho_file: *MachO, lhs_index: Record.Index, rhs_index: Record.Index) bool {
+fn canFold(macho_file: *MachO, lhs_ref: Record.Ref, rhs_ref: Record.Ref) bool {
     const cpu_arch = macho_file.getTarget().cpu.arch;
-    const lhs = macho_file.getUnwindRecord(lhs_index);
-    const rhs = macho_file.getUnwindRecord(rhs_index);
+    const lhs = lhs_ref.getUnwindRecord(macho_file);
+    const rhs = rhs_ref.getUnwindRecord(macho_file);
     if (cpu_arch == .x86_64) {
         if (lhs.enc.getMode() == @intFromEnum(macho.UNWIND_X86_64_MODE.STACK_IND) or
             rhs.enc.getMode() == @intFromEnum(macho.UNWIND_X86_64_MODE.STACK_IND)) return false;
@@ -52,17 +52,18 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             const atom = macho_file.getAtom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
             const recs = atom.getUnwindRecords(macho_file);
+            const file = atom.getFile(macho_file);
             try info.records.ensureUnusedCapacity(gpa, recs.len);
             for (recs) |rec| {
-                if (!macho_file.getUnwindRecord(rec).alive) continue;
-                info.records.appendAssumeCapacity(rec);
+                if (!file.object.getUnwindRecord(rec).alive) continue;
+                info.records.appendAssumeCapacity(.{ .record = rec, .file = file.getIndex() });
             }
         }
     }
 
     // Encode records
-    for (info.records.items) |index| {
-        const rec = macho_file.getUnwindRecord(index);
+    for (info.records.items) |ref| {
+        const rec = ref.getUnwindRecord(macho_file);
         if (rec.getFde(macho_file)) |fde| {
             rec.enc.setDwarfSectionOffset(@intCast(fde.out_offset));
             if (fde.getLsdaAtom(macho_file)) |lsda| {
@@ -83,16 +84,16 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
 
     // Sort by assigned relative address within each output section
     const sortFn = struct {
-        fn sortFn(ctx: *MachO, lhs_index: Record.Index, rhs_index: Record.Index) bool {
-            const lhs = ctx.getUnwindRecord(lhs_index);
-            const rhs = ctx.getUnwindRecord(rhs_index);
+        fn sortFn(ctx: *MachO, lhs_ref: Record.Ref, rhs_ref: Record.Ref) bool {
+            const lhs = lhs_ref.getUnwindRecord(ctx);
+            const rhs = rhs_ref.getUnwindRecord(ctx);
             const lhsa = lhs.getAtom(ctx);
             const rhsa = rhs.getAtom(ctx);
             if (lhsa.out_n_sect == rhsa.out_n_sect) return lhs.getAtomAddress(ctx) < rhs.getAtomAddress(ctx);
             return lhsa.out_n_sect < rhsa.out_n_sect;
         }
     }.sortFn;
-    mem.sort(Record.Index, info.records.items, macho_file, sortFn);
+    mem.sort(Record.Ref, info.records.items, macho_file, sortFn);
 
     // Fold the records
     // Any adjacent two records that share encoding can be folded into one.
@@ -101,8 +102,8 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
         var j: usize = 1;
         while (j < info.records.items.len) : (j += 1) {
             if (canFold(macho_file, info.records.items[i], info.records.items[j])) {
-                const rec = macho_file.getUnwindRecord(info.records.items[i]);
-                rec.length += macho_file.getUnwindRecord(info.records.items[j]).length + 1;
+                const rec = info.records.items[i].getUnwindRecord(macho_file);
+                rec.length += info.records.items[j].getUnwindRecord(macho_file).length + 1;
             } else {
                 i += 1;
                 info.records.items[i] = info.records.items[j];
@@ -111,14 +112,15 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
         info.records.shrinkAndFree(gpa, i + 1);
     }
 
-    for (info.records.items) |rec_index| {
-        const rec = macho_file.getUnwindRecord(rec_index);
+    for (info.records.items) |ref| {
+        const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
-            rec_index,
+            ref.record,
+            ref.file,
             rec.enc,
         });
     }
@@ -161,8 +163,8 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
         ).init(gpa);
         defer common_encodings_counts.deinit();
 
-        for (info.records.items) |rec_index| {
-            const rec = macho_file.getUnwindRecord(rec_index);
+        for (info.records.items) |ref| {
+            const rec = ref.getUnwindRecord(macho_file);
             if (rec.enc.isDwarf(macho_file)) continue;
             const gop = try common_encodings_counts.getOrPut(rec.enc);
             if (!gop.found_existing) {
@@ -190,7 +192,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     {
         var i: u32 = 0;
         while (i < info.records.items.len) {
-            const rec = macho_file.getUnwindRecord(info.records.items[i]);
+            const rec = info.records.items[i].getUnwindRecord(macho_file);
             const range_start_max: u64 = rec.getAtomAddress(macho_file) + compressed_entry_func_offset_mask;
             var encoding_count: u9 = info.common_encodings_count;
             var space_left: u32 = second_level_page_words -
@@ -202,7 +204,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             };
 
             while (space_left >= 1 and i < info.records.items.len) {
-                const next = macho_file.getUnwindRecord(info.records.items[i]);
+                const next = info.records.items[i].getUnwindRecord(macho_file);
                 const is_dwarf = next.enc.isDwarf(macho_file);
 
                 if (next.getAtomAddress(macho_file) >= range_start_max) {
@@ -244,8 +246,8 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     // Save records having an LSDA pointer
     log.debug("LSDA pointers:", .{});
     try info.lsdas_lookup.ensureTotalCapacityPrecise(gpa, info.records.items.len);
-    for (info.records.items, 0..) |index, i| {
-        const rec = macho_file.getUnwindRecord(index);
+    for (info.records.items, 0..) |ref, i| {
+        const rec = ref.getUnwindRecord(macho_file);
         info.lsdas_lookup.appendAssumeCapacity(@intCast(info.lsdas.items.len));
         if (rec.getLsdaAtom(macho_file)) |lsda| {
             log.debug("  @{x} => lsda({d})", .{ rec.getAtomAddress(macho_file), lsda.atom_index });
@@ -301,7 +303,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
         (info.lsdas.items.len * @sizeOf(macho.unwind_info_section_header_lsda_index_entry))));
     for (info.pages.items, 0..) |page, i| {
         assert(page.count > 0);
-        const rec = macho_file.getUnwindRecord(info.records.items[page.start]);
+        const rec = info.records.items[page.start].getUnwindRecord(macho_file);
         try writer.writeStruct(macho.unwind_info_section_header_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .secondLevelPagesSectionOffset = @as(u32, @intCast(pages_base_offset + i * second_level_page_bytes)),
@@ -310,7 +312,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
         });
     }
 
-    const last_rec = macho_file.getUnwindRecord(info.records.items[info.records.items.len - 1]);
+    const last_rec = info.records.items[info.records.items.len - 1].getUnwindRecord(macho_file);
     const sentinel_address = @as(u32, @intCast(last_rec.getAtomAddress(macho_file) + last_rec.length - seg.vmaddr));
     try writer.writeStruct(macho.unwind_info_section_header_index_entry{
         .functionOffset = sentinel_address,
@@ -320,7 +322,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     });
 
     for (info.lsdas.items) |index| {
-        const rec = macho_file.getUnwindRecord(info.records.items[index]);
+        const rec = info.records.items[index].getUnwindRecord(macho_file);
         try writer.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .lsdaOffset = @as(u32, @intCast(rec.getLsdaAddress(macho_file) - seg.vmaddr)),
@@ -537,6 +539,15 @@ pub const Record = struct {
     }
 
     pub const Index = u32;
+
+    const Ref = struct {
+        record: Index,
+        file: File.Index,
+
+        pub fn getUnwindRecord(ref: Ref, macho_file: *MachO) *Record {
+            return macho_file.getFile(ref.file).?.object.getUnwindRecord(ref.record);
+        }
+    };
 };
 
 const max_personalities = 3;
@@ -635,8 +646,8 @@ const Page = struct {
                     .entryCount = page.count,
                 });
 
-                for (info.records.items[page.start..][0..page.count]) |index| {
-                    const rec = macho_file.getUnwindRecord(index);
+                for (info.records.items[page.start..][0..page.count]) |ref| {
+                    const rec = ref.getUnwindRecord(macho_file);
                     try writer.writeStruct(macho.unwind_info_regular_second_level_entry{
                         .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
                         .encoding = rec.enc.enc,
@@ -658,9 +669,9 @@ const Page = struct {
                 }
 
                 assert(page.count > 0);
-                const first_rec = macho_file.getUnwindRecord(info.records.items[page.start]);
-                for (info.records.items[page.start..][0..page.count]) |index| {
-                    const rec = macho_file.getUnwindRecord(index);
+                const first_rec = info.records.items[page.start].getUnwindRecord(macho_file);
+                for (info.records.items[page.start..][0..page.count]) |ref| {
+                    const rec = ref.getUnwindRecord(macho_file);
                     const enc_index = blk: {
                         if (info.getCommonEncoding(rec.enc)) |id| break :blk id;
                         const ncommon = info.common_encodings_count;

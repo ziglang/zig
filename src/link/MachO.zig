@@ -67,7 +67,6 @@ entry_index: ?Symbol.Index = null,
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
 
 /// String interning table
 strings: StringTable = .{},
@@ -357,7 +356,6 @@ pub fn deinit(self: *MachO) void {
         thunk.deinit(gpa);
     }
     self.thunks.deinit(gpa);
-    self.unwind_records.deinit(gpa);
 }
 
 pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -982,12 +980,15 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
-        .file_handle = handle,
-        .mtime = mtime,
-        .index = index,
-    } });
+    self.files.set(index, .{
+        .object = .{
+            .offset = 0, // TODO FAT objects
+            .path = try gpa.dupe(u8, path),
+            .file_handle = handle,
+            .mtime = mtime,
+            .index = index,
+        },
+    });
     try self.objects.append(gpa, index);
 
     const object = self.getFile(index).?.object;
@@ -4056,18 +4057,6 @@ pub fn getOrCreateGlobal(self: *MachO, off: u32) !GetOrCreateGlobalResult {
 pub fn getGlobalByName(self: *MachO, name: []const u8) ?Symbol.Index {
     const off = self.strings.getOffset(name) orelse return null;
     return self.globals.get(off);
-}
-
-pub fn addUnwindRecord(self: *MachO) !UnwindInfo.Record.Index {
-    const index = @as(UnwindInfo.Record.Index, @intCast(self.unwind_records.items.len));
-    const rec = try self.unwind_records.addOne(self.base.comp.gpa);
-    rec.* = .{};
-    return index;
-}
-
-pub fn getUnwindRecord(self: *MachO, index: UnwindInfo.Record.Index) *UnwindInfo.Record {
-    assert(index < self.unwind_records.items.len);
-    return &self.unwind_records.items[index];
 }
 
 pub fn addThunk(self: *MachO) !Thunk.Index {
