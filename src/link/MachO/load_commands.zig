@@ -61,7 +61,7 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
     }
     // LC_RPATH
     {
-        for (macho_file.base.rpath_list) |rpath| {
+        for (macho_file.rpaths.items) |rpath| {
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),
                 rpath,
