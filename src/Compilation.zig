@@ -188,6 +188,9 @@ libunwind_static_lib: ?CRTFile = null,
 /// Populated when we build the TSAN static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 tsan_static_lib: ?CRTFile = null,
+/// Populated when we build the TSAN dynamic library. A Job to build this is placed in the queue
+/// and resolved before calling linker.flush().
+tsan_dynamic_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
