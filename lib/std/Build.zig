@@ -468,10 +468,17 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .Int => {
+                .ComptimeInt, .Int => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
+                        .used = false,
+                    }) catch @panic("OOM");
+                },
+                .ComptimeFloat, .Float => {
+                    user_input_options.put(field.name, .{
+                        .name = field.name,
+                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
                         .used = false,
                     }) catch @panic("OOM");
                 },
