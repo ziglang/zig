@@ -150,7 +150,6 @@ no_implicit_dylibs: bool = false,
 /// Whether the linker should parse and always force load objects containing ObjC in archives.
 // TODO: in Zig we currently take -ObjC as always on
 force_load_objc: bool = true,
-rpaths: std.ArrayListUnmanaged([]const u8) = .{},
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -359,8 +358,6 @@ pub fn deinit(self: *MachO) void {
     }
     self.thunks.deinit(gpa);
     self.unwind_records.deinit(gpa);
-
-    self.rpaths.deinit(gpa);
 }
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
@@ -398,9 +395,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
-    try self.rpaths.ensureUnusedCapacity(gpa, self.base.rpath_list.len);
-    self.rpaths.appendSliceAssumeCapacity(self.base.rpath_list);
-
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
 
@@ -419,10 +413,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
 
     // TSAN
     if (comp.config.any_sanitize_thread) {
-        const path = comp.tsan_dynamic_lib.?.full_object_path;
-        try positionals.append(.{ .path = path });
-        const basename = std.fs.path.dirname(path) orelse ".";
-        try self.rpaths.append(gpa, basename);
+        try positionals.append(.{ .path = comp.tsan_dynamic_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
@@ -780,7 +771,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(syslibroot);
         }
 
-        for (self.rpaths.items) |rpath| {
+        for (self.base.rpath_list) |rpath| {
             try argv.append("-rpath");
             try argv.append(rpath);
         }
@@ -840,7 +831,9 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_dynamic_lib.?.full_object_path);
+            const path = comp.tsan_dynamic_lib.?.full_object_path;
+            try argv.append(path);
+            try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -2968,7 +2961,8 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
 }
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -3024,8 +3018,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    try load_commands.writeRpathLCs(self.rpaths.items, writer);
-    ncmds += self.rpaths.items.len;
+    for (self.base.rpath_list) |rpath| {
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
+    if (comp.config.any_sanitize_thread) {
+        const path = comp.tsan_dynamic_lib.?.full_object_path;
+        const rpath = std.fs.path.dirname(path) orelse ".";
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
 
     try writer.writeStruct(macho.source_version_command{ .version = 0 });
     ncmds += 1;
