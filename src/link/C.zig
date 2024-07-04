@@ -536,11 +536,22 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
     try f.all_buffers.ensureUnusedCapacity(gpa, 1 + (self.anon_decls.count() + self.decl_table.count()) * 2);
     f.appendBufAssumeCapacity(self.lazy_code_buf.items);
     for (self.anon_decls.keys(), self.anon_decls.values()) |anon_decl, decl_block| f.appendCodeAssumeCapacity(
-        self.exported_values.contains(anon_decl),
+        if (self.exported_values.contains(anon_decl))
+            .default
+        else switch (zcu.intern_pool.indexToKey(anon_decl)) {
+            .extern_func => .zig_extern,
+            .variable => |variable| if (variable.is_extern) .zig_extern else .static,
+            else => .static,
+        },
         self.getString(decl_block.code),
     );
     for (self.decl_table.keys(), self.decl_table.values()) |decl_index, decl_block| f.appendCodeAssumeCapacity(
-        self.exported_decls.contains(decl_index),
+        if (self.exported_decls.contains(decl_index))
+            .default
+        else if (zcu.declPtr(decl_index).isExtern(zcu))
+            .zig_extern
+        else
+            .static,
         self.getString(decl_block.code),
     );
 
@@ -572,9 +583,13 @@ const Flush = struct {
         f.file_size += buf.len;
     }
 
-    fn appendCodeAssumeCapacity(f: *Flush, is_extern: bool, code: []const u8) void {
+    fn appendCodeAssumeCapacity(f: *Flush, storage: enum { default, zig_extern, static }, code: []const u8) void {
         if (code.len == 0) return;
-        f.appendBufAssumeCapacity(if (is_extern) "\nzig_extern " else "\nstatic ");
+        f.appendBufAssumeCapacity(switch (storage) {
+            .default => "\n",
+            .zig_extern => "\nzig_extern ",
+            .static => "\nstatic ",
+        });
         f.appendBufAssumeCapacity(code);
     }
 
