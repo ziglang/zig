@@ -574,7 +574,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     if (decl.val.ip_index != func_index) {
         try zcu.markDependeeOutdated(.{ .func_ies = func_index });
         ip.removeDependenciesForDepender(gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
-        ip.remove(func_index);
+        ip.remove(pt.tid, func_index);
         @panic("TODO: remove orphaned function from binary");
     }
 
@@ -823,7 +823,7 @@ fn getFileRootStruct(
         .existing => unreachable, // we wouldn't be analysing the file root if this type existed
         .wip => |wip| wip,
     };
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     if (zcu.comp.debug_incremental) {
         try ip.addDependency(
@@ -885,7 +885,7 @@ fn semaFileUpdate(pt: Zcu.PerThread, file_index: Zcu.File.Index, type_outdated: 
         ip.removeDependenciesForDepender(zcu.gpa, InternPool.AnalUnit.wrap(.{
             .decl = file_root_decl,
         }));
-        ip.remove(decl.val.toIntern());
+        ip.remove(pt.tid, decl.val.toIntern());
         decl.val = undefined;
         _ = try pt.getFileRootStruct(file_root_decl, decl.src_namespace, file_index);
         return true;
@@ -959,7 +959,7 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     assert(file.zir_loaded);
 
     const struct_ty = try pt.getFileRootStruct(new_decl_index, new_namespace_index, file_index);
-    errdefer zcu.intern_pool.remove(struct_ty);
+    errdefer zcu.intern_pool.remove(pt.tid, struct_ty);
 
     switch (zcu.comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
@@ -1002,7 +1002,7 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
 
     if (decl.zir_decl_index == .none and decl.owns_tv) {
         // We are re-analyzing an anonymous owner Decl (for a function or a namespace type).
-        return zcu.semaAnonOwnerDecl(decl_index);
+        return pt.semaAnonOwnerDecl(decl_index);
     }
 
     log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
@@ -1268,6 +1268,43 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
     try sema.flushExports();
 
     return result;
+}
+
+pub fn semaAnonOwnerDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
+    const zcu = pt.zcu;
+    const decl = zcu.declPtr(decl_index);
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
+
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
+        .Fn => @panic("TODO: update fn instance"),
+        .Type => {},
+        else => unreachable,
+    }
+
+    // We are the owner Decl of a type, and we were marked as outdated. That means the *structure*
+    // of this type changed; not just its namespace. Therefore, we need a new InternPool index.
+    //
+    // However, as soon as we make that, the context that created us will require re-analysis anyway
+    // (as it depends on this Decl's value), meaning the `struct_decl` (or equivalent) instruction
+    // will be analyzed again. Since Sema already needs to be able to reconstruct types like this,
+    // why should we bother implementing it here too when the Sema logic will be hit right after?
+    //
+    // So instead, let's just mark this Decl as failed - so that any remaining Decls which genuinely
+    // reference it (via `@This`) end up silently erroring too - and we'll let Sema make a new type
+    // with a new Decl.
+    //
+    // Yes, this does mean that any type owner Decl has a constant value for its entire lifetime.
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.remove(pt.tid, decl.val.toIntern());
+    decl.analysis = .dependency_failure;
+    return .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 }
 
 pub fn embedFile(

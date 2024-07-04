@@ -2717,10 +2717,11 @@ fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: us
 /// Given an `InternPool.WipNamespaceType` or `InternPool.WipEnumType`, apply
 /// `sema.builtin_type_target_index` to it if necessary.
 fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
+    const pt = sema.pt;
     if (sema.builtin_type_target_index == .none) return wip_ty;
     var new = wip_ty;
     new.index = sema.builtin_type_target_index;
-    sema.pt.zcu.intern_pool.resolveBuiltinType(new.index, wip_ty.index);
+    pt.zcu.intern_pool.resolveBuiltinType(pt.tid, new.index, wip_ty.index);
     return new;
 }
 
@@ -2740,7 +2741,7 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     if (!was_outdated) return false;
     _ = zcu.outdated_ready.swapRemove(decl_as_depender);
     zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, AnalUnit.wrap(.{ .decl = decl_index }));
-    zcu.intern_pool.remove(ty);
+    zcu.intern_pool.remove(pt.tid, ty);
     zcu.declPtr(decl_index).analysis = .dependency_failure;
     try zcu.markDependeeOutdated(.{ .decl_val = decl_index });
     return true;
@@ -2819,7 +2820,7 @@ fn zirStructDecl(
         },
         .wip => |wip| wip,
     });
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
@@ -3056,7 +3057,7 @@ fn zirEnumDecl(
     // have finished constructing the type and are in the process of analyzing it.
     var done = false;
 
-    errdefer if (!done) wip_ty.cancel(ip);
+    errdefer if (!done) wip_ty.cancel(ip, pt.tid);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
@@ -3324,7 +3325,7 @@ fn zirUnionDecl(
         },
         .wip => |wip| wip,
     });
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
@@ -3414,7 +3415,7 @@ fn zirOpaqueDecl(
         },
         .wip => |wip| wip,
     };
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
@@ -21705,7 +21706,7 @@ fn zirReify(
                 .existing => |ty| return Air.internedToRef(ty),
                 .wip => |wip| wip,
             };
-            errdefer wip_ty.cancel(ip);
+            errdefer wip_ty.cancel(ip, pt.tid);
 
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(
                 block,
@@ -21901,7 +21902,7 @@ fn reifyEnum(
         .wip => |wip| wip,
         .existing => |ty| return Air.internedToRef(ty),
     };
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     if (tag_ty.zigTypeTag(mod) != .Int) {
         return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
@@ -22052,7 +22053,7 @@ fn reifyUnion(
         .wip => |wip| wip,
         .existing => |ty| return Air.internedToRef(ty),
     };
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(
         block,
@@ -22158,7 +22159,7 @@ fn reifyUnion(
         const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), mod.declPtr(new_decl_index));
         break :tag_ty .{ enum_tag_ty, false };
     };
-    errdefer if (!has_explicit_tag) ip.remove(enum_tag_ty); // remove generated tag type on error
+    errdefer if (!has_explicit_tag) ip.remove(pt.tid, enum_tag_ty); // remove generated tag type on error
 
     for (field_types) |field_ty_ip| {
         const field_ty = Type.fromInterned(field_ty_ip);
@@ -22305,7 +22306,7 @@ fn reifyStruct(
         .wip => |wip| wip,
         .existing => |ty| return Air.internedToRef(ty),
     };
-    errdefer wip_ty.cancel(ip);
+    errdefer wip_ty.cancel(ip, pt.tid);
 
     if (is_tuple) switch (layout) {
         .@"extern" => return sema.fail(block, src, "extern tuples are not supported", .{}),
@@ -36924,7 +36925,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .none,
         => unreachable,
 
-        _ => switch (ip.items.items(.tag)[@intFromEnum(ty.toIntern())]) {
+        _ => switch (ty.toIntern().getTag(ip)) {
             .removed => unreachable,
 
             .type_int_signed, // i0 handled above

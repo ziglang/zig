@@ -3071,42 +3071,6 @@ pub const SemaDeclResult = packed struct {
     invalidate_decl_ref: bool,
 };
 
-pub fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
-    const decl = zcu.declPtr(decl_index);
-
-    assert(decl.has_tv);
-    assert(decl.owns_tv);
-
-    log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
-
-    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
-        .Fn => @panic("TODO: update fn instance"),
-        .Type => {},
-        else => unreachable,
-    }
-
-    // We are the owner Decl of a type, and we were marked as outdated. That means the *structure*
-    // of this type changed; not just its namespace. Therefore, we need a new InternPool index.
-    //
-    // However, as soon as we make that, the context that created us will require re-analysis anyway
-    // (as it depends on this Decl's value), meaning the `struct_decl` (or equivalent) instruction
-    // will be analyzed again. Since Sema already needs to be able to reconstruct types like this,
-    // why should we bother implementing it here too when the Sema logic will be hit right after?
-    //
-    // So instead, let's just mark this Decl as failed - so that any remaining Decls which genuinely
-    // reference it (via `@This`) end up silently erroring too - and we'll let Sema make a new type
-    // with a new Decl.
-    //
-    // Yes, this does mean that any type owner Decl has a constant value for its entire lifetime.
-    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, AnalUnit.wrap(.{ .decl = decl_index }));
-    zcu.intern_pool.remove(decl.val.toIntern());
-    decl.analysis = .dependency_failure;
-    return .{
-        .invalidate_decl_val = true,
-        .invalidate_decl_ref = true,
-    };
-}
-
 pub const ImportFileResult = struct {
     file: *File,
     file_index: File.Index,

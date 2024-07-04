@@ -3686,7 +3686,7 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .empty_struct => unreachable,
         .generic_poison => unreachable,
 
-        else => switch (ip.items.items(.tag)[@intFromEnum(ty_ip)]) {
+        else => switch (ty_ip.getTag(ip)) {
             .type_struct,
             .type_struct_packed,
             .type_struct_packed_inits,
