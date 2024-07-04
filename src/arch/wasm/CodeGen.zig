@@ -990,44 +990,44 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
     return result;
 }
 
-/// Using a given `Type`, returns the corresponding type
+/// Using a given `Type`, returns the corresponding valtype for .auto callconv
 fn typeToValtype(ty: Type, pt: Zcu.PerThread) wasm.Valtype {
     const mod = pt.zcu;
     const target = mod.getTarget();
     const ip = &mod.intern_pool;
     return switch (ty.zigTypeTag(mod)) {
         .Float => switch (ty.floatBits(target)) {
-            16 => wasm.Valtype.i32, // stored/loaded as u16
-            32 => wasm.Valtype.f32,
-            64 => wasm.Valtype.f64,
-            80, 128 => wasm.Valtype.i64,
+            16 => .i32, // stored/loaded as u16
+            32 => .f32,
+            64 => .f64,
+            80, 128 => .i32,
             else => unreachable,
         },
-        .Int, .Enum => blk: {
-            const info = ty.intInfo(pt.zcu);
-            if (info.bits <= 32) break :blk wasm.Valtype.i32;
-            if (info.bits > 32 and info.bits <= 128) break :blk wasm.Valtype.i64;
-            break :blk wasm.Valtype.i32; // represented as pointer to stack
+        .Int, .Enum => switch (ty.intInfo(pt.zcu).bits) {
+            0...32 => .i32,
+            33...64 => .i64,
+            else => .i32,
         },
-        .Struct => {
+        .Struct => blk: {
             if (pt.zcu.typeToPackedStruct(ty)) |packed_struct| {
-                return typeToValtype(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt);
+                const backing_int_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
+                break :blk typeToValtype(backing_int_ty, pt);
             } else {
-                return wasm.Valtype.i32;
+                break :blk .i32;
             }
         },
         .Vector => switch (determineSimdStoreStrategy(ty, pt)) {
-            .direct => wasm.Valtype.v128,
-            .unrolled => wasm.Valtype.i32,
+            .direct => .v128,
+            .unrolled => .i32,
         },
         .Union => switch (ty.containerLayout(pt.zcu)) {
-            .@"packed" => {
+            .@"packed" => blk: {
                 const int_ty = pt.intType(.unsigned, @as(u16, @intCast(ty.bitSize(pt)))) catch @panic("out of memory");
-                return typeToValtype(int_ty, pt);
+                break :blk typeToValtype(int_ty, pt);
             },
-            else => wasm.Valtype.i32,
+            else => .i32,
         },
-        else => wasm.Valtype.i32, // all represented as reference/immediate
+        else => .i32, // all represented as reference/immediate
     };
 }
 
@@ -1180,20 +1180,20 @@ fn genFunctype(
         switch (cc) {
             .C => {
                 const param_classes = abi.classifyType(param_type, pt);
-                for (param_classes) |class| {
-                    if (class == .none) continue;
-                    if (class == .direct) {
+                if (param_classes[1] == .none) {
+                    if (param_classes[0] == .direct) {
                         const scalar_type = abi.scalarType(param_type, pt);
                         try temp_params.append(typeToValtype(scalar_type, pt));
                     } else {
                         try temp_params.append(typeToValtype(param_type, pt));
                     }
+                } else {
+                    // i128/f128
+                    try temp_params.append(.i64);
+                    try temp_params.append(.i64);
                 }
             },
-            else => if (isByRef(param_type, pt))
-                try temp_params.append(.i32)
-            else
-                try temp_params.append(typeToValtype(param_type, pt)),
+            else => try temp_params.append(typeToValtype(param_type, pt)),
         }
     }
 
