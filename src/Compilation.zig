@@ -2649,7 +2649,7 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
                     .import => |import| try Module.ErrorMsg.init(
                         gpa,
                         .{
-                            .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(import.file), .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, import.file, .main_struct_inst),
                             .offset = .{ .token_abs = import.token },
                         },
                         "imported from module {s}",
@@ -2658,7 +2658,7 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
                     .root => |pkg| try Module.ErrorMsg.init(
                         gpa,
                         .{
-                            .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
                             .offset = .entire_file,
                         },
                         "root of module {s}",
@@ -2672,7 +2672,7 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
                 notes[num_notes] = try Module.ErrorMsg.init(
                     gpa,
                     .{
-                        .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
+                        .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
                         .offset = .entire_file,
                     },
                     "{} more references omitted",
@@ -2684,7 +2684,7 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
             const err = try Module.ErrorMsg.create(
                 gpa,
                 .{
-                    .base_node_inst = try ip.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
+                    .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
                     .offset = .entire_file,
                 },
                 "file exists in multiple modules",
@@ -2786,7 +2786,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
                 .dep_entries_len = @intCast(ip.dep_entries.items.len),
                 .free_dep_entries_len = @intCast(ip.free_dep_entries.items.len),
-                .files_len = @intCast(zcu.files.entries.len),
+                .files_len = @intCast(ip.files.entries.len),
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
@@ -2811,8 +2811,8 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.dep_entries.items));
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.free_dep_entries.items));
 
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(zcu.files.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(zcu.files.values()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.keys()));
+        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.values()));
 
         // TODO: compilation errors
         // TODO: namespaces
@@ -4060,7 +4060,7 @@ fn workerAstGenFile(
     defer child_prog_node.end();
 
     const zcu = comp.module.?;
-    zcu.astGenFile(file, path_digest, root_decl) catch |err| switch (err) {
+    zcu.astGenFile(file, file_index, path_digest, root_decl) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
@@ -4477,11 +4477,11 @@ fn reportRetryableAstGenError(
 
     const src_loc: Module.LazySrcLoc = switch (src) {
         .root => .{
-            .base_node_inst = try zcu.intern_pool.trackZir(gpa, zcu.filePathDigest(file_index), .main_struct_inst),
+            .base_node_inst = try zcu.intern_pool.trackZir(gpa, file_index, .main_struct_inst),
             .offset = .entire_file,
         },
         .import => |info| .{
-            .base_node_inst = try zcu.intern_pool.trackZir(gpa, zcu.filePathDigest(info.importing_file), .main_struct_inst),
+            .base_node_inst = try zcu.intern_pool.trackZir(gpa, info.importing_file, .main_struct_inst),
             .offset = .{ .token_abs = info.import_tok },
         },
     };

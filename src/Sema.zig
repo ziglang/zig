@@ -839,8 +839,7 @@ pub const Block = struct {
         const zcu = sema.mod;
         const ip = &zcu.intern_pool;
         const file_index = block.getFileScopeIndex(zcu);
-        const path_digest = zcu.filePathDigest(file_index);
-        return ip.trackZir(gpa, path_digest, inst);
+        return ip.trackZir(gpa, file_index, inst);
     }
 };
 
@@ -993,7 +992,7 @@ fn analyzeBodyInner(
 
     try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
 
-    const mod = sema.mod;
+    const zcu = sema.mod;
     const map = &sema.inst_map;
     const tags = sema.code.instructions.items(.tag);
     const datas = sema.code.instructions.items(.data);
@@ -1013,9 +1012,9 @@ fn analyzeBodyInner(
         // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
         if (build_options.enable_logging) {
             std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
-                const path_digest = block.src_base_inst.resolveFull(&mod.intern_pool).path_digest;
-                const index = mod.files.getIndex(path_digest).?;
-                break :sub_file_path mod.import_table.values()[index].sub_file_path;
+                const file_index = block.src_base_inst.resolveFull(&zcu.intern_pool).file;
+                const file = zcu.fileByIndex(file_index);
+                break :sub_file_path file.sub_file_path;
             }, inst });
         }
 
@@ -1776,9 +1775,9 @@ fn analyzeBodyInner(
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
                 const err_union = try sema.resolveInst(extra.data.operand);
                 const err_union_ty = sema.typeOf(err_union);
-                if (err_union_ty.zigTypeTag(mod) != .ErrorUnion) {
+                if (err_union_ty.zigTypeTag(zcu) != .ErrorUnion) {
                     return sema.fail(block, operand_src, "expected error union type, found '{}'", .{
-                        err_union_ty.fmt(mod),
+                        err_union_ty.fmt(zcu),
                     });
                 }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
@@ -6003,7 +6002,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     const path_digest = zcu.filePathDigest(result.file_index);
     const root_decl = zcu.fileRootDecl(result.file_index);
-    zcu.astGenFile(result.file, path_digest, root_decl) catch |err|
+    zcu.astGenFile(result.file, result.file_index, path_digest, root_decl) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     try zcu.ensureFileAnalyzed(result.file_index);
