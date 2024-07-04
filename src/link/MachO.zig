@@ -413,7 +413,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
 
     // TSAN
     if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_dynamic_lib.?.full_object_path });
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
@@ -831,7 +831,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            const path = comp.tsan_dynamic_lib.?.full_object_path;
+            const path = comp.tsan_lib.?.full_object_path;
             try argv.append(path);
             try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
         }
@@ -3023,7 +3023,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
     if (comp.config.any_sanitize_thread) {
-        const path = comp.tsan_dynamic_lib.?.full_object_path;
+        const path = comp.tsan_lib.?.full_object_path;
         const rpath = std.fs.path.dirname(path) orelse ".";
         try load_commands.writeRpathLC(rpath, writer);
         ncmds += 1;

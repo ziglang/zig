@@ -339,13 +339,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         },
     };
 
-    assert(comp.tsan_static_lib == null and comp.tsan_dynamic_lib == null);
-
-    if (target.isDarwin()) {
-        comp.tsan_dynamic_lib = try sub_compilation.toCrtFile();
-    } else {
-        comp.tsan_static_lib = try sub_compilation.toCrtFile();
-    }
+    assert(comp.tsan_lib == null);
+    comp.tsan_lib = try sub_compilation.toCrtFile();
 }
 
 const tsan_sources = [_][]const u8{

@@ -1145,7 +1145,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) l
 
     // TSAN
     if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
     }
 
     // libc
@@ -1603,7 +1603,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            try argv.append(comp.tsan_lib.?.full_object_path);
         }
 
         // libc
@@ -2610,7 +2610,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) !void
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            try argv.append(comp.tsan_lib.?.full_object_path);
         }
 
         // libc
