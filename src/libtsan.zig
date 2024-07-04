@@ -27,9 +27,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     const target = comp.getTarget();
     const root_name = switch (target.os.tag) {
-        // On Apple platforms, we use the same name as LLVM and Apple so that we correctly
-        // mark the images as instrumented when traversing them when TSAN dylib is
-        // initialized.
+        // On Apple platforms, we use the same name as LLVM because the
+        // TSAN library implementation hard-codes a check for these names.
         .macos => "clang_rt.tsan_osx_dynamic",
         .ios => switch (target.abi) {
             .simulator => "clang_rt.tsan_iossim_dynamic",
@@ -290,7 +289,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
     else
         null;
-    // This is temp conditional on resolving https://github.com/llvm/llvm-project/issues/97627 upstream.
+    // Workaround for https://github.com/llvm/llvm-project/issues/97627
     const headerpad_size: ?u32 = if (target.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
