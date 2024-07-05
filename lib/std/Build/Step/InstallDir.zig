@@ -41,7 +41,6 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *InstallDir {
-    owner.pushInstalledFile(options.install_dir, options.install_subdir);
     const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
     install_dir.* = .{
         .step = Step.init(.{

@@ -50,7 +50,6 @@ install_path: []const u8,
 sysroot: ?[]const u8 = null,
 search_prefixes: std.ArrayListUnmanaged([]const u8),
 libc_file: ?[]const u8 = null,
-installed_files: ArrayList(InstalledFile),
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
@@ -331,7 +330,6 @@ pub fn create(
         .exe_dir = undefined,
         .h_dir = undefined,
         .dest_dir = graph.env_map.get("DESTDIR"),
-        .installed_files = ArrayList(InstalledFile).init(arena),
         .install_tls = .{
             .step = Step.init(.{
                 .id = TopLevelStep.base_id,
@@ -433,7 +431,6 @@ fn createChildOnly(
         .sysroot = parent.sysroot,
         .search_prefixes = parent.search_prefixes,
         .libc_file = parent.libc_file,
-        .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,
         .cache_root = parent.cache_root,
         .zig_lib_dir = parent.zig_lib_dir,
@@ -1138,15 +1135,8 @@ fn makeUninstall(uninstall_step: *Step, prog_node: std.Progress.Node) anyerror!v
     const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
     const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
 
-    for (b.installed_files.items) |installed_file| {
-        const full_path = b.getInstallPath(installed_file.dir, installed_file.path);
-        if (b.verbose) {
-            log.info("rm {s}", .{full_path});
-        }
-        fs.cwd().deleteTree(full_path) catch {};
-    }
-
-    // TODO remove empty directories
+    _ = b;
+    @panic("TODO implement https://github.com/ziglang/zig/issues/14943");
 }
 
 /// Creates a configuration option to be passed to the build.zig script.
@@ -1717,15 +1707,6 @@ pub fn addCheckFile(
     options: Step.CheckFile.Options,
 ) *Step.CheckFile {
     return Step.CheckFile.create(b, file_source, options);
-}
-
-/// deprecated: https://github.com/ziglang/zig/issues/14943
-pub fn pushInstalledFile(b: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
-    const file = InstalledFile{
-        .dir = dir,
-        .path = dest_rel_path,
-    };
-    b.installed_files.append(file.dupe(b)) catch @panic("OOM");
 }
 
 pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
@@ -2564,19 +2545,6 @@ pub const InstallDir = union(enum) {
         } else {
             return dir;
         }
-    }
-};
-
-pub const InstalledFile = struct {
-    dir: InstallDir,
-    path: []const u8,
-
-    /// Duplicates the installed file path and directory.
-    pub fn dupe(file: InstalledFile, builder: *Build) InstalledFile {
-        return .{
-            .dir = file.dir.dupe(builder),
-            .path = builder.dupe(file.path),
-        };
     }
 };
 

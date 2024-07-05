@@ -19,7 +19,6 @@ pub fn create(
     dest_rel_path: []const u8,
 ) *InstallFile {
     assert(dest_rel_path.len != 0);
-    owner.pushInstalledFile(dir, dest_rel_path);
     const install_file = owner.allocator.create(InstallFile) catch @panic("OOM");
     install_file.* = .{
         .step = Step.init(.{
