@@ -27,8 +27,6 @@ const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
@@ -919,7 +917,7 @@ fn buildOutputType(
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
-    var error_limit: ?Module.ErrorInt = null;
+    var error_limit: ?Zcu.ErrorInt = null;
     // These are before resolving sysroot.
     var extra_cflags: std.ArrayListUnmanaged([]const u8) = .{};
     var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .{};
@@ -1107,7 +1105,7 @@ fn buildOutputType(
                         );
                     } else if (mem.eql(u8, arg, "--error-limit")) {
                         const next_arg = args_iter.nextOrFatal();
-                        error_limit = std.fmt.parseUnsigned(Module.ErrorInt, next_arg, 0) catch |err| {
+                        error_limit = std.fmt.parseUnsigned(Zcu.ErrorInt, next_arg, 0) catch |err| {
                             fatal("unable to parse error limit '{s}': {s}", .{ next_arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-cflags")) {
@@ -5956,7 +5954,7 @@ fn cmdAstCheck(
         }
     }
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -5967,8 +5965,6 @@ fn cmdAstCheck(
         .tree = undefined,
         .zir = undefined,
         .mod = undefined,
-        .root_decl = .none,
-        .path_digest = undefined,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6275,7 +6271,7 @@ fn cmdDumpZir(
     };
     defer f.close();
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -6284,10 +6280,8 @@ fn cmdDumpZir(
         .source = undefined,
         .stat = undefined,
         .tree = undefined,
-        .zir = try Module.loadZirCache(gpa, f),
+        .zir = try Zcu.loadZirCache(gpa, f),
         .mod = undefined,
-        .root_decl = .none,
-        .path_digest = undefined,
     };
     defer file.zir.deinit(gpa);
 
@@ -6342,7 +6336,7 @@ fn cmdChangelist(
     if (stat.size > std.zig.max_src_size)
         return error.FileTooBig;
 
-    var file: Module.File = .{
+    var file: Zcu.File = .{
         .status = .never_loaded,
         .source_loaded = false,
         .tree_loaded = false,
@@ -6357,8 +6351,6 @@ fn cmdChangelist(
         .tree = undefined,
         .zir = undefined,
         .mod = undefined,
-        .root_decl = .none,
-        .path_digest = undefined,
     };
 
     file.mod = try Package.Module.createLimited(arena, .{
@@ -6431,7 +6423,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
+    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();

@@ -3455,7 +3455,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *const Zcu) ?u32 {
         else => return null,
     };
     const info = tracked.resolveFull(&zcu.intern_pool);
-    const file = zcu.import_table.values()[zcu.path_digest_map.getIndex(info.path_digest).?];
+    const file = zcu.fileByIndex(info.file);
     assert(file.zir_loaded);
     const zir = file.zir;
     const inst = zir.instructions.get(@intFromEnum(info.inst));

@@ -2581,7 +2581,7 @@ pub fn genTypeDecl(
                 _ = try renderTypePrefix(.flush, global_ctype_pool, zcu, writer, global_ctype, .suffix, .{});
                 try writer.writeByte(';');
                 const owner_decl = zcu.declPtr(owner_decl_index);
-                const owner_mod = zcu.namespacePtr(owner_decl.src_namespace).file_scope.mod;
+                const owner_mod = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu).mod;
                 if (!owner_mod.strip) {
                     try writer.writeAll(" /* ");
                     try owner_decl.renderFullyQualifiedName(zcu, writer);

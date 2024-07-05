@@ -335,29 +335,29 @@ fn finishUpdateDecl(
     code: []const u8,
 ) !void {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm_file.base.comp.module.?;
+    const decl = zcu.declPtr(decl_index);
     const decl_info = zig_object.decls_map.get(decl_index).?;
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = try decl.fullyQualifiedName(mod);
-    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&mod.intern_pool));
+    const full_name = try decl.fullyQualifiedName(zcu);
+    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&zcu.intern_pool));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
-    switch (decl.typeOf(mod).zigTypeTag(mod)) {
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => {
             sym.index = try zig_object.appendFunction(gpa, .{ .type_index = zig_object.atom_types.get(atom_index).? });
             sym.tag = .function;
         },
         else => {
-            const segment_name: []const u8 = if (decl.getOwnedVariable(mod)) |variable| name: {
+            const segment_name: []const u8 = if (decl.getOwnedVariable(zcu)) |variable| name: {
                 if (variable.is_const) {
                     break :name ".rodata.";
-                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
-                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
-                    const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
+                } else if (Value.fromInterned(variable.init).isUndefDeep(zcu)) {
+                    const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+                    const optimize_mode = decl_namespace.fileScope(zcu).mod.optimize_mode;
                     const is_initialized = switch (optimize_mode) {
                         .Debug, .ReleaseSafe => true,
                         .ReleaseFast, .ReleaseSmall => false,
@@ -382,7 +382,7 @@ fn finishUpdateDecl(
             // Will be freed upon freeing of decl or after cleanup of Wasm binary.
             const full_segment_name = try std.mem.concat(gpa, u8, &.{
                 segment_name,
-                full_name.toSlice(&mod.intern_pool),
+                full_name.toSlice(&zcu.intern_pool),
             });
             errdefer gpa.free(full_segment_name);
             sym.tag = .data;
@@ -390,7 +390,7 @@ fn finishUpdateDecl(
         },
     }
     if (code.len == 0) return;
-    atom.alignment = decl.getAlignment(mod);
+    atom.alignment = decl.getAlignment(zcu);
 }
 
 /// Creates and initializes a new segment in the 'Data' section.

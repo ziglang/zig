@@ -379,7 +379,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
         const new_file = try arena.create(File);
 
-        const bin_digest, const hex_digest = digest: {
+        const hex_digest = digest: {
             var hasher: Cache.Hasher = Cache.hasher_init;
             hasher.update(generated_builtin_source);
 
@@ -393,7 +393,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 .{std.fmt.fmtSliceHexLower(&bin_digest)},
             ) catch unreachable;
 
-            break :digest .{ bin_digest, hex_digest };
+            break :digest hex_digest;
         };
 
         const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ hex_digest);
@@ -443,10 +443,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .zir = undefined,
             .status = .never_loaded,
             .mod = new,
-            .root_decl = .none,
-            // We might as well use this digest for the File `path digest`, since there's a
-            // one-to-one correspondence here between distinct paths and distinct contents.
-            .path_digest = bin_digest,
         };
         break :b new;
     };

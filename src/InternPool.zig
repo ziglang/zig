@@ -92,12 +92,27 @@ dep_entries: std.ArrayListUnmanaged(DepEntry) = .{},
 /// garbage collection pass.
 free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
 
+/// Elements are ordered identically to the `import_table` field of `Zcu`.
+///
+/// Unlike `import_table`, this data is serialized as part of incremental
+/// compilation state.
+///
+/// Key is the hash of the path to this file, used to store
+/// `InternPool.TrackedInst`.
+///
+/// Value is the `Decl` of the struct that represents this `File`.
+files: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, OptionalDeclIndex) = .{},
+
+pub const FileIndex = enum(u32) {
+    _,
+};
+
 pub const TrackedInst = extern struct {
-    path_digest: Cache.BinDigest,
+    file: FileIndex,
     inst: Zir.Inst.Index,
     comptime {
         // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
-        assert(@sizeOf(@This()) == Cache.bin_digest_len + @sizeOf(Zir.Inst.Index));
+        assert(@sizeOf(@This()) == @sizeOf(FileIndex) + @sizeOf(Zir.Inst.Index));
     }
     pub const Index = enum(u32) {
         _,
@@ -123,9 +138,14 @@ pub const TrackedInst = extern struct {
     };
 };
 
-pub fn trackZir(ip: *InternPool, gpa: Allocator, file: *Module.File, inst: Zir.Inst.Index) Allocator.Error!TrackedInst.Index {
+pub fn trackZir(
+    ip: *InternPool,
+    gpa: Allocator,
+    file: FileIndex,
+    inst: Zir.Inst.Index,
+) Allocator.Error!TrackedInst.Index {
     const key: TrackedInst = .{
-        .path_digest = file.path_digest,
+        .file = file,
         .inst = inst,
     };
     const gop = try ip.tracked_insts.getOrPut(gpa, key);
@@ -4591,6 +4611,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.dep_entries.deinit(gpa);
     ip.free_dep_entries.deinit(gpa);
+
+    ip.files.deinit(gpa);
 
     ip.* = undefined;
 }

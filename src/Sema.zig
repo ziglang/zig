@@ -546,8 +546,12 @@ pub const Block = struct {
         };
     }
 
-    pub fn getFileScope(block: *Block, mod: *Module) *Module.File {
-        return mod.namespacePtr(block.namespace).file_scope;
+    pub fn getFileScope(block: *Block, zcu: *Zcu) *Zcu.File {
+        return zcu.fileByIndex(getFileScopeIndex(block, zcu));
+    }
+
+    pub fn getFileScopeIndex(block: *Block, zcu: *Zcu) Zcu.File.Index {
+        return zcu.namespacePtr(block.namespace).file_scope;
     }
 
     fn addTy(
@@ -826,7 +830,16 @@ pub const Block = struct {
 
     pub fn ownerModule(block: Block) *Package.Module {
         const zcu = block.sema.mod;
-        return zcu.namespacePtr(block.namespace).file_scope.mod;
+        return zcu.namespacePtr(block.namespace).fileScope(zcu).mod;
+    }
+
+    fn trackZir(block: *Block, inst: Zir.Inst.Index) Allocator.Error!InternPool.TrackedInst.Index {
+        const sema = block.sema;
+        const gpa = sema.gpa;
+        const zcu = sema.mod;
+        const ip = &zcu.intern_pool;
+        const file_index = block.getFileScopeIndex(zcu);
+        return ip.trackZir(gpa, file_index, inst);
     }
 };
 
@@ -979,7 +992,7 @@ fn analyzeBodyInner(
 
     try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
 
-    const mod = sema.mod;
+    const zcu = sema.mod;
     const map = &sema.inst_map;
     const tags = sema.code.instructions.items(.tag);
     const datas = sema.code.instructions.items(.data);
@@ -999,9 +1012,9 @@ fn analyzeBodyInner(
         // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
         if (build_options.enable_logging) {
             std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
-                const path_digest = block.src_base_inst.resolveFull(&mod.intern_pool).path_digest;
-                const index = mod.path_digest_map.getIndex(path_digest).?;
-                break :sub_file_path mod.import_table.values()[index].sub_file_path;
+                const file_index = block.src_base_inst.resolveFull(&zcu.intern_pool).file;
+                const file = zcu.fileByIndex(file_index);
+                break :sub_file_path file.sub_file_path;
             }, inst });
         }
 
@@ -1762,9 +1775,9 @@ fn analyzeBodyInner(
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
                 const err_union = try sema.resolveInst(extra.data.operand);
                 const err_union_ty = sema.typeOf(err_union);
-                if (err_union_ty.zigTypeTag(mod) != .ErrorUnion) {
+                if (err_union_ty.zigTypeTag(zcu) != .ErrorUnion) {
                     return sema.fail(block, operand_src, "expected error union type, found '{}'", .{
-                        err_union_ty.fmt(mod),
+                        err_union_ty.fmt(zcu),
                     });
                 }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
@@ -2730,7 +2743,7 @@ fn zirStructDecl(
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
     const extra = sema.code.extraData(Zir.Inst.StructDecl, extended.operand);
 
-    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{
         .base_node_inst = tracked_inst,
         .offset = LazySrcLoc.Offset.nodeOffset(0),
@@ -2806,7 +2819,7 @@ fn zirStructDecl(
         try ip.addDependency(
             sema.gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
-            .{ .src_hash = try ip.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+            .{ .src_hash = try block.trackZir(inst) },
         );
     }
 
@@ -2814,7 +2827,7 @@ fn zirStructDecl(
     const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
-        .file_scope = block.getFileScope(mod),
+        .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
     errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
@@ -2947,7 +2960,7 @@ fn zirEnumDecl(
     const extra = sema.code.extraData(Zir.Inst.EnumDecl, extended.operand);
     var extra_index: usize = extra.end;
 
-    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
     const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
 
@@ -3040,9 +3053,9 @@ fn zirEnumDecl(
 
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
-            sema.gpa,
+            gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
-            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+            .{ .src_hash = try block.trackZir(inst) },
         );
     }
 
@@ -3050,7 +3063,7 @@ fn zirEnumDecl(
     const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
-        .file_scope = block.getFileScope(mod),
+        .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
     errdefer if (!done) if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
@@ -3232,7 +3245,7 @@ fn zirUnionDecl(
     const extra = sema.code.extraData(Zir.Inst.UnionDecl, extended.operand);
     var extra_index: usize = extra.end;
 
-    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
 
     extra_index += @intFromBool(small.has_tag_type);
@@ -3306,9 +3319,9 @@ fn zirUnionDecl(
 
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
-            sema.gpa,
+            gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
-            .{ .src_hash = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst) },
+            .{ .src_hash = try block.trackZir(inst) },
         );
     }
 
@@ -3316,7 +3329,7 @@ fn zirUnionDecl(
     const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
-        .file_scope = block.getFileScope(mod),
+        .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
     errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
@@ -3348,7 +3361,7 @@ fn zirOpaqueDecl(
     const extra = sema.code.extraData(Zir.Inst.OpaqueDecl, extended.operand);
     var extra_index: usize = extra.end;
 
-    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
 
     const captures_len = if (small.has_captures_len) blk: {
@@ -3397,14 +3410,14 @@ fn zirOpaqueDecl(
         try ip.addDependency(
             gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
-            .{ .src_hash = try ip.trackZir(gpa, block.getFileScope(mod), inst) },
+            .{ .src_hash = try block.trackZir(inst) },
         );
     }
 
     const new_namespace_index: InternPool.OptionalNamespaceIndex = if (decls_len > 0) (try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
-        .file_scope = block.getFileScope(mod),
+        .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
     errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
@@ -5893,8 +5906,8 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = sema.mod;
-    const comp = mod.comp;
+    const zcu = sema.mod;
+    const comp = zcu.comp;
     const gpa = sema.gpa;
     const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = parent_block.nodeOffset(pl_node.src_node);
@@ -5940,7 +5953,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             if (!comp.config.link_libc)
                 try sema.errNote(src, msg, "libc headers not available; compilation does not link against libc", .{});
 
-            const gop = try mod.cimport_errors.getOrPut(gpa, sema.ownerUnit());
+            const gop = try zcu.cimport_errors.getOrPut(gpa, sema.ownerUnit());
             if (!gop.found_existing) {
                 gop.value_ptr.* = c_import_res.errors;
                 c_import_res.errors = std.zig.ErrorBundle.empty;
@@ -5984,14 +5997,16 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         else => |e| return e,
     };
 
-    const result = mod.importPkg(c_import_mod) catch |err|
+    const result = zcu.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    mod.astGenFile(result.file) catch |err|
+    const path_digest = zcu.filePathDigest(result.file_index);
+    const root_decl = zcu.fileRootDecl(result.file_index);
+    zcu.astGenFile(result.file, result.file_index, path_digest, root_decl) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    try mod.ensureFileAnalyzed(result.file);
-    const file_root_decl_index = result.file.root_decl.unwrap().?;
+    try zcu.ensureFileAnalyzed(result.file_index);
+    const file_root_decl_index = zcu.fileRootDecl(result.file_index).unwrap().?;
     return sema.analyzeDeclVal(parent_block, src, file_root_decl_index);
 }
 
@@ -6730,7 +6745,9 @@ fn lookupInNamespace(
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 const decl = mod.declPtr(decl_index);
-                if (decl.is_pub or (src_file == decl.getFileScope(mod) and checked_namespaces.values()[check_i])) {
+                if (decl.is_pub or (src_file == decl.getFileScopeIndex(mod) and
+                    checked_namespaces.values()[check_i]))
+                {
                     try candidates.append(gpa, decl_index);
                 }
             }
@@ -6741,7 +6758,7 @@ fn lookupInNamespace(
                 if (sub_usingnamespace_decl_index == sema.owner_decl_index) continue;
                 const sub_usingnamespace_decl = mod.declPtr(sub_usingnamespace_decl_index);
                 const sub_is_pub = entry.value_ptr.*;
-                if (!sub_is_pub and src_file != sub_usingnamespace_decl.getFileScope(mod)) {
+                if (!sub_is_pub and src_file != sub_usingnamespace_decl.getFileScopeIndex(mod)) {
                     // Skip usingnamespace decls which are not marked pub, which are in
                     // a different file than the `a.b`/`@hasDecl` syntax.
                     continue;
@@ -6749,7 +6766,7 @@ fn lookupInNamespace(
                 try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index);
                 const ns_ty = sub_usingnamespace_decl.val.toType();
                 const sub_ns = mod.namespacePtrUnwrap(ns_ty.getNamespaceIndex(mod)) orelse continue;
-                try checked_namespaces.put(gpa, sub_ns, src_file == sub_usingnamespace_decl.getFileScope(mod));
+                try checked_namespaces.put(gpa, sub_ns, src_file == sub_usingnamespace_decl.getFileScopeIndex(mod));
             }
         }
 
@@ -8067,20 +8084,20 @@ fn instantiateGenericCall(
     call_tag: Air.Inst.Tag,
     call_dbg_node: ?Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
+    const zcu = sema.mod;
     const gpa = sema.gpa;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
 
     const func_val = try sema.resolveConstDefinedValue(block, func_src, func, .{
         .needed_comptime_reason = "generic function being called must be comptime-known",
     });
-    const generic_owner = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
+    const generic_owner = switch (zcu.intern_pool.indexToKey(func_val.toIntern())) {
         .func => func_val.toIntern(),
-        .ptr => |ptr| mod.declPtr(ptr.base_addr.decl).val.toIntern(),
+        .ptr => |ptr| zcu.declPtr(ptr.base_addr.decl).val.toIntern(),
         else => unreachable,
     };
-    const generic_owner_func = mod.intern_pool.indexToKey(generic_owner).func;
-    const generic_owner_ty_info = mod.typeToFunc(Type.fromInterned(generic_owner_func.ty)).?;
+    const generic_owner_func = zcu.intern_pool.indexToKey(generic_owner).func;
+    const generic_owner_ty_info = zcu.typeToFunc(Type.fromInterned(generic_owner_func.ty)).?;
 
     try sema.declareDependency(.{ .src_hash = generic_owner_func.zir_body_inst });
 
@@ -8092,10 +8109,10 @@ fn instantiateGenericCall(
     // The actual monomorphization happens via adding `func_instance` to
     // `InternPool`.
 
-    const fn_owner_decl = mod.declPtr(generic_owner_func.owner_decl);
+    const fn_owner_decl = zcu.declPtr(generic_owner_func.owner_decl);
     const namespace_index = fn_owner_decl.src_namespace;
-    const namespace = mod.namespacePtr(namespace_index);
-    const fn_zir = namespace.file_scope.zir;
+    const namespace = zcu.namespacePtr(namespace_index);
+    const fn_zir = namespace.fileScope(zcu).zir;
     const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst.resolve(ip));
 
     const comptime_args = try sema.arena.alloc(InternPool.Index, args_info.count());
@@ -8110,7 +8127,7 @@ fn instantiateGenericCall(
     // `param_anytype_comptime` ZIR instructions to be ignored, resulting in a
     // new, monomorphized function, with the comptime parameters elided.
     var child_sema: Sema = .{
-        .mod = mod,
+        .mod = zcu,
         .gpa = gpa,
         .arena = sema.arena,
         .code = fn_zir,
@@ -8199,7 +8216,7 @@ fn instantiateGenericCall(
         const arg_ref = try args_info.analyzeArg(sema, block, arg_index, param_ty, generic_owner_ty_info, func);
         try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_index), arg_ref);
         const arg_ty = sema.typeOf(arg_ref);
-        if (arg_ty.zigTypeTag(mod) == .NoReturn) {
+        if (arg_ty.zigTypeTag(zcu) == .NoReturn) {
             // This terminates argument analysis.
             return arg_ref;
         }
@@ -8283,12 +8300,12 @@ fn instantiateGenericCall(
     const new_func_inst = try child_sema.resolveInlineBody(&child_block, fn_info.param_body[args_info.count()..], fn_info.param_body_inst);
     const callee_index = (child_sema.resolveConstDefinedValue(&child_block, LazySrcLoc.unneeded, new_func_inst, undefined) catch unreachable).toIntern();
 
-    const callee = mod.funcInfo(callee_index);
+    const callee = zcu.funcInfo(callee_index);
     callee.branchQuota(ip).* = @max(callee.branchQuota(ip).*, sema.branch_quota);
 
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const func_ty = Type.fromInterned(callee.ty);
-    const func_ty_info = mod.typeToFunc(func_ty).?;
+    const func_ty_info = zcu.typeToFunc(func_ty).?;
 
     // If the call evaluated to a return type that requires comptime, never mind
     // our generic instantiation. Instead we need to perform a comptime call.
@@ -8304,13 +8321,13 @@ fn instantiateGenericCall(
     if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
     if (sema.owner_func_index != .none and
-        Type.fromInterned(func_ty_info.return_type).isError(mod))
+        Type.fromInterned(func_ty_info.return_type).isError(zcu))
     {
         ip.funcAnalysis(sema.owner_func_index).calls_or_awaits_errorable_fn = true;
     }
 
     try sema.addReferenceEntry(call_src, AnalUnit.wrap(.{ .func = callee_index }));
-    try mod.ensureFuncBodyAnalysisQueued(callee_index);
+    try zcu.ensureFuncBodyAnalysisQueued(callee_index);
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len + runtime_args.items.len);
     const result = try block.addInst(.{
@@ -8333,7 +8350,7 @@ fn instantiateGenericCall(
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
     }
-    if (func_ty.fnReturnType(mod).isNoReturn(mod)) {
+    if (func_ty.fnReturnType(zcu).isNoReturn(zcu)) {
         _ = try block.addNoOp(.unreach);
         return .unreachable_value;
     }
@@ -9653,7 +9670,7 @@ fn funcCommon(
             .is_generic = final_is_generic,
             .is_noinline = is_noinline,
 
-            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
+            .zir_body_inst = try block.trackZir(func_inst),
             .lbrace_line = src_locs.lbrace_line,
             .rbrace_line = src_locs.rbrace_line,
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
@@ -9731,7 +9748,7 @@ fn funcCommon(
             .ty = func_ty,
             .cc = cc,
             .is_noinline = is_noinline,
-            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
+            .zir_body_inst = try block.trackZir(func_inst),
             .lbrace_line = src_locs.lbrace_line,
             .rbrace_line = src_locs.rbrace_line,
             .lbrace_column = @as(u16, @truncate(src_locs.columns)),
@@ -13787,18 +13804,18 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = sema.mod;
+    const zcu = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
     const operand_src = block.tokenOffset(inst_data.src_tok);
     const operand = inst_data.get(sema.code);
 
-    const result = mod.importFile(block.getFileScope(mod), operand) catch |err| switch (err) {
+    const result = zcu.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
         error.ModuleNotFound => {
             return sema.fail(block, operand_src, "no module named '{s}' available within module {s}", .{
-                operand, block.getFileScope(mod).mod.fully_qualified_name,
+                operand, block.getFileScope(zcu).mod.fully_qualified_name,
             });
         },
         else => {
@@ -13807,8 +13824,8 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    try mod.ensureFileAnalyzed(result.file);
-    const file_root_decl_index = result.file.root_decl.unwrap().?;
+    try zcu.ensureFileAnalyzed(result.file_index);
+    const file_root_decl_index = zcu.fileRootDecl(result.file_index).unwrap().?;
     return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
 }
 
@@ -21089,7 +21106,7 @@ fn zirReify(
     const ip = &mod.intern_pool;
     const name_strategy: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
     const extra = sema.code.extraData(Zir.Inst.Reify, extended.operand).data;
-    const tracked_inst = try ip.trackZir(gpa, block.getFileScope(mod), inst);
+    const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{
         .base_node_inst = tracked_inst,
         .offset = LazySrcLoc.Offset.nodeOffset(0),
@@ -21466,7 +21483,7 @@ fn zirReify(
             const wip_ty = switch (try ip.getOpaqueType(gpa, .{
                 .has_namespace = false,
                 .key = .{ .reified = .{
-                    .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
+                    .zir_index = try block.trackZir(inst),
                 } },
             })) {
                 .existing => |ty| return Air.internedToRef(ty),
@@ -21660,7 +21677,7 @@ fn reifyEnum(
         .tag_mode = if (is_exhaustive) .explicit else .nonexhaustive,
         .fields_len = fields_len,
         .key = .{ .reified = .{
-            .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
+            .zir_index = try block.trackZir(inst),
             .type_hash = hasher.final(),
         } },
     })) {
@@ -21810,7 +21827,7 @@ fn reifyUnion(
         .field_types = &.{}, // set later
         .field_aligns = &.{}, // set later
         .key = .{ .reified = .{
-            .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
+            .zir_index = try block.trackZir(inst),
             .type_hash = hasher.final(),
         } },
     })) {
@@ -22062,7 +22079,7 @@ fn reifyStruct(
         .inits_resolved = true,
         .has_namespace = false,
         .key = .{ .reified = .{
-            .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
+            .zir_index = try block.trackZir(inst),
             .type_hash = hasher.final(),
         } },
     })) {
@@ -34894,14 +34911,14 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     _ = try sema.typeRequiresComptime(ty);
 }
 
-fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) CompileError!void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+fn semaBackingIntType(zcu: *Zcu, struct_type: InternPool.LoadedStructType) CompileError!void {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     const decl_index = struct_type.decl.unwrap().?;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
-    const zir = mod.namespacePtr(struct_type.namespace.unwrap().?).file_scope.zir;
+    const zir = zcu.namespacePtr(struct_type.namespace.unwrap().?).fileScope(zcu).zir;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -34910,7 +34927,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
-        .mod = mod,
+        .mod = zcu,
         .gpa = gpa,
         .arena = analysis_arena.allocator(),
         .code = zir,
@@ -34941,7 +34958,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
         var accumulator: u64 = 0;
         for (0..struct_type.field_types.len) |i| {
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
-            accumulator += try field_ty.bitSizeAdvanced(mod, .sema);
+            accumulator += try field_ty.bitSizeAdvanced(zcu, .sema);
         }
         break :blk accumulator;
     };
@@ -34987,7 +35004,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
         if (fields_bit_sum > std.math.maxInt(u16)) {
             return sema.fail(&block, block.nodeOffset(0), "size of packed struct '{d}' exceeds maximum bit width of 65535", .{fields_bit_sum});
         }
-        const backing_int_ty = try mod.intType(.unsigned, @intCast(fields_bit_sum));
+        const backing_int_ty = try zcu.intType(.unsigned, @intCast(fields_bit_sum));
         struct_type.backingIntType(ip).* = backing_int_ty.toIntern();
     }
 
@@ -35597,23 +35614,23 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
 }
 
 fn semaStructFields(
-    mod: *Module,
+    zcu: *Zcu,
     arena: Allocator,
     struct_type: InternPool.LoadedStructType,
 ) CompileError!void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
     const decl_index = struct_type.decl.unwrap() orelse return;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
-    const zir = mod.namespacePtr(namespace_index).file_scope.zir;
+    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
 
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     if (fields_len == 0) switch (struct_type.layout) {
         .@"packed" => {
-            try semaBackingIntType(mod, struct_type);
+            try semaBackingIntType(zcu, struct_type);
             return;
         },
         .auto, .@"extern" => {
@@ -35627,7 +35644,7 @@ fn semaStructFields(
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
-        .mod = mod,
+        .mod = zcu,
         .gpa = gpa,
         .arena = arena,
         .code = zir,
@@ -35749,7 +35766,7 @@ fn semaStructFields(
 
         struct_type.field_types.get(ip)[field_i] = field_ty.toIntern();
 
-        if (field_ty.zigTypeTag(mod) == .Opaque) {
+        if (field_ty.zigTypeTag(zcu) == .Opaque) {
             const msg = msg: {
                 const msg = try sema.errMsg(ty_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                 errdefer msg.destroy(sema.gpa);
@@ -35759,7 +35776,7 @@ fn semaStructFields(
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
-        if (field_ty.zigTypeTag(mod) == .NoReturn) {
+        if (field_ty.zigTypeTag(zcu) == .NoReturn) {
             const msg = msg: {
                 const msg = try sema.errMsg(ty_src, "struct fields cannot be 'noreturn'", .{});
                 errdefer msg.destroy(sema.gpa);
@@ -35772,7 +35789,7 @@ fn semaStructFields(
         switch (struct_type.layout) {
             .@"extern" => if (!try sema.validateExternType(field_ty, .struct_field)) {
                 const msg = msg: {
-                    const msg = try sema.errMsg(ty_src, "extern structs cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
+                    const msg = try sema.errMsg(ty_src, "extern structs cannot contain fields of type '{}'", .{field_ty.fmt(zcu)});
                     errdefer msg.destroy(sema.gpa);
 
                     try sema.explainWhyTypeIsNotExtern(msg, ty_src, field_ty, .struct_field);
@@ -35784,7 +35801,7 @@ fn semaStructFields(
             },
             .@"packed" => if (!try sema.validatePackedType(field_ty)) {
                 const msg = msg: {
-                    const msg = try sema.errMsg(ty_src, "packed structs cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
+                    const msg = try sema.errMsg(ty_src, "packed structs cannot contain fields of type '{}'", .{field_ty.fmt(zcu)});
                     errdefer msg.destroy(sema.gpa);
 
                     try sema.explainWhyTypeIsNotPacked(msg, ty_src, field_ty);
@@ -35820,19 +35837,19 @@ fn semaStructFields(
 
 // This logic must be kept in sync with `semaStructFields`
 fn semaStructFieldInits(
-    mod: *Module,
+    zcu: *Zcu,
     arena: Allocator,
     struct_type: InternPool.LoadedStructType,
 ) CompileError!void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     assert(!struct_type.haveFieldInits(ip));
 
     const decl_index = struct_type.decl.unwrap() orelse return;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
     const namespace_index = struct_type.namespace.unwrap() orelse decl.src_namespace;
-    const zir = mod.namespacePtr(namespace_index).file_scope.zir;
+    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
@@ -35840,7 +35857,7 @@ fn semaStructFieldInits(
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
-        .mod = mod,
+        .mod = zcu,
         .gpa = gpa,
         .arena = arena,
         .code = zir,
@@ -35950,7 +35967,7 @@ fn semaStructFieldInits(
                 });
             };
 
-            if (default_val.canMutateComptimeVarState(mod)) {
+            if (default_val.canMutateComptimeVarState(zcu)) {
                 return sema.fail(&block_scope, init_src, "field default value contains reference to comptime-mutable memory", .{});
             }
             struct_type.field_inits.get(ip)[field_i] = default_val.toIntern();
@@ -35960,14 +35977,14 @@ fn semaStructFieldInits(
     try sema.flushExports();
 }
 
-fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.LoadedUnionType) CompileError!void {
+fn semaUnionFields(zcu: *Zcu, arena: Allocator, union_type: InternPool.LoadedUnionType) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
     const decl_index = union_type.decl;
-    const zir = mod.namespacePtr(union_type.namespace.unwrap().?).file_scope.zir;
+    const zir = zcu.namespacePtr(union_type.namespace.unwrap().?).fileScope(zcu).zir;
     const zir_index = union_type.zir_index.resolve(ip);
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
@@ -36011,13 +36028,13 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
     const body = zir.bodySlice(extra_index, body_len);
     extra_index += body.len;
 
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
 
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
-        .mod = mod,
+        .mod = zcu,
         .gpa = gpa,
         .arena = arena,
         .code = zir,
@@ -36063,18 +36080,18 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
         if (small.auto_enum_tag) {
             // The provided type is an integer type and we must construct the enum tag type here.
             int_tag_ty = provided_ty;
-            if (int_tag_ty.zigTypeTag(mod) != .Int and int_tag_ty.zigTypeTag(mod) != .ComptimeInt) {
-                return sema.fail(&block_scope, tag_ty_src, "expected integer tag type, found '{}'", .{int_tag_ty.fmt(mod)});
+            if (int_tag_ty.zigTypeTag(zcu) != .Int and int_tag_ty.zigTypeTag(zcu) != .ComptimeInt) {
+                return sema.fail(&block_scope, tag_ty_src, "expected integer tag type, found '{}'", .{int_tag_ty.fmt(zcu)});
             }
 
             if (fields_len > 0) {
-                const field_count_val = try mod.intValue(Type.comptime_int, fields_len - 1);
+                const field_count_val = try zcu.intValue(Type.comptime_int, fields_len - 1);
                 if (!(try sema.intFitsInType(field_count_val, int_tag_ty, null))) {
                     const msg = msg: {
                         const msg = try sema.errMsg(tag_ty_src, "specified integer tag type cannot represent every field", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(tag_ty_src, msg, "type '{}' cannot fit values in range 0...{d}", .{
-                            int_tag_ty.fmt(mod),
+                            int_tag_ty.fmt(zcu),
                             fields_len - 1,
                         });
                         break :msg msg;
@@ -36089,7 +36106,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             union_type.tagTypePtr(ip).* = provided_ty.toIntern();
             const enum_type = switch (ip.indexToKey(provided_ty.toIntern())) {
                 .enum_type => ip.loadEnumType(provided_ty.toIntern()),
-                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{provided_ty.fmt(mod)}),
+                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{provided_ty.fmt(zcu)}),
             };
             // The fields of the union must match the enum exactly.
             // A flag per field is used to check for missing and extraneous fields.
@@ -36185,7 +36202,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
                 const val = if (last_tag_val) |val|
                     try sema.intAdd(val, Value.one_comptime_int, int_tag_ty, undefined)
                 else
-                    try mod.intValue(int_tag_ty, 0);
+                    try zcu.intValue(int_tag_ty, 0);
                 last_tag_val = val;
 
                 break :blk val;
@@ -36197,7 +36214,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
                     .offset = .{ .container_field_value = @intCast(gop.index) },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{enum_tag_val.fmtValue(mod, &sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{enum_tag_val.fmtValue(zcu, &sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_value_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -36227,7 +36244,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             const tag_info = ip.loadEnumType(union_type.tagTypePtr(ip).*);
             const enum_index = tag_info.nameIndex(ip, field_name) orelse {
                 return sema.fail(&block_scope, name_src, "no field named '{}' in enum '{}'", .{
-                    field_name.fmt(ip), Type.fromInterned(union_type.tagTypePtr(ip).*).fmt(mod),
+                    field_name.fmt(ip), Type.fromInterned(union_type.tagTypePtr(ip).*).fmt(zcu),
                 });
             };
 
@@ -36254,7 +36271,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             }
         }
 
-        if (field_ty.zigTypeTag(mod) == .Opaque) {
+        if (field_ty.zigTypeTag(zcu) == .Opaque) {
             const msg = msg: {
                 const msg = try sema.errMsg(type_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                 errdefer msg.destroy(sema.gpa);
@@ -36269,7 +36286,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             !try sema.validateExternType(field_ty, .union_field))
         {
             const msg = msg: {
-                const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
+                const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(zcu)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotExtern(msg, type_src, field_ty, .union_field);
@@ -36280,7 +36297,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
             const msg = msg: {
-                const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
+                const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(zcu)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotPacked(msg, type_src, field_ty);
@@ -36325,10 +36342,10 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
     } else if (enum_field_vals.count() > 0) {
-        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), mod.declPtr(union_type.decl));
+        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), zcu.declPtr(union_type.decl));
         union_type.tagTypePtr(ip).* = enum_ty;
     } else {
-        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, mod.declPtr(union_type.decl));
+        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, zcu.declPtr(union_type.decl));
         union_type.tagTypePtr(ip).* = enum_ty;
     }
 

@@ -810,7 +810,7 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const mod = namespace.file_scope.mod;
+    const mod = namespace.fileScope(zcu).mod;
 
     var function = Self{
         .gpa = gpa,

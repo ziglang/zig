@@ -188,19 +188,20 @@ pub const Object = struct {
 
     fn genDecl(
         self: *Object,
-        mod: *Module,
+        zcu: *Zcu,
         decl_index: InternPool.DeclIndex,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const decl = mod.declPtr(decl_index);
-        const namespace = mod.namespacePtr(decl.src_namespace);
-        const structured_cfg = namespace.file_scope.mod.structured_cfg;
+        const gpa = self.gpa;
+        const decl = zcu.declPtr(decl_index);
+        const namespace = zcu.namespacePtr(decl.src_namespace);
+        const structured_cfg = namespace.fileScope(zcu).mod.structured_cfg;
 
         var decl_gen = DeclGen{
-            .gpa = self.gpa,
+            .gpa = gpa,
             .object = self,
-            .module = mod,
+            .module = zcu,
             .spv = &self.spv,
             .decl_index = decl_index,
             .air = air,
@@ -212,19 +213,19 @@ pub const Object = struct {
                 false => .{ .unstructured = .{} },
             },
             .current_block_label = undefined,
-            .base_line = decl.navSrcLine(mod),
+            .base_line = decl.navSrcLine(zcu),
         };
         defer decl_gen.deinit();
 
         decl_gen.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
-                try mod.failed_analysis.put(mod.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), decl_gen.error_msg.?);
+                try zcu.failed_analysis.put(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), decl_gen.error_msg.?);
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg
                 // was already allocated, so be sure to free it.
                 if (decl_gen.error_msg) |error_msg| {
-                    error_msg.deinit(mod.gpa);
+                    error_msg.deinit(gpa);
                 }
 
                 return other;

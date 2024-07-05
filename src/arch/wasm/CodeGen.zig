@@ -1212,11 +1212,11 @@ pub fn generate(
     _ = src_loc;
     const comp = bin_file.comp;
     const gpa = comp.gpa;
-    const mod = comp.module.?;
-    const func = mod.funcInfo(func_index);
-    const decl = mod.declPtr(func.owner_decl);
-    const namespace = mod.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const zcu = comp.module.?;
+    const func = zcu.funcInfo(func_index);
+    const decl = zcu.declPtr(func.owner_decl);
+    const namespace = zcu.namespacePtr(decl.src_namespace);
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     var code_gen: CodeGen = .{
         .gpa = gpa,
         .air = air,
@@ -7706,7 +7706,7 @@ fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // for a single-threaded build, can we emit the `fence` instruction.
     // In all other cases, we emit no instructions for a fence.
     const func_namespace = zcu.namespacePtr(func.decl.src_namespace);
-    const single_threaded = func_namespace.file_scope.mod.single_threaded;
+    const single_threaded = func_namespace.fileScope(zcu).mod.single_threaded;
     if (func.useAtomicFeature() and !single_threaded) {
         try func.addAtomicTag(.atomic_fence);
     }
