@@ -35,9 +35,10 @@ pub const Bind = struct {
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
 
-        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
         defer objects.deinit();
         objects.appendSliceAssumeCapacity(macho_file.objects.items);
+        if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
         if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
 
         for (objects.items) |index| {
@@ -286,9 +287,10 @@ pub const WeakBind = struct {
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
 
-        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
         defer objects.deinit();
         objects.appendSliceAssumeCapacity(macho_file.objects.items);
+        if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
         if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
 
         for (objects.items) |index| {
