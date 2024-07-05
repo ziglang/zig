@@ -4649,31 +4649,6 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     return cleanExit();
 }
 
-const usage_build =
-    \\Usage: zig build [steps] [options]
-    \\
-    \\   Build a project from build.zig.
-    \\
-    \\Options:
-    \\  -freference-trace[=num]       How many lines of reference trace should be shown per compile error
-    \\  -fno-reference-trace          Disable reference trace
-    \\  --summary [mode]              Control the printing of the build summary
-    \\    all                         Print the build summary in its entirety
-    \\    failures                    (Default) Only print failed steps
-    \\    none                        Do not print the build summary
-    \\  -j<N>                         Limit concurrent jobs (default is to use all CPU cores)
-    \\  --build-file [file]           Override path to build.zig
-    \\  --cache-dir [path]            Override path to local Zig cache directory
-    \\  --global-cache-dir [path]     Override path to global Zig cache directory
-    \\  --zig-lib-dir [arg]           Override path to Zig lib directory
-    \\  --build-runner [file]         Override path to build runner
-    \\  --prominent-compile-errors    Buffer compile errors and display at end
-    \\  --seed [integer]              For shuffling dependency traversal order (default: random)
-    \\  --fetch                       Exit after fetching dependency tree
-    \\  -h, --help                    Print this help and exit
-    \\
-;
-
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var build_file: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
