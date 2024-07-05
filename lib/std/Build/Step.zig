@@ -562,6 +562,52 @@ pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
     }
 }
 
+fn oom(err: anytype) noreturn {
+    switch (err) {
+        error.OutOfMemory => @panic("out of memory"),
+    }
+}
+
+pub fn addWatchInput(step: *Step, lazy_path: std.Build.LazyPath) void {
+    errdefer |err| oom(err);
+    const w = step.owner.graph.watch orelse return;
+    switch (lazy_path) {
+        .src_path => |src_path| try addWatchInputFromBuilder(step, w, src_path.owner, src_path.sub_path),
+        .dependency => |d| try addWatchInputFromBuilder(step, w, d.dependency.builder, d.sub_path),
+        .cwd_relative => |path_string| {
+            try addWatchInputFromPath(w, .{
+                .root_dir = .{
+                    .path = null,
+                    .handle = std.fs.cwd(),
+                },
+                .sub_path = std.fs.path.dirname(path_string) orelse "",
+            }, .{
+                .step = step,
+                .basename = std.fs.path.basename(path_string),
+            });
+        },
+        // Nothing to watch because this dependency edge is modeled instead via `dependants`.
+        .generated => {},
+    }
+}
+
+fn addWatchInputFromBuilder(step: *Step, w: *std.Build.Watch, builder: *std.Build, sub_path: []const u8) !void {
+    return addWatchInputFromPath(w, .{
+        .root_dir = builder.build_root,
+        .sub_path = std.fs.path.dirname(sub_path) orelse "",
+    }, .{
+        .step = step,
+        .basename = std.fs.path.basename(sub_path),
+    });
+}
+
+fn addWatchInputFromPath(w: *std.Build.Watch, path: std.Build.Cache.Path, match: std.Build.Watch.Match) !void {
+    const gpa = match.step.owner.allocator;
+    const gop = try w.table.getOrPut(gpa, path);
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    try gop.value_ptr.put(gpa, match, {});
+}
+
 test {
     _ = CheckFile;
     _ = CheckObject;

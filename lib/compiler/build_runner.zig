@@ -74,6 +74,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .watch = null,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -97,12 +98,12 @@ pub fn main() !void {
     var dir_list = std.Build.DirList{};
     var summary: ?Summary = null;
     var max_rss: u64 = 0;
-    var skip_oom_steps: bool = false;
+    var skip_oom_steps = false;
     var color: Color = .auto;
     var seed: u32 = 0;
-    var prominent_compile_errors: bool = false;
-    var help_menu: bool = false;
-    var steps_menu: bool = false;
+    var prominent_compile_errors = false;
+    var help_menu = false;
+    var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
 
     while (nextArg(args, &arg_idx)) |arg| {
@@ -227,6 +228,10 @@ pub fn main() !void {
                 builder.verbose_llvm_cpu_features = true;
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 prominent_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--watch")) {
+                const watch = try arena.create(std.Build.Watch);
+                watch.* = std.Build.Watch.init;
+                graph.watch = watch;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -344,7 +349,7 @@ pub fn main() !void {
         .prominent_compile_errors = prominent_compile_errors,
 
         .claimed_rss = 0,
-        .summary = summary,
+        .summary = summary orelse if (graph.watch != null) .new else .failures,
         .ttyconf = ttyconf,
         .stderr = stderr,
     };
@@ -363,7 +368,10 @@ pub fn main() !void {
         &run,
         seed,
     ) catch |err| switch (err) {
-        error.UncleanExit => process.exit(1),
+        error.UncleanExit => {
+            if (graph.watch == null)
+                process.exit(1);
+        },
         else => return err,
     };
 }
@@ -377,7 +385,7 @@ const Run = struct {
     prominent_compile_errors: bool,
 
     claimed_rss: usize,
-    summary: ?Summary,
+    summary: Summary,
     ttyconf: std.io.tty.Config,
     stderr: File,
 };
@@ -417,7 +425,7 @@ fn runStepNames(
 
     for (starting_steps) |s| {
         constructGraphAndCheckForDependencyLoop(b, s, &step_stack, rand) catch |err| switch (err) {
-            error.DependencyLoopDetected => return error.UncleanExit,
+            error.DependencyLoopDetected => return uncleanExit(),
             else => |e| return e,
         };
     }
@@ -442,7 +450,7 @@ fn runStepNames(
             if (run.max_rss_is_default) {
                 std.debug.print("note: use --maxrss to override the default", .{});
             }
-            return error.UncleanExit;
+            return uncleanExit();
         }
     }
 
@@ -524,13 +532,19 @@ fn runStepNames(
 
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    const failures_only = run.summary != .all and run.summary != .new;
-    if (failure_count == 0 and failures_only) return cleanExit();
+    const failures_only = switch (run.summary) {
+        .failures, .none => true,
+        else => false,
+    };
+    if (failure_count == 0 and failures_only) {
+        if (b.graph.watch != null) return;
+        return cleanExit();
+    }
 
     const ttyconf = run.ttyconf;
     const stderr = run.stderr;
 
-    if (run.summary != Summary.none) {
+    if (run.summary != .none) {
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
@@ -544,11 +558,6 @@ fn runStepNames(
         if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
 
-        if (run.summary == null) {
-            ttyconf.setColor(stderr, .dim) catch {};
-            stderr.writeAll(" (disable with --summary none)") catch {};
-            ttyconf.setColor(stderr, .reset) catch {};
-        }
         stderr.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
@@ -562,7 +571,7 @@ fn runStepNames(
                 while (i > 0) {
                     i -= 1;
                     const step = b.top_level_steps.get(step_names[i]).?.step;
-                    const found = switch (run.summary orelse .failures) {
+                    const found = switch (run.summary) {
                         .all, .none => unreachable,
                         .failures => step.state != .success,
                         .new => !step.result_cached,
@@ -579,7 +588,10 @@ fn runStepNames(
         }
     }
 
-    if (failure_count == 0) return cleanExit();
+    if (failure_count == 0) {
+        if (b.graph.watch != null) return;
+        return cleanExit();
+    }
 
     // Finally, render compile errors at the bottom of the terminal.
     // We use a separate compile_error_steps array list because step_stack is destructively
@@ -591,13 +603,24 @@ fn runStepNames(
             }
         }
 
+        if (b.graph.watch != null) return uncleanExit();
+
         // Signal to parent process that we have printed compile errors. The
         // parent process may choose to omit the "following command failed"
         // line in this case.
         process.exit(2);
     }
 
-    process.exit(1);
+    return uncleanExit();
+}
+
+fn uncleanExit() error{UncleanExit}!void {
+    if (builtin.mode == .Debug) {
+        return error.UncleanExit;
+    } else {
+        std.debug.lockStdErr();
+        process.exit(1);
+    }
 }
 
 const PrintNode = struct {
@@ -768,7 +791,7 @@ fn printTreeStep(
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
     const first = step_stack.swapRemove(s);
-    const summary = run.summary orelse .failures;
+    const summary = run.summary;
     const skip = switch (summary) {
         .none => unreachable,
         .all => false,
@@ -1124,6 +1147,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --fetch                      Exit after fetching dependency tree
+        \\  --watch                      Continuously rebuild when source files are modified
         \\
         \\Project-Specific Options:
         \\
