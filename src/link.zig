@@ -18,7 +18,7 @@ const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;
@@ -606,12 +606,12 @@ pub const File = struct {
         base: *File,
         module: *Module,
         exported: Module.Exported,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, exports);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, export_indices);
             },
         }
     }
@@ -646,7 +646,7 @@ pub const File = struct {
         base: *File,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
-        src_loc: Module.SrcLoc,
+        src_loc: Module.LazySrcLoc,
     ) !LowerResult {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
@@ -671,21 +671,20 @@ pub const File = struct {
         }
     }
 
-    pub fn deleteDeclExport(
+    pub fn deleteExport(
         base: *File,
-        decl_index: InternPool.DeclIndex,
+        exported: Zcu.Exported,
         name: InternPool.NullTerminatedString,
-    ) !void {
+    ) void {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .plan9,
-            .c,
             .spirv,
             .nvptx,
             => {},
 
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteDeclExport(decl_index, name);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteExport(exported, name);
             },
         }
     }

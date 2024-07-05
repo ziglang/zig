@@ -686,7 +686,7 @@ pub fn lowerAnonDecl(
     elf_file: *Elf,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = elf_file.base.comp.gpa;
     const mod = elf_file.base.comp.module.?;
@@ -1074,7 +1074,7 @@ pub fn updateFunc(
     const res = if (decl_state) |*ds|
         try codegen.generateFunction(
             &elf_file.base,
-            decl.navSrcLoc(mod).upgrade(mod),
+            decl.navSrcLoc(mod),
             func_index,
             air,
             liveness,
@@ -1084,7 +1084,7 @@ pub fn updateFunc(
     else
         try codegen.generateFunction(
             &elf_file.base,
-            decl.navSrcLoc(mod).upgrade(mod),
+            decl.navSrcLoc(mod),
             func_index,
             air,
             liveness,
@@ -1096,7 +1096,7 @@ pub fn updateFunc(
         .ok => code_buffer.items,
         .fail => |em| {
             func.analysis(&mod.intern_pool).state = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -1115,9 +1115,7 @@ pub fn updateFunc(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(elf_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 pub fn updateDecl(
@@ -1158,13 +1156,13 @@ pub fn updateDecl(
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .{
             .dwarf = ds,
         }, .{
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod).upgrade(mod), decl_val, &code_buffer, .none, .{
+        try codegen.generateSymbol(&elf_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .none, .{
             .parent_atom_index = sym_index,
         });
 
@@ -1172,7 +1170,7 @@ pub fn updateDecl(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -1194,9 +1192,7 @@ pub fn updateDecl(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(elf_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 fn updateLazySymbol(
@@ -1221,14 +1217,7 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (sym.ty.srcLocOrNull(mod)) |src|
-        src.upgrade(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .base_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &elf_file.base,
         src,
@@ -1306,12 +1295,12 @@ pub fn lowerUnnamedConst(
         val,
         ty.abiAlignment(mod),
         elf_file.zig_data_rel_ro_section_index.?,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -1333,7 +1322,7 @@ fn lowerConst(
     val: Value,
     required_alignment: InternPool.Alignment,
     output_section_index: u32,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = elf_file.base.comp.gpa;
 
@@ -1386,7 +1375,7 @@ pub fn updateExports(
     elf_file: *Elf,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1398,15 +1387,15 @@ pub fn updateExports(
             break :blk self.decls.getPtr(decl_index).?;
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
-            const first_exp = exports[0];
-            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.getSrcLoc(mod));
+            const first_exp = mod.all_exports.items[export_indices[0]];
+            const res = try self.lowerAnonDecl(elf_file, value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
                     try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1418,13 +1407,14 @@ pub fn updateExports(
     const esym = self.local_esyms.items(.elf_sym)[esym_index];
     const esym_shndx = self.local_esyms.items(.shndx)[esym_index];
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice(".text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1437,9 +1427,9 @@ pub fn updateExports(
             .weak => elf.STB_WEAK,
             .link_once => {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: GlobalLinkage.LinkOnce",
                     .{},
                 ));
@@ -1487,13 +1477,16 @@ pub fn updateDeclLineNumber(
     }
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *ZigObject,
     elf_file: *Elf,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| self.decls.getPtr(decl_index) orelse return,
+        .value => |value| self.anon_decls.getPtr(value) orelse return,
+    };
     const mod = elf_file.base.comp.module.?;
     const exp_name = name.toSlice(&mod.intern_pool);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
@@ -1654,6 +1647,7 @@ const Module = Zcu;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

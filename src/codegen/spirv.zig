@@ -9,7 +9,7 @@ const Zcu = @import("../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const Decl = Module.Decl;
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -218,7 +218,7 @@ pub const Object = struct {
 
         decl_gen.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
-                try mod.failed_decls.put(mod.gpa, decl_index, decl_gen.error_msg.?);
+                try mod.failed_analysis.put(mod.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), decl_gen.error_msg.?);
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg
@@ -415,7 +415,7 @@ const DeclGen = struct {
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const mod = self.module;
-        const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod).upgrade(mod);
+        const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -6439,7 +6439,7 @@ const DeclGen = struct {
                 // TODO: Translate proper error locations.
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
-                const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod).upgrade(mod);
+                const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 

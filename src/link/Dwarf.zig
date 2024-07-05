@@ -2969,5 +2969,5 @@ const Zcu = @import("../Zcu.zig");
 const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const StringTable = @import("StringTable.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");

@@ -14,7 +14,7 @@ const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
@@ -38,6 +38,9 @@ anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, DeclBlock) = .{},
 /// lowered the same as ABI-aligned anon decls. The keys here are a subset of
 /// the keys of `anon_decls`.
 aligned_anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .{},
+
+exported_decls: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, ExportedBlock) = .{},
+exported_values: std.AutoArrayHashMapUnmanaged(InternPool.Index, ExportedBlock) = .{},
 
 /// Optimization, `updateDecl` reuses this buffer rather than creating a new
 /// one with every call.
@@ -78,6 +81,11 @@ pub const DeclBlock = struct {
         db.ctype_pool.deinit(gpa);
         db.* = undefined;
     }
+};
+
+/// Per-exported-symbol data.
+pub const ExportedBlock = struct {
+    fwd_decl: String = String.empty,
 };
 
 pub fn getString(this: C, s: String) []const u8 {
@@ -238,9 +246,13 @@ pub fn updateFunc(
         function.deinit();
     }
 
+    try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
     codegen.genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => {
-            try zcu.failed_decls.put(gpa, decl_index, function.object.dg.error_msg.?);
+            zcu.failed_analysis.putAssumeCapacityNoClobber(
+                InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
+                function.object.dg.error_msg.?,
+            );
             return;
         },
         else => |e| return e,
@@ -288,7 +300,7 @@ fn updateAnonDecl(self: *C, zcu: *Zcu, i: usize) !void {
 
     const c_value: codegen.CValue = .{ .constant = Value.fromInterned(anon_decl) };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
-    codegen.genDeclValue(&object, c_value.constant, false, c_value, alignment, .none) catch |err| switch (err) {
+    codegen.genDeclValue(&object, c_value.constant, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
             //try zcu.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
@@ -351,9 +363,13 @@ pub fn updateDecl(self: *C, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
         code.* = object.code.moveToUnmanaged();
     }
 
+    try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
     codegen.genDecl(&object) catch |err| switch (err) {
         error.AnalysisFail => {
-            try zcu.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
+            zcu.failed_analysis.putAssumeCapacityNoClobber(
+                InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
+                object.dg.error_msg.?,
+            );
             return;
         },
         else => |e| return e,
@@ -451,20 +467,40 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
     {
         var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
-        try export_names.ensureTotalCapacity(gpa, @intCast(zcu.decl_exports.entries.len));
-        for (zcu.decl_exports.values()) |exports| for (exports.items) |@"export"|
-            try export_names.put(gpa, @"export".opts.name, {});
-
-        for (self.anon_decls.values()) |*decl_block| {
-            try self.flushDeclBlock(zcu, zcu.root_mod, &f, decl_block, export_names, .none);
+        try export_names.ensureTotalCapacity(gpa, @intCast(zcu.single_exports.count()));
+        for (zcu.single_exports.values()) |export_index| {
+            export_names.putAssumeCapacity(zcu.all_exports.items[export_index].opts.name, {});
         }
+        for (zcu.multi_exports.values()) |info| {
+            try export_names.ensureUnusedCapacity(gpa, info.len);
+            for (zcu.all_exports.items[info.index..][0..info.len]) |@"export"| {
+                export_names.putAssumeCapacity(@"export".opts.name, {});
+            }
+        }
+
+        for (self.anon_decls.keys(), self.anon_decls.values()) |value, *decl_block| try self.flushDeclBlock(
+            zcu,
+            zcu.root_mod,
+            &f,
+            decl_block,
+            self.exported_values.getPtr(value),
+            export_names,
+            .none,
+        );
 
         for (self.decl_table.keys(), self.decl_table.values()) |decl_index, *decl_block| {
             const decl = zcu.declPtr(decl_index);
-            assert(decl.has_tv);
-            const extern_symbol_name = if (decl.isExtern(zcu)) decl.name.toOptional() else .none;
+            const extern_name = if (decl.isExtern(zcu)) decl.name.toOptional() else .none;
             const mod = zcu.namespacePtr(decl.src_namespace).file_scope.mod;
-            try self.flushDeclBlock(zcu, mod, &f, decl_block, export_names, extern_symbol_name);
+            try self.flushDeclBlock(
+                zcu,
+                mod,
+                &f,
+                decl_block,
+                self.exported_decls.getPtr(decl_index),
+                export_names,
+                extern_name,
+            );
         }
     }
 
@@ -497,12 +533,27 @@ pub fn flushModule(self: *C, arena: Allocator, prog_node: std.Progress.Node) !vo
     f.file_size += lazy_fwd_decl_len;
 
     // Now the code.
-    const anon_decl_values = self.anon_decls.values();
-    const decl_values = self.decl_table.values();
-    try f.all_buffers.ensureUnusedCapacity(gpa, 1 + anon_decl_values.len + decl_values.len);
+    try f.all_buffers.ensureUnusedCapacity(gpa, 1 + (self.anon_decls.count() + self.decl_table.count()) * 2);
     f.appendBufAssumeCapacity(self.lazy_code_buf.items);
-    for (anon_decl_values) |db| f.appendBufAssumeCapacity(self.getString(db.code));
-    for (decl_values) |db| f.appendBufAssumeCapacity(self.getString(db.code));
+    for (self.anon_decls.keys(), self.anon_decls.values()) |anon_decl, decl_block| f.appendCodeAssumeCapacity(
+        if (self.exported_values.contains(anon_decl))
+            .default
+        else switch (zcu.intern_pool.indexToKey(anon_decl)) {
+            .extern_func => .zig_extern,
+            .variable => |variable| if (variable.is_extern) .zig_extern else .static,
+            else => .static,
+        },
+        self.getString(decl_block.code),
+    );
+    for (self.decl_table.keys(), self.decl_table.values()) |decl_index, decl_block| f.appendCodeAssumeCapacity(
+        if (self.exported_decls.contains(decl_index))
+            .default
+        else if (zcu.declPtr(decl_index).isExtern(zcu))
+            .zig_extern
+        else
+            .static,
+        self.getString(decl_block.code),
+    );
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);
@@ -530,6 +581,16 @@ const Flush = struct {
         if (buf.len == 0) return;
         f.all_buffers.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
         f.file_size += buf.len;
+    }
+
+    fn appendCodeAssumeCapacity(f: *Flush, storage: enum { default, zig_extern, static }, code: []const u8) void {
+        if (code.len == 0) return;
+        f.appendBufAssumeCapacity(switch (storage) {
+            .default => "\n",
+            .zig_extern => "\nzig_extern ",
+            .static => "\nstatic ",
+        });
+        f.appendBufAssumeCapacity(code);
     }
 
     fn deinit(f: *Flush, gpa: Allocator) void {
@@ -719,19 +780,20 @@ fn flushDeclBlock(
     zcu: *Zcu,
     mod: *Module,
     f: *Flush,
-    decl_block: *DeclBlock,
+    decl_block: *const DeclBlock,
+    exported_block: ?*const ExportedBlock,
     export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
-    extern_symbol_name: InternPool.OptionalNullTerminatedString,
+    extern_name: InternPool.OptionalNullTerminatedString,
 ) FlushDeclError!void {
     const gpa = self.base.comp.gpa;
     try self.flushLazyFns(zcu, mod, f, &decl_block.ctype_pool, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
-    fwd_decl: {
-        if (extern_symbol_name.unwrap()) |name| {
-            if (export_names.contains(name)) break :fwd_decl;
-        }
-        f.appendBufAssumeCapacity(self.getString(decl_block.fwd_decl));
-    }
+    // avoid emitting extern decls that are already exported
+    if (extern_name.unwrap()) |name| if (export_names.contains(name)) return;
+    f.appendBufAssumeCapacity(self.getString(if (exported_block) |exported|
+        exported.fwd_decl
+    else
+        decl_block.fwd_decl));
 }
 
 pub fn flushEmitH(zcu: *Zcu) !void {
@@ -781,10 +843,58 @@ pub fn updateExports(
     self: *C,
     zcu: *Zcu,
     exported: Zcu.Exported,
-    exports: []const *Zcu.Export,
+    export_indices: []const u32,
 ) !void {
-    _ = exports;
-    _ = exported;
-    _ = zcu;
-    _ = self;
+    const gpa = self.base.comp.gpa;
+    const mod, const pass: codegen.DeclGen.Pass, const decl_block, const exported_block = switch (exported) {
+        .decl_index => |decl_index| .{
+            zcu.namespacePtr(zcu.declPtr(decl_index).src_namespace).file_scope.mod,
+            .{ .decl = decl_index },
+            self.decl_table.getPtr(decl_index).?,
+            (try self.exported_decls.getOrPut(gpa, decl_index)).value_ptr,
+        },
+        .value => |value| .{
+            zcu.root_mod,
+            .{ .anon = value },
+            self.anon_decls.getPtr(value).?,
+            (try self.exported_values.getOrPut(gpa, value)).value_ptr,
+        },
+    };
+    const ctype_pool = &decl_block.ctype_pool;
+    const fwd_decl = &self.fwd_decl_buf;
+    fwd_decl.clearRetainingCapacity();
+    var dg: codegen.DeclGen = .{
+        .gpa = gpa,
+        .zcu = zcu,
+        .mod = mod,
+        .error_msg = null,
+        .pass = pass,
+        .is_naked_fn = false,
+        .fwd_decl = fwd_decl.toManaged(gpa),
+        .ctype_pool = decl_block.ctype_pool,
+        .scratch = .{},
+        .anon_decl_deps = .{},
+        .aligned_anon_decls = .{},
+    };
+    defer {
+        assert(dg.anon_decl_deps.count() == 0);
+        assert(dg.aligned_anon_decls.count() == 0);
+        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
+        ctype_pool.* = dg.ctype_pool.move();
+        ctype_pool.freeUnusedCapacity(gpa);
+        dg.scratch.deinit(gpa);
+    }
+    try codegen.genExports(&dg, exported, export_indices);
+    exported_block.* = .{ .fwd_decl = try self.addString(dg.fwd_decl.items) };
+}
+
+pub fn deleteExport(
+    self: *C,
+    exported: Zcu.Exported,
+    _: InternPool.NullTerminatedString,
+) void {
+    switch (exported) {
+        .decl_index => |decl_index| _ = self.exported_decls.swapRemove(decl_index),
+        .value => |value| _ = self.exported_values.swapRemove(value),
+    }
 }

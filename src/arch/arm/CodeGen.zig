@@ -8,7 +8,7 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
@@ -59,7 +59,7 @@ args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: u32,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 stack_align: u32,
 
 /// MIR Instructions
@@ -338,7 +338,7 @@ const Self = @This();
 
 pub fn generate(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,

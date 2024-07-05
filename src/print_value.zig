@@ -2,7 +2,7 @@
 //! It is a thin wrapper around a `Value` which also, redundantly, stores its `Type`.
 
 const std = @import("std");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.
@@ -81,12 +81,12 @@ pub fn print(
         }),
         .int => |int| switch (int.storage) {
             inline .u64, .i64, .big_int => |x| try writer.print("{}", .{x}),
-            .lazy_align => |ty| if (opt_sema) |sema| {
-                const a = (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar;
+            .lazy_align => |ty| if (opt_sema != null) {
+                const a = (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .sema)).scalar;
                 try writer.print("{}", .{a.toByteUnits() orelse 0});
             } else try writer.print("@alignOf({})", .{Type.fromInterned(ty).fmt(mod)}),
-            .lazy_size => |ty| if (opt_sema) |sema| {
-                const s = (try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar;
+            .lazy_size => |ty| if (opt_sema != null) {
+                const s = (try Type.fromInterned(ty).abiSizeAdvanced(mod, .sema)).scalar;
                 try writer.print("{}", .{s});
             } else try writer.print("@sizeOf({})", .{Type.fromInterned(ty).fmt(mod)}),
         },

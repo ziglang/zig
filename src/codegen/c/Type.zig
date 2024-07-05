@@ -2583,6 +2583,6 @@ const assert = std.debug.assert;
 const CType = @This();
 const Module = @import("../../Package/Module.zig");
 const std = @import("std");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 const DeclIndex = @import("../../InternPool.zig").DeclIndex;

@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
@@ -161,9 +161,11 @@ pub fn intFromEnum(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
     };
 }
 
+pub const ResolveStrat = Type.ResolveStrat;
+
 /// Asserts the value is an integer.
 pub fn toBigInt(val: Value, space: *BigIntSpace, mod: *Module) BigIntConst {
-    return val.toBigIntAdvanced(space, mod, null) catch unreachable;
+    return val.toBigIntAdvanced(space, mod, .normal) catch unreachable;
 }
 
 /// Asserts the value is an integer.
@@ -171,7 +173,7 @@ pub fn toBigIntAdvanced(
     val: Value,
     space: *BigIntSpace,
     mod: *Module,
-    opt_sema: ?*Sema,
+    strat: ResolveStrat,
 ) Module.CompileError!BigIntConst {
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -181,7 +183,7 @@ pub fn toBigIntAdvanced(
             .int => |int| switch (int.storage) {
                 .u64, .i64, .big_int => int.storage.toBigInt(space),
                 .lazy_align, .lazy_size => |ty| {
-                    if (opt_sema) |sema| try sema.resolveTypeLayout(Type.fromInterned(ty));
+                    if (strat == .sema) try Type.fromInterned(ty).resolveLayout(mod);
                     const x = switch (int.storage) {
                         else => unreachable,
                         .lazy_align => Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0,
@@ -190,10 +192,10 @@ pub fn toBigIntAdvanced(
                     return BigIntMutable.init(&space.limbs, x).toConst();
                 },
             },
-            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).toBigIntAdvanced(space, mod, opt_sema),
+            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).toBigIntAdvanced(space, mod, strat),
             .opt, .ptr => BigIntMutable.init(
                 &space.limbs,
-                (try val.getUnsignedIntAdvanced(mod, opt_sema)).?,
+                (try val.getUnsignedIntAdvanced(mod, strat)).?,
             ).toConst(),
             else => unreachable,
         },
@@ -228,12 +230,12 @@ pub fn getVariable(val: Value, mod: *Module) ?InternPool.Key.Variable {
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
 pub fn getUnsignedInt(val: Value, mod: *Module) ?u64 {
-    return getUnsignedIntAdvanced(val, mod, null) catch unreachable;
+    return getUnsignedIntAdvanced(val, mod, .normal) catch unreachable;
 }
 
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
-pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 {
+pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, strat: ResolveStrat) !?u64 {
     return switch (val.toIntern()) {
         .undef => unreachable,
         .bool_false => 0,
@@ -244,28 +246,22 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                 .big_int => |big_int| big_int.to(u64) catch null,
                 .u64 => |x| x,
                 .i64 => |x| std.math.cast(u64, x),
-                .lazy_align => |ty| if (opt_sema) |sema|
-                    (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits() orelse 0
-                else
-                    Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0,
-                .lazy_size => |ty| if (opt_sema) |sema|
-                    (try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar
-                else
-                    Type.fromInterned(ty).abiSize(mod),
+                .lazy_align => |ty| (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, strat.toLazy())).scalar.toByteUnits() orelse 0,
+                .lazy_size => |ty| (try Type.fromInterned(ty).abiSizeAdvanced(mod, strat.toLazy())).scalar,
             },
             .ptr => |ptr| switch (ptr.base_addr) {
                 .int => ptr.byte_offset,
                 .field => |field| {
-                    const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
+                    const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, strat)) orelse return null;
                     const struct_ty = Value.fromInterned(field.base).typeOf(mod).childType(mod);
-                    if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
+                    if (strat == .sema) try struct_ty.resolveLayout(mod);
                     return base_addr + struct_ty.structFieldOffset(@intCast(field.index), mod) + ptr.byte_offset;
                 },
                 else => null,
             },
             .opt => |opt| switch (opt.val) {
                 .none => 0,
-                else => |payload| Value.fromInterned(payload).getUnsignedIntAdvanced(mod, opt_sema),
+                else => |payload| Value.fromInterned(payload).getUnsignedIntAdvanced(mod, strat),
             },
             else => null,
         },
@@ -273,13 +269,13 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
 }
 
 /// Asserts the value is an integer and it fits in a u64
-pub fn toUnsignedInt(val: Value, mod: *Module) u64 {
-    return getUnsignedInt(val, mod).?;
+pub fn toUnsignedInt(val: Value, zcu: *Zcu) u64 {
+    return getUnsignedInt(val, zcu).?;
 }
 
 /// Asserts the value is an integer and it fits in a u64
-pub fn toUnsignedIntAdvanced(val: Value, sema: *Sema) !u64 {
-    return (try getUnsignedIntAdvanced(val, sema.mod, sema)).?;
+pub fn toUnsignedIntSema(val: Value, zcu: *Zcu) !u64 {
+    return (try getUnsignedIntAdvanced(val, zcu, .sema)).?;
 }
 
 /// Asserts the value is an integer and it fits in a i64
@@ -1028,13 +1024,13 @@ pub fn floatHasFraction(self: Value, mod: *const Module) bool {
 }
 
 pub fn orderAgainstZero(lhs: Value, mod: *Module) std.math.Order {
-    return orderAgainstZeroAdvanced(lhs, mod, null) catch unreachable;
+    return orderAgainstZeroAdvanced(lhs, mod, .normal) catch unreachable;
 }
 
 pub fn orderAgainstZeroAdvanced(
     lhs: Value,
     mod: *Module,
-    opt_sema: ?*Sema,
+    strat: ResolveStrat,
 ) Module.CompileError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
@@ -1052,13 +1048,13 @@ pub fn orderAgainstZeroAdvanced(
                 .lazy_size => |ty| return if (Type.fromInterned(ty).hasRuntimeBitsAdvanced(
                     mod,
                     false,
-                    if (opt_sema) |sema| .{ .sema = sema } else .eager,
+                    strat.toLazy(),
                 ) catch |err| switch (err) {
                     error.NeedLazy => unreachable,
                     else => |e| return e,
                 }) .gt else .eq,
             },
-            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroAdvanced(mod, opt_sema),
+            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroAdvanced(mod, strat),
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.order(x, 0),
             },
@@ -1069,14 +1065,13 @@ pub fn orderAgainstZeroAdvanced(
 
 /// Asserts the value is comparable.
 pub fn order(lhs: Value, rhs: Value, mod: *Module) std.math.Order {
-    return orderAdvanced(lhs, rhs, mod, null) catch unreachable;
+    return orderAdvanced(lhs, rhs, mod, .normal) catch unreachable;
 }
 
 /// Asserts the value is comparable.
-/// If opt_sema is null then this function asserts things are resolved and cannot fail.
-pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *Module, opt_sema: ?*Sema) !std.math.Order {
-    const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(mod, opt_sema);
-    const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(mod, opt_sema);
+pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *Module, strat: ResolveStrat) !std.math.Order {
+    const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(mod, strat);
+    const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(mod, strat);
     switch (lhs_against_zero) {
         .lt => if (rhs_against_zero != .lt) return .lt,
         .eq => return rhs_against_zero.invert(),
@@ -1096,15 +1091,15 @@ pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *Module, opt_sema: ?*Sema) !st
 
     var lhs_bigint_space: BigIntSpace = undefined;
     var rhs_bigint_space: BigIntSpace = undefined;
-    const lhs_bigint = try lhs.toBigIntAdvanced(&lhs_bigint_space, mod, opt_sema);
-    const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_bigint_space, mod, opt_sema);
+    const lhs_bigint = try lhs.toBigIntAdvanced(&lhs_bigint_space, mod, strat);
+    const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_bigint_space, mod, strat);
     return lhs_bigint.order(rhs_bigint);
 }
 
 /// Asserts the value is comparable. Does not take a type parameter because it supports
 /// comparisons between heterogeneous types.
 pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value, mod: *Module) bool {
-    return compareHeteroAdvanced(lhs, op, rhs, mod, null) catch unreachable;
+    return compareHeteroAdvanced(lhs, op, rhs, mod, .normal) catch unreachable;
 }
 
 pub fn compareHeteroAdvanced(
@@ -1112,7 +1107,7 @@ pub fn compareHeteroAdvanced(
     op: std.math.CompareOperator,
     rhs: Value,
     mod: *Module,
-    opt_sema: ?*Sema,
+    strat: ResolveStrat,
 ) !bool {
     if (lhs.pointerDecl(mod)) |lhs_decl| {
         if (rhs.pointerDecl(mod)) |rhs_decl| {
@@ -1135,7 +1130,7 @@ pub fn compareHeteroAdvanced(
             else => {},
         }
     }
-    return (try orderAdvanced(lhs, rhs, mod, opt_sema)).compare(op);
+    return (try orderAdvanced(lhs, rhs, mod, strat)).compare(op);
 }
 
 /// Asserts the values are comparable. Both operands have type `ty`.
@@ -1176,22 +1171,22 @@ pub fn compareScalar(
 ///
 /// Note that `!compareAllWithZero(.eq, ...) != compareAllWithZero(.neq, ...)`
 pub fn compareAllWithZero(lhs: Value, op: std.math.CompareOperator, mod: *Module) bool {
-    return compareAllWithZeroAdvancedExtra(lhs, op, mod, null) catch unreachable;
+    return compareAllWithZeroAdvancedExtra(lhs, op, mod, .normal) catch unreachable;
 }
 
-pub fn compareAllWithZeroAdvanced(
+pub fn compareAllWithZeroSema(
     lhs: Value,
     op: std.math.CompareOperator,
-    sema: *Sema,
+    zcu: *Zcu,
 ) Module.CompileError!bool {
-    return compareAllWithZeroAdvancedExtra(lhs, op, sema.mod, sema);
+    return compareAllWithZeroAdvancedExtra(lhs, op, zcu, .sema);
 }
 
 pub fn compareAllWithZeroAdvancedExtra(
     lhs: Value,
     op: std.math.CompareOperator,
     mod: *Module,
-    opt_sema: ?*Sema,
+    strat: ResolveStrat,
 ) Module.CompileError!bool {
     if (lhs.isInf(mod)) {
         switch (op) {
@@ -1211,14 +1206,14 @@ pub fn compareAllWithZeroAdvancedExtra(
                 if (!std.math.order(byte, 0).compare(op)) break false;
             } else true,
             .elems => |elems| for (elems) |elem| {
-                if (!try Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, opt_sema)) break false;
+                if (!try Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, strat)) break false;
             } else true,
-            .repeated_elem => |elem| Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
+            .repeated_elem => |elem| Value.fromInterned(elem).compareAllWithZeroAdvancedExtra(op, mod, strat),
         },
         .undef => return false,
         else => {},
     }
-    return (try orderAgainstZeroAdvanced(lhs, mod, opt_sema)).compare(op);
+    return (try orderAgainstZeroAdvanced(lhs, mod, strat)).compare(op);
 }
 
 pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
@@ -1279,9 +1274,9 @@ pub fn slicePtr(val: Value, mod: *Module) Value {
 }
 
 /// Gets the `len` field of a slice value as a `u64`.
-/// Resolves the length using the provided `Sema` if necessary.
-pub fn sliceLen(val: Value, sema: *Sema) !u64 {
-    return Value.fromInterned(sema.mod.intern_pool.sliceLen(val.toIntern())).toUnsignedIntAdvanced(sema);
+/// Resolves the length using `Sema` if necessary.
+pub fn sliceLen(val: Value, zcu: *Zcu) !u64 {
+    return Value.fromInterned(zcu.intern_pool.sliceLen(val.toIntern())).toUnsignedIntSema(zcu);
 }
 
 /// Asserts the value is an aggregate, and returns the element value at the given index.
@@ -1482,29 +1477,29 @@ pub fn isFloat(self: Value, mod: *const Module) bool {
 }
 
 pub fn floatFromInt(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module) !Value {
-    return floatFromIntAdvanced(val, arena, int_ty, float_ty, mod, null) catch |err| switch (err) {
+    return floatFromIntAdvanced(val, arena, int_ty, float_ty, mod, .normal) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
     };
 }
 
-pub fn floatFromIntAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+pub fn floatFromIntAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, strat: ResolveStrat) !Value {
     if (int_ty.zigTypeTag(mod) == .Vector) {
         const result_data = try arena.alloc(InternPool.Index, int_ty.vectorLen(mod));
         const scalar_ty = float_ty.scalarType(mod);
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(mod, i);
-            scalar.* = (try floatFromIntScalar(elem_val, scalar_ty, mod, opt_sema)).toIntern();
+            scalar.* = (try floatFromIntScalar(elem_val, scalar_ty, mod, strat)).toIntern();
         }
         return Value.fromInterned((try mod.intern(.{ .aggregate = .{
             .ty = float_ty.toIntern(),
             .storage = .{ .elems = result_data },
         } })));
     }
-    return floatFromIntScalar(val, float_ty, mod, opt_sema);
+    return floatFromIntScalar(val, float_ty, mod, strat);
 }
 
-pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, strat: ResolveStrat) !Value {
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .undef => try mod.undefValue(float_ty),
         .int => |int| switch (int.storage) {
@@ -1513,16 +1508,8 @@ pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*
                 return mod.floatValue(float_ty, float);
             },
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
-            .lazy_align => |ty| if (opt_sema) |sema| {
-                return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits() orelse 0, float_ty, mod);
-            } else {
-                return floatFromIntInner(Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0, float_ty, mod);
-            },
-            .lazy_size => |ty| if (opt_sema) |sema| {
-                return floatFromIntInner((try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
-            } else {
-                return floatFromIntInner(Type.fromInterned(ty).abiSize(mod), float_ty, mod);
-            },
+            .lazy_align => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentAdvanced(mod, strat.toLazy())).scalar.toByteUnits() orelse 0, float_ty, mod),
+            .lazy_size => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiSizeAdvanced(mod, strat.toLazy())).scalar, float_ty, mod),
         },
         else => unreachable,
     };
@@ -3616,17 +3603,15 @@ pub const RuntimeIndex = InternPool.RuntimeIndex;
 
 /// `parent_ptr` must be a single-pointer to some optional.
 /// Returns a pointer to the payload of the optional.
-/// This takes a `Sema` because it may need to perform type resolution.
-pub fn ptrOptPayload(parent_ptr: Value, sema: *Sema) !Value {
-    const zcu = sema.mod;
-
+/// May perform type resolution.
+pub fn ptrOptPayload(parent_ptr: Value, zcu: *Zcu) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
 
     assert(parent_ptr_ty.ptrSize(zcu) == .One);
     assert(opt_ty.zigTypeTag(zcu) == .Optional);
 
-    const result_ty = try sema.ptrType(info: {
+    const result_ty = try zcu.ptrTypeSema(info: {
         var new = parent_ptr_ty.ptrInfo(zcu);
         // We can correctly preserve alignment `.none`, since an optional has the same
         // natural alignment as its child type.
@@ -3651,17 +3636,15 @@ pub fn ptrOptPayload(parent_ptr: Value, sema: *Sema) !Value {
 
 /// `parent_ptr` must be a single-pointer to some error union.
 /// Returns a pointer to the payload of the error union.
-/// This takes a `Sema` because it may need to perform type resolution.
-pub fn ptrEuPayload(parent_ptr: Value, sema: *Sema) !Value {
-    const zcu = sema.mod;
-
+/// May perform type resolution.
+pub fn ptrEuPayload(parent_ptr: Value, zcu: *Zcu) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const eu_ty = parent_ptr_ty.childType(zcu);
 
     assert(parent_ptr_ty.ptrSize(zcu) == .One);
     assert(eu_ty.zigTypeTag(zcu) == .ErrorUnion);
 
-    const result_ty = try sema.ptrType(info: {
+    const result_ty = try zcu.ptrTypeSema(info: {
         var new = parent_ptr_ty.ptrInfo(zcu);
         // We can correctly preserve alignment `.none`, since an error union has a
         // natural alignment greater than or equal to that of its payload type.
@@ -3682,10 +3665,8 @@ pub fn ptrEuPayload(parent_ptr: Value, sema: *Sema) !Value {
 /// `parent_ptr` must be a single-pointer to a struct, union, or slice.
 /// Returns a pointer to the aggregate field at the specified index.
 /// For slices, uses `slice_ptr_index` and `slice_len_index`.
-/// This takes a `Sema` because it may need to perform type resolution.
-pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
-    const zcu = sema.mod;
-
+/// May perform type resolution.
+pub fn ptrField(parent_ptr: Value, field_idx: u32, zcu: *Zcu) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
@@ -3698,17 +3679,17 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
         .Struct => field: {
             const field_ty = aggregate_ty.structFieldType(field_idx, zcu);
             switch (aggregate_ty.containerLayout(zcu)) {
-                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, sema) },
+                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, .sema) },
                 .@"extern" => {
                     // Well-defined layout, so just offset the pointer appropriately.
                     const byte_off = aggregate_ty.structFieldOffset(field_idx, zcu);
                     const field_align = a: {
                         const parent_align = if (parent_ptr_info.flags.alignment == .none) pa: {
-                            break :pa try sema.typeAbiAlignment(aggregate_ty);
+                            break :pa (try aggregate_ty.abiAlignmentAdvanced(zcu, .sema)).scalar;
                         } else parent_ptr_info.flags.alignment;
                         break :a InternPool.Alignment.fromLog2Units(@min(parent_align.toLog2Units(), @ctz(byte_off)));
                     };
-                    const result_ty = try sema.ptrType(info: {
+                    const result_ty = try zcu.ptrTypeSema(info: {
                         var new = parent_ptr_info;
                         new.child = field_ty.toIntern();
                         new.flags.alignment = field_align;
@@ -3723,14 +3704,14 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
                             new.packed_offset = packed_offset;
                             new.child = field_ty.toIntern();
                             if (new.flags.alignment == .none) {
-                                new.flags.alignment = try sema.typeAbiAlignment(aggregate_ty);
+                                new.flags.alignment = (try aggregate_ty.abiAlignmentAdvanced(zcu, .sema)).scalar;
                             }
                             break :info new;
                         });
                         return zcu.getCoerced(parent_ptr, result_ty);
                     },
                     .byte_ptr => |ptr_info| {
-                        const result_ty = try sema.ptrType(info: {
+                        const result_ty = try zcu.ptrTypeSema(info: {
                             var new = parent_ptr_info;
                             new.child = field_ty.toIntern();
                             new.packed_offset = .{
@@ -3749,10 +3730,10 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
             const union_obj = zcu.typeToUnion(aggregate_ty).?;
             const field_ty = Type.fromInterned(union_obj.field_types.get(&zcu.intern_pool)[field_idx]);
             switch (aggregate_ty.containerLayout(zcu)) {
-                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, sema) },
+                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), zcu, .sema) },
                 .@"extern" => {
                     // Point to the same address.
-                    const result_ty = try sema.ptrType(info: {
+                    const result_ty = try zcu.ptrTypeSema(info: {
                         var new = parent_ptr_info;
                         new.child = field_ty.toIntern();
                         break :info new;
@@ -3762,28 +3743,28 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
                 .@"packed" => {
                     // If the field has an ABI size matching its bit size, then we can continue to use a
                     // non-bit pointer if the parent pointer is also a non-bit pointer.
-                    if (parent_ptr_info.packed_offset.host_size == 0 and try sema.typeAbiSize(field_ty) * 8 == try field_ty.bitSizeAdvanced(zcu, sema)) {
+                    if (parent_ptr_info.packed_offset.host_size == 0 and (try field_ty.abiSizeAdvanced(zcu, .sema)).scalar * 8 == try field_ty.bitSizeAdvanced(zcu, .sema)) {
                         // We must offset the pointer on big-endian targets, since the bits of packed memory don't align nicely.
                         const byte_offset = switch (zcu.getTarget().cpu.arch.endian()) {
                             .little => 0,
-                            .big => try sema.typeAbiSize(aggregate_ty) - try sema.typeAbiSize(field_ty),
+                            .big => (try aggregate_ty.abiSizeAdvanced(zcu, .sema)).scalar - (try field_ty.abiSizeAdvanced(zcu, .sema)).scalar,
                         };
-                        const result_ty = try sema.ptrType(info: {
+                        const result_ty = try zcu.ptrTypeSema(info: {
                             var new = parent_ptr_info;
                             new.child = field_ty.toIntern();
                             new.flags.alignment = InternPool.Alignment.fromLog2Units(
-                                @ctz(byte_offset | (try parent_ptr_ty.ptrAlignmentAdvanced(zcu, sema)).toByteUnits().?),
+                                @ctz(byte_offset | (try parent_ptr_ty.ptrAlignmentAdvanced(zcu, .sema)).toByteUnits().?),
                             );
                             break :info new;
                         });
                         return parent_ptr.getOffsetPtr(byte_offset, result_ty, zcu);
                     } else {
                         // The result must be a bit-pointer if it is not already.
-                        const result_ty = try sema.ptrType(info: {
+                        const result_ty = try zcu.ptrTypeSema(info: {
                             var new = parent_ptr_info;
                             new.child = field_ty.toIntern();
                             if (new.packed_offset.host_size == 0) {
-                                new.packed_offset.host_size = @intCast(((try aggregate_ty.bitSizeAdvanced(zcu, sema)) + 7) / 8);
+                                new.packed_offset.host_size = @intCast(((try aggregate_ty.bitSizeAdvanced(zcu, .sema)) + 7) / 8);
                                 assert(new.packed_offset.bit_offset == 0);
                             }
                             break :info new;
@@ -3805,14 +3786,14 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
     };
 
     const new_align: InternPool.Alignment = if (parent_ptr_info.flags.alignment != .none) a: {
-        const ty_align = try sema.typeAbiAlignment(field_ty);
+        const ty_align = (try field_ty.abiAlignmentAdvanced(zcu, .sema)).scalar;
         const true_field_align = if (field_align == .none) ty_align else field_align;
         const new_align = true_field_align.min(parent_ptr_info.flags.alignment);
         if (new_align == ty_align) break :a .none;
         break :a new_align;
     } else field_align;
 
-    const result_ty = try sema.ptrType(info: {
+    const result_ty = try zcu.ptrTypeSema(info: {
         var new = parent_ptr_info;
         new.child = field_ty.toIntern();
         new.flags.alignment = new_align;
@@ -3834,10 +3815,8 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, sema: *Sema) !Value {
 
 /// `orig_parent_ptr` must be either a single-pointer to an array or vector, or a many-pointer or C-pointer or slice.
 /// Returns a pointer to the element at the specified index.
-/// This takes a `Sema` because it may need to perform type resolution.
-pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, sema: *Sema) !Value {
-    const zcu = sema.mod;
-
+/// May perform type resolution.
+pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, zcu: *Zcu) !Value {
     const parent_ptr = switch (orig_parent_ptr.typeOf(zcu).ptrSize(zcu)) {
         .One, .Many, .C => orig_parent_ptr,
         .Slice => orig_parent_ptr.slicePtr(zcu),
@@ -3845,7 +3824,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, sema: *Sema) !Value {
 
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const elem_ty = parent_ptr_ty.childType(zcu);
-    const result_ty = try sema.elemPtrType(parent_ptr_ty, @intCast(field_idx));
+    const result_ty = try parent_ptr_ty.elemPtrType(@intCast(field_idx), zcu);
 
     if (parent_ptr.isUndef(zcu)) return zcu.undefValue(result_ty);
 
@@ -3862,21 +3841,21 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, sema: *Sema) !Value {
 
     const strat: PtrStrat = switch (parent_ptr_ty.ptrSize(zcu)) {
         .One => switch (elem_ty.zigTypeTag(zcu)) {
-            .Vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeAdvanced(zcu, sema), 8) },
+            .Vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeAdvanced(zcu, .sema), 8) },
             .Array => strat: {
                 const arr_elem_ty = elem_ty.childType(zcu);
-                if (try sema.typeRequiresComptime(arr_elem_ty)) {
+                if (try arr_elem_ty.comptimeOnlyAdvanced(zcu, .sema)) {
                     break :strat .{ .elem_ptr = arr_elem_ty };
                 }
-                break :strat .{ .offset = field_idx * try sema.typeAbiSize(arr_elem_ty) };
+                break :strat .{ .offset = field_idx * (try arr_elem_ty.abiSizeAdvanced(zcu, .sema)).scalar };
             },
             else => unreachable,
         },
 
-        .Many, .C => if (try sema.typeRequiresComptime(elem_ty))
+        .Many, .C => if (try elem_ty.comptimeOnlyAdvanced(zcu, .sema))
             .{ .elem_ptr = elem_ty }
         else
-            .{ .offset = field_idx * try sema.typeAbiSize(elem_ty) },
+            .{ .offset = field_idx * (try elem_ty.abiSizeAdvanced(zcu, .sema)).scalar },
 
         .Slice => unreachable,
     };
@@ -4014,11 +3993,7 @@ pub const PointerDeriveStep = union(enum) {
 pub fn pointerDerivation(ptr_val: Value, arena: Allocator, zcu: *Zcu) Allocator.Error!PointerDeriveStep {
     return ptr_val.pointerDerivationAdvanced(arena, zcu, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
-        error.AnalysisFail,
-        error.GenericPoison,
-        error.ComptimeReturn,
-        error.ComptimeBreak,
-        => unreachable,
+        error.AnalysisFail => unreachable,
     };
 }
 
@@ -4087,8 +4062,8 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, zcu: *Zcu, op
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const agg_ty = base_ptr_ty.childType(zcu);
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, opt_sema) },
-                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, opt_sema) },
+                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, .sema) },
+                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), zcu, .sema) },
                 .Pointer => .{ switch (field.index) {
                     Value.slice_ptr_index => agg_ty.slicePtrFieldType(zcu),
                     Value.slice_len_index => Type.usize,
@@ -4268,4 +4243,119 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, zcu: *Zcu, op
         .byte_offset = cur_offset,
         .new_ptr_ty = Type.fromInterned(ptr.ty),
     } };
+}
+
+pub fn resolveLazy(val: Value, arena: Allocator, zcu: *Zcu) Zcu.SemaError!Value {
+    switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        .int => |int| switch (int.storage) {
+            .u64, .i64, .big_int => return val,
+            .lazy_align, .lazy_size => return zcu.intValue(
+                Type.fromInterned(int.ty),
+                (try val.getUnsignedIntAdvanced(zcu, .sema)).?,
+            ),
+        },
+        .slice => |slice| {
+            const ptr = try Value.fromInterned(slice.ptr).resolveLazy(arena, zcu);
+            const len = try Value.fromInterned(slice.len).resolveLazy(arena, zcu);
+            if (ptr.toIntern() == slice.ptr and len.toIntern() == slice.len) return val;
+            return Value.fromInterned(try zcu.intern(.{ .slice = .{
+                .ty = slice.ty,
+                .ptr = ptr.toIntern(),
+                .len = len.toIntern(),
+            } }));
+        },
+        .ptr => |ptr| {
+            switch (ptr.base_addr) {
+                .decl, .comptime_alloc, .anon_decl, .int => return val,
+                .comptime_field => |field_val| {
+                    const resolved_field_val = (try Value.fromInterned(field_val).resolveLazy(arena, zcu)).toIntern();
+                    return if (resolved_field_val == field_val)
+                        val
+                    else
+                        Value.fromInterned((try zcu.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .base_addr = .{ .comptime_field = resolved_field_val },
+                            .byte_offset = ptr.byte_offset,
+                        } })));
+                },
+                .eu_payload, .opt_payload => |base| {
+                    const resolved_base = (try Value.fromInterned(base).resolveLazy(arena, zcu)).toIntern();
+                    return if (resolved_base == base)
+                        val
+                    else
+                        Value.fromInterned((try zcu.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .base_addr = switch (ptr.base_addr) {
+                                .eu_payload => .{ .eu_payload = resolved_base },
+                                .opt_payload => .{ .opt_payload = resolved_base },
+                                else => unreachable,
+                            },
+                            .byte_offset = ptr.byte_offset,
+                        } })));
+                },
+                .arr_elem, .field => |base_index| {
+                    const resolved_base = (try Value.fromInterned(base_index.base).resolveLazy(arena, zcu)).toIntern();
+                    return if (resolved_base == base_index.base)
+                        val
+                    else
+                        Value.fromInterned((try zcu.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .base_addr = switch (ptr.base_addr) {
+                                .arr_elem => .{ .arr_elem = .{
+                                    .base = resolved_base,
+                                    .index = base_index.index,
+                                } },
+                                .field => .{ .field = .{
+                                    .base = resolved_base,
+                                    .index = base_index.index,
+                                } },
+                                else => unreachable,
+                            },
+                            .byte_offset = ptr.byte_offset,
+                        } })));
+                },
+            }
+        },
+        .aggregate => |aggregate| switch (aggregate.storage) {
+            .bytes => return val,
+            .elems => |elems| {
+                var resolved_elems: []InternPool.Index = &.{};
+                for (elems, 0..) |elem, i| {
+                    const resolved_elem = (try Value.fromInterned(elem).resolveLazy(arena, zcu)).toIntern();
+                    if (resolved_elems.len == 0 and resolved_elem != elem) {
+                        resolved_elems = try arena.alloc(InternPool.Index, elems.len);
+                        @memcpy(resolved_elems[0..i], elems[0..i]);
+                    }
+                    if (resolved_elems.len > 0) resolved_elems[i] = resolved_elem;
+                }
+                return if (resolved_elems.len == 0) val else Value.fromInterned((try zcu.intern(.{ .aggregate = .{
+                    .ty = aggregate.ty,
+                    .storage = .{ .elems = resolved_elems },
+                } })));
+            },
+            .repeated_elem => |elem| {
+                const resolved_elem = (try Value.fromInterned(elem).resolveLazy(arena, zcu)).toIntern();
+                return if (resolved_elem == elem) val else Value.fromInterned((try zcu.intern(.{ .aggregate = .{
+                    .ty = aggregate.ty,
+                    .storage = .{ .repeated_elem = resolved_elem },
+                } })));
+            },
+        },
+        .un => |un| {
+            const resolved_tag = if (un.tag == .none)
+                .none
+            else
+                (try Value.fromInterned(un.tag).resolveLazy(arena, zcu)).toIntern();
+            const resolved_val = (try Value.fromInterned(un.val).resolveLazy(arena, zcu)).toIntern();
+            return if (resolved_tag == un.tag and resolved_val == un.val)
+                val
+            else
+                Value.fromInterned((try zcu.intern(.{ .un = .{
+                    .ty = un.ty,
+                    .tag = resolved_tag,
+                    .val = resolved_val,
+                } })));
+        },
+        else => return val,
+    }
 }

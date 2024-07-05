@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 
 const Air = @This();
 const Value = @import("Value.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
 /// Deprecated.
@@ -1801,3 +1801,5 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
     };
 }
+
+pub const typesFullyResolved = @import("Air/types_resolved.zig").typesFullyResolved;

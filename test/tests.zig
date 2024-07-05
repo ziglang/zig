@@ -1250,7 +1250,6 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
-    check_case_exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1268,12 +1267,9 @@ pub fn addCases(
 
     cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
 
-    const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
-        cases_dir_path,
-        check_case_exe,
     );
 }

@@ -33,7 +33,7 @@ const Zcu = @import("../Zcu.zig");
 const Module = Zcu;
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const ZigObject = @import("Wasm/ZigObject.zig");
 
@@ -1533,7 +1533,7 @@ pub fn lowerAnonDecl(
     wasm: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, decl_val, explicit_alignment, src_loc);
 }
@@ -1542,26 +1542,26 @@ pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: lin
     return wasm.zigObjectPtr().?.getAnonDeclVAddr(wasm, decl_val, reloc_info);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     wasm: *Wasm,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     if (wasm.llvm_object) |_| return;
-    return wasm.zigObjectPtr().?.deleteDeclExport(wasm, decl_index, name);
+    return wasm.zigObjectPtr().?.deleteExport(wasm, exported, name);
 }
 
 pub fn updateExports(
     wasm: *Wasm,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return wasm.zigObjectPtr().?.updateExports(wasm, mod, exported, exports);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    return wasm.zigObjectPtr().?.updateExports(wasm, mod, exported, export_indices);
 }
 
 pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {

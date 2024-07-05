@@ -269,7 +269,7 @@ pub fn updateDecl(
 
     const res = try codegen.generateSymbol(
         &wasm_file.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         val,
         &code_writer,
         .none,
@@ -280,7 +280,7 @@ pub fn updateDecl(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -308,7 +308,7 @@ pub fn updateFunc(
     defer code_writer.deinit();
     const result = try codegen.generateFunction(
         &wasm_file.base,
-        decl.navSrcLoc(mod).upgrade(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -320,7 +320,7 @@ pub fn updateFunc(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -439,7 +439,7 @@ pub fn lowerAnonDecl(
     wasm_file: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.anon_decls.getOrPut(gpa, decl_val);
@@ -494,14 +494,14 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     else
         decl.navSrcLoc(mod);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src.upgrade(mod))) {
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src)) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
         },
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return error.CodegenFail;
         },
     }
@@ -512,7 +512,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.LazySrcLoc) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
 
@@ -833,13 +833,17 @@ pub fn getAnonDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     const mod = wasm_file.base.comp.module.?;
+    const decl_index = switch (exported) {
+        .decl_index => |decl_index| decl_index,
+        .value => @panic("TODO: implement Wasm linker code for exporting a constant value"),
+    };
     const decl_info = zig_object.decls_map.getPtr(decl_index) orelse return;
     if (decl_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
@@ -856,7 +860,7 @@ pub fn updateExports(
     wasm_file: *Wasm,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -873,11 +877,12 @@ pub fn updateExports(
     const gpa = mod.gpa;
     log.debug("Updating exports for decl '{}'", .{decl.name.fmt(&mod.intern_pool)});
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
-            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                decl.navSrcLoc(mod).upgrade(mod),
+                decl.navSrcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -908,9 +913,9 @@ pub fn updateExports(
             },
             .strong => {}, // symbols are strong by default
             .link_once => {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    decl.navSrcLoc(mod).upgrade(mod),
+                    decl.navSrcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));
@@ -1247,7 +1252,8 @@ const Zcu = @import("../../Zcu.zig");
 const Module = Zcu;
 const StringTable = @import("../StringTable.zig");
 const Symbol = @import("Symbol.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const Wasm = @import("../Wasm.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

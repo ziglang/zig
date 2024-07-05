@@ -21,7 +21,7 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
@@ -64,7 +64,7 @@ args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: usize,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 stack_align: Alignment,
 
 /// MIR Instructions
@@ -263,7 +263,7 @@ const BigTomb = struct {
 
 pub fn generate(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,

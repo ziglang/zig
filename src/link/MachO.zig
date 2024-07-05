@@ -3207,22 +3207,22 @@ pub fn updateExports(
     self: *MachO,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return self.getZigObject().?.updateExports(self, mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    return self.getZigObject().?.updateExports(self, mod, exported, export_indices);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *MachO,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
+) void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.deleteDeclExport(self, decl_index, name);
+    return self.getZigObject().?.deleteExport(self, exported, name);
 }
 
 pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
@@ -3239,7 +3239,7 @@ pub fn lowerAnonDecl(
     self: *MachO,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }

@@ -522,6 +522,7 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
+    src/Type.zig
     src/Value.zig
     src/Zcu.zig
     src/arch/aarch64/CodeGen.zig
@@ -673,7 +674,6 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/type.zig
     src/wasi_libc.zig
 )
 

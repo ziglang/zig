@@ -431,7 +431,7 @@ pub const RegisterList = struct {
 const Mir = @This();
 const std = @import("std");
 const builtin = @import("builtin");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 
 const assert = std.debug.assert;
 

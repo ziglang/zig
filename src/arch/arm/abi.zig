@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;

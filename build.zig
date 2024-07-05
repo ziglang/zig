@@ -82,15 +82,6 @@ pub fn build(b: *std.Build) !void {
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
 
-    const check_case_exe = b.addExecutable(.{
-        .name = "check-case",
-        .root_source_file = b.path("test/src/Cases.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .single_threaded = single_threaded,
-    });
-    check_case_exe.stack_size = stack_size;
-
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
@@ -222,7 +213,6 @@ pub fn build(b: *std.Build) !void {
     if (target.result.os.tag == .windows and target.result.abi == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
-        check_case_exe.want_lto = false;
     }
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
@@ -245,7 +235,6 @@ pub fn build(b: *std.Build) !void {
 
     if (link_libc) {
         exe.linkLibC();
-        check_case_exe.linkLibC();
     }
 
     const is_debug = optimize == .Debug;
@@ -339,21 +328,17 @@ pub fn build(b: *std.Build) !void {
             }
 
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, check_case_exe, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
             try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(check_case_exe);
         }
         if (target.result.os.tag == .windows) {
-            inline for (.{ exe, check_case_exe }) |artifact| {
-                // LLVM depends on networking as of version 18.
-                artifact.linkSystemLibrary("ws2_32");
+            // LLVM depends on networking as of version 18.
+            exe.linkSystemLibrary("ws2_32");
 
-                artifact.linkSystemLibrary("version");
-                artifact.linkSystemLibrary("uuid");
-                artifact.linkSystemLibrary("ole32");
-            }
+            exe.linkSystemLibrary("version");
+            exe.linkSystemLibrary("uuid");
+            exe.linkSystemLibrary("ole32");
         }
     }
 
@@ -394,7 +379,6 @@ pub fn build(b: *std.Build) !void {
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const test_cases_options = b.addOptions();
-    check_case_exe.root_module.addOptions("build_options", test_cases_options);
 
     test_cases_options.addOption(bool, "enable_tracy", false);
     test_cases_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
@@ -458,7 +442,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filters, check_case_exe, target, .{
+    try tests.addCases(b, test_cases_step, test_filters, target, .{
         .skip_translate_c = skip_translate_c,
         .skip_run_translated_c = skip_run_translated_c,
     }, .{

@@ -7,7 +7,7 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
@@ -59,7 +59,7 @@ args: []MCValue,
 ret_mcv: InstTracking,
 fn_type: Type,
 arg_index: usize,
-src_loc: Zcu.SrcLoc,
+src_loc: Zcu.LazySrcLoc,
 
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
@@ -696,7 +696,7 @@ const CallView = enum(u1) {
 
 pub fn generate(
     bin_file: *link.File,
-    src_loc: Zcu.SrcLoc,
+    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,

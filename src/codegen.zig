@@ -20,7 +20,7 @@ const Zcu = @import("Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const Target = std.Target;
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
@@ -47,7 +47,7 @@ pub const DebugInfoOutput = union(enum) {
 
 pub fn generateFunction(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -79,7 +79,7 @@ pub fn generateFunction(
 
 pub fn generateLazyFunction(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -105,7 +105,7 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
 
 pub fn generateLazySymbol(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     // TODO don't use an "out" parameter like this; put it in the result instead
     alignment: *Alignment,
@@ -171,7 +171,7 @@ pub fn generateLazySymbol(
 
 pub fn generateSymbol(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -618,7 +618,7 @@ pub fn generateSymbol(
 
 fn lowerPtr(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     ptr_val: InternPool.Index,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -683,7 +683,7 @@ const RelocInfo = struct {
 
 fn lowerAnonDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -730,7 +730,7 @@ fn lowerAnonDeclRef(
 
 fn lowerDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     decl_index: InternPool.DeclIndex,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -814,7 +814,7 @@ pub const GenResult = union(enum) {
 
     fn fail(
         gpa: Allocator,
-        src_loc: Module.SrcLoc,
+        src_loc: Module.LazySrcLoc,
         comptime format: []const u8,
         args: anytype,
     ) Allocator.Error!GenResult {
@@ -825,7 +825,7 @@ pub const GenResult = union(enum) {
 
 fn genDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
@@ -931,7 +931,7 @@ fn genDeclRef(
 
 fn genUnnamedConst(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
@@ -970,7 +970,7 @@ fn genUnnamedConst(
 
 pub fn genTypedValue(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {

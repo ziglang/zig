@@ -22,7 +22,7 @@ const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -848,10 +848,6 @@ pub const Object = struct {
     /// Note that the values are not added until `emit`, when all errors in
     /// the compilation are known.
     error_name_table: Builder.Variable.Index,
-    /// This map is usually very close to empty. It tracks only the cases when a
-    /// second extern Decl could not be emitted with the correct name due to a
-    /// name collision.
-    extern_collisions: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, void),
 
     /// Memoizes a null `?usize` value.
     null_opt_usize: Builder.Constant,
@@ -1011,7 +1007,6 @@ pub const Object = struct {
             .named_enum_map = .{},
             .type_map = .{},
             .error_name_table = .none,
-            .extern_collisions = .{},
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
         };
@@ -1029,7 +1024,6 @@ pub const Object = struct {
         self.anon_decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
-        self.extern_collisions.deinit(gpa);
         self.builder.deinit();
         self.struct_field_map.deinit(gpa);
         self.* = undefined;
@@ -1121,61 +1115,6 @@ pub const Object = struct {
         try object.builder.finishModuleAsm();
     }
 
-    fn resolveExportExternCollisions(object: *Object) !void {
-        const mod = object.module;
-
-        // This map has externs with incorrect symbol names.
-        for (object.extern_collisions.keys()) |decl_index| {
-            const global = object.decl_map.get(decl_index) orelse continue;
-            // Same logic as below but for externs instead of exports.
-            const decl_name = object.builder.strtabStringIfExists(mod.declPtr(decl_index).name.toSlice(&mod.intern_pool)) orelse continue;
-            const other_global = object.builder.getGlobal(decl_name) orelse continue;
-            if (other_global.toConst().getBase(&object.builder) ==
-                global.toConst().getBase(&object.builder)) continue;
-
-            try global.replace(other_global, &object.builder);
-        }
-        object.extern_collisions.clearRetainingCapacity();
-
-        for (mod.decl_exports.keys(), mod.decl_exports.values()) |decl_index, export_list| {
-            const global = object.decl_map.get(decl_index) orelse continue;
-            try resolveGlobalCollisions(object, global, export_list.items);
-        }
-
-        for (mod.value_exports.keys(), mod.value_exports.values()) |val, export_list| {
-            const global = object.anon_decl_map.get(val) orelse continue;
-            try resolveGlobalCollisions(object, global, export_list.items);
-        }
-    }
-
-    fn resolveGlobalCollisions(
-        object: *Object,
-        global: Builder.Global.Index,
-        export_list: []const *Module.Export,
-    ) !void {
-        const mod = object.module;
-        const global_base = global.toConst().getBase(&object.builder);
-        for (export_list) |exp| {
-            // Detect if the LLVM global has already been created as an extern. In such
-            // case, we need to replace all uses of it with this exported global.
-            const exp_name = object.builder.strtabStringIfExists(exp.opts.name.toSlice(&mod.intern_pool)) orelse continue;
-
-            const other_global = object.builder.getGlobal(exp_name) orelse continue;
-            if (other_global.toConst().getBase(&object.builder) == global_base) continue;
-
-            try global.takeName(other_global, &object.builder);
-            try other_global.replace(global, &object.builder);
-            // Problem: now we need to replace in the decl_map that
-            // the extern decl index points to this new global. However we don't
-            // know the decl index.
-            // Even if we did, a future incremental update to the extern would then
-            // treat the LLVM global as an extern rather than an export, so it would
-            // need a way to check that.
-            // This is a TODO that needs to be solved when making
-            // the LLVM backend support incremental compilation.
-        }
-    }
-
     pub const EmitOptions = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
@@ -1193,7 +1132,6 @@ pub const Object = struct {
 
     pub fn emit(self: *Object, options: EmitOptions) !void {
         {
-            try self.resolveExportExternCollisions();
             try self.genErrorNameTable();
             try self.genCmpLtErrorsLenFunction();
             try self.genModuleLevelAssembly();
@@ -1698,8 +1636,7 @@ pub const Object = struct {
             const file = try o.getDebugFile(namespace.file_scope);
 
             const line_number = decl.navSrcLine(zcu) + 1;
-            const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
-                !zcu.decl_exports.contains(decl_index);
+            const is_internal_linkage = decl.val.getExternFunc(zcu) == null;
             const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
 
             const subprogram = try o.builder.debugSubprogram(
@@ -1752,7 +1689,7 @@ pub const Object = struct {
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try zcu.failed_decls.put(zcu.gpa, decl_index, dg.err_msg.?);
+                try zcu.failed_analysis.put(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
@@ -1760,8 +1697,6 @@ pub const Object = struct {
         };
 
         try fg.wip.finish();
-
-        try o.updateExports(zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -1775,72 +1710,31 @@ pub const Object = struct {
         dg.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try module.failed_decls.put(module.gpa, decl_index, dg.err_msg.?);
+                try module.failed_analysis.put(module.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
             else => |e| return e,
         };
-        try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
     }
 
     pub fn updateExports(
         self: *Object,
         mod: *Module,
         exported: Module.Exported,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const decl_index = switch (exported) {
             .decl_index => |i| i,
-            .value => |val| return updateExportedValue(self, mod, val, exports),
+            .value => |val| return updateExportedValue(self, mod, val, export_indices),
         };
-        const gpa = mod.gpa;
         const ip = &mod.intern_pool;
-        // If the module does not already have the function, we ignore this function call
-        // because we call `updateExports` at the end of `updateFunc` and `updateDecl`.
-        const global_index = self.decl_map.get(decl_index) orelse return;
+        const global_index = self.decl_map.get(decl_index).?;
         const decl = mod.declPtr(decl_index);
         const comp = mod.comp;
-        if (decl.isExtern(mod)) {
-            const decl_name = decl_name: {
-                if (mod.getTarget().isWasm() and decl.val.typeOf(mod).zigTypeTag(mod) == .Fn) {
-                    if (decl.getOwnedExternFunc(mod).?.lib_name.toSlice(ip)) |lib_name| {
-                        if (!std.mem.eql(u8, lib_name, "c")) {
-                            break :decl_name try self.builder.strtabStringFmt("{}|{s}", .{ decl.name.fmt(ip), lib_name });
-                        }
-                    }
-                }
-                break :decl_name try self.builder.strtabString(decl.name.toSlice(ip));
-            };
 
-            if (self.builder.getGlobal(decl_name)) |other_global| {
-                if (other_global != global_index) {
-                    try self.extern_collisions.put(gpa, decl_index, {});
-                }
-            }
-
-            try global_index.rename(decl_name, &self.builder);
-            global_index.setLinkage(.external, &self.builder);
-            global_index.setUnnamedAddr(.default, &self.builder);
-            if (comp.config.dll_export_fns)
-                global_index.setDllStorageClass(.default, &self.builder);
-
-            if (decl.val.getVariable(mod)) |decl_var| {
-                global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal) .generaldynamic else .default,
-                    &self.builder,
-                );
-                if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &self.builder);
-            }
-        } else if (exports.len != 0) {
-            const main_exp_name = try self.builder.strtabString(exports[0].opts.name.toSlice(ip));
-            try global_index.rename(main_exp_name, &self.builder);
-
-            if (decl.val.getVariable(mod)) |decl_var| if (decl_var.is_threadlocal)
-                global_index.ptrConst(&self.builder).kind
-                    .variable.setThreadLocal(.generaldynamic, &self.builder);
-
-            return updateExportedGlobal(self, mod, global_index, exports);
+        if (export_indices.len != 0) {
+            return updateExportedGlobal(self, mod, global_index, export_indices);
         } else {
             const fqn = try self.builder.strtabString((try decl.fullyQualifiedName(mod)).toSlice(ip));
             try global_index.rename(fqn, &self.builder);
@@ -1848,17 +1742,6 @@ pub const Object = struct {
             if (comp.config.dll_export_fns)
                 global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
-            if (decl.val.getVariable(mod)) |decl_var| {
-                const decl_namespace = mod.namespacePtr(decl.src_namespace);
-                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
-                global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal and !single_threaded)
-                        .generaldynamic
-                    else
-                        .default,
-                    &self.builder,
-                );
-            }
         }
     }
 
@@ -1866,11 +1749,11 @@ pub const Object = struct {
         o: *Object,
         mod: *Module,
         exported_value: InternPool.Index,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const gpa = mod.gpa;
         const ip = &mod.intern_pool;
-        const main_exp_name = try o.builder.strtabString(exports[0].opts.name.toSlice(ip));
+        const main_exp_name = try o.builder.strtabString(mod.all_exports.items[export_indices[0]].opts.name.toSlice(ip));
         const global_index = i: {
             const gop = try o.anon_decl_map.getOrPut(gpa, exported_value);
             if (gop.found_existing) {
@@ -1894,32 +1777,57 @@ pub const Object = struct {
             try variable_index.setInitializer(init_val, &o.builder);
             break :i global_index;
         };
-        return updateExportedGlobal(o, mod, global_index, exports);
+        return updateExportedGlobal(o, mod, global_index, export_indices);
     }
 
     fn updateExportedGlobal(
         o: *Object,
         mod: *Module,
         global_index: Builder.Global.Index,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const comp = mod.comp;
         const ip = &mod.intern_pool;
+        const first_export = mod.all_exports.items[export_indices[0]];
+
+        // We will rename this global to have a name matching `first_export`.
+        // Successive exports become aliases.
+        // If the first export name already exists, then there is a corresponding
+        // extern global - we replace it with this global.
+        const first_exp_name = try o.builder.strtabString(first_export.opts.name.toSlice(ip));
+        if (o.builder.getGlobal(first_exp_name)) |other_global| replace: {
+            if (other_global.toConst().getBase(&o.builder) == global_index.toConst().getBase(&o.builder)) {
+                break :replace; // this global already has the name we want
+            }
+            try global_index.takeName(other_global, &o.builder);
+            try other_global.replace(global_index, &o.builder);
+            // Problem: now we need to replace in the decl_map that
+            // the extern decl index points to this new global. However we don't
+            // know the decl index.
+            // Even if we did, a future incremental update to the extern would then
+            // treat the LLVM global as an extern rather than an export, so it would
+            // need a way to check that.
+            // This is a TODO that needs to be solved when making
+            // the LLVM backend support incremental compilation.
+        } else {
+            try global_index.rename(first_exp_name, &o.builder);
+        }
+
         global_index.setUnnamedAddr(.default, &o.builder);
         if (comp.config.dll_export_fns)
             global_index.setDllStorageClass(.dllexport, &o.builder);
-        global_index.setLinkage(switch (exports[0].opts.linkage) {
+        global_index.setLinkage(switch (first_export.opts.linkage) {
             .internal => unreachable,
             .strong => .external,
             .weak => .weak_odr,
             .link_once => .linkonce_odr,
         }, &o.builder);
-        global_index.setVisibility(switch (exports[0].opts.visibility) {
+        global_index.setVisibility(switch (first_export.opts.visibility) {
             .default => .default,
             .hidden => .hidden,
             .protected => .protected,
         }, &o.builder);
-        if (exports[0].opts.section.toSlice(ip)) |section|
+        if (first_export.opts.section.toSlice(ip)) |section|
             switch (global_index.ptrConst(&o.builder).kind) {
                 .variable => |impl_index| impl_index.setSection(
                     try o.builder.string(section),
@@ -1936,7 +1844,8 @@ pub const Object = struct {
         // The planned solution to this is https://github.com/ziglang/zig/issues/13265
         // Until then we iterate over existing aliases and make them point
         // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
-        for (exports[1..]) |exp| {
+        for (export_indices[1..]) |export_idx| {
+            const exp = mod.all_exports.items[export_idx];
             const exp_name = try o.builder.strtabString(exp.opts.name.toSlice(ip));
             if (o.builder.getGlobal(exp_name)) |global| {
                 switch (global.ptrConst(&o.builder).kind) {
@@ -1944,7 +1853,13 @@ pub const Object = struct {
                         alias.setAliasee(global_index.toConst(), &o.builder);
                         continue;
                     },
-                    .variable, .function => {},
+                    .variable, .function => {
+                        // This existing global is an `extern` corresponding to this export.
+                        // Replace it with the global being exported.
+                        // This existing global must be replaced with the alias.
+                        try global.rename(.empty, &o.builder);
+                        try global.replace(global_index, &o.builder);
+                    },
                     .replaced => unreachable,
                 }
             }
@@ -2688,7 +2603,10 @@ pub const Object = struct {
                     if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     const field_size = Type.fromInterned(field_ty).abiSize(mod);
-                    const field_align = mod.unionFieldNormalAlignment(union_type, @intCast(field_index));
+                    const field_align: InternPool.Alignment = switch (union_type.flagsPtr(ip).layout) {
+                        .@"packed" => .none,
+                        .auto, .@"extern" => mod.unionFieldNormalAlignment(union_type, @intCast(field_index)),
+                    };
 
                     const field_name = tag_type.names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
@@ -4729,7 +4647,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = dg.decl.navSrcLoc(mod).upgrade(mod);
+        const src_loc = dg.decl.navSrcLoc(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -4762,36 +4680,77 @@ pub const DeclGen = struct {
                 else => try o.lowerValue(init_val),
             }, &o.builder);
 
+            if (decl.val.getVariable(zcu)) |decl_var| {
+                const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
+                variable_index.setThreadLocal(
+                    if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
+                    &o.builder,
+                );
+            }
+
             const line_number = decl.navSrcLine(zcu) + 1;
-            const is_internal_linkage = !o.module.decl_exports.contains(decl_index);
 
             const namespace = zcu.namespacePtr(decl.src_namespace);
             const owner_mod = namespace.file_scope.mod;
 
-            if (owner_mod.strip) return;
+            if (!owner_mod.strip) {
+                const debug_file = try o.getDebugFile(namespace.file_scope);
 
-            const debug_file = try o.getDebugFile(namespace.file_scope);
+                const debug_global_var = try o.builder.debugGlobalVar(
+                    try o.builder.metadataString(decl.name.toSlice(ip)), // Name
+                    try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
+                    debug_file, // File
+                    debug_file, // Scope
+                    line_number,
+                    try o.lowerDebugType(decl.typeOf(zcu)),
+                    variable_index,
+                    .{ .local = !decl.isExtern(zcu) },
+                );
 
-            const debug_global_var = try o.builder.debugGlobalVar(
-                try o.builder.metadataString(decl.name.toSlice(ip)), // Name
-                try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
-                debug_file, // File
-                debug_file, // Scope
-                line_number,
-                try o.lowerDebugType(decl.typeOf(zcu)),
-                variable_index,
-                .{ .local = is_internal_linkage },
-            );
+                const debug_expression = try o.builder.debugExpression(&.{});
 
-            const debug_expression = try o.builder.debugExpression(&.{});
+                const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
+                    debug_global_var,
+                    debug_expression,
+                );
 
-            const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
-                debug_global_var,
-                debug_expression,
-            );
+                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+                try o.debug_globals.append(o.gpa, debug_global_var_expression);
+            }
+        }
 
-            variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
-            try o.debug_globals.append(o.gpa, debug_global_var_expression);
+        if (decl.isExtern(zcu)) {
+            const global_index = o.decl_map.get(decl_index).?;
+
+            const decl_name = decl_name: {
+                if (zcu.getTarget().isWasm() and decl.typeOf(zcu).zigTypeTag(zcu) == .Fn) {
+                    if (decl.getOwnedExternFunc(zcu).?.lib_name.toSlice(ip)) |lib_name| {
+                        if (!std.mem.eql(u8, lib_name, "c")) {
+                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ decl.name.fmt(ip), lib_name });
+                        }
+                    }
+                }
+                break :decl_name try o.builder.strtabString(decl.name.toSlice(ip));
+            };
+
+            if (o.builder.getGlobal(decl_name)) |other_global| {
+                if (other_global != global_index) {
+                    // Another global already has this name; just use it in place of this global.
+                    try global_index.replace(other_global, &o.builder);
+                    return;
+                }
+            }
+
+            try global_index.rename(decl_name, &o.builder);
+            global_index.setLinkage(.external, &o.builder);
+            global_index.setUnnamedAddr(.default, &o.builder);
+            if (zcu.comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &o.builder);
+
+            if (decl.val.getVariable(zcu)) |decl_var| {
+                if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
+            }
         }
     }
 };
@@ -5193,7 +5152,6 @@ pub const FuncGen = struct {
 
             const fqn = try decl.fullyQualifiedName(zcu);
 
-            const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
             const fn_ty = try zcu.funcType(.{
                 .param_types = &.{},
                 .return_type = .void_type,
@@ -5211,7 +5169,7 @@ pub const FuncGen = struct {
                     .sp_flags = .{
                         .Optimized = owner_mod.optimize_mode != .Debug,
                         .Definition = true,
-                        .LocalToUnit = is_internal_linkage,
+                        .LocalToUnit = true, // TODO: we can't know this at this point, since the function could be exported later!
                     },
                 },
                 o.debug_compile_unit,
