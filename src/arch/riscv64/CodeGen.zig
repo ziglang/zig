@@ -2481,6 +2481,11 @@ fn genBinOp(
                             .Float => .vfsubvv,
                             else => unreachable,
                         },
+                        .mul => switch (child_ty.zigTypeTag(zcu)) {
+                            .Int => .vmulvv,
+                            .Float => .vfmulvv,
+                            else => unreachable,
+                        },
                         else => return func.fail("TODO: genBinOp {s} Vector", .{@tagName(tag)}),
                     };
 
@@ -2490,7 +2495,7 @@ fn genBinOp(
                             16 => .@"16",
                             32 => .@"32",
                             64 => .@"64",
-                            else => unreachable,
+                            else => return func.fail("TODO: genBinOp > 64 bit elements, found {d}", .{elem_size}),
                         },
                         .vlmul = .m1,
                         .vma = true,
@@ -4637,6 +4642,10 @@ fn genCall(
         },
         .lib => return func.fail("TODO: lib func calls", .{}),
     }
+
+    // reset the vector settings as they might have changed in the function
+    func.avl = null;
+    func.vtype = null;
 
     return call_info.return_value.short;
 }

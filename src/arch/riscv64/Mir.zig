@@ -145,6 +145,8 @@ pub const Inst = struct {
         vfaddvv,
         vsubvv,
         vfsubvv,
+        vmulvv,
+        vfmulvv,
         vslidedownvx,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an

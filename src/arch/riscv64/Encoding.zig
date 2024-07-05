@@ -288,6 +288,9 @@ pub const Mnemonic = enum {
     vfaddvv,
     vfsubvv,
 
+    vmulvv,
+    vfmulvv,
+
     vadcvv,
 
     vmvvx,
@@ -546,9 +549,11 @@ pub const Mnemonic = enum {
             .vsetvli        => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
             .vaddvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPIVV } } },
             .vsubvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000010, .funct3 = .OPIVV } } },
+            .vmulvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b100101, .funct3 = .OPIVV } } },
             
             .vfaddvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPFVV } } },
             .vfsubvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000010, .funct3 = .OPFVV } } },
+            .vfmulvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b100100, .funct3 = .OPFVV } } },
             
             .vadcvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010000, .funct3 = .OPMVV } } },
             .vmvvx          => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010111, .funct3 = .OPIVX } } },
@@ -710,8 +715,10 @@ pub const InstEnc = enum {
 
             .vaddvv,
             .vsubvv,
+            .vmulvv,
             .vfaddvv,
             .vfsubvv,
+            .vfmulvv,
             .vadcvv,
             .vmvvx,
             .vslidedownvx,

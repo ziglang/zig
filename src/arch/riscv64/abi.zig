@@ -200,6 +200,8 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
                 result[0] = .integer;
                 return result;
             }
+            // we should pass vector registers of size <= 128 through 2 integer registers
+            // but we haven't implemented seperating vector registers into register_pairs
             return memory_class;
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
