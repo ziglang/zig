@@ -865,10 +865,17 @@ pub const DynamicBitSetUnmanaged = struct {
         @memset(self.masks[0..masks_len], 0);
     }
 
-    /// Set all bits to 1.
+    /// Set all bits to 1.  Leaves padding bits unchanged.
     pub fn setAll(self: *Self) void {
-        const masks_len = numMasks(self.bit_length);
-        @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
+        const full_masks_len = self.bit_length / @bitSizeOf(MaskInt);
+        const last_mask_bit_len = self.bit_length % @bitSizeOf(MaskInt);
+        const mask = ~@as(MaskInt, 0);
+        @memset(self.masks[0..full_masks_len], mask);
+        // @truncate instead of @intCast to avoid overflow when
+        // last_mask_bit_len == 0 (when bit_length is a multiple of
+        // @bitSizeOf(MaskInt))
+        self.masks[full_masks_len] |=
+            mask >> @truncate(@bitSizeOf(MaskInt) - last_mask_bit_len);
     }
 
     /// Flips a specific bit in the bit set
@@ -1295,6 +1302,7 @@ fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) typ
                     }
                 },
             }
+
             switch (direction) {
                 .forward => self.words_remain = self.words_remain[1..],
                 .reverse => self.words_remain.len -= 1,
@@ -1672,7 +1680,7 @@ test ArrayBitSet {
 }
 
 test DynamicBitSetUnmanaged {
-    const allocator = std.testing.allocator;
+    const allocator = testing.allocator;
     var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit(allocator);
@@ -1722,10 +1730,29 @@ test DynamicBitSetUnmanaged {
         }
         try testBitSet(&a, &full, size);
     }
+
+    // from https://github.com/ziglang/zig/issues/19933
+    // check that setAll() doesn't change padding bits
+    var bitset = try DynamicBitSetUnmanaged.initFull(allocator, 19);
+    defer bitset.deinit(allocator);
+    bitset.setAll();
+    try testing.expectEqual(19, bitset.count());
+    // check that iterator() loops count times
+    try testing.expectEqual(19, iterCount(bitset, .{}));
+    try testing.expectEqual(19, iterCount(bitset, .{ .direction = .reverse }));
+    try testing.expectEqual(0, iterCount(bitset, .{ .kind = .unset }));
+    try testing.expectEqual(0, iterCount(bitset, .{ .kind = .unset, .direction = .reverse }));
+}
+
+fn iterCount(bitset: DynamicBitSetUnmanaged, comptime options: IteratorOptions) usize {
+    var iter = bitset.iterator(options);
+    var result: usize = 0;
+    while (iter.next()) |_| : (result += 1) {}
+    return result;
 }
 
 test DynamicBitSet {
-    const allocator = std.testing.allocator;
+    const allocator = testing.allocator;
     var a = try DynamicBitSet.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
     a.deinit();
