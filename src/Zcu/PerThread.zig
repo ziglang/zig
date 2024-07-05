@@ -3,7 +3,7 @@ zcu: *Zcu,
 /// Dense, per-thread unique index.
 tid: Id,
 
-pub const Id = if (builtin.single_threaded) enum { main } else enum(usize) { main, _ };
+pub const Id = if (InternPool.single_threaded) enum { main } else enum(usize) { main, _ };
 
 pub fn astGenFile(
     pt: Zcu.PerThread,

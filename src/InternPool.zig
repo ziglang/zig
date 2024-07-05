@@ -4,11 +4,10 @@
 
 locals: []Local = &.{},
 shards: []Shard = &.{},
-tid_width: std.math.Log2Int(u32) = 0,
-tid_shift_31: std.math.Log2Int(u32) = 31,
-tid_shift_32: std.math.Log2Int(u32) = 31,
+tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
+tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
+tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 
-//items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
 /// On 32-bit systems, this array is ignored and extra is used for everything.
 /// On 64-bit systems, this array is used for big integers and associated metadata.
@@ -91,6 +90,14 @@ free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
 ///
 /// Value is the `Decl` of the struct that represents this `File`.
 files: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, OptionalDeclIndex) = .{},
+
+/// Whether a multi-threaded intern pool is useful.
+/// Currently `false` until the intern pool is actually accessed
+/// from multiple threads to reduce the cost of this data structure.
+const want_multi_threaded = false;
+
+/// Whether a single-threaded intern pool impl is in use.
+pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
 
 pub const FileIndex = enum(u32) {
     _,
@@ -497,19 +504,23 @@ const Local = struct {
                     var new_list: ListSelf = .{ .bytes = @ptrCast(buf[bytes_offset..].ptr) };
                     new_list.header().* = .{ .capacity = capacity };
                     const len = mutable.lenPtr().*;
-                    const old_slice = mutable.list.view().slice();
-                    const new_slice = new_list.view().slice();
-                    inline for (fields) |field| {
-                        @memcpy(new_slice.items(field)[0..len], old_slice.items(field)[0..len]);
+                    // this cold, quickly predictable, condition enables
+                    // the `MultiArrayList` optimization in `view`
+                    if (len > 0) {
+                        const old_slice = mutable.list.view().slice();
+                        const new_slice = new_list.view().slice();
+                        inline for (fields) |field| @memcpy(new_slice.items(field)[0..len], old_slice.items(field)[0..len]);
                     }
                     mutable.list.release(new_list);
                 }
 
                 fn view(mutable: Mutable) View {
+                    const capacity = mutable.capacityPtr().*;
+                    assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                     return .{
                         .bytes = mutable.list.bytes,
                         .len = mutable.lenPtr().*,
-                        .capacity = mutable.capacityPtr().*,
+                        .capacity = capacity,
                     };
                 }
 
@@ -550,6 +561,7 @@ const Local = struct {
 
             fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
+                assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                 return .{
                     .bytes = list.bytes,
                     .len = capacity,
@@ -665,13 +677,8 @@ const Shard = struct {
     }
 };
 
-fn getShard(ip: *InternPool, tid: Zcu.PerThread.Id) *Shard {
-    return &ip.shards[@intFromEnum(tid)];
-}
-
 fn getTidMask(ip: *const InternPool) u32 {
-    assert(std.math.isPowerOfTwo(ip.shards.len));
-    return @intCast(ip.shards.len - 1);
+    return (@as(u32, 1) << ip.tid_width) - 1;
 }
 
 fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
@@ -809,7 +816,7 @@ pub const String = enum(u32) {
         };
     }
 
-    fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
+    noinline fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
         const unwrapped = string.unwrap(ip);
         return ip.getLocalShared(unwrapped.tid).strings.acquire().view().items(.@"0")[unwrapped.index..];
     }
@@ -3230,19 +3237,35 @@ pub const Index = enum(u32) {
         }
     };
 
-    pub fn getItem(index: Index, ip: *const InternPool) Item {
-        const unwrapped = index.unwrap(ip);
-        return ip.getLocalShared(unwrapped.tid).items.acquire().view().get(unwrapped.index);
+    pub inline fn getItem(index: Index, ip: *const InternPool) Item {
+        const item_ptr = index.itemPtr(ip);
+        const tag = @atomicLoad(Tag, item_ptr.tag_ptr, .acquire);
+        return .{ .tag = tag, .data = item_ptr.data_ptr.* };
     }
 
-    pub fn getTag(index: Index, ip: *const InternPool) Tag {
-        const unwrapped = index.unwrap(ip);
-        return ip.getLocalShared(unwrapped.tid).items.acquire().view().items(.tag)[unwrapped.index];
+    pub inline fn getTag(index: Index, ip: *const InternPool) Tag {
+        const item_ptr = index.itemPtr(ip);
+        return @atomicLoad(Tag, item_ptr.tag_ptr, .acquire);
     }
 
-    pub fn getData(index: Index, ip: *const InternPool) u32 {
-        const unwrapped = index.unwrap(ip);
-        return ip.getLocalShared(unwrapped.tid).items.acquire().view().items(.data)[unwrapped.index];
+    pub inline fn getData(index: Index, ip: *const InternPool) u32 {
+        return index.getItem(ip).data;
+    }
+
+    const ItemPtr = struct {
+        tag_ptr: *Tag,
+        data_ptr: *u32,
+    };
+    fn itemPtr(index: Index, ip: *const InternPool) ItemPtr {
+        const unwrapped: Unwrapped = if (single_threaded) .{
+            .tid = .main,
+            .index = @intFromEnum(index),
+        } else index.unwrap(ip);
+        const slice = ip.getLocalShared(unwrapped.tid).items.acquire().view().slice();
+        return .{
+            .tag_ptr = &slice.items(.tag)[unwrapped.index],
+            .data_ptr = &slice.items(.data)[unwrapped.index],
+        };
     }
 
     const Unwrapped = struct {
@@ -4905,11 +4928,12 @@ pub const MemoizedCall = struct {
     result: Index,
 };
 
-pub fn init(ip: *InternPool, gpa: Allocator, total_threads: usize) !void {
+pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
     errdefer ip.deinit(gpa);
     assert(ip.locals.len == 0 and ip.shards.len == 0);
 
-    ip.locals = try gpa.alloc(Local, total_threads);
+    const used_threads = if (single_threaded) 1 else available_threads;
+    ip.locals = try gpa.alloc(Local, used_threads);
     @memset(ip.locals, .{
         .shared = .{
             .items = Local.List(Item).empty,
@@ -4922,9 +4946,9 @@ pub fn init(ip: *InternPool, gpa: Allocator, total_threads: usize) !void {
         },
     });
 
-    ip.tid_width = @intCast(std.math.log2_int_ceil(usize, total_threads));
-    ip.tid_shift_31 = 31 - ip.tid_width;
-    ip.tid_shift_32 = ip.tid_shift_31 +| 1;
+    ip.tid_width = @intCast(std.math.log2_int_ceil(usize, used_threads));
+    ip.tid_shift_31 = if (single_threaded) 0 else 31 - ip.tid_width;
+    ip.tid_shift_32 = if (single_threaded) 0 else ip.tid_shift_31 +| 1;
     ip.shards = try gpa.alloc(Shard, @as(usize, 1) << ip.tid_width);
     @memset(ip.shards, .{
         .shared = .{
@@ -7063,7 +7087,7 @@ pub fn getExternFunc(
         .tag = .extern_func,
         .data = extra_index,
     });
-    errdefer ip.items.lenPtr().* -= 1;
+    errdefer items.lenPtr().* -= 1;
     return gop.put();
 }
 
@@ -10146,12 +10170,9 @@ pub fn iesFuncIndex(ip: *const InternPool, ies_index: Index) Index {
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
 pub fn iesResolved(ip: *const InternPool, ies_index: Index) *Index {
-    assert(ies_index != .none);
-    const tags = ip.items.items(.tag);
-    const datas = ip.items.items(.data);
-    assert(tags[@intFromEnum(ies_index)] == .type_inferred_error_set);
-    const func_index = datas[@intFromEnum(ies_index)];
-    return funcIesResolved(ip, func_index);
+    const ies_item = ies_index.getItem(ip);
+    assert(ies_item.tag == .type_inferred_error_set);
+    return funcIesResolved(ip, ies_item.data);
 }
 
 /// Returns a mutable pointer to the resolved error set type of an inferred

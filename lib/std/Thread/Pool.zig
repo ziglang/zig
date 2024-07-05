@@ -8,8 +8,13 @@ cond: std.Thread.Condition = .{},
 run_queue: RunQueue = .{},
 is_running: bool = true,
 allocator: std.mem.Allocator,
-threads: []std.Thread,
-ids: std.AutoArrayHashMapUnmanaged(std.Thread.Id, void),
+threads: if (builtin.single_threaded) [0]std.Thread else []std.Thread,
+ids: if (builtin.single_threaded) struct {
+    inline fn deinit(_: @This(), _: std.mem.Allocator) void {}
+    fn getIndex(_: @This(), _: std.Thread.Id) usize {
+        return 0;
+    }
+} else std.AutoArrayHashMapUnmanaged(std.Thread.Id, void),
 
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
@@ -29,7 +34,7 @@ pub fn init(pool: *Pool, options: Options) !void {
 
     pool.* = .{
         .allocator = allocator,
-        .threads = &[_]std.Thread{},
+        .threads = if (builtin.single_threaded) .{} else &.{},
         .ids = .{},
     };
 
