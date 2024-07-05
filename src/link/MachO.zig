@@ -82,11 +82,11 @@ stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
 la_symbol_ptr: LaSymbolPtrSection = .{},
 tlv_ptr: TlvPtrSection = .{},
-rebase: RebaseSection = .{},
-bind: BindSection = .{},
-weak_bind: WeakBindSection = .{},
-lazy_bind: LazyBindSection = .{},
-export_trie: ExportTrieSection = .{},
+rebase: Rebase = .{},
+bind: Bind = .{},
+weak_bind: WeakBind = .{},
+lazy_bind: LazyBind = .{},
+export_trie: ExportTrie = .{},
 unwind_info: UnwindInfo = .{},
 
 /// Tracked loadable segments during incremental linking.
@@ -589,8 +589,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
     }
-
-    try self.initDyldInfoSections();
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
@@ -2500,87 +2498,6 @@ fn allocateLinkeditSegment(self: *MachO) !void {
     seg.fileoff = mem.alignForward(u64, fileoff, page_size);
 }
 
-fn initDyldInfoSections(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-
-    if (self.zig_got_sect_index != null) try self.zig_got.addDyldRelocs(self);
-    if (self.got_sect_index != null) try self.got.addDyldRelocs(self);
-    if (self.tlv_ptr_sect_index != null) try self.tlv_ptr.addDyldRelocs(self);
-    if (self.la_symbol_ptr_sect_index != null) try self.la_symbol_ptr.addDyldRelocs(self);
-    try self.initExportTrie();
-
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
-    defer objects.deinit();
-    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(self.objects.items);
-
-    var nrebases: usize = 0;
-    var nbinds: usize = 0;
-    var nweak_binds: usize = 0;
-    for (objects.items) |index| {
-        const ctx = switch (self.getFile(index).?) {
-            .zig_object => |x| x.dynamic_relocs,
-            .object => |x| x.dynamic_relocs,
-            else => unreachable,
-        };
-        nrebases += ctx.rebase_relocs;
-        nbinds += ctx.bind_relocs;
-        nweak_binds += ctx.weak_bind_relocs;
-    }
-    if (self.getInternalObject()) |int| {
-        nrebases += int.num_rebase_relocs;
-    }
-    try self.rebase.entries.ensureUnusedCapacity(gpa, nrebases);
-    try self.bind.entries.ensureUnusedCapacity(gpa, nbinds);
-    try self.weak_bind.entries.ensureUnusedCapacity(gpa, nweak_binds);
-}
-
-fn initExportTrie(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-    try self.export_trie.init(gpa);
-
-    const seg = self.getTextSegment();
-    for (self.objects.items) |index| {
-        for (self.getFile(index).?.getSymbols()) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            if (!sym.flags.@"export") continue;
-            if (sym.getAtom(self)) |atom| if (!atom.flags.alive) continue;
-            if (sym.getFile(self).?.getIndex() != index) continue;
-            var flags: u64 = if (sym.flags.abs)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE
-            else if (sym.flags.tlv)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL
-            else
-                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
-            if (sym.flags.weak) {
-                flags |= macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
-                self.weak_defines = true;
-                self.binds_to_weak = true;
-            }
-            try self.export_trie.put(gpa, .{
-                .name = sym.getName(self),
-                .vmaddr_offset = sym.getAddress(.{ .stubs = false }, self) - seg.vmaddr,
-                .export_flags = flags,
-            });
-        }
-    }
-
-    if (self.mh_execute_header_index) |index| {
-        const sym = self.getSymbol(index);
-        try self.export_trie.put(gpa, .{
-            .name = sym.getName(self),
-            .vmaddr_offset = sym.getAddress(.{}, self) - seg.vmaddr,
-            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-        });
-    }
-}
-
 fn writeAtoms(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2659,13 +2576,13 @@ fn writeUnwindInfo(self: *MachO) !void {
 fn finalizeDyldInfoSections(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = self.base.comp.gpa;
-
-    try self.rebase.finalize(gpa);
-    try self.bind.finalize(gpa, self);
-    try self.weak_bind.finalize(gpa, self);
-    try self.lazy_bind.finalize(gpa, self);
-    try self.export_trie.finalize(gpa);
+    try self.rebase.updateSize(self);
+    try self.bind.updateSize(self);
+    try self.weak_bind.updateSize(self);
+    if (self.la_symbol_ptr_sect_index) |_| {
+        try self.lazy_bind.updateSize(self);
+    }
+    try self.export_trie.updateSize(self);
 }
 
 fn writeSyntheticSections(self: *MachO) !void {
@@ -2742,25 +2659,14 @@ fn writeDyldInfoSections(self: *MachO, off: u32) !u32 {
     const gpa = self.base.comp.gpa;
     const cmd = &self.dyld_info_cmd;
     var needed_size: u32 = 0;
-
-    cmd.rebase_off = needed_size;
-    cmd.rebase_size = mem.alignForward(u32, @intCast(self.rebase.size()), @alignOf(u64));
     needed_size += cmd.rebase_size;
-
     cmd.bind_off = needed_size;
-    cmd.bind_size = mem.alignForward(u32, @intCast(self.bind.size()), @alignOf(u64));
     needed_size += cmd.bind_size;
-
     cmd.weak_bind_off = needed_size;
-    cmd.weak_bind_size = mem.alignForward(u32, @intCast(self.weak_bind.size()), @alignOf(u64));
     needed_size += cmd.weak_bind_size;
-
     cmd.lazy_bind_off = needed_size;
-    cmd.lazy_bind_size = mem.alignForward(u32, @intCast(self.lazy_bind.size()), @alignOf(u64));
     needed_size += cmd.lazy_bind_size;
-
     cmd.export_off = needed_size;
-    cmd.export_size = mem.alignForward(u32, @intCast(self.export_trie.size), @alignOf(u64));
     needed_size += cmd.export_size;
 
     const buffer = try gpa.alloc(u8, needed_size);
@@ -2785,7 +2691,6 @@ fn writeDyldInfoSections(self: *MachO, off: u32) !u32 {
     cmd.weak_bind_off += off;
     cmd.lazy_bind_off += off;
     cmd.export_off += off;
-
     try self.base.file.?.pwriteAll(buffer, off);
 
     return off + needed_size;
@@ -4831,6 +4736,7 @@ const mem = std.mem;
 const meta = std.meta;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
+const bind = @import("MachO/dyld_info/bind.zig");
 const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");
 const dead_strip = @import("MachO/dead_strip.zig");
@@ -4851,13 +4757,13 @@ const Alignment = Atom.Alignment;
 const Allocator = mem.Allocator;
 const Archive = @import("MachO/Archive.zig");
 pub const Atom = @import("MachO/Atom.zig");
-const BindSection = synthetic.BindSection;
+const Bind = bind.Bind;
 const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
-const ExportTrieSection = synthetic.ExportTrieSection;
+const ExportTrie = @import("MachO/dyld_info/Trie.zig");
 const File = @import("MachO/file.zig").File;
 const GotSection = synthetic.GotSection;
 const Hash = std.hash.Wyhash;
@@ -4865,7 +4771,7 @@ const Indsymtab = synthetic.Indsymtab;
 const InternalObject = @import("MachO/InternalObject.zig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;
 const Object = @import("MachO/Object.zig");
-const LazyBindSection = synthetic.LazyBindSection;
+const LazyBind = bind.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
 const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
@@ -4875,7 +4781,7 @@ const Zcu = @import("../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
-const RebaseSection = synthetic.RebaseSection;
+const Rebase = @import("MachO/dyld_info/Rebase.zig");
 pub const Relocation = @import("MachO/Relocation.zig");
 const StringTable = @import("StringTable.zig");
 const StubsSection = synthetic.StubsSection;
@@ -4885,6 +4791,6 @@ const Thunk = thunks.Thunk;
 const TlvPtrSection = synthetic.TlvPtrSection;
 const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
-const WeakBindSection = synthetic.WeakBindSection;
+const WeakBind = bind.WeakBind;
 const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");

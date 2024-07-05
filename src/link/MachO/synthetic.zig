@@ -70,22 +70,6 @@ pub const ZigGotSection = struct {
         }
     }
 
-    pub fn addDyldRelocs(zig_got: ZigGotSection, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
-        const gpa = macho_file.base.comp.gpa;
-        const seg_id = macho_file.sections.items(.segment_id)[macho_file.zig_got_sect_index.?];
-        const seg = macho_file.segments.items[seg_id];
-
-        for (0..zig_got.entries.items.len) |idx| {
-            const addr = zig_got.entryAddress(@intCast(idx), macho_file);
-            try macho_file.rebase.entries.append(gpa, .{
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-            });
-        }
-    }
-
     const FormatCtx = struct {
         zig_got: ZigGotSection,
         macho_file: *MachO,
@@ -144,41 +128,6 @@ pub const GotSection = struct {
 
     pub fn size(got: GotSection) usize {
         return got.symbols.items.len * @sizeOf(u64);
-    }
-
-    pub fn addDyldRelocs(got: GotSection, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
-        const gpa = macho_file.base.comp.gpa;
-        const seg_id = macho_file.sections.items(.segment_id)[macho_file.got_sect_index.?];
-        const seg = macho_file.segments.items[seg_id];
-
-        for (got.symbols.items, 0..) |sym_index, idx| {
-            const sym = macho_file.getSymbol(sym_index);
-            const addr = got.getAddress(@intCast(idx), macho_file);
-            const entry = bind.Entry{
-                .target = sym_index,
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-                .addend = 0,
-            };
-            if (sym.flags.import) {
-                try macho_file.bind.entries.append(gpa, entry);
-                if (sym.flags.weak) {
-                    try macho_file.weak_bind.entries.append(gpa, entry);
-                }
-            } else {
-                try macho_file.rebase.entries.append(gpa, .{
-                    .offset = addr - seg.vmaddr,
-                    .segment_id = seg_id,
-                });
-                if (sym.flags.weak) {
-                    try macho_file.weak_bind.entries.append(gpa, entry);
-                } else if (sym.flags.interposable) {
-                    try macho_file.bind.entries.append(gpa, entry);
-                }
-            }
-        }
     }
 
     pub fn write(got: GotSection, macho_file: *MachO, writer: anytype) !void {
@@ -446,49 +395,6 @@ pub const LaSymbolPtrSection = struct {
         return macho_file.stubs.symbols.items.len * @sizeOf(u64);
     }
 
-    pub fn addDyldRelocs(laptr: LaSymbolPtrSection, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
-        _ = laptr;
-        const gpa = macho_file.base.comp.gpa;
-
-        const sect = macho_file.sections.items(.header)[macho_file.la_symbol_ptr_sect_index.?];
-        const seg_id = macho_file.sections.items(.segment_id)[macho_file.la_symbol_ptr_sect_index.?];
-        const seg = macho_file.segments.items[seg_id];
-
-        for (macho_file.stubs.symbols.items, 0..) |sym_index, idx| {
-            const sym = macho_file.getSymbol(sym_index);
-            const addr = sect.addr + idx * @sizeOf(u64);
-            const rebase_entry = Rebase.Entry{
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-            };
-            const bind_entry = bind.Entry{
-                .target = sym_index,
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-                .addend = 0,
-            };
-            if (sym.flags.import) {
-                if (sym.flags.weak) {
-                    try macho_file.bind.entries.append(gpa, bind_entry);
-                    try macho_file.weak_bind.entries.append(gpa, bind_entry);
-                } else {
-                    try macho_file.lazy_bind.entries.append(gpa, bind_entry);
-                    try macho_file.rebase.entries.append(gpa, rebase_entry);
-                }
-            } else {
-                if (sym.flags.weak) {
-                    try macho_file.rebase.entries.append(gpa, rebase_entry);
-                    try macho_file.weak_bind.entries.append(gpa, bind_entry);
-                } else if (sym.flags.interposable) {
-                    try macho_file.lazy_bind.entries.append(gpa, bind_entry);
-                    try macho_file.rebase.entries.append(gpa, rebase_entry);
-                }
-            }
-        }
-    }
-
     pub fn write(laptr: LaSymbolPtrSection, macho_file: *MachO, writer: anytype) !void {
         const tracy = trace(@src());
         defer tracy.end();
@@ -537,41 +443,6 @@ pub const TlvPtrSection = struct {
 
     pub fn size(tlv: TlvPtrSection) usize {
         return tlv.symbols.items.len * @sizeOf(u64);
-    }
-
-    pub fn addDyldRelocs(tlv: TlvPtrSection, macho_file: *MachO) !void {
-        const tracy = trace(@src());
-        defer tracy.end();
-        const gpa = macho_file.base.comp.gpa;
-        const seg_id = macho_file.sections.items(.segment_id)[macho_file.tlv_ptr_sect_index.?];
-        const seg = macho_file.segments.items[seg_id];
-
-        for (tlv.symbols.items, 0..) |sym_index, idx| {
-            const sym = macho_file.getSymbol(sym_index);
-            const addr = tlv.getAddress(@intCast(idx), macho_file);
-            const entry = bind.Entry{
-                .target = sym_index,
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-                .addend = 0,
-            };
-            if (sym.flags.import) {
-                try macho_file.bind.entries.append(gpa, entry);
-                if (sym.flags.weak) {
-                    try macho_file.weak_bind.entries.append(gpa, entry);
-                }
-            } else {
-                try macho_file.rebase.entries.append(gpa, .{
-                    .offset = addr - seg.vmaddr,
-                    .segment_id = seg_id,
-                });
-                if (sym.flags.weak) {
-                    try macho_file.weak_bind.entries.append(gpa, entry);
-                } else if (sym.flags.interposable) {
-                    try macho_file.bind.entries.append(gpa, entry);
-                }
-            }
-        }
     }
 
     pub fn write(tlv: TlvPtrSection, macho_file: *MachO, writer: anytype) !void {
@@ -772,21 +643,12 @@ pub const Indsymtab = struct {
     }
 };
 
-pub const RebaseSection = Rebase;
-pub const BindSection = bind.Bind;
-pub const WeakBindSection = bind.WeakBind;
-pub const LazyBindSection = bind.LazyBind;
-pub const ExportTrieSection = Trie;
-
 const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
-const bind = @import("dyld_info/bind.zig");
 const math = std.math;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = std.mem.Allocator;
 const MachO = @import("../MachO.zig");
-const Rebase = @import("dyld_info/Rebase.zig");
 const Symbol = @import("Symbol.zig");
-const Trie = @import("dyld_info/Trie.zig");

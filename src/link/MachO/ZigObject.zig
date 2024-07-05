@@ -48,7 +48,6 @@ relocs: RelocationTable = .{},
 
 dwarf: ?Dwarf = null,
 
-dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 

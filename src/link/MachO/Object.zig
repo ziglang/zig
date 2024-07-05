@@ -30,7 +30,6 @@ data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 alive: bool = true,
 hidden: bool = false,
 
-dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
