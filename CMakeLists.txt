@@ -371,6 +371,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Build.zig
     lib/std/Build/Cache.zig
     lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Build/Manifest.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig
@@ -516,7 +517,6 @@ set(ZIG_STAGE2_SOURCES
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
-    src/Package/Manifest.zig
     src/Package/Module.zig
     src/RangeSet.zig
     src/Sema.zig

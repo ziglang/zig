@@ -1029,7 +1029,7 @@ pub fn spawnLld(
             error.NameTooLong => err: {
                 const s = fs.path.sep_str;
                 const rand_int = std.crypto.random.int(u64);
-                const rsp_path = "tmp" ++ s ++ Package.Manifest.hex64(rand_int) ++ ".rsp";
+                const rsp_path = "tmp" ++ s ++ std.Build.Manifest.hex64(rand_int) ++ ".rsp";
 
                 const rsp_file = try comp.local_cache_directory.handle.createFileZ(rsp_path, .{});
                 defer comp.local_cache_directory.handle.deleteFileZ(rsp_path) catch |err|

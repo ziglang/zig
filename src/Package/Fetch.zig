@@ -1774,7 +1774,7 @@ const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
-const Manifest = Package.Manifest;
+const Manifest = std.Build.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
 const native_os = builtin.os.tag;
 
@@ -2111,7 +2111,7 @@ test "tarball with excluded duplicate paths" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = std.Build.Manifest.hexDigest(fetch.actual_hash);
     try std.testing.expectEqualStrings(
         "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
         &hex_digest,
@@ -2155,7 +2155,7 @@ test "tarball without root folder" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = std.Build.Manifest.hexDigest(fetch.actual_hash);
     try std.testing.expectEqualStrings(
         "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
         &hex_digest,

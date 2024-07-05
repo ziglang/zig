@@ -4608,7 +4608,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const s = fs.path.sep_str;
     const template_paths = [_][]const u8{
         Package.build_zig_basename,
-        Package.Manifest.basename,
+        std.Build.Manifest.basename,
         "src" ++ s ++ "main.zig",
         "src" ++ s ++ "root.zig",
     };
@@ -4714,7 +4714,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     // the strategy is to choose a temporary file name ahead of time, and then
     // read this file in the parent to obtain the results, in the case the child
     // exits with code 3.
-    const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
+    const results_tmp_file_nonce = std.Build.Manifest.hex64(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
     var color: Color = .auto;
@@ -5215,7 +5215,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         var any_errors = false;
                         while (it.next()) |hash| {
                             if (hash.len == 0) continue;
-                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).Array.len;
+                            const digest_len = @typeInfo(std.Build.Manifest.MultiHashHexDigest).Array.len;
                             if (hash.len != digest_len) {
                                 std.log.err("invalid digest (length {d} instead of {d}): '{s}'", .{
                                     hash.len, digest_len, hash,
@@ -6941,7 +6941,7 @@ fn cmdFetch(
         process.exit(1);
     }
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = std.Build.Manifest.hexDigest(fetch.actual_hash);
 
     root_prog_node.end();
     root_prog_node = .{ .index = .none };
@@ -7064,8 +7064,8 @@ fn cmdFetch(
     defer rendered.deinit();
     try ast.renderToArrayList(&rendered, fixups);
 
-    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered.items }) catch |err| {
-        fatal("unable to write {s} file: {s}", .{ Package.Manifest.basename, @errorName(err) });
+    build_root.directory.handle.writeFile(.{ .sub_path = std.Build.Manifest.basename, .data = rendered.items }) catch |err| {
+        fatal("unable to write {s} file: {s}", .{ std.Build.Manifest.basename, @errorName(err) });
     };
 
     return cleanExit();
@@ -7107,7 +7107,7 @@ fn createDependenciesModule(
     const basename = "dependencies.zig";
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++
-        Package.Manifest.hex64(rand_int);
+        std.Build.Manifest.hex64(rand_int);
     {
         var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
@@ -7230,12 +7230,12 @@ fn loadManifest(
     gpa: Allocator,
     arena: Allocator,
     options: LoadManifestOptions,
-) !struct { Package.Manifest, Ast } {
+) !struct { std.Build.Manifest, Ast } {
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
             arena,
-            Package.Manifest.basename,
-            Package.Manifest.max_bytes,
+            std.Build.Manifest.basename,
+            std.Build.Manifest.max_bytes,
             null,
             1,
             0,
@@ -7244,15 +7244,15 @@ fn loadManifest(
                 var templates = findTemplates(gpa, arena);
                 defer templates.deinit();
 
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
+                templates.write(arena, options.dir, options.root_name, std.Build.Manifest.basename) catch |e| {
                     fatal("unable to write {s}: {s}", .{
-                        Package.Manifest.basename, @errorName(e),
+                        std.Build.Manifest.basename, @errorName(e),
                     });
                 };
                 continue;
             },
             else => |e| fatal("unable to load {s}: {s}", .{
-                Package.Manifest.basename, @errorName(e),
+                std.Build.Manifest.basename, @errorName(e),
             }),
         };
     };
@@ -7260,11 +7260,11 @@ fn loadManifest(
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
-        try std.zig.printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
+        try std.zig.printAstErrorsToStderr(gpa, ast, std.Build.Manifest.basename, options.color);
         process.exit(2);
     }
 
-    var manifest = try Package.Manifest.parse(gpa, ast, .{});
+    var manifest = try std.Build.Manifest.parse(gpa, ast, .{});
     errdefer manifest.deinit(gpa);
 
     if (manifest.errors.len > 0) {
@@ -7272,7 +7272,7 @@ fn loadManifest(
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
 
-        const src_path = try wip_errors.addString(Package.Manifest.basename);
+        const src_path = try wip_errors.addString(std.Build.Manifest.basename);
         try manifest.copyErrorsIntoBundle(ast, src_path, &wip_errors);
 
         var error_bundle = try wip_errors.toOwnedBundle("");

@@ -2,6 +2,9 @@
     .name = "standalone_test_cases",
     .version = "0.0.0",
     .dependencies = .{
+        .tools = .{
+            .path = "../../tools",
+        },
         .simple = .{
             .path = "simple",
         },
@@ -175,6 +178,9 @@
         },
         .run_output_paths = .{
             .path = "run_output_paths",
+        },
+        .enforce_zon_paths = .{
+            .path = "enforce_zon_paths",
         },
     },
     .paths = .{

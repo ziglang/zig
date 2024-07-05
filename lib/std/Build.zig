@@ -20,6 +20,7 @@ const Build = @This();
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
+pub const Manifest = @import("Build/Manifest.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -98,6 +99,8 @@ pkg_hash: []const u8,
 available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
+
+manifest: ?Manifest,
 
 pub const ReleaseMode = enum {
     off,
@@ -304,7 +307,12 @@ pub fn create(
         .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
+        .manifest = try loadManifest(arena, build_root),
     };
+
+    b.enforcePathInManifest(Manifest.basename, .no_trace);
+    b.enforcePathInManifest("build.zig", .no_trace);
+
     try b.top_level_steps.put(arena, b.install_tls.step.name, &b.install_tls);
     try b.top_level_steps.put(arena, b.uninstall_tls.step.name, &b.uninstall_tls);
     b.default_step = &b.install_tls.step;
@@ -399,6 +407,7 @@ fn createChildOnly(
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
         .release_mode = parent.release_mode,
+        .manifest = try loadManifest(allocator, build_root),
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -1690,6 +1699,93 @@ pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
     src_file.close();
 }
 
+fn loadManifest(
+    allocator: std.mem.Allocator,
+    build_root: Cache.Directory,
+) !?Manifest {
+    const manifest_bytes = build_root.handle.readFileAllocOptions(
+        allocator,
+        Manifest.basename,
+        Manifest.max_bytes,
+        null,
+        1,
+        0,
+    ) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => |e| {
+            const file_path = try build_root.join(allocator, &.{Manifest.basename});
+            std.debug.panic("unable to load manifest '{s}': {s}", .{
+                file_path, @errorName(e),
+            });
+        },
+    };
+    const ast = try std.zig.Ast.parse(allocator, manifest_bytes, .zon);
+    if (ast.errors.len > 0) {
+        const file_path = try build_root.join(allocator, &.{Manifest.basename});
+        try std.zig.printAstErrorsToStderr(allocator, ast, file_path, .auto);
+        return error.BadManifestFile;
+    }
+
+    const manifest = Manifest.parse(allocator, ast, .{}) catch |err| {
+        const file_path = try build_root.join(allocator, &.{Manifest.basename});
+        std.debug.panic("{s} while parsing manifest '{s}'", .{ @errorName(err), file_path });
+    };
+    if (manifest.errors.len > 0) {
+        const file_path = try build_root.join(allocator, &.{Manifest.basename});
+        for (manifest.errors) |err| {
+            debug.print("{s}: {s}\n", .{ file_path, err.msg });
+        }
+        return error.BadManifestFile;
+    }
+
+    return manifest;
+}
+
+fn enforcePathInManifest(
+    b: *std.Build,
+    sub_path: []const u8,
+    trace: enum { no_trace, show_trace },
+) void {
+    const manifest = b.manifest orelse return;
+
+    {
+        var it = std.mem.splitAny(u8, sub_path, "\\/");
+        while (it.next()) |component| {
+            if (std.mem.eql(u8, component, "..")) std.debug.panic(
+                "forbidden \"..\" found in path \"{s}\"",
+                .{sub_path},
+            );
+        }
+    }
+
+    const found_match = blk: {
+        if (manifest.paths.get(".") != null)
+            break :blk true;
+        for (manifest.paths.keys()) |manifest_path| {
+            if (sub_path.len < manifest_path.len)
+                continue;
+            if (!std.mem.startsWith(u8, sub_path, manifest_path))
+                continue;
+            if (sub_path.len == manifest_path.len or sub_path[manifest_path.len] == '/')
+                break :blk true;
+        }
+        break :blk false;
+    };
+    if (!found_match) {
+        debug.print(
+            "error: path \"{s}\" is not included in {s}. Its paths are:\n",
+            .{ sub_path, b.pathFromRoot(Manifest.basename) },
+        );
+        for (manifest.paths.keys()) |p| {
+            debug.print("    \"{s}\"\n", .{p});
+        }
+        switch (trace) {
+            .no_trace => process.exit(1),
+            .show_trace => @panic("path missing from manifest"),
+        }
+    }
+}
+
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
     if (fs.path.isAbsolute(sub_path)) {
@@ -1697,6 +1793,9 @@ pub fn path(b: *Build, sub_path: []const u8) LazyPath {
             sub_path,
         });
     }
+
+    b.enforcePathInManifest(sub_path, .show_trace);
+
     return .{ .src_path = .{
         .owner = b,
         .sub_path = sub_path,
@@ -1904,6 +2003,8 @@ pub const Dependency = struct {
     }
 
     pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
+        d.builder.enforcePathInManifest(sub_path, .show_trace);
+
         return .{
             .dependency = .{
                 .dependency = d,
