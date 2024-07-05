@@ -147,6 +147,10 @@ pub fn format(
     }
 }
 
+pub fn eql(self: Path, other: Path) bool {
+    return self.root_dir.eql(other.root_dir) and std.mem.eql(u8, self.sub_path, other.sub_path);
+}
+
 const Path = @This();
 const std = @import("../../std.zig");
 const fs = std.fs;
