@@ -51,7 +51,6 @@ const InnerError = CodeGenError || error{OutOfRegisters};
 pt: Zcu.PerThread,
 air: Air,
 liveness: Liveness,
-zcu: *Zcu,
 bin_file: *link.File,
 gpa: Allocator,
 
@@ -264,13 +263,13 @@ const MCValue = union(enum) {
             .register_pair,
             .memory,
             .indirect,
-            .load_frame,
             .load_symbol,
             .lea_symbol,
             => switch (off) {
                 0 => mcv,
-                else => unreachable, // not offsettable
+                else => unreachable,
             },
+            .load_frame => |frame| .{ .load_frame = .{ .index = frame.index, .off = frame.off + off } },
             .immediate => |imm| .{ .immediate = @bitCast(@as(i64, @bitCast(imm)) +% off) },
             .register => |reg| .{ .register_offset = .{ .reg = reg, .off = off } },
             .register_offset => |reg_off| .{ .register_offset = .{ .reg = reg_off.reg, .off = reg_off.off + off } },
@@ -737,7 +736,6 @@ pub fn generate(
         .air = air,
         .pt = pt,
         .mod = mod,
-        .zcu = zcu,
         .bin_file = bin_file,
         .liveness = liveness,
         .target = target,
@@ -946,7 +944,7 @@ fn formatDecl(
 }
 fn fmtDecl(func: *Func, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{
-        .zcu = func.zcu,
+        .zcu = func.pt.zcu,
         .decl_index = decl_index,
     } };
 }
@@ -1325,6 +1323,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .mul,
             .mul_wrap,
             .div_trunc, 
+            .rem,
 
             .shl, .shl_exact,
             .shr, .shr_exact,
@@ -1344,7 +1343,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .ptr_add,
             .ptr_sub => try func.airPtrArithmetic(inst, tag),
 
-            .rem,
             .mod,
             .div_float, 
             .div_floor, 
@@ -2151,11 +2149,16 @@ fn airTrunc(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     if (func.liveness.isUnused(inst))
         return func.finishAir(inst, .unreach, .{ ty_op.operand, .none, .none });
-
+    // we assume no zeroext in the "Zig ABI", so it's fine to just not truncate it.
     const operand = try func.resolveInst(ty_op.operand);
-    _ = operand;
-    return func.fail("TODO implement trunc for {}", .{func.target.cpu.arch});
-    // return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+
+    // we can do it just to be safe, but this shouldn't be needed for no-runtime safety modes
+    switch (operand) {
+        .register => |reg| try func.truncateRegister(func.typeOf(ty_op.operand), reg),
+        else => {},
+    }
+
+    return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
 }
 
 fn airIntFromBool(func: *Func, inst: Air.Inst.Index) !void {
@@ -2305,10 +2308,7 @@ fn binOp(
             80, 128 => true,
             else => unreachable,
         };
-        switch (air_tag) {
-            .rem, .mod => {},
-            else => if (!type_needs_libcall) break :libcall,
-        }
+        if (!type_needs_libcall) break :libcall;
         return func.fail("binOp libcall runtime-float ops", .{});
     }
 
@@ -2384,12 +2384,22 @@ fn genBinOp(
         .sub_wrap,
         .mul,
         .mul_wrap,
+        .rem,
         => {
             if (!math.isPowerOfTwo(bit_size))
                 return func.fail(
                     "TODO: genBinOp {s} non-pow 2, found {}",
                     .{ @tagName(tag), bit_size },
                 );
+
+            switch (tag) {
+                .rem,
+                => {
+                    try func.truncateRegister(lhs_ty, lhs_reg);
+                    try func.truncateRegister(rhs_ty, rhs_reg);
+                },
+                else => {},
+            }
 
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .Int => {
@@ -2409,6 +2419,10 @@ fn genBinOp(
                             32 => .mulw,
                             else => unreachable,
                         },
+                        .rem => switch (bit_size) {
+                            64 => if (is_unsigned) .remu else .rem,
+                            else => if (is_unsigned) .remuw else .remu,
+                        },
                         else => unreachable,
                     };
 
@@ -2423,14 +2437,6 @@ fn genBinOp(
                             },
                         },
                     });
-
-                    // truncate when the instruction is larger than the bit size.
-                    switch (bit_size) {
-                        8, 16 => try func.truncateRegister(lhs_ty, dst_reg),
-                        32 => {}, // addw/subw affects the first 32-bits
-                        64 => {}, // add/sub affects the entire register
-                        else => unreachable,
-                    }
                 },
                 .Float => {
                     const mir_tag: Mir.Inst.Tag = switch (tag) {
@@ -2627,23 +2633,17 @@ fn genBinOp(
         .shl,
         .shl_exact,
         => {
-            if (!math.isPowerOfTwo(bit_size))
-                return func.fail(
-                    "TODO: genBinOp {s} non-pow 2, found {}",
-                    .{ @tagName(tag), bit_size },
-                );
-
-            // it's important that the shift amount is exact
+            if (bit_size > 64) return func.fail("TODO: genBinOp shift > 64 bits, {}", .{bit_size});
             try func.truncateRegister(rhs_ty, rhs_reg);
 
             const mir_tag: Mir.Inst.Tag = switch (tag) {
                 .shl, .shl_exact => switch (bit_size) {
-                    8, 16, 64 => .sll,
+                    1...31, 33...64 => .sll,
                     32 => .sllw,
                     else => unreachable,
                 },
                 .shr, .shr_exact => switch (bit_size) {
-                    8, 16, 64 => .srl,
+                    1...31, 33...64 => .srl,
                     32 => .srlw,
                     else => unreachable,
                 },
@@ -2659,13 +2659,6 @@ fn genBinOp(
                     .rs2 = rhs_reg,
                 } },
             });
-
-            switch (bit_size) {
-                8, 16 => try func.truncateRegister(lhs_ty, dst_reg),
-                32 => {},
-                64 => {},
-                else => unreachable,
-            }
         },
 
         // TODO: move the isel logic out of lower and into here.
@@ -2810,10 +2803,6 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
                 if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
                     const add_result = try func.binOp(null, .add, extra.lhs, extra.rhs);
 
-                    const add_result_reg = try func.copyToTmpRegister(ty, add_result);
-                    const add_result_reg_lock = func.register_manager.lockRegAssumeUnused(add_result_reg);
-                    defer func.register_manager.unlockReg(add_result_reg_lock);
-
                     try func.genSetMem(
                         .{ .frame = offset.index },
                         offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, pt))),
@@ -2821,14 +2810,21 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
                         add_result,
                     );
 
+                    const trunc_reg = try func.copyToTmpRegister(ty, add_result);
+                    const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);
+                    defer func.register_manager.unlockReg(trunc_reg_lock);
+
                     const overflow_reg, const overflow_lock = try func.allocReg(.int);
                     defer func.register_manager.unlockReg(overflow_lock);
 
+                    // if the result isn't equal after truncating it to the given type,
+                    // an overflow must have happened.
+                    try func.truncateRegister(func.typeOf(extra.lhs), trunc_reg);
                     try func.genBinOp(
                         .cmp_neq,
-                        .{ .register = add_result_reg },
+                        add_result,
                         ty,
-                        .{ .register = add_result_reg },
+                        .{ .register = trunc_reg },
                         ty,
                         overflow_reg,
                     );
@@ -3022,61 +3018,34 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
         switch (lhs_ty.zigTypeTag(zcu)) {
             else => |x| return func.fail("TODO: airMulWithOverflow {s}", .{@tagName(x)}),
             .Int => {
-                assert(lhs_ty.eql(rhs_ty, zcu));
-                const int_info = lhs_ty.intInfo(zcu);
-                switch (int_info.bits) {
-                    1...32 => {
-                        if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
-                            if (int_info.signedness == .unsigned) {
-                                switch (int_info.bits) {
-                                    1...8 => {
-                                        const max_val = std.math.pow(u16, 2, int_info.bits) - 1;
+                if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty, zcu));
 
-                                        const add_reg, const add_lock = try func.promoteReg(lhs_ty, lhs);
-                                        defer if (add_lock) |lock| func.register_manager.unlockReg(lock);
+                const trunc_reg = try func.copyToTmpRegister(lhs_ty, .{ .register = dest_reg });
+                const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);
+                defer func.register_manager.unlockReg(trunc_reg_lock);
 
-                                        const overflow_reg, const overflow_lock = try func.allocReg(.int);
-                                        defer func.register_manager.unlockReg(overflow_lock);
+                const overflow_reg, const overflow_lock = try func.allocReg(.int);
+                defer func.register_manager.unlockReg(overflow_lock);
 
-                                        _ = try func.addInst(.{
-                                            .tag = .andi,
-                                            .ops = .rri,
-                                            .data = .{ .i_type = .{
-                                                .rd = overflow_reg,
-                                                .rs1 = add_reg,
-                                                .imm12 = Immediate.s(max_val),
-                                            } },
-                                        });
+                // if the result isn't equal after truncating it to the given type,
+                // an overflow must have happened.
+                try func.truncateRegister(func.typeOf(extra.lhs), trunc_reg);
+                try func.genBinOp(
+                    .cmp_neq,
+                    .{ .register = dest_reg },
+                    lhs_ty,
+                    .{ .register = trunc_reg },
+                    rhs_ty,
+                    overflow_reg,
+                );
 
-                                        try func.genBinOp(
-                                            .cmp_neq,
-                                            .{ .register = overflow_reg },
-                                            lhs_ty,
-                                            .{ .register = add_reg },
-                                            lhs_ty,
-                                            overflow_reg,
-                                        );
+                try func.genCopy(
+                    lhs_ty,
+                    result_mcv.offset(overflow_off),
+                    .{ .register = overflow_reg },
+                );
 
-                                        try func.genCopy(
-                                            lhs_ty,
-                                            result_mcv.offset(overflow_off),
-                                            .{ .register = overflow_reg },
-                                        );
-
-                                        break :result result_mcv;
-                                    },
-
-                                    else => return func.fail("TODO: airMulWithOverflow check for size {d}", .{int_info.bits}),
-                                }
-                            } else {
-                                return func.fail("TODO: airMulWithOverflow calculate carry for signed addition", .{});
-                            }
-                        } else {
-                            return func.fail("TODO: airMulWithOverflow with < 8 bits or non-pow of 2", .{});
-                        }
-                    },
-                    else => return func.fail("TODO: airMulWithOverflow larger than 32-bit mul", .{}),
-                }
+                break :result result_mcv;
             },
         }
     };
@@ -3317,7 +3286,17 @@ fn airWrapOptional(func: *Func, inst: Air.Inst.Index) !void {
                     Type.u8,
                     .{ .immediate = 1 },
                 ),
-                .register => return func.fail("TODO: airWrapOption opt_mcv register", .{}),
+
+                .register => |opt_reg| {
+                    try func.genBinOp(
+                        .shl,
+                        .{ .immediate = 1 },
+                        Type.u64,
+                        .{ .immediate = 32 },
+                        Type.u64,
+                        opt_reg,
+                    );
+                },
                 else => unreachable,
             }
         }
@@ -4059,7 +4038,7 @@ fn airLoad(func: *Func, inst: Air.Inst.Index) !void {
         const elem_size = elem_ty.abiSize(pt);
 
         const dst_mcv: MCValue = blk: {
-            // Pointer is 8 bytes, and if the element is more than that, we cannot reuse it.
+            // "ptr" is 8 bytes, and if the element is more than that, we cannot reuse it.
             if (elem_size <= 8 and func.reuseOperand(inst, ty_op.operand, 0, ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
                 break :blk ptr;
@@ -4970,7 +4949,7 @@ fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .lea_symbol,
         .reserved_frame,
         .air_ref,
-        => return func.fail("TODO: hmm {}", .{opt_mcv}),
+        => unreachable,
 
         .register => |opt_reg| {
             if (some_info.off == 0) {
@@ -4993,9 +4972,27 @@ fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
                 return return_mcv;
             }
             assert(some_info.ty.ip_index == .bool_type);
-            const opt_abi_size: u32 = @intCast(opt_ty.abiSize(pt));
-            _ = opt_abi_size;
-            return func.fail("TODO: isNull some_info.off != 0 register", .{});
+            const bit_offset: u7 = @intCast(some_info.off * 8);
+
+            try func.genBinOp(
+                .shr,
+                .{ .register = opt_reg },
+                Type.u64,
+                .{ .immediate = bit_offset },
+                Type.u8,
+                return_reg,
+            );
+            try func.truncateRegister(Type.u8, return_reg);
+            try func.genBinOp(
+                .cmp_eq,
+                .{ .register = return_reg },
+                Type.u64,
+                .{ .immediate = 0 },
+                Type.u8,
+                return_reg,
+            );
+
+            return return_mcv;
         },
 
         .load_frame => {
@@ -6556,13 +6553,17 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
-    const zcu = func.pt.zcu;
+    const pt = func.pt;
+    const zcu = pt.zcu;
     const atomic_load = func.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
     const order: std.builtin.AtomicOrder = atomic_load.order;
 
     const ptr_ty = func.typeOf(atomic_load.ptr);
     const elem_ty = ptr_ty.childType(zcu);
     const ptr_mcv = try func.resolveInst(atomic_load.ptr);
+
+    const bit_size = elem_ty.bitSize(pt);
+    if (bit_size > 64) return func.fail("TODO: airAtomicStore > 64 bits", .{});
 
     const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
     assert(result_mcv == .register); // should be less than 8 bytes
@@ -6615,6 +6616,9 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
 
     const val_ty = func.typeOf(bin_op.rhs);
     const val_mcv = try func.resolveInst(bin_op.rhs);
+
+    const bit_size = val_ty.bitSize(func.pt);
+    if (bit_size > 64) return func.fail("TODO: airAtomicStore > 64 bits", .{});
 
     switch (order) {
         .unordered, .monotonic => {},

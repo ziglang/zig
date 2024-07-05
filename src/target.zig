@@ -60,9 +60,10 @@ pub fn alwaysSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-pub fn defaultSingleThreaded(target: std.Target) bool {
+pub fn defaultSingleThreaded(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     switch (target.cpu.arch) {
         .wasm32, .wasm64 => return true,
+        .riscv64 => if (backend == .stage2_riscv64) return true,
         else => {},
     }
     switch (target.os.tag) {

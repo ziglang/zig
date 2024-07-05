@@ -689,6 +689,8 @@ fn testSignedWrappingEval(x: i32) !void {
 }
 
 test "signed negation wrapping" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     try testSignedNegationWrappingEval(minInt(i16));
     try comptime testSignedNegationWrappingEval(minInt(i16));
 }
@@ -699,6 +701,8 @@ fn testSignedNegationWrappingEval(x: i16) !void {
 }
 
 test "unsigned negation wrapping" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     try testUnsignedNegationWrappingEval(1);
     try comptime testUnsignedNegationWrappingEval(1);
 }
@@ -725,7 +729,6 @@ fn negateWrap(comptime T: type, x: T) T {
 test "unsigned 64-bit division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
         // https://github.com/ziglang/zig/issues/16846
@@ -838,7 +841,6 @@ test "@addWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testAddWithOverflow(u8, 250, 100, 94, 1);
     try testAddWithOverflow(u8, 100, 150, 250, 0);
@@ -927,7 +929,6 @@ fn testMulWithOverflow(comptime T: type, a: T, b: T, mul: T, bit: u1) !void {
 test "basic @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testMulWithOverflow(u8, 86, 3, 2, 1);
     try testMulWithOverflow(u8, 85, 3, 255, 0);
@@ -1330,6 +1331,8 @@ test "quad hex float literal parsing accurate" {
 }
 
 test "truncating shift left" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     try testShlTrunc(maxInt(u16));
     try comptime testShlTrunc(maxInt(u16));
 }

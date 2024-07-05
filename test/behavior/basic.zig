@@ -16,8 +16,6 @@ test "empty function with comments" {
 }
 
 test "truncate" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try expect(testTruncate(0x10fd) == 0xfd);
     comptime assert(testTruncate(0x10fd) == 0xfd);
 }
