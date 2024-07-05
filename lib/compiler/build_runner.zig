@@ -213,6 +213,8 @@ pub fn main() !void {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
                 builder.verbose_air = true;
+            } else if (mem.eql(u8, arg, "--cache-dependencies-locally")) {
+                builder.cache_dependencies_locally = true;
             } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
                 builder.verbose_llvm_ir = "-";
             } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
@@ -1184,6 +1186,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --build-file [file]          Override path to build.zig
         \\  --cache-dir [path]           Override path to local Zig cache directory
         \\  --global-cache-dir [path]    Override path to global Zig cache directory
+        \\  --cache-dependencies-locally Cache dependencies locally in zig-deps
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)

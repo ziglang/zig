@@ -1383,7 +1383,7 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     if (b.debug_compile_errors) {
         try zig_args.append("--debug-compile-errors");
     }
-
+    if (b.cache_dependencies_locally) try zig_args.append("--cache-dependencies-locally");
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
