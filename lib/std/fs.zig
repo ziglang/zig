@@ -72,7 +72,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On Windows, `[]u8` file name components are encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
-pub const MAX_NAME_BYTES = switch (native_os) {
+pub const max_name_bytes = switch (native_os) {
     .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
@@ -81,7 +81,7 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
     .windows => windows.NAME_MAX * 3,
     // For WASI, the MAX_NAME will depend on the host OS, so it needs to be
-    // as large as the largest MAX_NAME_BYTES (Windows) in order to work on any host OS.
+    // as large as the largest max_name_bytes (Windows) in order to work on any host OS.
     // TODO determine if this is a reasonable approach
     .wasi => windows.NAME_MAX * 3,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
@@ -89,6 +89,9 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     else
         @compileError("NAME_MAX not implemented for " ++ @tagName(native_os)),
 };
+
+/// Deprecated: use `max_name_bytes`
+pub const MAX_NAME_BYTES = max_name_bytes;
 
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 

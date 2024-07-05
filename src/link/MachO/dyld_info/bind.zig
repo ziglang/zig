@@ -392,7 +392,7 @@ pub const LazyBind = struct {
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
-    try std.leb.writeULEB128(writer, offset);
+    try std.leb.writeUleb128(writer, offset);
 }
 
 fn setSymbol(name: []const u8, flags: u8, writer: anytype) !void {
@@ -426,7 +426,7 @@ fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @as(u4, @truncate(cast)));
         } else {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
-            try std.leb.writeULEB128(writer, cast);
+            try std.leb.writeUleb128(writer, cast);
         }
     }
 }
@@ -434,7 +434,7 @@ fn setDylibOrdinal(ordinal: i16, writer: anytype) !void {
 fn setAddend(addend: i64, writer: anytype) !void {
     log.debug(">>> set addend: {x}", .{addend});
     try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
-    try std.leb.writeILEB128(writer, addend);
+    try std.leb.writeIleb128(writer, addend);
 }
 
 fn doBind(writer: anytype) !void {
@@ -454,20 +454,20 @@ fn doBindAddAddr(addr: u64, writer: anytype) !void {
         }
     }
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB);
-    try std.leb.writeULEB128(writer, addr);
+    try std.leb.writeUleb128(writer, addr);
 }
 
 fn doBindTimesSkip(count: usize, skip: u64, writer: anytype) !void {
     log.debug(">>> bind with count: {d} and skip: {x}", .{ count, skip });
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB);
-    try std.leb.writeULEB128(writer, count);
-    try std.leb.writeULEB128(writer, skip);
+    try std.leb.writeUleb128(writer, count);
+    try std.leb.writeUleb128(writer, skip);
 }
 
 fn addAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> add: {x}", .{addr});
     try writer.writeByte(macho.BIND_OPCODE_ADD_ADDR_ULEB);
-    try std.leb.writeULEB128(writer, addr);
+    try std.leb.writeUleb128(writer, addr);
 }
 
 fn done(writer: anytype) !void {

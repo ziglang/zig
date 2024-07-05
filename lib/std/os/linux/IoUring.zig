@@ -3524,12 +3524,7 @@ test "accept/connect/send_zc/recv" {
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    var cqe_send, const cqe_recv = brk: {
-        const cqe1 = try ring.copy_cqe();
-        const cqe2 = try ring.copy_cqe();
-        break :brk if (cqe1.user_data == 0xeeeeeeee) .{ cqe1, cqe2 } else .{ cqe2, cqe1 };
-    };
-
+    var cqe_send = try ring.copy_cqe();
     // First completion of zero-copy send.
     // IORING_CQE_F_MORE, means that there
     // will be a second completion event / notification for the
@@ -3541,6 +3536,12 @@ test "accept/connect/send_zc/recv" {
         .flags = linux.IORING_CQE_F_MORE,
     }, cqe_send);
 
+    cqe_send, const cqe_recv = brk: {
+        const cqe1 = try ring.copy_cqe();
+        const cqe2 = try ring.copy_cqe();
+        break :brk if (cqe1.user_data == 0xeeeeeeee) .{ cqe1, cqe2 } else .{ cqe2, cqe1 };
+    };
+
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
@@ -3550,7 +3551,6 @@ test "accept/connect/send_zc/recv" {
 
     // Second completion of zero-copy send.
     // IORING_CQE_F_NOTIF in flags signals that kernel is done with send_buffer
-    cqe_send = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,

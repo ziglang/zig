@@ -101,7 +101,7 @@ resource_usage_statistics: ResourceUsageStatistics = .{},
 ///
 /// The child's progress tree will be grafted into the parent's progress tree,
 /// by substituting this node with the child's root node.
-progress_node: std.Progress.Node = .{ .index = .none },
+progress_node: std.Progress.Node = std.Progress.Node.none,
 
 pub const ResourceUsageStatistics = struct {
     rusage: @TypeOf(rusage_init) = rusage_init,
@@ -376,6 +376,7 @@ pub fn run(args: struct {
     env_map: ?*const EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
+    progress_node: std.Progress.Node = std.Progress.Node.none,
 }) RunError!RunResult {
     var child = ChildProcess.init(args.argv, args.allocator);
     child.stdin_behavior = .Ignore;
@@ -385,6 +386,7 @@ pub fn run(args: struct {
     child.cwd_dir = args.cwd_dir;
     child.env_map = args.env_map;
     child.expand_arg0 = args.expand_arg0;
+    child.progress_node = args.progress_node;
 
     var stdout = std.ArrayList(u8).init(args.allocator);
     var stderr = std.ArrayList(u8).init(args.allocator);
@@ -1101,7 +1103,7 @@ fn windowsCreateProcessPathExt(
     }
     var io_status: windows.IO_STATUS_BLOCK = undefined;
 
-    const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).Enum.fields.len;
+    const num_supported_pathext = @typeInfo(WindowsExtension).Enum.fields.len;
     var pathext_seen = [_]bool{false} ** num_supported_pathext;
     var any_pathext_seen = false;
     var unappended_exists = false;
@@ -1387,8 +1389,9 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
 
 var pipe_name_counter = std.atomic.Value(u32).init(1);
 
-// Should be kept in sync with `windowsCreateProcessSupportsExtension`
-const CreateProcessSupportedExtension = enum {
+/// File name extensions supported natively by `CreateProcess()` on Windows.
+// Should be kept in sync with `windowsCreateProcessSupportsExtension`.
+pub const WindowsExtension = enum {
     bat,
     cmd,
     com,
@@ -1396,7 +1399,7 @@ const CreateProcessSupportedExtension = enum {
 };
 
 /// Case-insensitive WTF-16 lookup
-fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupportedExtension {
+fn windowsCreateProcessSupportsExtension(ext: []const u16) ?WindowsExtension {
     if (ext.len != 4) return null;
     const State = enum {
         start,
@@ -1455,7 +1458,7 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupport
 }
 
 test windowsCreateProcessSupportsExtension {
-    try std.testing.expectEqual(CreateProcessSupportedExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
+    try std.testing.expectEqual(WindowsExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
     try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
 }
 

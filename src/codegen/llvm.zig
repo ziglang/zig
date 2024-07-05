@@ -14,15 +14,15 @@ else
 const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
-const Module = @import("../Module.zig");
-const Zcu = Module;
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
-const Type = @import("../type.zig").Type;
-const LazySrcLoc = std.zig.LazySrcLoc;
+const Type = @import("../Type.zig");
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -848,10 +848,6 @@ pub const Object = struct {
     /// Note that the values are not added until `emit`, when all errors in
     /// the compilation are known.
     error_name_table: Builder.Variable.Index,
-    /// This map is usually very close to empty. It tracks only the cases when a
-    /// second extern Decl could not be emitted with the correct name due to a
-    /// name collision.
-    extern_collisions: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, void),
 
     /// Memoizes a null `?usize` value.
     null_opt_usize: Builder.Constant,
@@ -1011,7 +1007,6 @@ pub const Object = struct {
             .named_enum_map = .{},
             .type_map = .{},
             .error_name_table = .none,
-            .extern_collisions = .{},
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
         };
@@ -1029,7 +1024,6 @@ pub const Object = struct {
         self.anon_decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
-        self.extern_collisions.deinit(gpa);
         self.builder.deinit();
         self.struct_field_map.deinit(gpa);
         self.* = undefined;
@@ -1121,61 +1115,6 @@ pub const Object = struct {
         try object.builder.finishModuleAsm();
     }
 
-    fn resolveExportExternCollisions(object: *Object) !void {
-        const mod = object.module;
-
-        // This map has externs with incorrect symbol names.
-        for (object.extern_collisions.keys()) |decl_index| {
-            const global = object.decl_map.get(decl_index) orelse continue;
-            // Same logic as below but for externs instead of exports.
-            const decl_name = object.builder.strtabStringIfExists(mod.declPtr(decl_index).name.toSlice(&mod.intern_pool)) orelse continue;
-            const other_global = object.builder.getGlobal(decl_name) orelse continue;
-            if (other_global.toConst().getBase(&object.builder) ==
-                global.toConst().getBase(&object.builder)) continue;
-
-            try global.replace(other_global, &object.builder);
-        }
-        object.extern_collisions.clearRetainingCapacity();
-
-        for (mod.decl_exports.keys(), mod.decl_exports.values()) |decl_index, export_list| {
-            const global = object.decl_map.get(decl_index) orelse continue;
-            try resolveGlobalCollisions(object, global, export_list.items);
-        }
-
-        for (mod.value_exports.keys(), mod.value_exports.values()) |val, export_list| {
-            const global = object.anon_decl_map.get(val) orelse continue;
-            try resolveGlobalCollisions(object, global, export_list.items);
-        }
-    }
-
-    fn resolveGlobalCollisions(
-        object: *Object,
-        global: Builder.Global.Index,
-        export_list: []const *Module.Export,
-    ) !void {
-        const mod = object.module;
-        const global_base = global.toConst().getBase(&object.builder);
-        for (export_list) |exp| {
-            // Detect if the LLVM global has already been created as an extern. In such
-            // case, we need to replace all uses of it with this exported global.
-            const exp_name = object.builder.strtabStringIfExists(exp.opts.name.toSlice(&mod.intern_pool)) orelse continue;
-
-            const other_global = object.builder.getGlobal(exp_name) orelse continue;
-            if (other_global.toConst().getBase(&object.builder) == global_base) continue;
-
-            try global.takeName(other_global, &object.builder);
-            try other_global.replace(global, &object.builder);
-            // Problem: now we need to replace in the decl_map that
-            // the extern decl index points to this new global. However we don't
-            // know the decl index.
-            // Even if we did, a future incremental update to the extern would then
-            // treat the LLVM global as an extern rather than an export, so it would
-            // need a way to check that.
-            // This is a TODO that needs to be solved when making
-            // the LLVM backend support incremental compilation.
-        }
-    }
-
     pub const EmitOptions = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
@@ -1193,7 +1132,6 @@ pub const Object = struct {
 
     pub fn emit(self: *Object, options: EmitOptions) !void {
         {
-            try self.resolveExportExternCollisions();
             try self.genErrorNameTable();
             try self.genCmpLtErrorsLenFunction();
             try self.genModuleLevelAssembly();
@@ -1424,7 +1362,8 @@ pub const Object = struct {
         const decl_index = func.owner_decl;
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
-        const owner_mod = namespace.file_scope.mod;
+        const file_scope = namespace.fileScope(zcu);
+        const owner_mod = file_scope.mod;
         const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
         const target = owner_mod.resolved_target.result;
         const ip = &zcu.intern_pool;
@@ -1695,11 +1634,10 @@ pub const Object = struct {
         function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         const file, const subprogram = if (!wip.strip) debug_info: {
-            const file = try o.getDebugFile(namespace.file_scope);
+            const file = try o.getDebugFile(file_scope);
 
-            const line_number = decl.src_line + 1;
-            const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
-                !zcu.decl_exports.contains(decl_index);
+            const line_number = decl.navSrcLine(zcu) + 1;
+            const is_internal_linkage = decl.val.getExternFunc(zcu) == null;
             const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
 
             const subprogram = try o.builder.debugSubprogram(
@@ -1732,6 +1670,7 @@ pub const Object = struct {
             .liveness = liveness,
             .dg = &dg,
             .wip = wip,
+            .is_naked = fn_info.cc == .Naked,
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
@@ -1740,7 +1679,7 @@ pub const Object = struct {
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
-            .base_line = dg.decl.src_line,
+            .base_line = dg.decl.navSrcLine(zcu),
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
@@ -1751,7 +1690,7 @@ pub const Object = struct {
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try zcu.failed_decls.put(zcu.gpa, decl_index, dg.err_msg.?);
+                try zcu.failed_analysis.put(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
@@ -1759,8 +1698,6 @@ pub const Object = struct {
         };
 
         try fg.wip.finish();
-
-        try o.updateExports(zcu, .{ .decl_index = decl_index }, zcu.getDeclExports(decl_index));
     }
 
     pub fn updateDecl(self: *Object, module: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -1774,90 +1711,38 @@ pub const Object = struct {
         dg.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
                 decl.analysis = .codegen_failure;
-                try module.failed_decls.put(module.gpa, decl_index, dg.err_msg.?);
+                try module.failed_analysis.put(module.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
                 dg.err_msg = null;
                 return;
             },
             else => |e| return e,
         };
-        try self.updateExports(module, .{ .decl_index = decl_index }, module.getDeclExports(decl_index));
     }
 
     pub fn updateExports(
         self: *Object,
-        mod: *Module,
+        zcu: *Zcu,
         exported: Module.Exported,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const decl_index = switch (exported) {
             .decl_index => |i| i,
-            .value => |val| return updateExportedValue(self, mod, val, exports),
+            .value => |val| return updateExportedValue(self, zcu, val, export_indices),
         };
-        const gpa = mod.gpa;
-        const ip = &mod.intern_pool;
-        // If the module does not already have the function, we ignore this function call
-        // because we call `updateExports` at the end of `updateFunc` and `updateDecl`.
-        const global_index = self.decl_map.get(decl_index) orelse return;
-        const decl = mod.declPtr(decl_index);
-        const comp = mod.comp;
-        if (decl.isExtern(mod)) {
-            const decl_name = decl_name: {
-                if (mod.getTarget().isWasm() and decl.val.typeOf(mod).zigTypeTag(mod) == .Fn) {
-                    if (decl.getOwnedExternFunc(mod).?.lib_name.toSlice(ip)) |lib_name| {
-                        if (!std.mem.eql(u8, lib_name, "c")) {
-                            break :decl_name try self.builder.strtabStringFmt("{}|{s}", .{ decl.name.fmt(ip), lib_name });
-                        }
-                    }
-                }
-                break :decl_name try self.builder.strtabString(decl.name.toSlice(ip));
-            };
+        const ip = &zcu.intern_pool;
+        const global_index = self.decl_map.get(decl_index).?;
+        const decl = zcu.declPtr(decl_index);
+        const comp = zcu.comp;
 
-            if (self.builder.getGlobal(decl_name)) |other_global| {
-                if (other_global != global_index) {
-                    try self.extern_collisions.put(gpa, decl_index, {});
-                }
-            }
-
-            try global_index.rename(decl_name, &self.builder);
-            global_index.setLinkage(.external, &self.builder);
-            global_index.setUnnamedAddr(.default, &self.builder);
-            if (comp.config.dll_export_fns)
-                global_index.setDllStorageClass(.default, &self.builder);
-
-            if (decl.val.getVariable(mod)) |decl_var| {
-                global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal) .generaldynamic else .default,
-                    &self.builder,
-                );
-                if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &self.builder);
-            }
-        } else if (exports.len != 0) {
-            const main_exp_name = try self.builder.strtabString(exports[0].opts.name.toSlice(ip));
-            try global_index.rename(main_exp_name, &self.builder);
-
-            if (decl.val.getVariable(mod)) |decl_var| if (decl_var.is_threadlocal)
-                global_index.ptrConst(&self.builder).kind
-                    .variable.setThreadLocal(.generaldynamic, &self.builder);
-
-            return updateExportedGlobal(self, mod, global_index, exports);
+        if (export_indices.len != 0) {
+            return updateExportedGlobal(self, zcu, global_index, export_indices);
         } else {
-            const fqn = try self.builder.strtabString((try decl.fullyQualifiedName(mod)).toSlice(ip));
+            const fqn = try self.builder.strtabString((try decl.fullyQualifiedName(zcu)).toSlice(ip));
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
             if (comp.config.dll_export_fns)
                 global_index.setDllStorageClass(.default, &self.builder);
             global_index.setUnnamedAddr(.unnamed_addr, &self.builder);
-            if (decl.val.getVariable(mod)) |decl_var| {
-                const decl_namespace = mod.namespacePtr(decl.src_namespace);
-                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
-                global_index.ptrConst(&self.builder).kind.variable.setThreadLocal(
-                    if (decl_var.is_threadlocal and !single_threaded)
-                        .generaldynamic
-                    else
-                        .default,
-                    &self.builder,
-                );
-            }
         }
     }
 
@@ -1865,11 +1750,11 @@ pub const Object = struct {
         o: *Object,
         mod: *Module,
         exported_value: InternPool.Index,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const gpa = mod.gpa;
         const ip = &mod.intern_pool;
-        const main_exp_name = try o.builder.strtabString(exports[0].opts.name.toSlice(ip));
+        const main_exp_name = try o.builder.strtabString(mod.all_exports.items[export_indices[0]].opts.name.toSlice(ip));
         const global_index = i: {
             const gop = try o.anon_decl_map.getOrPut(gpa, exported_value);
             if (gop.found_existing) {
@@ -1893,32 +1778,57 @@ pub const Object = struct {
             try variable_index.setInitializer(init_val, &o.builder);
             break :i global_index;
         };
-        return updateExportedGlobal(o, mod, global_index, exports);
+        return updateExportedGlobal(o, mod, global_index, export_indices);
     }
 
     fn updateExportedGlobal(
         o: *Object,
         mod: *Module,
         global_index: Builder.Global.Index,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) link.File.UpdateExportsError!void {
         const comp = mod.comp;
         const ip = &mod.intern_pool;
+        const first_export = mod.all_exports.items[export_indices[0]];
+
+        // We will rename this global to have a name matching `first_export`.
+        // Successive exports become aliases.
+        // If the first export name already exists, then there is a corresponding
+        // extern global - we replace it with this global.
+        const first_exp_name = try o.builder.strtabString(first_export.opts.name.toSlice(ip));
+        if (o.builder.getGlobal(first_exp_name)) |other_global| replace: {
+            if (other_global.toConst().getBase(&o.builder) == global_index.toConst().getBase(&o.builder)) {
+                break :replace; // this global already has the name we want
+            }
+            try global_index.takeName(other_global, &o.builder);
+            try other_global.replace(global_index, &o.builder);
+            // Problem: now we need to replace in the decl_map that
+            // the extern decl index points to this new global. However we don't
+            // know the decl index.
+            // Even if we did, a future incremental update to the extern would then
+            // treat the LLVM global as an extern rather than an export, so it would
+            // need a way to check that.
+            // This is a TODO that needs to be solved when making
+            // the LLVM backend support incremental compilation.
+        } else {
+            try global_index.rename(first_exp_name, &o.builder);
+        }
+
         global_index.setUnnamedAddr(.default, &o.builder);
         if (comp.config.dll_export_fns)
             global_index.setDllStorageClass(.dllexport, &o.builder);
-        global_index.setLinkage(switch (exports[0].opts.linkage) {
+        global_index.setLinkage(switch (first_export.opts.linkage) {
             .internal => unreachable,
             .strong => .external,
             .weak => .weak_odr,
             .link_once => .linkonce_odr,
         }, &o.builder);
-        global_index.setVisibility(switch (exports[0].opts.visibility) {
+        global_index.setVisibility(switch (first_export.opts.visibility) {
             .default => .default,
             .hidden => .hidden,
             .protected => .protected,
         }, &o.builder);
-        if (exports[0].opts.section.toSlice(ip)) |section|
+        if (first_export.opts.section.toSlice(ip)) |section|
             switch (global_index.ptrConst(&o.builder).kind) {
                 .variable => |impl_index| impl_index.setSection(
                     try o.builder.string(section),
@@ -1935,7 +1845,8 @@ pub const Object = struct {
         // The planned solution to this is https://github.com/ziglang/zig/issues/13265
         // Until then we iterate over existing aliases and make them point
         // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
-        for (exports[1..]) |exp| {
+        for (export_indices[1..]) |export_idx| {
+            const exp = mod.all_exports.items[export_idx];
             const exp_name = try o.builder.strtabString(exp.opts.name.toSlice(ip));
             if (o.builder.getGlobal(exp_name)) |global| {
                 switch (global.ptrConst(&o.builder).kind) {
@@ -1943,7 +1854,13 @@ pub const Object = struct {
                         alias.setAliasee(global_index.toConst(), &o.builder);
                         continue;
                     },
-                    .variable, .function => {},
+                    .variable, .function => {
+                        // This existing global is an `extern` corresponding to this export.
+                        // Replace it with the global being exported.
+                        // This existing global must be replaced with the alias.
+                        try global.rename(.empty, &o.builder);
+                        try global.replace(global_index, &o.builder);
+                    },
                     .replaced => unreachable,
                 }
             }
@@ -1992,12 +1909,12 @@ pub const Object = struct {
 
         const gpa = o.gpa;
         const target = o.target;
-        const mod = o.module;
-        const ip = &mod.intern_pool;
+        const zcu = o.module;
+        const ip = &zcu.intern_pool;
 
         if (o.debug_type_map.get(ty)) |debug_type| return debug_type;
 
-        switch (ty.zigTypeTag(mod)) {
+        switch (ty.zigTypeTag(zcu)) {
             .Void,
             .NoReturn,
             => {
@@ -2009,12 +1926,12 @@ pub const Object = struct {
                 return debug_void_type;
             },
             .Int => {
-                const info = ty.intInfo(mod);
+                const info = ty.intInfo(zcu);
                 assert(info.bits != 0);
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
                 const builder_name = try o.builder.metadataString(name);
-                const debug_bits = ty.abiSize(mod) * 8; // lldb cannot handle non-byte sized types
+                const debug_bits = ty.abiSize(zcu) * 8; // lldb cannot handle non-byte sized types
                 const debug_int_type = switch (info.signedness) {
                     .signed => try o.builder.debugSignedType(builder_name, debug_bits),
                     .unsigned => try o.builder.debugUnsignedType(builder_name, debug_bits),
@@ -2023,10 +1940,10 @@ pub const Object = struct {
                 return debug_int_type;
             },
             .Enum => {
-                const owner_decl_index = ty.getOwnerDecl(mod);
+                const owner_decl_index = ty.getOwnerDecl(zcu);
                 const owner_decl = o.module.declPtr(owner_decl_index);
 
-                if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const debug_enum_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_enum_type);
                     return debug_enum_type;
@@ -2038,13 +1955,13 @@ pub const Object = struct {
                 defer gpa.free(enumerators);
 
                 const int_ty = Type.fromInterned(enum_type.tag_ty);
-                const int_info = ty.intInfo(mod);
+                const int_info = ty.intInfo(zcu);
                 assert(int_info.bits != 0);
 
                 for (enum_type.names.get(ip), 0..) |field_name_ip, i| {
                     var bigint_space: Value.BigIntSpace = undefined;
                     const bigint = if (enum_type.values.len != 0)
-                        Value.fromInterned(enum_type.values.get(ip)[i]).toBigInt(&bigint_space, mod)
+                        Value.fromInterned(enum_type.values.get(ip)[i]).toBigInt(&bigint_space, zcu)
                     else
                         std.math.big.int.Mutable.init(&bigint_space.limbs, i).toConst();
 
@@ -2056,7 +1973,8 @@ pub const Object = struct {
                     );
                 }
 
-                const file = try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope);
+                const file_scope = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu);
+                const file = try o.getDebugFile(file_scope);
                 const scope = try o.namespaceToDebugScope(owner_decl.src_namespace);
 
                 const name = try o.allocTypeName(ty);
@@ -2066,10 +1984,10 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.typeSrcLine(zcu) + 1, // Line
                     try o.lowerDebugType(int_ty),
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(enumerators),
                 );
 
@@ -2098,7 +2016,7 @@ pub const Object = struct {
             },
             .Pointer => {
                 // Normalize everything that the debug info does not represent.
-                const ptr_info = ty.ptrInfo(mod);
+                const ptr_info = ty.ptrInfo(zcu);
 
                 if (ptr_info.sentinel != .none or
                     ptr_info.flags.address_space != .generic or
@@ -2109,10 +2027,10 @@ pub const Object = struct {
                     ptr_info.flags.is_const or
                     ptr_info.flags.is_volatile or
                     ptr_info.flags.size == .Many or ptr_info.flags.size == .C or
-                    !Type.fromInterned(ptr_info.child).hasRuntimeBitsIgnoreComptime(mod))
+                    !Type.fromInterned(ptr_info.child).hasRuntimeBitsIgnoreComptime(zcu))
                 {
-                    const bland_ptr_ty = try mod.ptrType(.{
-                        .child = if (!Type.fromInterned(ptr_info.child).hasRuntimeBitsIgnoreComptime(mod))
+                    const bland_ptr_ty = try zcu.ptrType(.{
+                        .child = if (!Type.fromInterned(ptr_info.child).hasRuntimeBitsIgnoreComptime(zcu))
                             .anyopaque_type
                         else
                             ptr_info.child,
@@ -2134,18 +2052,18 @@ pub const Object = struct {
                 // Set as forward reference while the type is lowered in case it references itself
                 try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
 
-                if (ty.isSlice(mod)) {
-                    const ptr_ty = ty.slicePtrFieldType(mod);
+                if (ty.isSlice(zcu)) {
+                    const ptr_ty = ty.slicePtrFieldType(zcu);
                     const len_ty = Type.usize;
 
                     const name = try o.allocTypeName(ty);
                     defer gpa.free(name);
                     const line = 0;
 
-                    const ptr_size = ptr_ty.abiSize(mod);
-                    const ptr_align = ptr_ty.abiAlignment(mod);
-                    const len_size = len_ty.abiSize(mod);
-                    const len_align = len_ty.abiAlignment(mod);
+                    const ptr_size = ptr_ty.abiSize(zcu);
+                    const ptr_align = ptr_ty.abiAlignment(zcu);
+                    const len_size = len_ty.abiSize(zcu);
+                    const len_align = len_ty.abiAlignment(zcu);
 
                     const len_offset = len_align.forward(ptr_size);
 
@@ -2177,8 +2095,8 @@ pub const Object = struct {
                         o.debug_compile_unit, // Scope
                         line,
                         .none, // Underlying type
-                        ty.abiSize(mod) * 8,
-                        (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                        ty.abiSize(zcu) * 8,
+                        (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                         try o.builder.debugTuple(&.{
                             debug_ptr_type,
                             debug_len_type,
@@ -2206,7 +2124,7 @@ pub const Object = struct {
                     0, // Line
                     debug_elem_ty,
                     target.ptrBitWidth(),
-                    (ty.ptrAlignment(mod).toByteUnits() orelse 0) * 8,
+                    (ty.ptrAlignment(zcu).toByteUnits() orelse 0) * 8,
                     0, // Offset
                 );
 
@@ -2230,13 +2148,14 @@ pub const Object = struct {
 
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
-                const owner_decl_index = ty.getOwnerDecl(mod);
+                const owner_decl_index = ty.getOwnerDecl(zcu);
                 const owner_decl = o.module.declPtr(owner_decl_index);
+                const file_scope = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu);
                 const debug_opaque_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
+                    try o.getDebugFile(file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.src_node + 1, // Line
+                    owner_decl.typeSrcLine(zcu) + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -2251,13 +2170,13 @@ pub const Object = struct {
                     .none, // File
                     .none, // Scope
                     0, // Line
-                    try o.lowerDebugType(ty.childType(mod)),
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    try o.lowerDebugType(ty.childType(zcu)),
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&.{
                         try o.builder.debugSubrange(
                             try o.builder.debugConstant(try o.builder.intConst(.i64, 0)),
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.arrayLen(mod))),
+                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.arrayLen(zcu))),
                         ),
                     }),
                 );
@@ -2265,14 +2184,14 @@ pub const Object = struct {
                 return debug_array_type;
             },
             .Vector => {
-                const elem_ty = ty.elemType2(mod);
+                const elem_ty = ty.elemType2(zcu);
                 // Vector elements cannot be padded since that would make
                 // @bitSizOf(elem) * len > @bitSizOf(vec).
                 // Neither gdb nor lldb seem to be able to display non-byte sized
                 // vectors properly.
-                const debug_elem_type = switch (elem_ty.zigTypeTag(mod)) {
+                const debug_elem_type = switch (elem_ty.zigTypeTag(zcu)) {
                     .Int => blk: {
-                        const info = elem_ty.intInfo(mod);
+                        const info = elem_ty.intInfo(zcu);
                         assert(info.bits != 0);
                         const name = try o.allocTypeName(ty);
                         defer gpa.free(name);
@@ -2286,7 +2205,7 @@ pub const Object = struct {
                         try o.builder.metadataString("bool"),
                         1,
                     ),
-                    else => try o.lowerDebugType(ty.childType(mod)),
+                    else => try o.lowerDebugType(ty.childType(zcu)),
                 };
 
                 const debug_vector_type = try o.builder.debugVectorType(
@@ -2295,12 +2214,12 @@ pub const Object = struct {
                     .none, // Scope
                     0, // Line
                     debug_elem_type,
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&.{
                         try o.builder.debugSubrange(
                             try o.builder.debugConstant(try o.builder.intConst(.i64, 0)),
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.vectorLen(mod))),
+                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.vectorLen(zcu))),
                         ),
                     }),
                 );
@@ -2311,8 +2230,8 @@ pub const Object = struct {
             .Optional => {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
-                const child_ty = ty.optionalChild(mod);
-                if (!child_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                const child_ty = ty.optionalChild(zcu);
+                if (!child_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const debug_bool_type = try o.builder.debugBoolType(
                         try o.builder.metadataString(name),
                         8,
@@ -2326,7 +2245,7 @@ pub const Object = struct {
                 // Set as forward reference while the type is lowered in case it references itself
                 try o.debug_type_map.put(gpa, ty, debug_fwd_ref);
 
-                if (ty.optionalReprIsPayload(mod)) {
+                if (ty.optionalReprIsPayload(zcu)) {
                     const debug_optional_type = try o.lowerDebugType(child_ty);
 
                     o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_optional_type);
@@ -2339,10 +2258,10 @@ pub const Object = struct {
                 }
 
                 const non_null_ty = Type.u8;
-                const payload_size = child_ty.abiSize(mod);
-                const payload_align = child_ty.abiAlignment(mod);
-                const non_null_size = non_null_ty.abiSize(mod);
-                const non_null_align = non_null_ty.abiAlignment(mod);
+                const payload_size = child_ty.abiSize(zcu);
+                const payload_align = child_ty.abiAlignment(zcu);
+                const non_null_size = non_null_ty.abiSize(zcu);
+                const non_null_align = non_null_ty.abiAlignment(zcu);
                 const non_null_offset = non_null_align.forward(payload_size);
 
                 const debug_data_type = try o.builder.debugMemberType(
@@ -2373,8 +2292,8 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&.{
                         debug_data_type,
                         debug_some_type,
@@ -2390,8 +2309,8 @@ pub const Object = struct {
                 return debug_optional_type;
             },
             .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload(mod);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                const payload_ty = ty.errorUnionPayload(zcu);
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     // TODO: Maybe remove?
                     const debug_error_union_type = try o.lowerDebugType(Type.anyerror);
                     try o.debug_type_map.put(gpa, ty, debug_error_union_type);
@@ -2401,10 +2320,10 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                const error_size = Type.anyerror.abiSize(mod);
-                const error_align = Type.anyerror.abiAlignment(mod);
-                const payload_size = payload_ty.abiSize(mod);
-                const payload_align = payload_ty.abiAlignment(mod);
+                const error_size = Type.anyerror.abiSize(zcu);
+                const error_align = Type.anyerror.abiAlignment(zcu);
+                const payload_size = payload_ty.abiSize(zcu);
+                const payload_align = payload_ty.abiAlignment(zcu);
 
                 var error_index: u32 = undefined;
                 var payload_index: u32 = undefined;
@@ -2452,8 +2371,8 @@ pub const Object = struct {
                     o.debug_compile_unit, // Sope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&fields),
                 );
 
@@ -2474,14 +2393,14 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                if (mod.typeToPackedStruct(ty)) |struct_type| {
+                if (zcu.typeToPackedStruct(ty)) |struct_type| {
                     const backing_int_ty = struct_type.backingIntType(ip).*;
                     if (backing_int_ty != .none) {
-                        const info = Type.fromInterned(backing_int_ty).intInfo(mod);
+                        const info = Type.fromInterned(backing_int_ty).intInfo(zcu);
                         const builder_name = try o.builder.metadataString(name);
                         const debug_int_type = switch (info.signedness) {
-                            .signed => try o.builder.debugSignedType(builder_name, ty.abiSize(mod) * 8),
-                            .unsigned => try o.builder.debugUnsignedType(builder_name, ty.abiSize(mod) * 8),
+                            .signed => try o.builder.debugSignedType(builder_name, ty.abiSize(zcu) * 8),
+                            .unsigned => try o.builder.debugUnsignedType(builder_name, ty.abiSize(zcu) * 8),
                         };
                         try o.debug_type_map.put(gpa, ty, debug_int_type);
                         return debug_int_type;
@@ -2501,10 +2420,10 @@ pub const Object = struct {
                         const debug_fwd_ref = try o.builder.debugForwardReference();
 
                         for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
-                            if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
+                            if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
 
-                            const field_size = Type.fromInterned(field_ty).abiSize(mod);
-                            const field_align = Type.fromInterned(field_ty).abiAlignment(mod);
+                            const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+                            const field_align = Type.fromInterned(field_ty).abiAlignment(zcu);
                             const field_offset = field_align.forward(offset);
                             offset = field_offset + field_size;
 
@@ -2532,8 +2451,8 @@ pub const Object = struct {
                             o.debug_compile_unit, // Scope
                             0, // Line
                             .none, // Underlying type
-                            ty.abiSize(mod) * 8,
-                            (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                            ty.abiSize(zcu) * 8,
+                            (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                             try o.builder.debugTuple(fields.items),
                         );
 
@@ -2551,7 +2470,7 @@ pub const Object = struct {
                             // into. Therefore we can satisfy this by making an empty namespace,
                             // rather than changing the frontend to unnecessarily resolve the
                             // struct field types.
-                            const owner_decl_index = ty.getOwnerDecl(mod);
+                            const owner_decl_index = ty.getOwnerDecl(zcu);
                             const debug_struct_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                             try o.debug_type_map.put(gpa, ty, debug_struct_type);
                             return debug_struct_type;
@@ -2560,14 +2479,14 @@ pub const Object = struct {
                     else => {},
                 }
 
-                if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    const owner_decl_index = ty.getOwnerDecl(mod);
+                if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                    const owner_decl_index = ty.getOwnerDecl(zcu);
                     const debug_struct_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_struct_type);
                     return debug_struct_type;
                 }
 
-                const struct_type = mod.typeToStruct(ty).?;
+                const struct_type = zcu.typeToStruct(ty).?;
 
                 var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
                 defer fields.deinit(gpa);
@@ -2583,14 +2502,14 @@ pub const Object = struct {
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
                     const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                    const field_size = field_ty.abiSize(mod);
-                    const field_align = mod.structFieldAlignment(
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+                    const field_size = field_ty.abiSize(zcu);
+                    const field_align = zcu.structFieldAlignment(
                         struct_type.fieldAlign(ip, field_index),
                         field_ty,
                         struct_type.layout,
                     );
-                    const field_offset = ty.structFieldOffset(field_index, mod);
+                    const field_offset = ty.structFieldOffset(field_index, zcu);
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
                         try ip.getOrPutStringFmt(gpa, "{d}", .{field_index}, .no_embedded_nulls);
@@ -2613,8 +2532,8 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(fields.items),
                 );
 
@@ -2627,14 +2546,14 @@ pub const Object = struct {
                 return debug_struct_type;
             },
             .Union => {
-                const owner_decl_index = ty.getOwnerDecl(mod);
+                const owner_decl_index = ty.getOwnerDecl(zcu);
 
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
                 const union_type = ip.loadUnionType(ty.toIntern());
                 if (!union_type.haveFieldTypes(ip) or
-                    !ty.hasRuntimeBitsIgnoreComptime(mod) or
+                    !ty.hasRuntimeBitsIgnoreComptime(zcu) or
                     !union_type.haveLayout(ip))
                 {
                     const debug_union_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
@@ -2642,7 +2561,7 @@ pub const Object = struct {
                     return debug_union_type;
                 }
 
-                const layout = mod.getUnionLayout(union_type);
+                const layout = zcu.getUnionLayout(union_type);
 
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
@@ -2656,8 +2575,8 @@ pub const Object = struct {
                         o.debug_compile_unit, // Scope
                         0, // Line
                         .none, // Underlying type
-                        ty.abiSize(mod) * 8,
-                        (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                        ty.abiSize(zcu) * 8,
+                        (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                         try o.builder.debugTuple(
                             &.{try o.lowerDebugType(Type.fromInterned(union_type.enum_tag_ty))},
                         ),
@@ -2684,10 +2603,13 @@ pub const Object = struct {
 
                 for (0..tag_type.names.len) |field_index| {
                     const field_ty = union_type.field_types.get(ip)[field_index];
-                    if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
-                    const field_size = Type.fromInterned(field_ty).abiSize(mod);
-                    const field_align = mod.unionFieldNormalAlignment(union_type, @intCast(field_index));
+                    const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+                    const field_align: InternPool.Alignment = switch (union_type.flagsPtr(ip).layout) {
+                        .@"packed" => .none,
+                        .auto, .@"extern" => zcu.unionFieldNormalAlignment(union_type, @intCast(field_index)),
+                    };
 
                     const field_name = tag_type.names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
@@ -2715,8 +2637,8 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(fields.items),
                 );
 
@@ -2774,8 +2696,8 @@ pub const Object = struct {
                     o.debug_compile_unit, // Scope
                     0, // Line
                     .none, // Underlying type
-                    ty.abiSize(mod) * 8,
-                    (ty.abiAlignment(mod).toByteUnits() orelse 0) * 8,
+                    ty.abiSize(zcu) * 8,
+                    (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
                     try o.builder.debugTuple(&full_fields),
                 );
 
@@ -2788,7 +2710,7 @@ pub const Object = struct {
                 return debug_tagged_union_type;
             },
             .Fn => {
-                const fn_info = mod.typeToFunc(ty).?;
+                const fn_info = zcu.typeToFunc(ty).?;
 
                 var debug_param_types = std.ArrayList(Builder.Metadata).init(gpa);
                 defer debug_param_types.deinit();
@@ -2796,32 +2718,32 @@ pub const Object = struct {
                 try debug_param_types.ensureUnusedCapacity(3 + fn_info.param_types.len);
 
                 // Return type goes first.
-                if (Type.fromInterned(fn_info.return_type).hasRuntimeBitsIgnoreComptime(mod)) {
-                    const sret = firstParamSRet(fn_info, mod, target);
+                if (Type.fromInterned(fn_info.return_type).hasRuntimeBitsIgnoreComptime(zcu)) {
+                    const sret = firstParamSRet(fn_info, zcu, target);
                     const ret_ty = if (sret) Type.void else Type.fromInterned(fn_info.return_type);
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ret_ty));
 
                     if (sret) {
-                        const ptr_ty = try mod.singleMutPtrType(Type.fromInterned(fn_info.return_type));
+                        const ptr_ty = try zcu.singleMutPtrType(Type.fromInterned(fn_info.return_type));
                         debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ptr_ty));
                     }
                 } else {
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(Type.void));
                 }
 
-                if (Type.fromInterned(fn_info.return_type).isError(mod) and
+                if (Type.fromInterned(fn_info.return_type).isError(zcu) and
                     o.module.comp.config.any_error_tracing)
                 {
-                    const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
+                    const ptr_ty = try zcu.singleMutPtrType(try o.getStackTraceType());
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ptr_ty));
                 }
 
                 for (0..fn_info.param_types.len) |i| {
                     const param_ty = Type.fromInterned(fn_info.param_types.get(ip)[i]);
-                    if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
-                    if (isByRef(param_ty, mod)) {
-                        const ptr_ty = try mod.singleMutPtrType(param_ty);
+                    if (isByRef(param_ty, zcu)) {
+                        const ptr_ty = try zcu.singleMutPtrType(param_ty);
                         debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ptr_ty));
                     } else {
                         debug_param_types.appendAssumeCapacity(try o.lowerDebugType(param_ty));
@@ -2848,9 +2770,10 @@ pub const Object = struct {
     }
 
     fn namespaceToDebugScope(o: *Object, namespace_index: InternPool.NamespaceIndex) !Builder.Metadata {
-        const mod = o.module;
-        const namespace = mod.namespacePtr(namespace_index);
-        if (namespace.parent == .none) return try o.getDebugFile(namespace.file_scope);
+        const zcu = o.module;
+        const namespace = zcu.namespacePtr(namespace_index);
+        const file_scope = namespace.fileScope(zcu);
+        if (namespace.parent == .none) return try o.getDebugFile(file_scope);
 
         const gop = try o.debug_unresolved_namespace_scopes.getOrPut(o.gpa, namespace_index);
 
@@ -2860,13 +2783,14 @@ pub const Object = struct {
     }
 
     fn makeEmptyNamespaceDebugType(o: *Object, decl_index: InternPool.DeclIndex) !Builder.Metadata {
-        const mod = o.module;
-        const decl = mod.declPtr(decl_index);
+        const zcu = o.module;
+        const decl = zcu.declPtr(decl_index);
+        const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
         return o.builder.debugStructType(
-            try o.builder.metadataString(decl.name.toSlice(&mod.intern_pool)), // TODO use fully qualified name
-            try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope),
+            try o.builder.metadataString(decl.name.toSlice(&zcu.intern_pool)), // TODO use fully qualified name
+            try o.getDebugFile(file_scope),
             try o.namespaceToDebugScope(decl.src_namespace),
-            decl.src_line + 1,
+            decl.typeSrcLine(zcu) + 1,
             .none,
             0,
             0,
@@ -2875,21 +2799,22 @@ pub const Object = struct {
     }
 
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
-        const mod = o.module;
+        const zcu = o.module;
 
-        const std_mod = mod.std_mod;
-        const std_file = (mod.importPkg(std_mod) catch unreachable).file;
+        const std_mod = zcu.std_mod;
+        const std_file_imported = zcu.importPkg(std_mod) catch unreachable;
 
-        const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin", .no_embedded_nulls);
-        const std_namespace = mod.namespacePtr(mod.declPtr(std_file.root_decl.unwrap().?).src_namespace);
-        const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Module.DeclAdapter{ .zcu = mod }).?;
+        const builtin_str = try zcu.intern_pool.getOrPutString(zcu.gpa, "builtin", .no_embedded_nulls);
+        const std_file_root_decl = zcu.fileRootDecl(std_file_imported.file_index);
+        const std_namespace = zcu.namespacePtr(zcu.declPtr(std_file_root_decl.unwrap().?).src_namespace);
+        const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Module.DeclAdapter{ .zcu = zcu }).?;
 
-        const stack_trace_str = try mod.intern_pool.getOrPutString(mod.gpa, "StackTrace", .no_embedded_nulls);
+        const stack_trace_str = try zcu.intern_pool.getOrPutString(zcu.gpa, "StackTrace", .no_embedded_nulls);
         // buffer is only used for int_type, `builtin` is a struct.
-        const builtin_ty = mod.declPtr(builtin_decl).val.toType();
-        const builtin_namespace = mod.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(mod)).?;
-        const stack_trace_decl_index = builtin_namespace.decls.getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .zcu = mod }).?;
-        const stack_trace_decl = mod.declPtr(stack_trace_decl_index);
+        const builtin_ty = zcu.declPtr(builtin_decl).val.toType();
+        const builtin_namespace = zcu.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(zcu)).?;
+        const stack_trace_decl_index = builtin_namespace.decls.getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .zcu = zcu }).?;
+        const stack_trace_decl = zcu.declPtr(stack_trace_decl_index);
 
         // Sema should have ensured that StackTrace was analyzed.
         assert(stack_trace_decl.has_tv);
@@ -2915,7 +2840,7 @@ pub const Object = struct {
         const gpa = o.gpa;
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
-        const owner_mod = namespace.file_scope.mod;
+        const owner_mod = namespace.fileScope(zcu).mod;
         const zig_fn_type = decl.typeOf(zcu);
         const gop = try o.decl_map.getOrPut(gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
@@ -3140,17 +3065,17 @@ pub const Object = struct {
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
         errdefer assert(o.decl_map.remove(decl_index));
 
-        const mod = o.module;
-        const decl = mod.declPtr(decl_index);
-        const is_extern = decl.isExtern(mod);
+        const zcu = o.module;
+        const decl = zcu.declPtr(decl_index);
+        const is_extern = decl.isExtern(zcu);
 
         const variable_index = try o.builder.addVariable(
             try o.builder.strtabString((if (is_extern)
                 decl.name
             else
-                try decl.fullyQualifiedName(mod)).toSlice(&mod.intern_pool)),
-            try o.lowerType(decl.typeOf(mod)),
-            toLlvmGlobalAddressSpace(decl.@"addrspace", mod.getTarget()),
+                try decl.fullyQualifiedName(zcu)).toSlice(&zcu.intern_pool)),
+            try o.lowerType(decl.typeOf(zcu)),
+            toLlvmGlobalAddressSpace(decl.@"addrspace", zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
@@ -3158,9 +3083,9 @@ pub const Object = struct {
         if (is_extern) {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
-            if (decl.val.getVariable(mod)) |decl_var| {
-                const decl_namespace = mod.namespacePtr(decl.src_namespace);
-                const single_threaded = decl_namespace.file_scope.mod.single_threaded;
+            if (decl.val.getVariable(zcu)) |decl_var| {
+                const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+                const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
                 variable_index.setThreadLocal(
                     if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
                     &o.builder,
@@ -4719,7 +4644,8 @@ pub const DeclGen = struct {
         const o = dg.object;
         const zcu = o.module;
         const namespace = zcu.namespacePtr(dg.decl.src_namespace);
-        return namespace.file_scope.mod;
+        const file_scope = namespace.fileScope(zcu);
+        return file_scope.mod;
     }
 
     fn todo(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
@@ -4728,7 +4654,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = dg.decl.srcLoc(mod);
+        const src_loc = dg.decl.navSrcLoc(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -4761,36 +4687,78 @@ pub const DeclGen = struct {
                 else => try o.lowerValue(init_val),
             }, &o.builder);
 
-            const line_number = decl.src_line + 1;
-            const is_internal_linkage = !o.module.decl_exports.contains(decl_index);
+            if (decl.val.getVariable(zcu)) |decl_var| {
+                const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+                const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
+                variable_index.setThreadLocal(
+                    if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
+                    &o.builder,
+                );
+            }
+
+            const line_number = decl.navSrcLine(zcu) + 1;
 
             const namespace = zcu.namespacePtr(decl.src_namespace);
-            const owner_mod = namespace.file_scope.mod;
+            const file_scope = namespace.fileScope(zcu);
+            const owner_mod = file_scope.mod;
 
-            if (owner_mod.strip) return;
+            if (!owner_mod.strip) {
+                const debug_file = try o.getDebugFile(file_scope);
 
-            const debug_file = try o.getDebugFile(namespace.file_scope);
+                const debug_global_var = try o.builder.debugGlobalVar(
+                    try o.builder.metadataString(decl.name.toSlice(ip)), // Name
+                    try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
+                    debug_file, // File
+                    debug_file, // Scope
+                    line_number,
+                    try o.lowerDebugType(decl.typeOf(zcu)),
+                    variable_index,
+                    .{ .local = !decl.isExtern(zcu) },
+                );
 
-            const debug_global_var = try o.builder.debugGlobalVar(
-                try o.builder.metadataString(decl.name.toSlice(ip)), // Name
-                try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
-                debug_file, // File
-                debug_file, // Scope
-                line_number,
-                try o.lowerDebugType(decl.typeOf(zcu)),
-                variable_index,
-                .{ .local = is_internal_linkage },
-            );
+                const debug_expression = try o.builder.debugExpression(&.{});
 
-            const debug_expression = try o.builder.debugExpression(&.{});
+                const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
+                    debug_global_var,
+                    debug_expression,
+                );
 
-            const debug_global_var_expression = try o.builder.debugGlobalVarExpression(
-                debug_global_var,
-                debug_expression,
-            );
+                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
+                try o.debug_globals.append(o.gpa, debug_global_var_expression);
+            }
+        }
 
-            variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
-            try o.debug_globals.append(o.gpa, debug_global_var_expression);
+        if (decl.isExtern(zcu)) {
+            const global_index = o.decl_map.get(decl_index).?;
+
+            const decl_name = decl_name: {
+                if (zcu.getTarget().isWasm() and decl.typeOf(zcu).zigTypeTag(zcu) == .Fn) {
+                    if (decl.getOwnedExternFunc(zcu).?.lib_name.toSlice(ip)) |lib_name| {
+                        if (!std.mem.eql(u8, lib_name, "c")) {
+                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ decl.name.fmt(ip), lib_name });
+                        }
+                    }
+                }
+                break :decl_name try o.builder.strtabString(decl.name.toSlice(ip));
+            };
+
+            if (o.builder.getGlobal(decl_name)) |other_global| {
+                if (other_global != global_index) {
+                    // Another global already has this name; just use it in place of this global.
+                    try global_index.replace(other_global, &o.builder);
+                    return;
+                }
+            }
+
+            try global_index.rename(decl_name, &o.builder);
+            global_index.setLinkage(.external, &o.builder);
+            global_index.setUnnamedAddr(.default, &o.builder);
+            if (zcu.comp.config.dll_export_fns)
+                global_index.setDllStorageClass(.default, &o.builder);
+
+            if (decl.val.getVariable(zcu)) |decl_var| {
+                if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
+            }
         }
     }
 };
@@ -4801,6 +4769,7 @@ pub const FuncGen = struct {
     air: Air,
     liveness: Liveness,
     wip: Builder.WipFunction,
+    is_naked: bool,
 
     file: Builder.Metadata,
     scope: Builder.Metadata,
@@ -5182,16 +5151,16 @@ pub const FuncGen = struct {
             const decl_index = func.owner_decl;
             const decl = zcu.declPtr(decl_index);
             const namespace = zcu.namespacePtr(decl.src_namespace);
-            const owner_mod = namespace.file_scope.mod;
+            const file_scope = namespace.fileScope(zcu);
+            const owner_mod = file_scope.mod;
 
-            self.file = try o.getDebugFile(namespace.file_scope);
+            self.file = try o.getDebugFile(file_scope);
 
-            const line_number = decl.src_line + 1;
+            const line_number = decl.navSrcLine(zcu) + 1;
             self.inlined = self.wip.debug_location;
 
             const fqn = try decl.fullyQualifiedName(zcu);
 
-            const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
             const fn_ty = try zcu.funcType(.{
                 .param_types = &.{},
                 .return_type = .void_type,
@@ -5209,13 +5178,13 @@ pub const FuncGen = struct {
                     .sp_flags = .{
                         .Optimized = owner_mod.optimize_mode != .Debug,
                         .Definition = true,
-                        .LocalToUnit = is_internal_linkage,
+                        .LocalToUnit = true, // TODO: we can't know this at this point, since the function could be exported later!
                     },
                 },
                 o.debug_compile_unit,
             );
 
-            self.base_line = decl.src_line;
+            self.base_line = decl.navSrcLine(zcu);
             const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
             self.wip.debug_location = .{
                 .location = .{
@@ -8846,7 +8815,8 @@ pub const FuncGen = struct {
         const arg_val = self.args[self.arg_index];
         self.arg_index += 1;
 
-        if (self.wip.strip) return arg_val;
+        // llvm does not support debug info for naked function arguments
+        if (self.wip.strip or self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
         if (needDbgVarWorkaround(o)) return arg_val;
@@ -8854,7 +8824,7 @@ pub const FuncGen = struct {
         const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
         const func_index = self.dg.decl.getOwnedFunctionIndex();
         const func = mod.funcInfo(func_index);
-        const lbrace_line = mod.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
+        const lbrace_line = mod.declPtr(func.owner_decl).navSrcLine(mod) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
@@ -11148,7 +11118,6 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             }
                             return o.builder.structType(.normal, types[0..types_len]);
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures
@@ -11406,7 +11375,6 @@ const ParamTypeIterator = struct {
                             it.llvm_index += it.types_len - 1;
                             return .multiple_llvm_types;
                         },
-                        .none => unreachable,
                     }
                 },
                 // TODO investigate C ABI for other architectures

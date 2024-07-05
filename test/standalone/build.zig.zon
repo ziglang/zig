@@ -83,8 +83,14 @@
         .dep_shared_builtin = .{
             .path = "dep_shared_builtin",
         },
+        .dep_lazypath = .{
+            .path = "dep_lazypath",
+        },
         .dirname = .{
             .path = "dirname",
+        },
+        .dep_duplicate_module = .{
+            .path = "dep_duplicate_module",
         },
         .empty_env = .{
             .path = "empty_env",

@@ -411,6 +411,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
+    // TSAN
+    if (comp.config.any_sanitize_thread) {
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
+    }
+
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
             error.MalformedObject,
@@ -823,6 +828,12 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (module_obj_path) |p| {
             try argv.append(p);
+        }
+
+        if (comp.config.any_sanitize_thread) {
+            const path = comp.tsan_lib.?.full_object_path;
+            try argv.append(path);
+            try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -2950,7 +2961,8 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
 }
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -3006,8 +3018,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    try load_commands.writeRpathLCs(self.base.rpath_list, writer);
-    ncmds += self.base.rpath_list.len;
+    for (self.base.rpath_list) |rpath| {
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
+    if (comp.config.any_sanitize_thread) {
+        const path = comp.tsan_lib.?.full_object_path;
+        const rpath = std.fs.path.dirname(path) orelse ".";
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
 
     try writer.writeStruct(macho.source_version_command{ .version = 0 });
     ncmds += 1;
@@ -3187,22 +3207,22 @@ pub fn updateExports(
     self: *MachO,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return self.getZigObject().?.updateExports(self, mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    return self.getZigObject().?.updateExports(self, mod, exported, export_indices);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *MachO,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
+) void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.deleteDeclExport(self, decl_index, name);
+    return self.getZigObject().?.deleteExport(self, exported, name);
 }
 
 pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
@@ -3219,7 +3239,7 @@ pub fn lowerAnonDecl(
     self: *MachO,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }
@@ -4861,7 +4881,9 @@ const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const RebaseSection = synthetic.RebaseSection;
 pub const Relocation = @import("MachO/Relocation.zig");

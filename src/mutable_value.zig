@@ -1,9 +1,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 
 /// We use a tagged union here because while it wastes a few bytes for some tags, having a fixed

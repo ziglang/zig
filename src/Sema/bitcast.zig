@@ -78,8 +78,8 @@ fn bitCastInner(
 
     const val_ty = val.typeOf(zcu);
 
-    try sema.resolveTypeLayout(val_ty);
-    try sema.resolveTypeLayout(dest_ty);
+    try val_ty.resolveLayout(zcu);
+    try dest_ty.resolveLayout(zcu);
 
     assert(val_ty.hasWellDefinedLayout(zcu));
 
@@ -136,8 +136,8 @@ fn bitCastSpliceInner(
     const val_ty = val.typeOf(zcu);
     const splice_val_ty = splice_val.typeOf(zcu);
 
-    try sema.resolveTypeLayout(val_ty);
-    try sema.resolveTypeLayout(splice_val_ty);
+    try val_ty.resolveLayout(zcu);
+    try splice_val_ty.resolveLayout(zcu);
 
     const splice_bits = splice_val_ty.bitSize(zcu);
 
@@ -765,8 +765,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const Sema = @import("../Sema.zig");
-const Zcu = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const CompileError = Zcu.CompileError;

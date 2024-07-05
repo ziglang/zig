@@ -12007,7 +12007,7 @@ pub fn debugExpression(
     self: *Builder,
     elements: []const u32,
 ) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len * @sizeOf(u32));
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len);
     return self.debugExpressionAssumeCapacity(elements);
 }
 
@@ -12015,7 +12015,7 @@ pub fn debugTuple(
     self: *Builder,
     elements: []const Metadata,
 ) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len * @sizeOf(Metadata));
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len);
     return self.debugTupleAssumeCapacity(elements);
 }
 

@@ -10,7 +10,9 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Value = @import("../../Value.zig");
 const ErrorMsg = Module.ErrorMsg;
@@ -19,7 +21,7 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const CodeGenError = codegen.CodeGenError;
 const Result = @import("../../codegen.zig").Result;
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
@@ -62,7 +64,7 @@ args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: usize,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 stack_align: Alignment,
 
 /// MIR Instructions
@@ -261,7 +263,7 @@ const BigTomb = struct {
 
 pub fn generate(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -275,7 +277,7 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.file_scope.mod.resolved_target.result;
+    const target = &namespace.fileScope(zcu).mod.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {

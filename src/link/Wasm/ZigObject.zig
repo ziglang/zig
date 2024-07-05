@@ -269,7 +269,7 @@ pub fn updateDecl(
 
     const res = try codegen.generateSymbol(
         &wasm_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod),
         val,
         &code_writer,
         .none,
@@ -280,7 +280,7 @@ pub fn updateDecl(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -308,7 +308,7 @@ pub fn updateFunc(
     defer code_writer.deinit();
     const result = try codegen.generateFunction(
         &wasm_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -320,7 +320,7 @@ pub fn updateFunc(
         .ok => code_writer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -335,29 +335,29 @@ fn finishUpdateDecl(
     code: []const u8,
 ) !void {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
+    const zcu = wasm_file.base.comp.module.?;
+    const decl = zcu.declPtr(decl_index);
     const decl_info = zig_object.decls_map.get(decl_index).?;
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = try decl.fullyQualifiedName(mod);
-    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&mod.intern_pool));
+    const full_name = try decl.fullyQualifiedName(zcu);
+    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&zcu.intern_pool));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
-    switch (decl.typeOf(mod).zigTypeTag(mod)) {
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => {
             sym.index = try zig_object.appendFunction(gpa, .{ .type_index = zig_object.atom_types.get(atom_index).? });
             sym.tag = .function;
         },
         else => {
-            const segment_name: []const u8 = if (decl.getOwnedVariable(mod)) |variable| name: {
+            const segment_name: []const u8 = if (decl.getOwnedVariable(zcu)) |variable| name: {
                 if (variable.is_const) {
                     break :name ".rodata.";
-                } else if (Value.fromInterned(variable.init).isUndefDeep(mod)) {
-                    const decl_namespace = mod.namespacePtr(decl.src_namespace);
-                    const optimize_mode = decl_namespace.file_scope.mod.optimize_mode;
+                } else if (Value.fromInterned(variable.init).isUndefDeep(zcu)) {
+                    const decl_namespace = zcu.namespacePtr(decl.src_namespace);
+                    const optimize_mode = decl_namespace.fileScope(zcu).mod.optimize_mode;
                     const is_initialized = switch (optimize_mode) {
                         .Debug, .ReleaseSafe => true,
                         .ReleaseFast, .ReleaseSmall => false,
@@ -382,7 +382,7 @@ fn finishUpdateDecl(
             // Will be freed upon freeing of decl or after cleanup of Wasm binary.
             const full_segment_name = try std.mem.concat(gpa, u8, &.{
                 segment_name,
-                full_name.toSlice(&mod.intern_pool),
+                full_name.toSlice(&zcu.intern_pool),
             });
             errdefer gpa.free(full_segment_name);
             sym.tag = .data;
@@ -390,7 +390,7 @@ fn finishUpdateDecl(
         },
     }
     if (code.len == 0) return;
-    atom.alignment = decl.getAlignment(mod);
+    atom.alignment = decl.getAlignment(zcu);
 }
 
 /// Creates and initializes a new segment in the 'Data' section.
@@ -439,7 +439,7 @@ pub fn lowerAnonDecl(
     wasm_file: *Wasm,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.anon_decls.getOrPut(gpa, decl_val);
@@ -484,14 +484,24 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     });
     defer gpa.free(name);
 
-    switch (try zig_object.lowerConst(wasm_file, name, val, decl.srcLoc(mod))) {
+    // We want to lower the source location of `decl`. However, when generating
+    // lazy functions (for e.g. `@tagName`), `decl` may correspond to a type
+    // rather than a `Nav`!
+    // The future split of `Decl` into `Nav` and `Cau` may require rethinking this
+    // logic. For now, just get the source location conditionally as needed.
+    const decl_src = if (decl.typeOf(mod).toIntern() == .type_type)
+        decl.val.toType().srcLoc(mod)
+    else
+        decl.navSrcLoc(mod);
+
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl_src)) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
         },
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return error.CodegenFail;
         },
     }
@@ -502,7 +512,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.LazySrcLoc) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
 
@@ -823,13 +833,17 @@ pub fn getAnonDeclVAddr(
     return target_symbol_index;
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     zig_object: *ZigObject,
     wasm_file: *Wasm,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     const mod = wasm_file.base.comp.module.?;
+    const decl_index = switch (exported) {
+        .decl_index => |decl_index| decl_index,
+        .value => @panic("TODO: implement Wasm linker code for exporting a constant value"),
+    };
     const decl_info = zig_object.decls_map.getPtr(decl_index) orelse return;
     if (decl_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
@@ -846,7 +860,7 @@ pub fn updateExports(
     wasm_file: *Wasm,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const decl_index = switch (exported) {
         .decl_index => |i| i,
@@ -863,11 +877,12 @@ pub fn updateExports(
     const gpa = mod.gpa;
     log.debug("Updating exports for decl '{}'", .{decl.name.fmt(&mod.intern_pool)});
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
-            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                decl.srcLoc(mod),
+                decl.navSrcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -898,9 +913,9 @@ pub fn updateExports(
             },
             .strong => {}, // symbols are strong by default
             .link_once => {
-                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(mod),
+                    decl.navSrcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));
@@ -1232,10 +1247,13 @@ const Dwarf = @import("../Dwarf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const StringTable = @import("../StringTable.zig");
 const Symbol = @import("Symbol.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const Wasm = @import("../Wasm.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

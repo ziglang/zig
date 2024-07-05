@@ -101,3 +101,14 @@ test "Peer type resolution with string literals and unknown length u8 pointers" 
     try std.testing.expect(@TypeOf("", "a", @as([*:0]const u8, "")) == [*:0]const u8);
     try std.testing.expect(@TypeOf(@as([*:0]const u8, "baz"), "foo", "bar") == [*:0]const u8);
 }
+
+test "including the sentinel when dereferencing a string literal" {
+    var var_str = "abc";
+    const var_derefed = var_str[0 .. var_str.len + 1].*;
+
+    const const_str = "abc";
+    const const_derefed = const_str[0 .. const_str.len + 1].*;
+
+    try std.testing.expectEqualSlices(u8, &var_derefed, &const_derefed);
+    try std.testing.expectEqual(0, const_derefed[3]);
+}

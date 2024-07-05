@@ -4777,6 +4777,17 @@ pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
 /// try to do it just before it is needed.
 pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
 
+/// Application provides ring memory
+pub const IORING_SETUP_NO_MMAP = 1 << 14;
+
+/// Register the ring fd in itself for use with
+/// IORING_REGISTER_USE_REGISTERED_RING; return a registered fd index rather
+/// than an fd.
+pub const IORING_SETUP_REGISTERED_FD_ONLY = 1 << 15;
+
+/// Removes indirection through the SQ index array.
+pub const IORING_SETUP_NO_SQARRAY = 1 << 16;
+
 /// IO submission data structure (Submission Queue Entry)
 pub const io_uring_sqe = @import("linux/io_uring_sqe.zig").io_uring_sqe;
 

@@ -459,4 +459,4 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const MachO = @import("../MachO.zig");
 const StringTable = @import("../StringTable.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");

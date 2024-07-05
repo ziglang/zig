@@ -5,11 +5,12 @@ const log = std.log.scoped(.codegen);
 const assert = std.debug.assert;
 const Signedness = std.builtin.Signedness;
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Decl = Module.Decl;
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
-const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
@@ -187,19 +188,20 @@ pub const Object = struct {
 
     fn genDecl(
         self: *Object,
-        mod: *Module,
+        zcu: *Zcu,
         decl_index: InternPool.DeclIndex,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const decl = mod.declPtr(decl_index);
-        const namespace = mod.namespacePtr(decl.src_namespace);
-        const structured_cfg = namespace.file_scope.mod.structured_cfg;
+        const gpa = self.gpa;
+        const decl = zcu.declPtr(decl_index);
+        const namespace = zcu.namespacePtr(decl.src_namespace);
+        const structured_cfg = namespace.fileScope(zcu).mod.structured_cfg;
 
         var decl_gen = DeclGen{
-            .gpa = self.gpa,
+            .gpa = gpa,
             .object = self,
-            .module = mod,
+            .module = zcu,
             .spv = &self.spv,
             .decl_index = decl_index,
             .air = air,
@@ -211,19 +213,19 @@ pub const Object = struct {
                 false => .{ .unstructured = .{} },
             },
             .current_block_label = undefined,
-            .base_line = decl.src_line,
+            .base_line = decl.navSrcLine(zcu),
         };
         defer decl_gen.deinit();
 
         decl_gen.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
-                try mod.failed_decls.put(mod.gpa, decl_index, decl_gen.error_msg.?);
+                try zcu.failed_analysis.put(gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), decl_gen.error_msg.?);
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg
                 // was already allocated, so be sure to free it.
                 if (decl_gen.error_msg) |error_msg| {
-                    error_msg.deinit(mod.gpa);
+                    error_msg.deinit(gpa);
                 }
 
                 return other;
@@ -414,7 +416,7 @@ const DeclGen = struct {
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const mod = self.module;
-        const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
+        const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -6344,7 +6346,7 @@ const DeclGen = struct {
         const decl = mod.funcOwnerDeclPtr(extra.data.func);
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
-        self.base_line = decl.src_line;
+        self.base_line = decl.navSrcLine(mod);
         return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 
@@ -6438,7 +6440,7 @@ const DeclGen = struct {
                 // TODO: Translate proper error locations.
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
-                const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
+                const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 

@@ -181,7 +181,7 @@ pub fn main() !void {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected [all|new|failures|none] after '{s}'", .{arg});
                 summary = std.meta.stringToEnum(Summary, next_arg) orelse {
-                    fatalWithHint("expected [all|failures|none] after '{s}', found '{s}'", .{
+                    fatalWithHint("expected [all|new|failures|none] after '{s}', found '{s}'", .{
                         arg, next_arg,
                     });
                 };

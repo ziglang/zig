@@ -8,10 +8,12 @@ const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
@@ -57,7 +59,7 @@ args: []MCValue,
 ret_mcv: MCValue,
 fn_type: Type,
 arg_index: u32,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 stack_align: u32,
 
 /// MIR Instructions
@@ -329,7 +331,7 @@ const Self = @This();
 
 pub fn generate(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -343,7 +345,7 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.file_scope.mod.resolved_target.result;
+    const target = &namespace.fileScope(zcu).mod.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {

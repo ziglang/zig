@@ -4011,7 +4011,7 @@ fn fnDecl(
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, fn_proto.ast.proto_node);
+    const decl_inst = try gz.makeDeclaration(fn_proto.ast.proto_node);
     astgen.advanceSourceCursorToNode(decl_node);
 
     var decl_gz: GenZir = .{
@@ -4368,7 +4368,7 @@ fn fnDecl(
         decl_inst,
         std.zig.hashSrc(tree.getNodeSource(decl_node)),
         .{ .named = fn_name_token },
-        decl_gz.decl_line - gz.decl_line,
+        decl_gz.decl_line,
         is_pub,
         is_export,
         doc_comment_index,
@@ -4393,7 +4393,7 @@ fn globalVarDecl(
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     // We do this at the beginning so that the instruction index marks the range start
     // of the top level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
 
     const name_token = var_decl.ast.mut_token + 1;
     astgen.advanceSourceCursorToNode(node);
@@ -4529,7 +4529,7 @@ fn globalVarDecl(
         decl_inst,
         std.zig.hashSrc(tree.getNodeSource(node)),
         .{ .named = name_token },
-        block_scope.decl_line - gz.decl_line,
+        block_scope.decl_line,
         is_pub,
         is_export,
         doc_comment_index,
@@ -4555,7 +4555,7 @@ fn comptimeDecl(
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
 
@@ -4579,7 +4579,7 @@ fn comptimeDecl(
         decl_inst,
         std.zig.hashSrc(tree.getNodeSource(node)),
         .@"comptime",
-        decl_block.decl_line - gz.decl_line,
+        decl_block.decl_line,
         false,
         false,
         .empty,
@@ -4607,7 +4607,7 @@ fn usingnamespaceDecl(
     };
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
 
@@ -4629,7 +4629,7 @@ fn usingnamespaceDecl(
         decl_inst,
         std.zig.hashSrc(tree.getNodeSource(node)),
         .@"usingnamespace",
-        decl_block.decl_line - gz.decl_line,
+        decl_block.decl_line,
         is_pub,
         false,
         .empty,
@@ -4651,7 +4651,7 @@ fn testDecl(
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
-    const decl_inst = try gz.makeBlockInst(.declaration, node);
+    const decl_inst = try gz.makeDeclaration(node);
 
     wip_members.nextDecl(decl_inst);
     astgen.advanceSourceCursorToNode(node);
@@ -4818,7 +4818,7 @@ fn testDecl(
         decl_inst,
         std.zig.hashSrc(tree.getNodeSource(node)),
         test_name,
-        decl_block.decl_line - gz.decl_line,
+        decl_block.decl_line,
         false,
         false,
         .empty,
@@ -8637,6 +8637,7 @@ fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token
             assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
             return astgen.failOff(token, @intCast(i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
         },
+        .period_after_exponent => |i| return astgen.failOff(token, @intCast(i), "unexpected period after exponent", .{}),
     }
 }
 
@@ -9310,7 +9311,6 @@ fn builtinCall(
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
         .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
-        .in_comptime        => return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime,        node), node),
 
         .type_info   => return simpleUnOpType(gz, scope, ri, node, params[0], .type_info),
         .size_of     => return simpleUnOpType(gz, scope, ri, node, params[0], .size_of),
@@ -9353,6 +9353,12 @@ fn builtinCall(
         .truncate       => return typeCast(gz, scope, ri, node, params[0], .truncate, builtin_name),
         // zig fmt: on
 
+        .in_comptime => if (gz.is_comptime) {
+            return astgen.failNode(node, "redundant '@inComptime' in comptime scope", .{});
+        } else {
+            return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime, node), node);
+        },
+
         .Type => {
             const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .type_info_type } }, params[0]);
 
@@ -9361,9 +9367,10 @@ fn builtinCall(
             try gz.instructions.ensureUnusedCapacity(gpa, 1);
             try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
 
-            const payload_index = try gz.astgen.addExtra(Zir.Inst.UnNode{
-                .node = gz.nodeIndexToRelative(node),
+            const payload_index = try gz.astgen.addExtra(Zir.Inst.Reify{
+                .node = node, // Absolute node index -- see the definition of `Reify`.
                 .operand = operand,
+                .src_line = astgen.source_line,
             });
             const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
             gz.astgen.instructions.appendAssumeCapacity(.{
@@ -13072,6 +13079,21 @@ const GenZir = struct {
     }
 
     /// Note that this returns a `Zir.Inst.Index` not a ref.
+    /// Does *not* append the block instruction to the scope.
+    /// Leaves the `payload_index` field undefined. Use `setDeclaration` to finalize.
+    fn makeDeclaration(gz: *GenZir, node: Ast.Node.Index) !Zir.Inst.Index {
+        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .declaration,
+            .data = .{ .declaration = .{
+                .src_node = node,
+                .payload_index = undefined,
+            } },
+        });
+        return new_index;
+    }
+
+    /// Note that this returns a `Zir.Inst.Index` not a ref.
     /// Leaves the `payload_index` field undefined.
     fn addCondBr(gz: *GenZir, tag: Zir.Inst.Tag, node: Ast.Node.Index) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
@@ -13117,7 +13139,8 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_line = astgen.source_line,
+            .src_node = args.src_node,
         });
 
         if (args.captures_len != 0) {
@@ -13177,7 +13200,8 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_line = astgen.source_line,
+            .src_node = args.src_node,
         });
 
         if (args.tag_type != .none) {
@@ -13238,7 +13262,8 @@ const GenZir = struct {
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_line = astgen.source_line,
+            .src_node = args.src_node,
         });
 
         if (args.tag_type != .none) {
@@ -13286,7 +13311,8 @@ const GenZir = struct {
 
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len + 2);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
-            .src_node = gz.nodeIndexToRelative(args.src_node),
+            .src_line = astgen.source_line,
+            .src_node = args.src_node,
         });
 
         if (args.captures_len != 0) {
@@ -13836,7 +13862,7 @@ fn setDeclaration(
     decl_inst: Zir.Inst.Index,
     src_hash: std.zig.SrcHash,
     name: DeclarationName,
-    line_offset: u32,
+    src_line: u32,
     is_pub: bool,
     is_export: bool,
     doc_comment: Zir.NullTerminatedString,
@@ -13888,7 +13914,7 @@ fn setDeclaration(
             .@"comptime" => .@"comptime",
             .@"usingnamespace" => .@"usingnamespace",
         },
-        .line_offset = line_offset,
+        .src_line = src_line,
         .flags = .{
             .value_body_len = @intCast(value_len),
             .is_pub = is_pub,
@@ -13897,7 +13923,7 @@ fn setDeclaration(
             .has_align_linksection_addrspace = align_len != 0 or linksection_len != 0 or addrspace_len != 0,
         },
     };
-    astgen.instructions.items(.data)[@intFromEnum(decl_inst)].pl_node.payload_index = try astgen.addExtra(extra);
+    astgen.instructions.items(.data)[@intFromEnum(decl_inst)].declaration.payload_index = try astgen.addExtra(extra);
     if (extra.flags.has_doc_comment) {
         try astgen.extra.append(gpa, @intFromEnum(true_doc_comment));
     }

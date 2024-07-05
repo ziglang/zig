@@ -250,14 +250,7 @@ pub const HashHelper = struct {
     pub fn final(hh: *HashHelper) HexDigest {
         var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
-
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 
     pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
@@ -265,15 +258,19 @@ pub const HashHelper = struct {
         hasher.update(bytes);
         var bin_digest: BinDigest = undefined;
         hasher.final(&bin_digest);
-        var out_digest: [hex_digest_len]u8 = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 };
+
+pub fn binToHex(bin_digest: BinDigest) HexDigest {
+    var out_digest: HexDigest = undefined;
+    _ = fmt.bufPrint(
+        &out_digest,
+        "{s}",
+        .{fmt.fmtSliceHexLower(&bin_digest)},
+    ) catch unreachable;
+    return out_digest;
+}
 
 pub const Lock = struct {
     manifest_file: fs.File,
@@ -426,11 +423,7 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        _ = fmt.bufPrint(
-            &self.hex_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
+        self.hex_digest = binToHex(bin_digest);
 
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
@@ -899,14 +892,7 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-
-        return out_digest;
+        return binToHex(bin_digest);
     }
 
     /// If `want_shared_lock` is true, this function automatically downgrades the

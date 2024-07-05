@@ -552,7 +552,7 @@ pub fn lowerAnonDecl(
     self: *Elf,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     return self.zigObjectPtr().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
 }
@@ -1145,7 +1145,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) l
 
     // TSAN
     if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
     }
 
     // libc
@@ -1603,7 +1603,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            try argv.append(comp.tsan_lib.?.full_object_path);
         }
 
         // libc
@@ -2610,7 +2610,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: std.Progress.Node) !void
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            try argv.append(comp.tsan_lib.?.full_object_path);
         }
 
         // libc
@@ -3011,13 +3011,13 @@ pub fn updateExports(
     self: *Elf,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return self.zigObjectPtr().?.updateExports(self, mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    return self.zigObjectPtr().?.updateExports(self, mod, exported, export_indices);
 }
 
 pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -3025,13 +3025,13 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: InternPool.Dec
     return self.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *Elf,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.deleteDeclExport(self, decl_index, name);
+    return self.zigObjectPtr().?.deleteExport(self, exported, name);
 }
 
 fn addLinkerDefinedSymbols(self: *Elf) !void {
@@ -5842,7 +5842,8 @@ pub fn tpAddress(self: *Elf) i64 {
     const addr = switch (self.getTarget().cpu.arch) {
         .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
         .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
-        else => @panic("TODO implement getTpAddress for this arch"),
+        .riscv64 => phdr.p_vaddr,
+        else => |arch| std.debug.panic("TODO implement getTpAddress for {s}", .{@tagName(arch)}),
     };
     return @intCast(addr);
 }
@@ -6465,7 +6466,9 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const MergeSection = merge_section.MergeSection;
 const MergeSubsection = merge_section.MergeSubsection;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
 const PltSection = synthetic_sections.PltSection;

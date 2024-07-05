@@ -484,6 +484,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .flags = b.dupeStrings(options.flags),
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
+    addLazyPathDependenciesOnly(m, c_source_files.root);
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {

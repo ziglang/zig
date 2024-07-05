@@ -1,14 +1,14 @@
 const std = @import("std");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
-const Feature = @import("Module.zig").Feature;
+const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
-        .freestanding, .other => true,
+        .freestanding => true,
         else => target.isSpirV(),
     };
 }
@@ -427,6 +427,23 @@ pub fn defaultFunctionAlignment(target: std.Target) Alignment {
         .aarch64, .aarch64_32, .aarch64_be => .@"4",
         .sparc, .sparcel, .sparc64 => .@"4",
         .riscv64 => .@"2",
+        else => .@"1",
+    };
+}
+
+pub fn minFunctionAlignment(target: std.Target) Alignment {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcel,
+        .sparc64,
+        => .@"2",
         else => .@"1",
     };
 }
