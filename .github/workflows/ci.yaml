@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - llvm18
+  workflow_dispatch:
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
