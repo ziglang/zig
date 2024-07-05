@@ -121,19 +121,21 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
 }
 
 /// Scrypt parameters
+// Default parameters ​​are according to the OWASP password storage cheat sheet:
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 pub const Params = struct {
     const Self = @This();
 
     /// The CPU/Memory cost parameter [ln] is log2(N).
-    ln: u6,
+    ln: u6 = 17,
 
     /// The [r]esource usage parameter specifies the block size.
-    r: u30,
+    r: u30 = 8,
 
     /// The [p]arallelization parameter.
     /// A large value of [p] can be used to increase the computational cost of scrypt without
     /// increasing the memory usage.
-    p: u30,
+    p: u30 = 1,
 
     /// Baseline parameters for interactive logins
     pub const interactive = Self.fromLimits(524288, 16777216);

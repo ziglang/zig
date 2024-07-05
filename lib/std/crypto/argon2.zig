@@ -51,18 +51,20 @@ pub const Mode = enum {
 };
 
 /// Argon2 parameters
+// Default parameters ​​are according to the OWASP password storage cheat sheet:
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 pub const Params = struct {
     const Self = @This();
 
     /// A [t]ime cost, which defines the amount of computation realized and therefore the execution
     /// time, given in number of iterations.
-    t: u32,
+    t: u32 = 2,
 
     /// A [m]emory cost, which defines the memory usage, given in kibibytes.
-    m: u32,
+    m: u32 = 19456,
 
     /// A [p]arallelism degree, which defines the number of parallel threads.
-    p: u24,
+    p: u24 = 1,
 
     /// The [secret] parameter, which is used for keyed hashing. This allows a secret key to be input
     /// at hashing time (from some external location) and be folded into the value of the hash. This

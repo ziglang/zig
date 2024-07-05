@@ -407,9 +407,11 @@ pub const State = struct {
 };
 
 /// bcrypt parameters
+// Default parameters ​​are according to the OWASP password storage cheat sheet:
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 pub const Params = struct {
     /// log2 of the number of rounds
-    rounds_log: u6,
+    rounds_log: u6 = 10,
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
