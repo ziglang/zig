@@ -776,6 +776,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
 
     if (builtin.zig_backend == .stage2_riscv64) {
         std.debug.print("panic: {s}\n", .{msg});
+        @breakpoint();
         std.posix.exit(127);
     }
 

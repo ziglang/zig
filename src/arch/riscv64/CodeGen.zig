@@ -3433,8 +3433,13 @@ fn airPtrSliceLenPtr(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airPtrSlicePtrPtr(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement ptr_slice_ptr_ptr for {}", .{func.target.cpu.arch});
-    return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+
+    const opt_mcv = try func.resolveInst(ty_op.operand);
+    const dst_mcv = if (func.reuseOperand(inst, ty_op.operand, 0, opt_mcv))
+        opt_mcv
+    else
+        try func.copyToNewRegister(inst, opt_mcv);
+    return func.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn airSliceElemVal(func: *Func, inst: Air.Inst.Index) !void {
