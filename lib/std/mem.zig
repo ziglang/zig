@@ -1606,7 +1606,6 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
         .little => {
             const ShiftType = math.Log2Int(WorkType);
             for (bytes, 0..) |b, index| {
-                if (index * 8 >= bits) break;
                 result = result | (@as(WorkType, b) << @as(ShiftType, @intCast(index * 8)));
             }
         },
@@ -1626,15 +1625,6 @@ test readVarInt {
     try testing.expect(readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
     try testing.expect(readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
     try testing.expect(readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
-
-    // Return type can be undersized (bytes.len * 8 > @typeInfo(ReturnType).Int.bits)
-    try testing.expect(readVarInt(u7, &[_]u8{0x12}, .big) == 0x12);
-    try testing.expect(readVarInt(u7, &[_]u8{0xde}, .little) == 0x5e);
-    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34, 0x56 }, .big) == 0x3456);
-    try testing.expect(readVarInt(u20, &[_]u8{ 0x12, 0x34, 0x56, 0x78 }, .little) == 0x63412);
-
-    try testing.expect(readVarInt(i7, &[_]u8{0xff}, .big) == -1);
-    try testing.expect(readVarInt(i7, &[_]u8{0xfe}, .little) == -2);
 
     // Return type can be oversized (bytes.len * 8 < @typeInfo(ReturnType).Int.bits)
     try testing.expect(readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
