@@ -816,7 +816,7 @@ pub const String = enum(u32) {
         };
     }
 
-    noinline fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
+    fn toOverlongSlice(string: String, ip: *const InternPool) []const u8 {
         const unwrapped = string.unwrap(ip);
         return ip.getLocalShared(unwrapped.tid).strings.acquire().view().items(.@"0")[unwrapped.index..];
     }
@@ -3237,18 +3237,18 @@ pub const Index = enum(u32) {
         }
     };
 
-    pub inline fn getItem(index: Index, ip: *const InternPool) Item {
+    pub fn getItem(index: Index, ip: *const InternPool) Item {
         const item_ptr = index.itemPtr(ip);
         const tag = @atomicLoad(Tag, item_ptr.tag_ptr, .acquire);
         return .{ .tag = tag, .data = item_ptr.data_ptr.* };
     }
 
-    pub inline fn getTag(index: Index, ip: *const InternPool) Tag {
+    pub fn getTag(index: Index, ip: *const InternPool) Tag {
         const item_ptr = index.itemPtr(ip);
         return @atomicLoad(Tag, item_ptr.tag_ptr, .acquire);
     }
 
-    pub inline fn getData(index: Index, ip: *const InternPool) u32 {
+    pub fn getData(index: Index, ip: *const InternPool) u32 {
         return index.getItem(ip).data;
     }
 
@@ -3340,7 +3340,7 @@ pub const Index = enum(u32) {
         },
         type_enum_explicit: DataIsExtraIndexOfEnumExplicit,
         type_enum_nonexhaustive: DataIsExtraIndexOfEnumExplicit,
-        simple_type: struct { data: SimpleType },
+        simple_type: void,
         type_opaque: struct { data: *Tag.TypeOpaque },
         type_struct: struct { data: *Tag.TypeStruct },
         type_struct_anon: DataIsExtraIndexOfTypeStructAnon,
@@ -3360,7 +3360,7 @@ pub const Index = enum(u32) {
         },
 
         undef: DataIsIndex,
-        simple_value: struct { data: SimpleValue },
+        simple_value: void,
         ptr_decl: struct { data: *PtrDecl },
         ptr_comptime_alloc: struct { data: *PtrComptimeAlloc },
         ptr_anon_decl: struct { data: *PtrAnonDecl },
@@ -4386,64 +4386,64 @@ pub const TypeStructAnon = struct {
 /// implement logic that only wants to deal with types because the logic can
 /// ignore all simple values. Note that technically, types are values.
 pub const SimpleType = enum(u32) {
-    f16,
-    f32,
-    f64,
-    f80,
-    f128,
-    usize,
-    isize,
-    c_char,
-    c_short,
-    c_ushort,
-    c_int,
-    c_uint,
-    c_long,
-    c_ulong,
-    c_longlong,
-    c_ulonglong,
-    c_longdouble,
-    anyopaque,
-    bool,
-    void,
-    type,
-    anyerror,
-    comptime_int,
-    comptime_float,
-    noreturn,
-    null,
-    undefined,
-    enum_literal,
+    f16 = @intFromEnum(Index.f16_type),
+    f32 = @intFromEnum(Index.f32_type),
+    f64 = @intFromEnum(Index.f64_type),
+    f80 = @intFromEnum(Index.f80_type),
+    f128 = @intFromEnum(Index.f128_type),
+    usize = @intFromEnum(Index.usize_type),
+    isize = @intFromEnum(Index.isize_type),
+    c_char = @intFromEnum(Index.c_char_type),
+    c_short = @intFromEnum(Index.c_short_type),
+    c_ushort = @intFromEnum(Index.c_ushort_type),
+    c_int = @intFromEnum(Index.c_int_type),
+    c_uint = @intFromEnum(Index.c_uint_type),
+    c_long = @intFromEnum(Index.c_long_type),
+    c_ulong = @intFromEnum(Index.c_ulong_type),
+    c_longlong = @intFromEnum(Index.c_longlong_type),
+    c_ulonglong = @intFromEnum(Index.c_ulonglong_type),
+    c_longdouble = @intFromEnum(Index.c_longdouble_type),
+    anyopaque = @intFromEnum(Index.anyopaque_type),
+    bool = @intFromEnum(Index.bool_type),
+    void = @intFromEnum(Index.void_type),
+    type = @intFromEnum(Index.type_type),
+    anyerror = @intFromEnum(Index.anyerror_type),
+    comptime_int = @intFromEnum(Index.comptime_int_type),
+    comptime_float = @intFromEnum(Index.comptime_float_type),
+    noreturn = @intFromEnum(Index.noreturn_type),
+    null = @intFromEnum(Index.null_type),
+    undefined = @intFromEnum(Index.undefined_type),
+    enum_literal = @intFromEnum(Index.enum_literal_type),
 
-    atomic_order,
-    atomic_rmw_op,
-    calling_convention,
-    address_space,
-    float_mode,
-    reduce_op,
-    call_modifier,
-    prefetch_options,
-    export_options,
-    extern_options,
-    type_info,
+    atomic_order = @intFromEnum(Index.atomic_order_type),
+    atomic_rmw_op = @intFromEnum(Index.atomic_rmw_op_type),
+    calling_convention = @intFromEnum(Index.calling_convention_type),
+    address_space = @intFromEnum(Index.address_space_type),
+    float_mode = @intFromEnum(Index.float_mode_type),
+    reduce_op = @intFromEnum(Index.reduce_op_type),
+    call_modifier = @intFromEnum(Index.call_modifier_type),
+    prefetch_options = @intFromEnum(Index.prefetch_options_type),
+    export_options = @intFromEnum(Index.export_options_type),
+    extern_options = @intFromEnum(Index.extern_options_type),
+    type_info = @intFromEnum(Index.type_info_type),
 
-    adhoc_inferred_error_set,
-    generic_poison,
+    adhoc_inferred_error_set = @intFromEnum(Index.adhoc_inferred_error_set_type),
+    generic_poison = @intFromEnum(Index.generic_poison_type),
 };
 
 pub const SimpleValue = enum(u32) {
     /// This is untyped `undefined`.
-    undefined,
-    void,
+    undefined = @intFromEnum(Index.undef),
+    void = @intFromEnum(Index.void_value),
     /// This is untyped `null`.
-    null,
+    null = @intFromEnum(Index.null_value),
     /// This is the untyped empty struct literal: `.{}`
-    empty_struct,
-    true,
-    false,
-    @"unreachable",
+    empty_struct = @intFromEnum(Index.empty_struct),
+    true = @intFromEnum(Index.bool_true),
+    false = @intFromEnum(Index.bool_false),
+    @"unreachable" = @intFromEnum(Index.unreachable_value),
 
-    generic_poison,
+    generic_poison = @intFromEnum(Index.generic_poison),
 };
 
 /// Stored as a power-of-two, with one special value to indicate none.
@@ -5063,8 +5063,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .sentinel = .none,
             } };
         },
-        .simple_type => .{ .simple_type = @enumFromInt(data) },
-        .simple_value => .{ .simple_value = @enumFromInt(data) },
+        .simple_type => .{ .simple_type = @enumFromInt(@intFromEnum(index)) },
+        .simple_value => .{ .simple_value = @enumFromInt(@intFromEnum(index)) },
 
         .type_vector => {
             const vector_info = ip.extraData(Vector, data);
@@ -5914,15 +5914,17 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             });
         },
         .simple_type => |simple_type| {
+            assert(@intFromEnum(simple_type) == items.lenPtr().*);
             items.appendAssumeCapacity(.{
                 .tag = .simple_type,
-                .data = @intFromEnum(simple_type),
+                .data = 0, // avoid writing `undefined` bits to a file
             });
         },
         .simple_value => |simple_value| {
+            assert(@intFromEnum(simple_value) == items.lenPtr().*);
             items.appendAssumeCapacity(.{
                 .tag = .simple_value,
-                .data = @intFromEnum(simple_value),
+                .data = 0, // avoid writing `undefined` bits to a file
             });
         },
         .undef => |ty| {
@@ -8092,22 +8094,16 @@ fn addMap(ip: *InternPool, gpa: Allocator, cap: usize) Allocator.Error!MapIndex 
 pub fn remove(ip: *InternPool, tid: Zcu.PerThread.Id, index: Index) void {
     const unwrapped = index.unwrap(ip);
     if (@intFromEnum(index) < static_keys.len) {
-        if (tid != .main or unwrapped.tid != .main) @panic("This operation is impossible to be thread-safe");
         // The item being removed replaced a special index via `InternPool.resolveBuiltinType`.
         // Restore the original item at this index.
-        var items = ip.getLocalShared(unwrapped.tid).items.view();
-        switch (static_keys[@intFromEnum(index)]) {
-            .simple_type => |s| items.set(@intFromEnum(index), .{
-                .tag = .simple_type,
-                .data = @intFromEnum(s),
-            }),
-            else => unreachable,
-        }
+        assert(static_keys[@intFromEnum(index)] == .simple_type);
+        const items = ip.getLocalShared(unwrapped.tid).items.view();
+        @atomicStore(Tag, &items.items(.tag)[unwrapped.index], .simple_type, .monotonic);
         return;
     }
 
     if (unwrapped.tid == tid) {
-        const items_len = &ip.getLocal(tid).mutate.items.len;
+        const items_len = &ip.getLocal(unwrapped.tid).mutate.items.len;
         if (unwrapped.index == items_len.* - 1) {
             // Happy case - we can just drop the item without affecting any other indices.
             items_len.* -= 1;
@@ -8119,7 +8115,7 @@ pub fn remove(ip: *InternPool, tid: Zcu.PerThread.Id, index: Index) void {
     // Thus, we will rewrite the tag to `removed`, leaking the item until
     // next GC but causing `KeyAdapter` to ignore it.
     const items = ip.getLocalShared(unwrapped.tid).items.view();
-    @atomicStore(Tag, &items.items(.tag)[unwrapped.index], .removed, .release);
+    @atomicStore(Tag, &items.items(.tag)[unwrapped.index], .removed, .monotonic);
 }
 
 fn addInt(
@@ -9697,7 +9693,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .type_enum_auto,
             .type_enum_explicit,
             .type_enum_nonexhaustive,
-            .simple_type,
             .type_opaque,
             .type_struct,
             .type_struct_anon,
@@ -9713,7 +9708,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .only_possible_value,
             => @enumFromInt(index.getData(ip)),
 
-            .simple_value => unreachable, // handled via Index above
+            .simple_type, .simple_value => unreachable, // handled via Index above
 
             inline .ptr_decl,
             .ptr_comptime_alloc,
@@ -10246,11 +10241,11 @@ pub fn resolveBuiltinType(
         (ip.zigTypeTagOrPoison(resolved_index) catch unreachable));
 
     // Copy the data
-    const resolved_item = resolved_index.getItem(ip);
-    const want_unwrapped = want_index.unwrap(ip);
-    if (tid != .main or want_unwrapped.tid != .main) @panic("This operation is impossible to be thread-safe");
-    var want_items = ip.getLocalShared(want_unwrapped.tid).items.view();
-    want_items.set(want_unwrapped.index, resolved_item);
+    const item = resolved_index.getItem(ip);
+    const unwrapped = want_index.unwrap(ip);
+    var items = ip.getLocalShared(unwrapped.tid).items.view().slice();
+    items.items(.data)[unwrapped.index] = item.data;
+    @atomicStore(Tag, &items.items(.tag)[unwrapped.index], item.tag, .release);
     ip.remove(tid, resolved_index);
 }
 
