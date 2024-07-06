@@ -7,7 +7,6 @@ symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 objc_methnames: std.ArrayListUnmanaged(u8) = .{},
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
-num_rebase_relocs: u32 = 0,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(self: *InternalObject, allocator: Allocator) void {
@@ -104,7 +103,6 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_atom_index: Atom.Index,
     });
     try atom.addExtra(.{ .rel_index = 0, .rel_count = 1 }, macho_file);
     atom.flags.relocs = true;
-    self.num_rebase_relocs += 1;
 
     return atom_index;
 }
