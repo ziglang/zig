@@ -393,7 +393,9 @@ const extern_getauxval = switch (builtin.zig_backend) {
 };
 
 comptime {
-    if (extern_getauxval) {
+    // Export this only when building executable, otherwis it is overriding
+    // the libc implementation
+    if (extern_getauxval and builtin.output_mode == .Exe) {
         @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
