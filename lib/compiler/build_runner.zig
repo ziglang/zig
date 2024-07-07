@@ -1208,7 +1208,7 @@ fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
 
 fn nextArgOrFatal(args: [][:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
-        std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.*]});
+        std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
         process.exit(1);
     };
 }
