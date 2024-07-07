@@ -403,6 +403,7 @@ const usage_build_generic =
     \\General Options:
     \\  -h, --help                Print this help and exit
     \\  --color [auto|off|on]     Enable or disable colored error messages
+    \\  -j<N>                     Limit concurrent jobs (default is to use all CPU cores)
     \\  -femit-bin[=path]         (default) Output machine code
     \\  -fno-emit-bin             Do not output machine code
     \\  -femit-asm[=path]         Output .s (assembly code)
@@ -1004,6 +1005,7 @@ fn buildOutputType(
         .on
     else
         .auto;
+    var n_jobs: ?u32 = null;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -1141,6 +1143,17 @@ fn buildOutputType(
                         color = std.meta.stringToEnum(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
+                    } else if (mem.startsWith(u8, arg, "-j")) {
+                        const str = arg["-j".len..];
+                        const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
+                            fatal("unable to parse jobs count '{s}': {s}", .{
+                                str, @errorName(err),
+                            });
+                        };
+                        if (num < 1) {
+                            fatal("number of jobs must be at least 1\n", .{});
+                        }
+                        n_jobs = num;
                     } else if (mem.eql(u8, arg, "--subsystem")) {
                         subsystem = try parseSubSystem(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "-O")) {
@@ -3092,7 +3105,11 @@ fn buildOutputType(
     defer emit_implib_resolved.deinit();
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
+    try thread_pool.init(.{
+        .allocator = gpa,
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .track_ids = true,
+    });
     defer thread_pool.deinit();
 
     var cleanup_local_cache_dir: ?fs.Dir = null;
@@ -4644,6 +4661,7 @@ const usage_build =
     \\    all                         Print the build summary in its entirety
     \\    failures                    (Default) Only print failed steps
     \\    none                        Do not print the build summary
+    \\  -j<N>                         Limit concurrent jobs (default is to use all CPU cores)
     \\  --build-file [file]           Override path to build.zig
     \\  --cache-dir [path]            Override path to local Zig cache directory
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
@@ -4718,6 +4736,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
     var color: Color = .auto;
+    var n_jobs: ?u32 = null;
 
     {
         var i: usize = 0;
@@ -4811,6 +4830,17 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     };
                     try child_argv.appendSlice(&.{ arg, args[i] });
                     continue;
+                } else if (mem.startsWith(u8, arg, "-j")) {
+                    const str = arg["-j".len..];
+                    const num = std.fmt.parseUnsigned(u32, str, 10) catch |err| {
+                        fatal("unable to parse jobs count '{s}': {s}", .{
+                            str, @errorName(err),
+                        });
+                    };
+                    if (num < 1) {
+                        fatal("number of jobs must be at least 1\n", .{});
+                    }
+                    n_jobs = num;
                 } else if (mem.eql(u8, arg, "--seed")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
@@ -4895,7 +4925,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
+    try thread_pool.init(.{
+        .allocator = gpa,
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .track_ids = true,
+    });
     defer thread_pool.deinit();
 
     // Dummy http client that is not actually used when only_core_functionality is enabled.
@@ -5329,7 +5363,11 @@ fn jitCmd(
     defer global_cache_directory.handle.close();
 
     var thread_pool: ThreadPool = undefined;
-    try thread_pool.init(.{ .allocator = gpa, .track_ids = true });
+    try thread_pool.init(.{
+        .allocator = gpa,
+        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .track_ids = true,
+    });
     defer thread_pool.deinit();
 
     var child_argv: std.ArrayListUnmanaged([]const u8) = .{};

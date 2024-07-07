@@ -2746,8 +2746,8 @@ pub fn makeBinFileWritable(comp: *Compilation) !void {
 const Header = extern struct {
     intern_pool: extern struct {
         //items_len: u32,
-        extra_len: u32,
-        limbs_len: u32,
+        //extra_len: u32,
+        //limbs_len: u32,
         //string_bytes_len: u32,
         tracked_insts_len: u32,
         src_hash_deps_len: u32,
@@ -2775,8 +2775,8 @@ pub fn saveState(comp: *Compilation) !void {
         const header: Header = .{
             .intern_pool = .{
                 //.items_len = @intCast(ip.items.len),
-                .extra_len = @intCast(ip.extra.items.len),
-                .limbs_len = @intCast(ip.limbs.items.len),
+                //.extra_len = @intCast(ip.extra.items.len),
+                //.limbs_len = @intCast(ip.limbs.items.len),
                 //.string_bytes_len = @intCast(ip.string_bytes.items.len),
                 .tracked_insts_len = @intCast(ip.tracked_insts.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
@@ -2790,8 +2790,8 @@ pub fn saveState(comp: *Compilation) !void {
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.limbs.items));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.extra.items));
+        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.limbs.items));
+        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.extra.items));
         //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
         //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
         //addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);

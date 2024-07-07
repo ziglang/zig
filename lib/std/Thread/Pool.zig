@@ -21,7 +21,7 @@ const Runnable = struct {
     runFn: RunProto,
 };
 
-const RunProto = *const fn (*Runnable, id: ?usize) void;
+const RunProto = *const fn (*Runnable, id: ?u32) void;
 
 pub const Options = struct {
     allocator: std.mem.Allocator,
@@ -109,7 +109,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
         wait_group: *WaitGroup,
 
-        fn runFn(runnable: *Runnable, _: ?usize) void {
+        fn runFn(runnable: *Runnable, _: ?u32) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
@@ -150,7 +150,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
 /// Runs `func` in the thread pool, calling `WaitGroup.start` beforehand, and
 /// `WaitGroup.finish` after it returns.
 ///
-/// The first argument passed to `func` is a dense `usize` thread id, the rest
+/// The first argument passed to `func` is a dense `u32` thread id, the rest
 /// of the arguments are passed from `args`. Requires the pool to have been
 /// initialized with `.track_ids = true`.
 ///
@@ -172,7 +172,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
         wait_group: *WaitGroup,
 
-        fn runFn(runnable: *Runnable, id: ?usize) void {
+        fn runFn(runnable: *Runnable, id: ?u32) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, .{id.?} ++ closure.arguments);
@@ -258,7 +258,7 @@ fn worker(pool: *Pool) void {
     pool.mutex.lock();
     defer pool.mutex.unlock();
 
-    const id = if (pool.ids.count() > 0) pool.ids.count() else null;
+    const id: ?u32 = if (pool.ids.count() > 0) @intCast(pool.ids.count()) else null;
     if (id) |_| pool.ids.putAssumeCapacityNoClobber(std.Thread.getCurrentId(), {});
 
     while (true) {
@@ -280,12 +280,15 @@ fn worker(pool: *Pool) void {
 }
 
 pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
-    var id: ?usize = null;
+    var id: ?u32 = null;
 
     while (!wait_group.isDone()) {
         pool.mutex.lock();
         if (pool.run_queue.popFirst()) |run_node| {
-            id = id orelse pool.ids.getIndex(std.Thread.getCurrentId());
+            id = id orelse if (pool.ids.getIndex(std.Thread.getCurrentId())) |index|
+                @intCast(index)
+            else
+                null;
             pool.mutex.unlock();
             run_node.data.runFn(&run_node.data, id);
             continue;
@@ -297,6 +300,6 @@ pub fn waitAndWork(pool: *Pool, wait_group: *WaitGroup) void {
     }
 }
 
-pub fn getIdCount(pool: *Pool) usize {
-    return 1 + pool.threads.len;
+pub fn getIdCount(pool: *Pool) u32 {
+    return @intCast(1 + pool.threads.len);
 }

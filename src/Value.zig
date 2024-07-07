@@ -110,14 +110,13 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
     const ip = &mod.intern_pool;
     const len: u32 = @intCast(len_u64);
     const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-    const strings_len = strings.lenPtr();
     try strings.ensureUnusedCapacity(len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
         // assert just to be sure.
-        const prev_len = strings_len.*;
+        const prev_len = strings.mutate.len;
         const elem_val = try val.elemValue(pt, i);
-        assert(strings_len.* == prev_len);
+        assert(strings.mutate.len == prev_len);
         const byte: u8 = @intCast(elem_val.toUnsignedInt(pt));
         strings.appendAssumeCapacity(.{byte});
     }

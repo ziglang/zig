@@ -36925,7 +36925,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .none,
         => unreachable,
 
-        _ => switch (ty.toIntern().getTag(ip)) {
+        _ => switch (ty.toIntern().unwrap(ip).getTag(ip)) {
             .removed => unreachable,
 
             .type_int_signed, // i0 handled above
