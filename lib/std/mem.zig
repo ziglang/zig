@@ -2021,6 +2021,10 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     .Enum => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
+                    .Bool => {},
+                    .Float => |float_info| {
+                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(@field(ptr, f.name)))));
+                    },
                     else => {
                         @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
                     },
@@ -2033,6 +2037,10 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
                     .Enum => {
                         item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    .Bool => {},
+                    .Float => |float_info| {
+                        item.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(item.*))));
                     },
                     else => {
                         item.* = @byteSwap(item.*);
@@ -2050,24 +2058,32 @@ test byteSwapAllFields {
         f1: u16,
         f2: u32,
         f3: [1]u8,
+        f4: bool,
+        f5: f32,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
         f3: [1]u8,
+        f4: bool,
+        f5: f32,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
         .f3 = .{0x12},
+        .f4 = true,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x4640e400))),
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
         .f3 = .{0x12},
+        .f4 = false,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x45d42800))),
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -2076,12 +2092,16 @@ test byteSwapAllFields {
         .f1 = 0x3412,
         .f2 = 0x78563412,
         .f3 = .{0x12},
+        .f4 = true,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x00e44046))),
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
         .f3 = .{0x12},
+        .f4 = false,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x0028d445))),
     }, k);
 }
 
