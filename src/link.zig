@@ -538,7 +538,7 @@ pub const File = struct {
     pub fn flush(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @as(*C, @fieldParentPtr("base", base)).flush(arena, prog_node);
+            return @as(*C, @fieldParentPtr("base", base)).flush(arena, tid, prog_node);
         }
         const comp = base.comp;
         if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
