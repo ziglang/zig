@@ -2,10 +2,16 @@
 //! This data structure is self-contained, with the following exceptions:
 //! * Module.Namespace has a pointer to Module.File
 
+/// One item per thread, indexed by `tid`, which is dense and unique per thread.
 locals: []Local = &.{},
+/// Length must be a power of two and represents the number of simultaneous
+/// writers that can mutate any single sharded data structure.
 shards: []Shard = &.{},
+/// Cached number of active bits in a `tid`.
 tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
+/// Cached shift amount to put a `tid` in the top bits of a 31-bit value.
 tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
+/// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 
 /// Rather than allocating Decl objects with an Allocator, we instead allocate
@@ -341,7 +347,11 @@ pub const DepEntry = extern struct {
 };
 
 const Local = struct {
+    /// These fields can be accessed from any thread by calling `acquire`.
+    /// They are only modified by the owning thread.
     shared: Shared align(std.atomic.cache_line),
+    /// This state is fully local to the owning thread and does not require any
+    /// atomic access.
     mutate: struct {
         arena: std.heap.ArenaAllocator.State,
         items: Mutate,
@@ -579,6 +589,7 @@ const Local = struct {
             const bytes_offset = std.mem.alignForward(usize, @sizeOf(Header), @alignOf(Elem));
             const View = std.MultiArrayList(Elem);
 
+            /// Must be called when accessing from another thread.
             fn acquire(list: *const ListSelf) ListSelf {
                 return .{ .bytes = @atomicLoad([*]align(@alignOf(Elem)) u8, &list.bytes, .acquire) };
             }
@@ -703,6 +714,7 @@ const Shard = struct {
             const alignment = @max(@alignOf(Header), @alignOf(Entry));
             const entries_offset = std.mem.alignForward(usize, @sizeOf(Header), @alignOf(Entry));
 
+            /// Must be called unless the mutate mutex is locked.
             fn acquire(map: *const @This()) @This() {
                 return .{ .entries = @atomicLoad([*]Entry, &map.entries, .acquire) };
             }
