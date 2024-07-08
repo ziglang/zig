@@ -3,6 +3,12 @@ const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 
+const ConfigError = error{
+    InvalidCharacter,
+    MissingName,
+    UndefinedVariable,
+};
+
 pub const Style = union(enum) {
     /// The configure format supported by autotools. It uses `#undef foo` to
     /// mark lines that can be substituted with different values.
@@ -19,6 +25,37 @@ pub const Style = union(enum) {
         switch (style) {
             .autoconf, .cmake => |s| return s,
             .blank, .nasm => return null,
+        }
+    }
+};
+
+/// Diagnostic data wrapper, complementing returned `ConfigError`s
+const Diagnostics = struct {
+    allocator: std.mem.Allocator,
+
+    /// 1-based line number
+    line_number: u64 = 1,
+    /// 1-based column number, indicates start column of the error
+    column_number: usize = 1,
+    /// optional metadata accompanying the `ConfigError`
+    metadata: ?[]u8 = null,
+
+    pub fn deinit(self: *@This()) void {
+        if (self.metadata) |m| {
+            self.allocator.free(m);
+        }
+        self.metadata = undefined;
+    }
+
+    /// Set or reset metadata, should be called whenever `ConfigError` is being returned
+    pub fn setMetadata(self: *@This(), value: ?[]const u8) void {
+        if (self.metadata) |m| {
+            self.allocator.free(m);
+            self.metadata = null;
+        }
+
+        if (value) |v| {
+            self.metadata = self.allocator.dupe(u8, v) catch null;
         }
     }
 };
@@ -40,6 +77,7 @@ style: Style,
 max_bytes: usize,
 include_path: []const u8,
 include_guard_override: ?[]const u8,
+fallback_value: ?Value,
 
 pub const base_id: Step.Id = .config_header;
 
@@ -49,6 +87,7 @@ pub const Options = struct {
     include_path: ?[]const u8 = null,
     first_ret_addr: ?usize = null,
     include_guard_override: ?[]const u8 = null,
+    fallback_value: ?Value = null,
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
@@ -94,6 +133,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
+        .fallback_value = options.fallback_value,
         .output_file = .{ .step = &config_header.step },
     };
 
@@ -209,7 +249,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     src_path, @errorName(err),
                 });
             };
-            try render_cmake(step, contents, &output, config_header.values, src_path);
+            try render_cmake(step, contents, &output, config_header.values, config_header.fallback_value, src_path);
         },
         .blank => {
             try output.appendSlice(c_generated_line);
@@ -309,35 +349,36 @@ fn render_cmake(
     contents: []const u8,
     output: *std.ArrayList(u8),
     values: std.StringArrayHashMap(Value),
+    fallback_value: ?Value,
     src_path: []const u8,
 ) !void {
     const build = step.owner;
     const allocator = build.allocator;
 
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
-
     var any_errors = false;
-    var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
-    while (line_it.next()) |raw_line| : (line_index += 1) {
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    var unused_values = try values.cloneWithAllocator(arena_allocator);
+    var diagnostics: Diagnostics = .{ .allocator = arena_allocator };
+
+    while (line_it.next()) |raw_line| : (diagnostics.line_number += 1) {
+        diagnostics.column_number = 1;
         const last_line = line_it.index == line_it.buffer.len;
 
-        const line = expand_variables_cmake(allocator, raw_line, values) catch |err| switch (err) {
-            error.InvalidCharacter => {
-                try step.addError("{s}:{d}: error: invalid character in a variable name", .{
-                    src_path, line_index + 1,
-                });
-                any_errors = true;
-                continue;
-            },
-            else => {
-                try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
-                    src_path, line_index + 1, @errorName(err),
-                });
-                any_errors = true;
-                continue;
-            },
+        const line = expand_variables_cmake(allocator, raw_line, values, &unused_values, fallback_value, &diagnostics) catch |err| {
+            try step.addError("{s}:{d}:{d}: unable to substitute variable: {s}: {s}", .{
+                src_path,
+                diagnostics.line_number,
+                diagnostics.column_number,
+                @errorName(err),
+                diagnostics.metadata orelse "",
+            });
+            any_errors = true;
+            continue;
         };
         defer allocator.free(line);
 
@@ -364,17 +405,18 @@ fn render_cmake(
 
         const name = it.next() orelse {
             try step.addError("{s}:{d}: error: missing define name", .{
-                src_path, line_index + 1,
+                src_path, diagnostics.line_number,
             });
             any_errors = true;
             continue;
         };
-        var value = values_copy.get(name) orelse blk: {
+        var value = values.get(name) orelse blk: {
             if (booldefine) {
                 break :blk Value{ .int = 0 };
             }
             break :blk Value.undef;
         };
+        _ = unused_values.swapRemove(name);
 
         value = blk: {
             switch (value) {
@@ -428,6 +470,13 @@ fn render_cmake(
         }
 
         try renderValueC(output, name, value);
+    }
+
+    if (unused_values.keys().len > 0) {
+        try step.addError("{s}: error: unused variables: {s}", .{
+            src_path, unused_values.keys(),
+        });
+        any_errors = true;
     }
 
     if (any_errors) {
@@ -540,6 +589,9 @@ fn expand_variables_cmake(
     allocator: Allocator,
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
+    unused_values: *std.StringArrayHashMap(Value),
+    fallback_value: ?Value,
+    diagnostics: *Diagnostics,
 ) ![]const u8 {
     var result = std.ArrayList(u8).init(allocator);
     errdefer result.deinit();
@@ -570,7 +622,15 @@ fn expand_variables_cmake(
                     }
 
                     const key = contents[curr + 1 .. close_pos];
-                    const value = values.get(key) orelse return error.MissingValue;
+
+                    errdefer {
+                        diagnostics.column_number = curr + 1;
+                        diagnostics.setMetadata(key);
+                    }
+
+                    const value = values.get(key) orelse fallback_value orelse return ConfigError.UndefinedVariable;
+                    _ = unused_values.swapRemove(key);
+
                     const missing = contents[source_offset..curr];
                     try result.appendSlice(missing);
                     switch (value) {
@@ -617,6 +677,9 @@ fn expand_variables_cmake(
                     break :blk;
                 }
                 const open_pos = var_stack.pop();
+                errdefer {
+                    diagnostics.column_number = open_pos.source;
+                }
                 if (source_offset == open_pos.source) {
                     source_offset += open_var.len;
                 }
@@ -626,9 +689,14 @@ fn expand_variables_cmake(
                 const key_start = open_pos.target + open_var.len;
                 const key = result.items[key_start..];
                 if (key.len == 0) {
-                    return error.MissingKey;
+                    diagnostics.setMetadata(null);
+                    return ConfigError.MissingName;
                 }
-                const value = values.get(key) orelse return error.MissingValue;
+                const value = values.get(key) orelse fallback_value orelse {
+                    diagnostics.setMetadata(key);
+                    return ConfigError.UndefinedVariable;
+                };
+                _ = unused_values.swapRemove(key);
                 result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
                 switch (value) {
                     .undef, .defined => {},
@@ -655,7 +723,9 @@ fn expand_variables_cmake(
         }
 
         if (var_stack.items.len > 0 and std.mem.indexOfScalar(u8, valid_varname_chars, contents[curr]) == null) {
-            return error.InvalidCharacter;
+            diagnostics.column_number = curr + 1;
+            diagnostics.setMetadata(&[_]u8{contents[curr]});
+            return ConfigError.InvalidCharacter;
         }
     }
 
@@ -673,7 +743,23 @@ fn testReplaceVariables(
     expected: []const u8,
     values: std.StringArrayHashMap(Value),
 ) !void {
-    const actual = try expand_variables_cmake(allocator, contents, values);
+    try testReplaceVariablesWithFallback(allocator, contents, expected, values, null);
+}
+
+fn testReplaceVariablesWithFallback(
+    allocator: Allocator,
+    contents: []const u8,
+    expected: []const u8,
+    values: std.StringArrayHashMap(Value),
+    fallback_value: ?Value,
+) !void {
+    var diagnostics: Diagnostics = .{ .allocator = allocator };
+    defer diagnostics.deinit();
+
+    var unused = try values.clone();
+    defer unused.deinit();
+
+    const actual = try expand_variables_cmake(allocator, contents, values, &unused, fallback_value, &diagnostics);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(expected, actual);
@@ -699,7 +785,7 @@ test "expand_variables_cmake simple cases" {
     try testReplaceVariables(allocator, "no substitution", "no substitution", values);
 
     // empty ${} wrapper leads to an error
-    try std.testing.expectError(error.MissingKey, testReplaceVariables(allocator, "${}", "", values));
+    try std.testing.expectError(ConfigError.MissingName, testReplaceVariables(allocator, "${}", "", values));
 
     // empty @ sigils are preserved
     try testReplaceVariables(allocator, "@", "@", values);
@@ -763,8 +849,12 @@ test "expand_variables_cmake simple cases" {
     try testReplaceVariables(allocator, "undef}", "undef}", values);
 
     // unknown key leads to an error
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@bad@", "", values));
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${bad}", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "@bad@", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "${bad}", "", values));
+
+    // fallback_value suppresses an error
+    try testReplaceVariablesWithFallback(allocator, "@bad@", "fallback", values, .{ .string = "fallback" });
+    try testReplaceVariablesWithFallback(allocator, "${bad}", "fallback", values, .{ .string = "fallback" });
 }
 
 test "expand_variables_cmake edge cases" {
@@ -809,23 +899,23 @@ test "expand_variables_cmake edge cases" {
     try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
 
     // when expanded variables contain invalid characters, they prevent further expansion
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${${string_var}}", "", values));
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${@string_var@}", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "${${string_var}}", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "${@string_var@}", "", values));
 
     // nested expanded variables are expanded from the inside out
     try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
     try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
 
     // nested vars are only expanded when ${} is closed
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
 
     // invalid characters lead to an error
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str*ing}", "", values));
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str$ing}", "", values));
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str@ing}", "", values));
+    try std.testing.expectError(ConfigError.InvalidCharacter, testReplaceVariables(allocator, "${str*ing}", "", values));
+    try std.testing.expectError(ConfigError.InvalidCharacter, testReplaceVariables(allocator, "${str$ing}", "", values));
+    try std.testing.expectError(ConfigError.InvalidCharacter, testReplaceVariables(allocator, "${str@ing}", "", values));
 }
 
 test "expand_variables_cmake escaped characters" {
@@ -845,5 +935,5 @@ test "expand_variables_cmake escaped characters" {
     try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${string\\}", "", values));
+    try std.testing.expectError(ConfigError.UndefinedVariable, testReplaceVariables(allocator, "${string\\}", "", values));
 }
