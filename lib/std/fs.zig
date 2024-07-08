@@ -278,18 +278,18 @@ pub fn defaultWasiCwd() std.os.wasi.fd_t {
 /// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
-pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsolute(absolute_path));
     return cwd().openDir(absolute_path, flags);
 }
 
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().openDirZ(absolute_path_c, flags);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags);
 }
