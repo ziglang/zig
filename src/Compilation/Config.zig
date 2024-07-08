@@ -440,12 +440,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         };
     };
 
-    const backend_supports_error_tracing = target_util.backendSupportsFeature(
-        target.cpu.arch,
-        target.ofmt,
-        use_llvm,
-        .error_return_trace,
-    );
+    const backend = target_util.zigBackend(target, use_llvm);
+    const backend_supports_error_tracing = target_util.backendSupportsFeature(backend, .error_return_trace);
 
     const root_error_tracing = b: {
         if (options.root_error_tracing) |x| break :b x;

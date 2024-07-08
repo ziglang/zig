@@ -103,6 +103,14 @@ lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
+codegen_work: if (InternPool.single_threaded) void else struct {
+    mutex: std.Thread.Mutex,
+    cond: std.Thread.Condition,
+    queue: std.fifo.LinearFifo(CodegenJob, .Dynamic),
+    job_error: ?JobError,
+    done: bool,
+},
+
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
 c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
@@ -360,6 +368,16 @@ const Job = union(enum) {
 
     /// The value is the index into `system_libs`.
     windows_import_lib: usize,
+};
+
+const CodegenJob = union(enum) {
+    decl: InternPool.DeclIndex,
+    func: struct {
+        func: InternPool.Index,
+        /// This `Air` is owned by the `Job` and allocated with `gpa`.
+        /// It must be deinited when the job is processed.
+        air: Air,
+    },
 };
 
 pub const CObject = struct {
@@ -1429,6 +1447,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
+            .codegen_work = if (InternPool.single_threaded) {} else .{
+                .mutex = .{},
+                .cond = .{},
+                .queue = std.fifo.LinearFifo(CodegenJob, .Dynamic).init(gpa),
+                .job_error = null,
+                .done = false,
+            },
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (build_options.only_core_functionality) {} else std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
@@ -3310,7 +3335,21 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
 pub fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
-) error{ TimerUnsupported, OutOfMemory }!void {
+) JobError!void {
+    defer if (comp.module) |mod| {
+        mod.sema_prog_node.end();
+        mod.sema_prog_node = std.Progress.Node.none;
+        mod.codegen_prog_node.end();
+        mod.codegen_prog_node = std.Progress.Node.none;
+    };
+    try comp.performAllTheWorkInner(main_progress_node);
+    if (!InternPool.single_threaded) if (comp.codegen_work.job_error) |job_error| return job_error;
+}
+
+fn performAllTheWorkInner(
+    comp: *Compilation,
+    main_progress_node: std.Progress.Node,
+) JobError!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -3410,16 +3449,20 @@ pub fn performAllTheWork(
         mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
-    defer if (comp.module) |mod| {
-        mod.sema_prog_node.end();
-        mod.sema_prog_node = undefined;
-        mod.codegen_prog_node.end();
-        mod.codegen_prog_node = undefined;
+
+    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&comp.work_queue_wait_group, codegenThread, .{comp});
+    defer if (!InternPool.single_threaded) {
+        {
+            comp.codegen_work.mutex.lock();
+            defer comp.codegen_work.mutex.unlock();
+            comp.codegen_work.done = true;
+        }
+        comp.codegen_work.cond.signal();
     };
 
     while (true) {
         if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(0, comp, work_item, main_progress_node);
+            try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, work_item, main_progress_node);
             continue;
         }
         if (comp.module) |zcu| {
@@ -3447,11 +3490,12 @@ pub fn performAllTheWork(
     }
 }
 
-fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) !void {
+const JobError = Allocator.Error;
+
+fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
     switch (job) {
         .codegen_decl => |decl_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            const decl = pt.zcu.declPtr(decl_index);
+            const decl = comp.module.?.declPtr(decl_index);
 
             switch (decl.analysis) {
                 .unreferenced => unreachable,
@@ -3461,26 +3505,20 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 .sema_failure,
                 .codegen_failure,
                 .dependency_failure,
-                => return,
+                => {},
 
                 .complete => {
-                    const named_frame = tracy.namedFrame("codegen_decl");
-                    defer named_frame.end();
-
                     assert(decl.has_tv);
-
-                    try pt.linkerUpdateDecl(decl_index);
-                    return;
+                    try comp.queueCodegenJob(tid, .{ .decl = decl_index });
                 },
             }
         },
         .codegen_func => |func| {
-            const named_frame = tracy.namedFrame("codegen_func");
-            defer named_frame.end();
-
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
             // This call takes ownership of `func.air`.
-            try pt.linkerUpdateFunc(func.func, func.air);
+            try comp.queueCodegenJob(tid, .{ .func = .{
+                .func = func.func,
+                .air = func.air,
+            } });
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
@@ -3768,6 +3806,61 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                     .{@errorName(err)},
                 ),
             };
+        },
+    }
+}
+
+fn queueCodegenJob(comp: *Compilation, tid: usize, codegen_job: CodegenJob) !void {
+    if (InternPool.single_threaded or
+        !comp.module.?.backendSupportsFeature(.separate_thread))
+        return processOneCodegenJob(tid, comp, codegen_job);
+
+    {
+        comp.codegen_work.mutex.lock();
+        defer comp.codegen_work.mutex.unlock();
+        try comp.codegen_work.queue.writeItem(codegen_job);
+    }
+    comp.codegen_work.cond.signal();
+}
+
+fn codegenThread(tid: usize, comp: *Compilation) void {
+    comp.codegen_work.mutex.lock();
+    defer comp.codegen_work.mutex.unlock();
+
+    while (true) {
+        if (comp.codegen_work.queue.readItem()) |codegen_job| {
+            comp.codegen_work.mutex.unlock();
+            defer comp.codegen_work.mutex.lock();
+
+            processOneCodegenJob(tid, comp, codegen_job) catch |job_error| {
+                comp.codegen_work.job_error = job_error;
+                break;
+            };
+            continue;
+        }
+
+        if (comp.codegen_work.done) break;
+
+        comp.codegen_work.cond.wait(&comp.codegen_work.mutex);
+    }
+}
+
+fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob) JobError!void {
+    switch (codegen_job) {
+        .decl => |decl_index| {
+            const named_frame = tracy.namedFrame("codegen_decl");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            try pt.linkerUpdateDecl(decl_index);
+        },
+        .func => |func| {
+            const named_frame = tracy.namedFrame("codegen_func");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            // This call takes ownership of `func.air`.
+            try pt.linkerUpdateFunc(func.func, func.air);
         },
     }
 }

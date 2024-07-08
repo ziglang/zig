@@ -64,8 +64,8 @@ root_mod: *Package.Module,
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
 main_mod: *Package.Module,
 std_mod: *Package.Module,
-sema_prog_node: std.Progress.Node = undefined,
-codegen_prog_node: std.Progress.Node = undefined,
+sema_prog_node: std.Progress.Node = std.Progress.Node.none,
+codegen_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Compilation.Directory,
@@ -3557,13 +3557,13 @@ pub const Feature = enum {
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
     safety_checked_instructions,
+    /// If the backend supports running from another thread.
+    separate_thread,
 };
 
-pub fn backendSupportsFeature(zcu: Module, feature: Feature) bool {
-    const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
-    const ofmt = zcu.root_mod.resolved_target.result.ofmt;
-    const use_llvm = zcu.comp.config.use_llvm;
-    return target_util.backendSupportsFeature(cpu_arch, ofmt, use_llvm, feature);
+pub fn backendSupportsFeature(zcu: Module, comptime feature: Feature) bool {
+    const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+    return target_util.backendSupportsFeature(backend, feature);
 }
 
 pub const AtomicPtrAlignmentError = error{

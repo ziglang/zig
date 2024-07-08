@@ -2129,7 +2129,7 @@ pub fn populateTestFunctions(
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         defer {
             zcu.sema_prog_node.end();
-            zcu.sema_prog_node = undefined;
+            zcu.sema_prog_node = std.Progress.Node.none;
         }
         try pt.ensureDeclAnalyzed(decl_index);
     }
@@ -2238,7 +2238,7 @@ pub fn populateTestFunctions(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
         defer {
             zcu.codegen_prog_node.end();
-            zcu.codegen_prog_node = undefined;
+            zcu.codegen_prog_node = std.Progress.Node.none;
         }
 
         try pt.linkerUpdateDecl(decl_index);
