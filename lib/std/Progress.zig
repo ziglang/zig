@@ -285,13 +285,11 @@ pub const Node = struct {
         assert(parent == .none or @intFromEnum(parent) < node_storage_buffer_len);
 
         const storage = storageByIndex(free_index);
-        storage.* = .{
-            .completed_count = 0,
-            .estimated_total_count = std.math.lossyCast(u32, estimated_total_items),
-            .name = [1]u8{0} ** max_name_len,
-        };
+        @atomicStore(u32, &storage.completed_count, 0, .monotonic);
+        @atomicStore(u32, &storage.estimated_total_count, std.math.lossyCast(u32, estimated_total_items), .monotonic);
         const name_len = @min(max_name_len, name.len);
-        @memcpy(storage.name[0..name_len], name[0..name_len]);
+        for (storage.name[0..name_len], name[0..name_len]) |*dest, src| @atomicStore(u8, dest, src, .monotonic);
+        for (storage.name[name_len..]) |*dest| @atomicStore(u8, dest, 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
         assert(parent_ptr.* == .unused);
@@ -765,7 +763,7 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
-            @memcpy(&dest_storage.name, &storage_ptr.name);
+            for (&dest_storage.name, &storage_ptr.name) |*dest, *src| dest.* = @atomicLoad(u8, src, .monotonic);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
