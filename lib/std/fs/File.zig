@@ -18,6 +18,7 @@ pub const Kind = enum {
     whiteout,
     door,
     event_port,
+    firm_link,
     unknown,
 };
 
