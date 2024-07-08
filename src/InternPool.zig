@@ -9362,8 +9362,8 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             switch (tag) {
                 .removed => {},
 
-                .simple_type => try w.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(data)))}),
-                .simple_value => try w.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(data)))}),
+                .simple_type => try w.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
+                .simple_value => try w.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
 
                 .type_int_signed,
                 .type_int_unsigned,
