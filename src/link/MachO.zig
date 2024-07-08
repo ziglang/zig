@@ -63,9 +63,6 @@ dso_handle_index: ?Symbol.Index = null,
 objc_msg_send_index: ?Symbol.Index = null,
 entry_index: ?Symbol.Index = null,
 
-/// List of atoms that are either synthetic or map directly to the Zig source program.
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
 
 /// String interning table
@@ -549,13 +546,14 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         try dead_strip.gcAtoms(self);
     }
 
-    self.checkDuplicates() catch |err| switch (err) {
-        error.HasDuplicates => return error.FlushFailure,
-        else => |e| {
-            try self.reportUnexpectedError("unexpected error while checking for duplicate symbol definitions", .{});
-            return e;
-        },
-    };
+    // TODO
+    // self.checkDuplicates() catch |err| switch (err) {
+    //     error.HasDuplicates => return error.FlushFailure,
+    //     else => |e| {
+    //         try self.reportUnexpectedError("unexpected error while checking for duplicate symbol definitions", .{});
+    //         return e;
+    //     },
+    // };
 
     self.markImportsAndExports();
     self.deadStripDylibs();
