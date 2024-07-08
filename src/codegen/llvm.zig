@@ -5338,13 +5338,25 @@ pub const FuncGen = struct {
         const old_inlined = self.inlined;
         const old_base_line = self.base_line;
         const old_scope = self.scope;
-        defer if (maybe_inline_func) |_| {
-            self.wip.debug_location = self.inlined;
-            self.file = old_file;
-            self.inlined = old_inlined;
-            self.base_line = old_base_line;
-        };
-        defer self.scope = old_scope;
+        const old_line = self.prev_dbg_line;
+        const old_column = self.prev_dbg_column;
+
+        defer {
+            if (maybe_inline_func) |_| {
+                self.wip.debug_location = self.inlined;
+                self.file = old_file;
+                self.inlined = old_inlined;
+                self.base_line = old_base_line;
+            }
+            self.scope = old_scope;
+            // In some conditions, such as on the exit branch of a loop
+            // header, the body is not immediately followed by a
+            // dbg_stmt. In this case, it makes more sense to associate
+            // the following instructions with the statement before the
+            // scope than with last statement inside the scope.
+            self.prev_dbg_line = old_line;
+            self.prev_dbg_column = old_column;
+        }
 
         if (maybe_inline_func) |inline_func| {
             const o = self.ng.object;
@@ -5410,7 +5422,11 @@ pub const FuncGen = struct {
             .no_location => {},
         }
         defer switch (self.wip.debug_location) {
-            .location => |*l| l.scope = old_scope,
+            .location => |*l| {
+                l.line = old_line;
+                l.column = old_column;
+                l.scope = old_scope;
+            },
             .no_location => {},
         };
 
@@ -6122,7 +6138,13 @@ pub const FuncGen = struct {
         var breaks: BreakList = if (have_block_result) .{ .list = .{} } else .{ .len = 0 };
         defer if (have_block_result) breaks.list.deinit(self.gpa);
 
-        const parent_bb = try self.wip.block(0, "Block");
+        // GDB is sensitive to the ordering of blocks. In a loop, for
+        // example, the update step will go into a parent_bb; if that
+        // block were placed here, its instructions would immediately
+        // follow the loop header and be covered by the same line
+        // number info. GDB would then never stop on the loop header
+        // while trying to step by line.
+        const parent_bb = try self.wip.unplacedBlock(0, "Block");
         try self.blocks.putNoClobber(self.gpa, inst, .{
             .parent_bb = parent_bb,
             .breaks = &breaks,
@@ -6131,6 +6153,7 @@ pub const FuncGen = struct {
 
         try self.genBodyDebugScope(maybe_inline_func, body, .none);
 
+        try self.wip.placeBlock(parent_bb);
         self.wip.cursor = .{ .block = parent_bb };
 
         // Create a phi node only if the block returns a value.
