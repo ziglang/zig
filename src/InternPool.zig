@@ -878,7 +878,7 @@ pub const String = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) String {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u32));
-            return @enumFromInt(@intFromEnum(unwrapped.tid) << ip.tid_shift_32 | unwrapped.index);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 | unwrapped.index);
         }
     };
     fn unwrap(string: String, ip: *const InternPool) Unwrapped {
@@ -3408,7 +3408,7 @@ pub const Index = enum(u32) {
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Index {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
             assert(unwrapped.index <= ip.getIndexMask(u31));
-            return @enumFromInt(@intFromEnum(unwrapped.tid) << ip.tid_shift_31 | unwrapped.index);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_31 | unwrapped.index);
         }
 
         pub fn getExtra(unwrapped: Unwrapped, ip: *const InternPool) Local.Extra {
@@ -9651,7 +9651,7 @@ pub fn getOrPutTrailingString(
     }
     const key: []const u8 = strings.view().items(.@"0")[start..];
     const value: embedded_nulls.StringType() =
-        @enumFromInt(@intFromEnum(tid) << ip.tid_shift_32 | start);
+        @enumFromInt(@as(u32, @intFromEnum(tid)) << ip.tid_shift_32 | start);
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),
