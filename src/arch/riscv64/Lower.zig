@@ -1,6 +1,6 @@
 //! This file contains the functionality for lowering RISC-V MIR to Instructions
 
-bin_file: *link.File,
+pt: Zcu.PerThread,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 pic: bool,
@@ -44,7 +44,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     insts: []const Instruction,
     relocs: []const Reloc,
 } {
-    const zcu = lower.bin_file.comp.module.?;
+    const pt = lower.pt;
 
     lower.result_insts = undefined;
     lower.result_relocs = undefined;
@@ -243,11 +243,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
                 const class = rs1.class();
                 const ty = compare.ty;
-                const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(zcu)) catch {
-                    return lower.fail("pseudo_compare size {}", .{ty.bitSize(zcu)});
+                const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(pt)) catch {
+                    return lower.fail("pseudo_compare size {}", .{ty.bitSize(pt)});
                 };
 
-                const is_unsigned = ty.isUnsignedInt(zcu);
+                const is_unsigned = ty.isUnsignedInt(pt.zcu);
 
                 const less_than: Encoding.Mnemonic = if (is_unsigned) .sltu else .slt;
 
@@ -502,7 +502,7 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
 }
 
 fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
-    const target = lower.bin_file.comp.module.?.getTarget();
+    const target = lower.pt.zcu.getTarget();
     const features = target.cpu.features;
     return std.Target.riscv.featureSetHas(features, feature);
 }

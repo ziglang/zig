@@ -1339,11 +1339,11 @@ pub const Pool = struct {
         allocator: std.mem.Allocator,
         scratch: *std.ArrayListUnmanaged(u32),
         ty: Type,
-        zcu: *Zcu,
+        pt: Zcu.PerThread,
         mod: *Module,
         kind: Kind,
     ) !CType {
-        const ip = &zcu.intern_pool;
+        const ip = &pt.zcu.intern_pool;
         switch (ty.toIntern()) {
             .u0_type,
             .i0_type,
@@ -1400,7 +1400,7 @@ pub const Pool = struct {
                 allocator,
                 scratch,
                 Type.fromInterned(ip.loadEnumType(ip_index).tag_ty),
-                zcu,
+                pt,
                 mod,
                 kind,
             ),
@@ -1409,7 +1409,7 @@ pub const Pool = struct {
             .adhoc_inferred_error_set_type,
             => return pool.fromIntInfo(allocator, .{
                 .signedness = .unsigned,
-                .bits = zcu.errorSetBits(),
+                .bits = pt.zcu.errorSetBits(),
             }, mod, kind),
             .manyptr_u8_type,
             => return pool.getPointer(allocator, .{
@@ -1492,13 +1492,13 @@ pub const Pool = struct {
                                     allocator,
                                     scratch,
                                     Type.fromInterned(ptr_info.child),
-                                    zcu,
+                                    pt,
                                     mod,
                                     .forward,
                                 ),
                                 .alignas = AlignAs.fromAlignment(.{
                                     .@"align" = ptr_info.flags.alignment,
-                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(zcu),
+                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(pt),
                                 }),
                             };
                             break :elem_ctype if (elem.alignas.abiOrder().compare(.gte))
@@ -1535,7 +1535,7 @@ pub const Pool = struct {
                                     allocator,
                                     scratch,
                                     Type.fromInterned(ip.slicePtrType(ip_index)),
-                                    zcu,
+                                    pt,
                                     mod,
                                     kind,
                                 ),
@@ -1560,7 +1560,7 @@ pub const Pool = struct {
                         allocator,
                         scratch,
                         elem_type,
-                        zcu,
+                        pt,
                         mod,
                         kind.noParameter(),
                     );
@@ -1574,7 +1574,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = array_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1586,7 +1586,7 @@ pub const Pool = struct {
                         allocator,
                         scratch,
                         elem_type,
-                        zcu,
+                        pt,
                         mod,
                         kind.noParameter(),
                     );
@@ -1600,7 +1600,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = vector_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1611,7 +1611,7 @@ pub const Pool = struct {
                         allocator,
                         scratch,
                         Type.fromInterned(payload_type),
-                        zcu,
+                        pt,
                         mod,
                         kind.noParameter(),
                     );
@@ -1635,7 +1635,7 @@ pub const Pool = struct {
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.fromInterned(payload_type).abiAlignment(zcu),
+                                Type.fromInterned(payload_type).abiAlignment(pt),
                             ),
                         },
                     };
@@ -1643,7 +1643,7 @@ pub const Pool = struct {
                 },
                 .anyframe_type => unreachable,
                 .error_union_type => |error_union_info| {
-                    const error_set_bits = zcu.errorSetBits();
+                    const error_set_bits = pt.zcu.errorSetBits();
                     const error_set_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = error_set_bits,
@@ -1654,7 +1654,7 @@ pub const Pool = struct {
                         allocator,
                         scratch,
                         payload_type,
-                        zcu,
+                        pt,
                         mod,
                         kind.noParameter(),
                     );
@@ -1671,7 +1671,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(zcu)),
+                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(pt)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1685,7 +1685,7 @@ pub const Pool = struct {
                                 .tag = .@"struct",
                                 .name = .{ .owner_decl = loaded_struct.decl.unwrap().? },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1706,7 +1706,7 @@ pub const Pool = struct {
                                     allocator,
                                     scratch,
                                     field_type,
-                                    zcu,
+                                    pt,
                                     mod,
                                     kind.noParameter(),
                                 );
@@ -1718,7 +1718,7 @@ pub const Pool = struct {
                                     String.fromUnnamed(@intCast(field_index));
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_struct.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(zcu),
+                                    .abi = field_type.abiAlignment(pt),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1745,7 +1745,7 @@ pub const Pool = struct {
                             allocator,
                             scratch,
                             Type.fromInterned(loaded_struct.backingIntType(ip).*),
-                            zcu,
+                            pt,
                             mod,
                             kind,
                         ),
@@ -1766,7 +1766,7 @@ pub const Pool = struct {
                             allocator,
                             scratch,
                             field_type,
-                            zcu,
+                            pt,
                             mod,
                             kind.noParameter(),
                         );
@@ -1780,7 +1780,7 @@ pub const Pool = struct {
                             .name = field_name.index,
                             .ctype = field_ctype.index,
                             .flags = .{ .alignas = AlignAs.fromAbiAlignment(
-                                field_type.abiAlignment(zcu),
+                                field_type.abiAlignment(pt),
                             ) },
                         });
                     }
@@ -1806,7 +1806,7 @@ pub const Pool = struct {
                             extra_index,
                         );
                     }
-                    const fwd_decl = try pool.fromType(allocator, scratch, ty, zcu, mod, .forward);
+                    const fwd_decl = try pool.fromType(allocator, scratch, ty, pt, mod, .forward);
                     try pool.ensureUnusedCapacity(allocator, 1);
                     const extra_index = try pool.addHashedExtra(allocator, &hasher, Aggregate, .{
                         .fwd_decl = fwd_decl.index,
@@ -1824,7 +1824,7 @@ pub const Pool = struct {
                                 .tag = if (has_tag) .@"struct" else .@"union",
                                 .name = .{ .owner_decl = loaded_union.decl },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1847,7 +1847,7 @@ pub const Pool = struct {
                                     allocator,
                                     scratch,
                                     field_type,
-                                    zcu,
+                                    pt,
                                     mod,
                                     kind.noParameter(),
                                 );
@@ -1858,7 +1858,7 @@ pub const Pool = struct {
                                 );
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_union.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(zcu),
+                                    .abi = field_type.abiAlignment(pt),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1895,7 +1895,7 @@ pub const Pool = struct {
                                     allocator,
                                     scratch,
                                     tag_type,
-                                    zcu,
+                                    pt,
                                     mod,
                                     kind.noParameter(),
                                 );
@@ -1903,7 +1903,7 @@ pub const Pool = struct {
                                     struct_fields[struct_fields_len] = .{
                                         .name = .{ .index = .tag },
                                         .ctype = tag_ctype,
-                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(zcu)),
+                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(pt)),
                                     };
                                     struct_fields_len += 1;
                                 }
@@ -1951,7 +1951,7 @@ pub const Pool = struct {
                         },
                         .@"packed" => return pool.fromIntInfo(allocator, .{
                             .signedness = .unsigned,
-                            .bits = @intCast(ty.bitSize(zcu)),
+                            .bits = @intCast(ty.bitSize(pt)),
                         }, mod, kind),
                     }
                 },
@@ -1960,7 +1960,7 @@ pub const Pool = struct {
                     allocator,
                     scratch,
                     Type.fromInterned(ip.loadEnumType(ip_index).tag_ty),
-                    zcu,
+                    pt,
                     mod,
                     kind,
                 ),
@@ -1975,7 +1975,7 @@ pub const Pool = struct {
                         allocator,
                         scratch,
                         return_type,
-                        zcu,
+                        pt,
                         mod,
                         kind.asParameter(),
                     ) else CType.void;
@@ -1987,7 +1987,7 @@ pub const Pool = struct {
                             allocator,
                             scratch,
                             param_type,
-                            zcu,
+                            pt,
                             mod,
                             kind.asParameter(),
                         );
@@ -2011,7 +2011,7 @@ pub const Pool = struct {
                 .inferred_error_set_type,
                 => return pool.fromIntInfo(allocator, .{
                     .signedness = .unsigned,
-                    .bits = zcu.errorSetBits(),
+                    .bits = pt.zcu.errorSetBits(),
                 }, mod, kind),
 
                 .undef,

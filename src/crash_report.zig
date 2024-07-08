@@ -76,9 +76,9 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
-    const mod = anal.sema.mod;
+    const zcu = anal.sema.pt.zcu;
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu);
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +104,7 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu);
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(

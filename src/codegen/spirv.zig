@@ -6,9 +6,7 @@ const assert = std.debug.assert;
 const Signedness = std.builtin.Signedness;
 
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
-const Decl = Module.Decl;
+const Decl = Zcu.Decl;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
@@ -188,12 +186,13 @@ pub const Object = struct {
 
     fn genDecl(
         self: *Object,
-        zcu: *Zcu,
+        pt: Zcu.PerThread,
         decl_index: InternPool.DeclIndex,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const gpa = self.gpa;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const structured_cfg = namespace.fileScope(zcu).mod.structured_cfg;
@@ -201,7 +200,7 @@ pub const Object = struct {
         var decl_gen = DeclGen{
             .gpa = gpa,
             .object = self,
-            .module = zcu,
+            .pt = pt,
             .spv = &self.spv,
             .decl_index = decl_index,
             .air = air,
@@ -235,34 +234,34 @@ pub const Object = struct {
 
     pub fn updateFunc(
         self: *Object,
-        mod: *Module,
+        pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
     ) !void {
-        const decl_index = mod.funcInfo(func_index).owner_decl;
+        const decl_index = pt.zcu.funcInfo(func_index).owner_decl;
         // TODO: Separate types for generating decls and functions?
-        try self.genDecl(mod, decl_index, air, liveness);
+        try self.genDecl(pt, decl_index, air, liveness);
     }
 
     pub fn updateDecl(
         self: *Object,
-        mod: *Module,
+        pt: Zcu.PerThread,
         decl_index: InternPool.DeclIndex,
     ) !void {
-        try self.genDecl(mod, decl_index, undefined, undefined);
+        try self.genDecl(pt, decl_index, undefined, undefined);
     }
 
     /// Fetch or allocate a result id for decl index. This function also marks the decl as alive.
     /// Note: Function does not actually generate the decl, it just allocates an index.
-    pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
-        const decl = mod.declPtr(decl_index);
+    pub fn resolveDecl(self: *Object, zcu: *Zcu, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
+        const decl = zcu.declPtr(decl_index);
         assert(decl.has_tv); // TODO: Do we need to handle a situation where this is false?
 
         const entry = try self.decl_link.getOrPut(self.gpa, decl_index);
         if (!entry.found_existing) {
             // TODO: Extern fn?
-            const kind: SpvModule.Decl.Kind = if (decl.val.isFuncBody(mod))
+            const kind: SpvModule.Decl.Kind = if (decl.val.isFuncBody(zcu))
                 .func
             else switch (decl.@"addrspace") {
                 .generic => .invocation_global,
@@ -285,7 +284,7 @@ const DeclGen = struct {
     object: *Object,
 
     /// The Zig module that we are generating decls for.
-    module: *Module,
+    pt: Zcu.PerThread,
 
     /// The SPIR-V module that instructions should be emitted into.
     /// This is the same as `self.object.spv`, repeated here for brevity.
@@ -333,7 +332,7 @@ const DeclGen = struct {
 
     /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
-    error_msg: ?*Module.ErrorMsg = null,
+    error_msg: ?*Zcu.ErrorMsg = null,
 
     /// Possible errors the `genDecl` function may return.
     const Error = error{ CodegenFail, OutOfMemory };
@@ -410,15 +409,15 @@ const DeclGen = struct {
 
     /// Return the target which we are currently compiling for.
     pub fn getTarget(self: *DeclGen) std.Target {
-        return self.module.getTarget();
+        return self.pt.zcu.getTarget();
     }
 
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        const mod = self.module;
-        const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
+        const zcu = self.pt.zcu;
+        const src_loc = zcu.declPtr(self.decl_index).navSrcLoc(zcu);
         assert(self.error_msg == null);
-        self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
+        self.error_msg = try Zcu.ErrorMsg.create(zcu.gpa, src_loc, format, args);
         return error.CodegenFail;
     }
 
@@ -439,8 +438,9 @@ const DeclGen = struct {
 
     /// Fetch the result-id for a previously generated instruction or constant.
     fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !IdRef {
-        const mod = self.module;
-        if (try self.air.value(inst, mod)) |val| {
+        const pt = self.pt;
+        const mod = pt.zcu;
+        if (try self.air.value(inst, pt)) |val| {
             const ty = self.typeOf(inst);
             if (ty.zigTypeTag(mod) == .Fn) {
                 const fn_decl_index = switch (mod.intern_pool.indexToKey(val.ip_index)) {
@@ -462,7 +462,7 @@ const DeclGen = struct {
     fn resolveAnonDecl(self: *DeclGen, val: InternPool.Index) !IdRef {
         // TODO: This cannot be a function at this point, but it should probably be handled anyway.
 
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
         const decl_ptr_ty_id = try self.ptrType(ty, .Generic);
 
@@ -642,7 +642,7 @@ const DeclGen = struct {
 
     /// Checks whether the type can be directly translated to SPIR-V vectors
     fn isSpvVector(self: *DeclGen, ty: Type) bool {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const target = self.getTarget();
         if (ty.zigTypeTag(mod) != .Vector) return false;
 
@@ -668,7 +668,7 @@ const DeclGen = struct {
     }
 
     fn arithmeticTypeInfo(self: *DeclGen, ty: Type) ArithmeticTypeInfo {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const target = self.getTarget();
         var scalar_ty = ty.scalarType(mod);
         if (scalar_ty.zigTypeTag(mod) == .Enum) {
@@ -744,7 +744,7 @@ const DeclGen = struct {
     /// the value to an unsigned int first for Kernels.
     fn constInt(self: *DeclGen, ty: Type, value: anytype, repr: Repr) !IdRef {
         // TODO: Cache?
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const scalar_ty = ty.scalarType(mod);
         const int_info = scalar_ty.intInfo(mod);
         // Use backing bits so that negatives are sign extended
@@ -824,7 +824,7 @@ const DeclGen = struct {
     /// Construct a vector at runtime.
     /// ty must be an vector type.
     fn constructVector(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         assert(ty.vectorLen(mod) == constituents.len);
 
         // Note: older versions of the Khronos SPRIV-LLVM translator crash on this instruction
@@ -848,7 +848,7 @@ const DeclGen = struct {
     /// Construct a vector at runtime with all lanes set to the same value.
     /// ty must be an vector type.
     fn constructVectorSplat(self: *DeclGen, ty: Type, constituent: IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const n = ty.vectorLen(mod);
 
         const constituents = try self.gpa.alloc(IdRef, n);
@@ -886,12 +886,13 @@ const DeclGen = struct {
             return id;
         }
 
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const target = self.getTarget();
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod, null) });
+        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(pt), val.fmtValue(pt, null) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_id);
         }
@@ -940,16 +941,16 @@ const DeclGen = struct {
                 },
                 .int => {
                     if (ty.isSignedInt(mod)) {
-                        break :cache try self.constInt(ty, val.toSignedInt(mod), repr);
+                        break :cache try self.constInt(ty, val.toSignedInt(pt), repr);
                     } else {
-                        break :cache try self.constInt(ty, val.toUnsignedInt(mod), repr);
+                        break :cache try self.constInt(ty, val.toUnsignedInt(pt), repr);
                     }
                 },
                 .float => {
                     const lit: spec.LiteralContextDependentNumber = switch (ty.floatBits(target)) {
-                        16 => .{ .uint32 = @as(u16, @bitCast(val.toFloat(f16, mod))) },
-                        32 => .{ .float32 = val.toFloat(f32, mod) },
-                        64 => .{ .float64 = val.toFloat(f64, mod) },
+                        16 => .{ .uint32 = @as(u16, @bitCast(val.toFloat(f16, pt))) },
+                        32 => .{ .float32 = val.toFloat(f32, pt) },
+                        64 => .{ .float64 = val.toFloat(f64, pt) },
                         80, 128 => unreachable, // TODO
                         else => unreachable,
                     };
@@ -968,17 +969,17 @@ const DeclGen = struct {
                 .error_union => |error_union| {
                     // TODO: Error unions may be constructed with constant instructions if the payload type
                     // allows it. For now, just generate it here regardless.
-                    const err_int_ty = try mod.errorIntType();
+                    const err_int_ty = try pt.errorIntType();
                     const err_ty = switch (error_union.val) {
                         .err_name => ty.errorUnionSet(mod),
                         .payload => err_int_ty,
                     };
                     const err_val = switch (error_union.val) {
-                        .err_name => |err_name| Value.fromInterned((try mod.intern(.{ .err = .{
+                        .err_name => |err_name| Value.fromInterned(try pt.intern(.{ .err = .{
                             .ty = ty.errorUnionSet(mod).toIntern(),
                             .name = err_name,
-                        } }))),
-                        .payload => try mod.intValue(err_int_ty, 0),
+                        } })),
+                        .payload => try pt.intValue(err_int_ty, 0),
                     };
                     const payload_ty = ty.errorUnionPayload(mod);
                     const eu_layout = self.errorUnionLayout(payload_ty);
@@ -988,7 +989,7 @@ const DeclGen = struct {
                     }
 
                     const payload_val = Value.fromInterned(switch (error_union.val) {
-                        .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
+                        .err_name => try pt.intern(.{ .undef = payload_ty.toIntern() }),
                         .payload => |payload| payload,
                     });
 
@@ -1007,7 +1008,7 @@ const DeclGen = struct {
                     return try self.constructStruct(ty, &types, &constituents);
                 },
                 .enum_tag => {
-                    const int_val = try val.intFromEnum(ty, mod);
+                    const int_val = try val.intFromEnum(ty, pt);
                     const int_ty = ty.intTagType(mod);
                     break :cache try self.constant(int_ty, int_val, repr);
                 },
@@ -1026,7 +1027,7 @@ const DeclGen = struct {
                     const payload_ty = ty.optionalChild(mod);
                     const maybe_payload_val = val.optionalValue(mod);
 
-                    if (!payload_ty.hasRuntimeBits(mod)) {
+                    if (!payload_ty.hasRuntimeBits(pt)) {
                         break :cache try self.constBool(maybe_payload_val != null, .indirect);
                     } else if (ty.optionalReprIsPayload(mod)) {
                         // Optional representation is a nullable pointer or slice.
@@ -1104,13 +1105,13 @@ const DeclGen = struct {
                         var it = struct_type.iterateRuntimeOrder(ip);
                         while (it.next()) |field_index| {
                             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                                 // This is a zero-bit field - we only needed it for the alignment.
                                 continue;
                             }
 
                             // TODO: Padding?
-                            const field_val = try val.fieldValue(mod, field_index);
+                            const field_val = try val.fieldValue(pt, field_index);
                             const field_id = try self.constant(field_ty, field_val, .indirect);
 
                             try types.append(field_ty);
@@ -1126,7 +1127,7 @@ const DeclGen = struct {
                     const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
                     const union_obj = mod.typeToUnion(ty).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
-                    const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
+                    const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(pt))
                         try self.constant(field_ty, Value.fromInterned(un.val), .direct)
                     else
                         null;
@@ -1144,10 +1145,10 @@ const DeclGen = struct {
     fn constantPtr(self: *DeclGen, ptr_val: Value) Error!IdRef {
         // TODO: Caching??
 
-        const zcu = self.module;
+        const pt = self.pt;
 
-        if (ptr_val.isUndef(zcu)) {
-            const result_ty = ptr_val.typeOf(zcu);
+        if (ptr_val.isUndef(pt.zcu)) {
+            const result_ty = ptr_val.typeOf(pt.zcu);
             const result_ty_id = try self.resolveType(result_ty, .direct);
             return self.spv.constUndef(result_ty_id);
         }
@@ -1155,12 +1156,13 @@ const DeclGen = struct {
         var arena = std.heap.ArenaAllocator.init(self.gpa);
         defer arena.deinit();
 
-        const derivation = try ptr_val.pointerDerivation(arena.allocator(), zcu);
+        const derivation = try ptr_val.pointerDerivation(arena.allocator(), pt);
         return self.derivePtr(derivation);
     }
 
     fn derivePtr(self: *DeclGen, derivation: Value.PointerDeriveStep) Error!IdRef {
-        const zcu = self.module;
+        const pt = self.pt;
+        const zcu = pt.zcu;
         switch (derivation) {
             .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
@@ -1172,12 +1174,12 @@ const DeclGen = struct {
                 try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_ptr_id,
-                    .integer_value = try self.constant(Type.usize, try zcu.intValue(Type.usize, int.addr), .direct),
+                    .integer_value = try self.constant(Type.usize, try pt.intValue(Type.usize, int.addr), .direct),
                 });
                 return result_ptr_id;
             },
             .decl_ptr => |decl| {
-                const result_ptr_ty = try zcu.declPtr(decl).declPtrType(zcu);
+                const result_ptr_ty = try zcu.declPtr(decl).declPtrType(pt);
                 return self.constantDeclRef(result_ptr_ty, decl);
             },
             .anon_decl_ptr => |ad| {
@@ -1188,18 +1190,18 @@ const DeclGen = struct {
             .opt_payload_ptr => @panic("TODO"),
             .field_ptr => |field| {
                 const parent_ptr_id = try self.derivePtr(field.parent.*);
-                const parent_ptr_ty = try field.parent.ptrType(zcu);
+                const parent_ptr_ty = try field.parent.ptrType(pt);
                 return self.structFieldPtr(field.result_ptr_ty, parent_ptr_ty, parent_ptr_id, field.field_idx);
             },
             .elem_ptr => |elem| {
                 const parent_ptr_id = try self.derivePtr(elem.parent.*);
-                const parent_ptr_ty = try elem.parent.ptrType(zcu);
+                const parent_ptr_ty = try elem.parent.ptrType(pt);
                 const index_id = try self.constInt(Type.usize, elem.elem_idx, .direct);
                 return self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
             },
             .offset_and_cast => |oac| {
                 const parent_ptr_id = try self.derivePtr(oac.parent.*);
-                const parent_ptr_ty = try oac.parent.ptrType(zcu);
+                const parent_ptr_ty = try oac.parent.ptrType(pt);
                 disallow: {
                     if (oac.byte_offset != 0) break :disallow;
                     // Allow changing the pointer type child only to restructure arrays.
@@ -1218,8 +1220,8 @@ const DeclGen = struct {
                     return result_ptr_id;
                 }
                 return self.fail("Cannot perform pointer cast: '{}' to '{}'", .{
-                    parent_ptr_ty.fmt(zcu),
-                    oac.new_ptr_ty.fmt(zcu),
+                    parent_ptr_ty.fmt(pt),
+                    oac.new_ptr_ty.fmt(pt),
                 });
             },
         }
@@ -1232,7 +1234,8 @@ const DeclGen = struct {
     ) !IdRef {
         // TODO: Merge this function with constantDeclRef.
 
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
         const ty_id = try self.resolveType(ty, .direct);
         const decl_val = anon_decl.val;
@@ -1247,7 +1250,7 @@ const DeclGen = struct {
         }
 
         // const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
-        if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+        if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(pt)) {
             // Pointer to nothing - return undefoined
             return self.spv.constUndef(ty_id);
         }
@@ -1276,7 +1279,8 @@ const DeclGen = struct {
     }
 
     fn constantDeclRef(self: *DeclGen, ty: Type, decl_index: InternPool.DeclIndex) !IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_id = try self.resolveType(ty, .direct);
         const decl = mod.declPtr(decl_index);
 
@@ -1290,7 +1294,7 @@ const DeclGen = struct {
             else => {},
         }
 
-        if (!decl.typeOf(mod).isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+        if (!decl.typeOf(mod).isFnOrHasRuntimeBitsIgnoreComptime(pt)) {
             // Pointer to nothing - return undefined.
             return self.spv.constUndef(ty_id);
         }
@@ -1331,7 +1335,7 @@ const DeclGen = struct {
     fn resolveTypeName(self: *DeclGen, ty: Type) ![]const u8 {
         var name = std.ArrayList(u8).init(self.gpa);
         defer name.deinit();
-        try ty.print(name.writer(), self.module);
+        try ty.print(name.writer(), self.pt);
         return try name.toOwnedSlice();
     }
 
@@ -1424,14 +1428,14 @@ const DeclGen = struct {
     }
 
     fn zigScalarOrVectorTypeLike(self: *DeclGen, new_ty: Type, base_ty: Type) !Type {
-        const mod = self.module;
-        const new_scalar_ty = new_ty.scalarType(mod);
-        if (!base_ty.isVector(mod)) {
+        const pt = self.pt;
+        const new_scalar_ty = new_ty.scalarType(pt.zcu);
+        if (!base_ty.isVector(pt.zcu)) {
             return new_scalar_ty;
         }
 
-        return try mod.vectorType(.{
-            .len = base_ty.vectorLen(mod),
+        return try pt.vectorType(.{
+            .len = base_ty.vectorLen(pt.zcu),
             .child = new_scalar_ty.toIntern(),
         });
     }
@@ -1455,7 +1459,7 @@ const DeclGen = struct {
     ///  }
     /// If any of the fields' size is 0, it will be omitted.
     fn resolveUnionType(self: *DeclGen, ty: Type) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
 
@@ -1506,12 +1510,12 @@ const DeclGen = struct {
     }
 
     fn resolveFnReturnType(self: *DeclGen, ret_ty: Type) !IdRef {
-        const mod = self.module;
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        const pt = self.pt;
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             // If the return type is an error set or an error union, then we make this
             // anyerror return type instead, so that it can be coerced into a function
             // pointer type which has anyerror as the return type.
-            if (ret_ty.isError(mod)) {
+            if (ret_ty.isError(pt.zcu)) {
                 return self.resolveType(Type.anyerror, .direct);
             } else {
                 return self.resolveType(Type.void, .direct);
@@ -1533,9 +1537,10 @@ const DeclGen = struct {
     }
 
     fn resolveTypeInner(self: *DeclGen, ty: Type, repr: Repr) Error!IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
-        log.debug("resolveType: ty = {}", .{ty.fmt(mod)});
+        log.debug("resolveType: ty = {}", .{ty.fmt(pt)});
         const target = self.getTarget();
 
         const section = &self.spv.sections.types_globals_constants;
@@ -1607,7 +1612,7 @@ const DeclGen = struct {
                     return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel(mod)});
                 };
 
-                if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!elem_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                     // The size of the array would be 0, but that is not allowed in SPIR-V.
                     // This path can be reached when the backend is asked to generate a pointer to
                     // an array of some zero-bit type. This should always be an indirect path.
@@ -1655,7 +1660,7 @@ const DeclGen = struct {
                     var param_index: usize = 0;
                     for (fn_info.param_types.get(ip)) |param_ty_index| {
                         const param_ty = Type.fromInterned(param_ty_index);
-                        if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!param_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
 
                         param_ty_ids[param_index] = try self.resolveType(param_ty, .direct);
                         param_index += 1;
@@ -1713,7 +1718,7 @@ const DeclGen = struct {
 
                         var member_index: usize = 0;
                         for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, field_val| {
-                            if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
+                            if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(pt)) continue;
 
                             member_types[member_index] = try self.resolveType(Type.fromInterned(field_ty), .indirect);
                             member_index += 1;
@@ -1742,13 +1747,13 @@ const DeclGen = struct {
                 var it = struct_type.iterateRuntimeOrder(ip);
                 while (it.next()) |field_index| {
                     const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                         // This is a zero-bit field - we only needed it for the alignment.
                         continue;
                     }
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index}, .no_embedded_nulls);
+                        try ip.getOrPutStringFmt(mod.gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
                     try member_types.append(try self.resolveType(field_ty, .indirect));
                     try member_names.append(field_name.toSlice(ip));
                 }
@@ -1761,7 +1766,7 @@ const DeclGen = struct {
             },
             .Optional => {
                 const payload_ty = ty.optionalChild(mod);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                     // Just use a bool.
                     // Note: Always generate the bool with indirect format, to save on some sanity
                     // Perform the conversion to a direct bool when the field is extracted.
@@ -1878,14 +1883,14 @@ const DeclGen = struct {
     };
 
     fn errorUnionLayout(self: *DeclGen, payload_ty: Type) ErrorUnionLayout {
-        const mod = self.module;
+        const pt = self.pt;
 
-        const error_align = Type.anyerror.abiAlignment(mod);
-        const payload_align = payload_ty.abiAlignment(mod);
+        const error_align = Type.anyerror.abiAlignment(pt);
+        const payload_align = payload_ty.abiAlignment(pt);
 
         const error_first = error_align.compare(.gt, payload_align);
         return .{
-            .payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod),
+            .payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(pt),
             .error_first = error_first,
         };
     }
@@ -1909,9 +1914,10 @@ const DeclGen = struct {
     };
 
     fn unionLayout(self: *DeclGen, ty: Type) UnionLayout {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
-        const layout = ty.unionGetLayout(self.module);
+        const layout = ty.unionGetLayout(pt);
         const union_obj = mod.typeToUnion(ty).?;
 
         var union_layout = UnionLayout{
@@ -1932,7 +1938,7 @@ const DeclGen = struct {
             const most_aligned_field = layout.most_aligned_field;
             const most_aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[most_aligned_field]);
             union_layout.payload_ty = most_aligned_field_ty;
-            union_layout.payload_size = @intCast(most_aligned_field_ty.abiSize(mod));
+            union_layout.payload_size = @intCast(most_aligned_field_ty.abiSize(pt));
         } else {
             union_layout.payload_size = 0;
         }
@@ -1999,7 +2005,7 @@ const DeclGen = struct {
         }
 
         fn materialize(self: Temporary, dg: *DeclGen) !IdResult {
-            const mod = dg.module;
+            const mod = dg.pt.zcu;
             switch (self.value) {
                 .singleton => |id| return id,
                 .exploded_vector => |range| {
@@ -2029,12 +2035,12 @@ const DeclGen = struct {
         /// 'Explode' a temporary into separate elements. This turns a vector
         /// into a bag of elements.
         fn explode(self: Temporary, dg: *DeclGen) !IdRange {
-            const mod = dg.module;
+            const mod = dg.pt.zcu;
 
             // If the value is a scalar, then this is a no-op.
             if (!self.ty.isVector(mod)) {
                 return switch (self.value) {
-                    .singleton => |id| IdRange{ .base = @intFromEnum(id), .len = 1 },
+                    .singleton => |id| .{ .base = @intFromEnum(id), .len = 1 },
                     .exploded_vector => |range| range,
                 };
             }
@@ -2088,7 +2094,7 @@ const DeclGen = struct {
         /// only checks the size, but the source-of-truth is implemented
         /// by `isSpvVector()`.
         fn fromType(ty: Type, dg: *DeclGen) Vectorization {
-            const mod = dg.module;
+            const mod = dg.pt.zcu;
             if (!ty.isVector(mod)) {
                 return .scalar;
             } else if (dg.isSpvVector(ty)) {
@@ -2164,11 +2170,11 @@ const DeclGen = struct {
         /// Turns `ty` into the result-type of an individual vector operation.
         /// `ty` may be a scalar or vector, it doesn't matter.
         fn operationType(self: Vectorization, dg: *DeclGen, ty: Type) !Type {
-            const mod = dg.module;
-            const scalar_ty = ty.scalarType(mod);
+            const pt = dg.pt;
+            const scalar_ty = ty.scalarType(pt.zcu);
             return switch (self) {
                 .scalar, .unrolled => scalar_ty,
-                .spv_vectorized => |n| try mod.vectorType(.{
+                .spv_vectorized => |n| try pt.vectorType(.{
                     .len = n,
                     .child = scalar_ty.toIntern(),
                 }),
@@ -2178,11 +2184,11 @@ const DeclGen = struct {
         /// Turns `ty` into the result-type of the entire operation.
         /// `ty` may be a scalar or vector, it doesn't matter.
         fn resultType(self: Vectorization, dg: *DeclGen, ty: Type) !Type {
-            const mod = dg.module;
-            const scalar_ty = ty.scalarType(mod);
+            const pt = dg.pt;
+            const scalar_ty = ty.scalarType(pt.zcu);
             return switch (self) {
                 .scalar => scalar_ty,
-                .unrolled, .spv_vectorized => |n| try mod.vectorType(.{
+                .unrolled, .spv_vectorized => |n| try pt.vectorType(.{
                     .len = n,
                     .child = scalar_ty.toIntern(),
                 }),
@@ -2193,8 +2199,8 @@ const DeclGen = struct {
         /// this setup, and returns a new type that holds the relevant information on how to access
         /// elements of the input.
         fn prepare(self: Vectorization, dg: *DeclGen, tmp: Temporary) !PreparedOperand {
-            const mod = dg.module;
-            const is_vector = tmp.ty.isVector(mod);
+            const pt = dg.pt;
+            const is_vector = tmp.ty.isVector(pt.zcu);
             const is_spv_vector = dg.isSpvVector(tmp.ty);
             const value: PreparedOperand.Value = switch (tmp.value) {
                 .singleton => |id| switch (self) {
@@ -2209,7 +2215,7 @@ const DeclGen = struct {
                         }
 
                         // Broadcast scalar into vector.
-                        const vector_ty = try mod.vectorType(.{
+                        const vector_ty = try pt.vectorType(.{
                             .len = self.components(),
                             .child = tmp.ty.toIntern(),
                         });
@@ -2340,7 +2346,7 @@ const DeclGen = struct {
     /// This function builds an OpSConvert of OpUConvert depending on the
     /// signedness of the types.
     fn buildIntConvert(self: *DeclGen, dst_ty: Type, src: Temporary) !Temporary {
-        const mod = self.module;
+        const mod = self.pt.zcu;
 
         const dst_ty_id = try self.resolveType(dst_ty.scalarType(mod), .direct);
         const src_ty_id = try self.resolveType(src.ty.scalarType(mod), .direct);
@@ -2419,7 +2425,7 @@ const DeclGen = struct {
     }
 
     fn buildSelect(self: *DeclGen, condition: Temporary, lhs: Temporary, rhs: Temporary) !Temporary {
-        const mod = self.module;
+        const mod = self.pt.zcu;
 
         const v = self.vectorization(.{ condition, lhs, rhs });
         const ops = v.operations();
@@ -2764,7 +2770,8 @@ const DeclGen = struct {
         lhs: Temporary,
         rhs: Temporary,
     ) !struct { Temporary, Temporary } {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const target = self.getTarget();
         const ip = &mod.intern_pool;
 
@@ -2814,7 +2821,7 @@ const DeclGen = struct {
                     // where T is maybe vectorized.
                     const types = [2]InternPool.Index{ arith_op_ty.toIntern(), arith_op_ty.toIntern() };
                     const values = [2]InternPool.Index{ .none, .none };
-                    const index = try ip.getAnonStructType(mod.gpa, .{
+                    const index = try ip.getAnonStructType(mod.gpa, pt.tid, .{
                         .types = &types,
                         .values = &values,
                         .names = &.{},
@@ -2888,7 +2895,7 @@ const DeclGen = struct {
     /// the name of an error in the text executor.
     fn generateTestEntryPoint(self: *DeclGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
         const anyerror_ty_id = try self.resolveType(Type.anyerror, .direct);
-        const ptr_anyerror_ty = try self.module.ptrType(.{
+        const ptr_anyerror_ty = try self.pt.ptrType(.{
             .child = Type.anyerror.toIntern(),
             .flags = .{ .address_space = .global },
         });
@@ -2940,7 +2947,8 @@ const DeclGen = struct {
     }
 
     fn genDecl(self: *DeclGen) !void {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
         const decl = mod.declPtr(self.decl_index);
         const spv_decl_index = try self.object.resolveDecl(mod, self.decl_index);
@@ -2967,7 +2975,7 @@ const DeclGen = struct {
                 try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
                 for (fn_info.param_types.get(ip)) |param_ty_index| {
                     const param_ty = Type.fromInterned(param_ty_index);
-                    if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
 
                     const param_type_id = try self.resolveType(param_ty, .direct);
                     const arg_result_id = self.spv.allocId();
@@ -3004,11 +3012,11 @@ const DeclGen = struct {
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                const fqn = try decl.fullyQualifiedName(self.module);
+                const fqn = try decl.fullyQualifiedName(self.pt);
                 try self.spv.debugName(result_id, fqn.toSlice(ip));
 
                 // Temporarily generate a test kernel declaration if this is a test function.
-                if (self.module.test_functions.contains(self.decl_index)) {
+                if (self.pt.zcu.test_functions.contains(self.decl_index)) {
                     try self.generateTestEntryPoint(fqn.toSlice(ip), spv_decl_index);
                 }
             },
@@ -3033,7 +3041,7 @@ const DeclGen = struct {
                     .storage_class = final_storage_class,
                 });
 
-                const fqn = try decl.fullyQualifiedName(self.module);
+                const fqn = try decl.fullyQualifiedName(self.pt);
                 try self.spv.debugName(result_id, fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
@@ -3078,7 +3086,7 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    const fqn = try decl.fullyQualifiedName(self.module);
+                    const fqn = try decl.fullyQualifiedName(self.pt);
                     try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
@@ -3119,7 +3127,7 @@ const DeclGen = struct {
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
     fn convertToDirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         switch (ty.scalarType(mod).zigTypeTag(mod)) {
             .Bool => {
                 const false_id = try self.constBool(false, .indirect);
@@ -3145,7 +3153,7 @@ const DeclGen = struct {
     /// Convert representation from direct (in 'register) to direct (in memory)
     /// This converts the argument type from resolveType(ty, .direct) to resolveType(ty, .indirect).
     fn convertToIndirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         switch (ty.scalarType(mod).zigTypeTag(mod)) {
             .Bool => {
                 const result = try self.intFromBool(Temporary.init(ty, operand_id));
@@ -3222,7 +3230,7 @@ const DeclGen = struct {
     }
 
     fn genInst(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ip = &mod.intern_pool;
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip))
             return;
@@ -3402,7 +3410,7 @@ const DeclGen = struct {
     }
 
     fn airShift(self: *DeclGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const base = try self.temporary(bin_op.lhs);
@@ -3480,7 +3488,7 @@ const DeclGen = struct {
     /// All other values are returned unmodified (this makes strange integer
     /// wrapping easier to use in generic operations).
     fn normalize(self: *DeclGen, value: Temporary, info: ArithmeticTypeInfo) !Temporary {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty = value.ty;
         switch (info.class) {
             .integer, .bool, .float => return value,
@@ -3721,7 +3729,7 @@ const DeclGen = struct {
 
     fn airMulOverflow(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const target = self.getTarget();
-        const mod = self.module;
+        const pt = self.pt;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -3758,7 +3766,7 @@ const DeclGen = struct {
         const result, const overflowed = switch (info.signedness) {
             .unsigned => blk: {
                 if (maybe_op_ty_bits) |op_ty_bits| {
-                    const op_ty = try mod.intType(.unsigned, op_ty_bits);
+                    const op_ty = try pt.intType(.unsigned, op_ty_bits);
                     const casted_lhs = try self.buildIntConvert(op_ty, lhs);
                     const casted_rhs = try self.buildIntConvert(op_ty, rhs);
 
@@ -3828,7 +3836,7 @@ const DeclGen = struct {
                 );
 
                 if (maybe_op_ty_bits) |op_ty_bits| {
-                    const op_ty = try mod.intType(.signed, op_ty_bits);
+                    const op_ty = try pt.intType(.signed, op_ty_bits);
                     // Assume normalized; sign bit is set. We want a sign extend.
                     const casted_lhs = try self.buildIntConvert(op_ty, lhs);
                     const casted_rhs = try self.buildIntConvert(op_ty, rhs);
@@ -3900,7 +3908,7 @@ const DeclGen = struct {
     }
 
     fn airShlOverflow(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -3958,7 +3966,7 @@ const DeclGen = struct {
     fn airClzCtz(self: *DeclGen, inst: Air.Inst.Index, op: UnaryOp) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const target = self.getTarget();
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
@@ -4007,7 +4015,7 @@ const DeclGen = struct {
     }
 
     fn airReduce(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const reduce = self.air.instructions.items(.data)[@intFromEnum(inst)].reduce;
         const operand = try self.resolve(reduce.operand);
         const operand_ty = self.typeOf(reduce.operand);
@@ -4082,7 +4090,8 @@ const DeclGen = struct {
     }
 
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
@@ -4108,14 +4117,14 @@ const DeclGen = struct {
             const a_len = a_ty.vectorLen(mod);
 
             for (components, 0..) |*component, i| {
-                const elem = try mask.elemValue(mod, i);
+                const elem = try mask.elemValue(pt, i);
                 if (elem.isUndef(mod)) {
                     // This is explicitly valid for OpVectorShuffle, it indicates undefined.
                     component.* = 0xFFFF_FFFF;
                     continue;
                 }
 
-                const index = elem.toSignedInt(mod);
+                const index = elem.toSignedInt(pt);
                 if (index >= 0) {
                     component.* = @intCast(index);
                 } else {
@@ -4140,13 +4149,13 @@ const DeclGen = struct {
         defer self.gpa.free(components);
 
         for (components, 0..) |*id, i| {
-            const elem = try mask.elemValue(mod, i);
+            const elem = try mask.elemValue(pt, i);
             if (elem.isUndef(mod)) {
                 id.* = try self.spv.constUndef(scalar_ty_id);
                 continue;
             }
 
-            const index = elem.toSignedInt(mod);
+            const index = elem.toSignedInt(pt);
             if (index >= 0) {
                 id.* = try self.extractVectorComponent(scalar_ty, a, @intCast(index));
             } else {
@@ -4220,7 +4229,7 @@ const DeclGen = struct {
     }
 
     fn ptrAdd(self: *DeclGen, result_ty: Type, ptr_ty: Type, ptr_id: IdRef, offset_id: IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const result_ty_id = try self.resolveType(result_ty, .direct);
 
         switch (ptr_ty.ptrSize(mod)) {
@@ -4276,7 +4285,8 @@ const DeclGen = struct {
         lhs: Temporary,
         rhs: Temporary,
     ) !Temporary {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const scalar_ty = lhs.ty.scalarType(mod);
         const is_vector = lhs.ty.isVector(mod);
 
@@ -4324,7 +4334,7 @@ const DeclGen = struct {
 
                 const payload_ty = ty.optionalChild(mod);
                 if (ty.optionalReprIsPayload(mod)) {
-                    assert(payload_ty.hasRuntimeBitsIgnoreComptime(mod));
+                    assert(payload_ty.hasRuntimeBitsIgnoreComptime(pt));
                     assert(!payload_ty.isSlice(mod));
 
                     return try self.cmp(op, lhs.pun(payload_ty), rhs.pun(payload_ty));
@@ -4333,12 +4343,12 @@ const DeclGen = struct {
                 const lhs_id = try lhs.materialize(self);
                 const rhs_id = try rhs.materialize(self);
 
-                const lhs_valid_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(mod))
+                const lhs_valid_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(pt))
                     try self.extractField(Type.bool, lhs_id, 1)
                 else
                     try self.convertToDirect(Type.bool, lhs_id);
 
-                const rhs_valid_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(mod))
+                const rhs_valid_id = if (payload_ty.hasRuntimeBitsIgnoreComptime(pt))
                     try self.extractField(Type.bool, rhs_id, 1)
                 else
                     try self.convertToDirect(Type.bool, rhs_id);
@@ -4346,7 +4356,7 @@ const DeclGen = struct {
                 const lhs_valid = Temporary.init(Type.bool, lhs_valid_id);
                 const rhs_valid = Temporary.init(Type.bool, rhs_valid_id);
 
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                     return try self.cmp(op, lhs_valid, rhs_valid);
                 }
 
@@ -4466,7 +4476,7 @@ const DeclGen = struct {
         src_ty: Type,
         src_id: IdRef,
     ) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const src_ty_id = try self.resolveType(src_ty, .direct);
         const dst_ty_id = try self.resolveType(dst_ty, .direct);
 
@@ -4675,7 +4685,8 @@ const DeclGen = struct {
     }
 
     fn airArrayToSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const array_ptr_ty = self.typeOf(ty_op.operand);
         const array_ty = array_ptr_ty.childType(mod);
@@ -4687,7 +4698,7 @@ const DeclGen = struct {
         const array_ptr_id = try self.resolve(ty_op.operand);
         const len_id = try self.constInt(Type.usize, array_ty.arrayLen(mod), .direct);
 
-        const elem_ptr_id = if (!array_ty.hasRuntimeBitsIgnoreComptime(mod))
+        const elem_ptr_id = if (!array_ty.hasRuntimeBitsIgnoreComptime(pt))
             // Note: The pointer is something like *opaque{}, so we need to bitcast it to the element type.
             try self.bitCast(elem_ptr_ty, array_ptr_ty, array_ptr_id)
         else
@@ -4719,7 +4730,8 @@ const DeclGen = struct {
     }
 
     fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
@@ -4742,8 +4754,8 @@ const DeclGen = struct {
                 switch (ip.indexToKey(result_ty.toIntern())) {
                     .anon_struct_type => |tuple| {
                         for (tuple.types.get(ip), elements, 0..) |field_ty, element, i| {
-                            if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
-                            assert(Type.fromInterned(field_ty).hasRuntimeBits(mod));
+                            if ((try result_ty.structFieldValueComptime(pt, i)) != null) continue;
+                            assert(Type.fromInterned(field_ty).hasRuntimeBits(pt));
 
                             const id = try self.resolve(element);
                             types[index] = Type.fromInterned(field_ty);
@@ -4756,9 +4768,9 @@ const DeclGen = struct {
                         var it = struct_type.iterateRuntimeOrder(ip);
                         for (elements, 0..) |element, i| {
                             const field_index = it.next().?;
-                            if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
+                            if ((try result_ty.structFieldValueComptime(pt, i)) != null) continue;
                             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                            assert(field_ty.hasRuntimeBitsIgnoreComptime(mod));
+                            assert(field_ty.hasRuntimeBitsIgnoreComptime(pt));
 
                             const id = try self.resolve(element);
                             types[index] = field_ty;
@@ -4808,13 +4820,14 @@ const DeclGen = struct {
     }
 
     fn sliceOrArrayLen(self: *DeclGen, operand_id: IdRef, ty: Type) !IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         switch (ty.ptrSize(mod)) {
             .Slice => return self.extractField(Type.usize, operand_id, 1),
             .One => {
                 const array_ty = ty.childType(mod);
                 const elem_ty = array_ty.childType(mod);
-                const abi_size = elem_ty.abiSize(mod);
+                const abi_size = elem_ty.abiSize(pt);
                 const size = array_ty.arrayLenIncludingSentinel(mod) * abi_size;
                 return try self.constInt(Type.usize, size, .direct);
             },
@@ -4823,7 +4836,7 @@ const DeclGen = struct {
     }
 
     fn sliceOrArrayPtr(self: *DeclGen, operand_id: IdRef, ty: Type) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         if (ty.isSlice(mod)) {
             const ptr_ty = ty.slicePtrFieldType(mod);
             return self.extractField(ptr_ty, operand_id, 0);
@@ -4855,7 +4868,7 @@ const DeclGen = struct {
     }
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const slice_ty = self.typeOf(bin_op.lhs);
@@ -4872,7 +4885,7 @@ const DeclGen = struct {
     }
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
@@ -4889,7 +4902,7 @@ const DeclGen = struct {
     }
 
     fn ptrElemPtr(self: *DeclGen, ptr_ty: Type, ptr_id: IdRef, index_id: IdRef) !IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         // Construct new pointer type for the resulting pointer
         const elem_ty = ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
         const elem_ptr_ty_id = try self.ptrType(elem_ty, self.spvStorageClass(ptr_ty.ptrAddressSpace(mod)));
@@ -4904,14 +4917,15 @@ const DeclGen = struct {
     }
 
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const src_ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = src_ptr_ty.childType(mod);
         const ptr_id = try self.resolve(bin_op.lhs);
 
-        if (!elem_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             const dst_ptr_ty = self.typeOfIndex(inst);
             return try self.bitCast(dst_ptr_ty, src_ptr_ty, ptr_id);
         }
@@ -4921,7 +4935,7 @@ const DeclGen = struct {
     }
 
     fn airArrayElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
         const elem_ty = array_ty.childType(mod);
@@ -4982,7 +4996,7 @@ const DeclGen = struct {
     }
 
     fn airPtrElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = self.typeOfIndex(inst);
@@ -4993,7 +5007,7 @@ const DeclGen = struct {
     }
 
     fn airVectorStoreElem(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const data = self.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
         const extra = self.air.extraData(Air.Bin, data.payload).data;
 
@@ -5015,7 +5029,7 @@ const DeclGen = struct {
     }
 
     fn airSetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const un_ptr_ty = self.typeOf(bin_op.lhs);
         const un_ty = un_ptr_ty.childType(mod);
@@ -5041,7 +5055,7 @@ const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const un_ty = self.typeOf(ty_op.operand);
 
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const layout = self.unionLayout(un_ty);
         if (layout.tag_size == 0) return null;
 
@@ -5064,7 +5078,8 @@ const DeclGen = struct {
 
         // Note: The result here is not cached, because it generates runtime code.
 
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
         const union_ty = mod.typeToUnion(ty).?;
         const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
@@ -5076,9 +5091,9 @@ const DeclGen = struct {
         const layout = self.unionLayout(ty);
 
         const tag_int = if (layout.tag_size != 0) blk: {
-            const tag_val = try mod.enumValueFieldIndex(tag_ty, active_field);
-            const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
-            break :blk tag_int_val.toUnsignedInt(mod);
+            const tag_val = try pt.enumValueFieldIndex(tag_ty, active_field);
+            const tag_int_val = try tag_val.intFromEnum(tag_ty, pt);
+            break :blk tag_int_val.toUnsignedInt(pt);
         } else 0;
 
         if (!layout.has_payload) {
@@ -5095,7 +5110,7 @@ const DeclGen = struct {
         }
 
         const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);
-        if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
             const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function);
@@ -5118,7 +5133,8 @@ const DeclGen = struct {
     }
 
     fn airUnionInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
@@ -5126,7 +5142,7 @@ const DeclGen = struct {
 
         const union_obj = mod.typeToUnion(ty).?;
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
-        const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
+        const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(pt))
             try self.resolve(extra.init)
         else
             null;
@@ -5134,7 +5150,8 @@ const DeclGen = struct {
     }
 
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
@@ -5143,7 +5160,7 @@ const DeclGen = struct {
         const field_index = struct_field.field_index;
         const field_ty = object_ty.structFieldType(field_index, mod);
 
-        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) return null;
+        if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) return null;
 
         switch (object_ty.zigTypeTag(mod)) {
             .Struct => switch (object_ty.containerLayout(mod)) {
@@ -5178,7 +5195,8 @@ const DeclGen = struct {
     }
 
     fn airFieldParentPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
@@ -5187,7 +5205,7 @@ const DeclGen = struct {
 
         const field_ptr = try self.resolve(extra.field_ptr);
         const field_ptr_int = try self.intFromPtr(field_ptr);
-        const field_offset = parent_ty.structFieldOffset(extra.field_index, mod);
+        const field_offset = parent_ty.structFieldOffset(extra.field_index, pt);
 
         const base_ptr_int = base_ptr_int: {
             if (field_offset == 0) break :base_ptr_int field_ptr_int;
@@ -5218,7 +5236,7 @@ const DeclGen = struct {
     ) !IdRef {
         const result_ty_id = try self.resolveType(result_ptr_ty, .direct);
 
-        const zcu = self.module;
+        const zcu = self.pt.zcu;
         const object_ty = object_ptr_ty.childType(zcu);
         switch (object_ty.zigTypeTag(zcu)) {
             .Pointer => {
@@ -5312,7 +5330,7 @@ const DeclGen = struct {
     }
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ptr_ty = self.typeOfIndex(inst);
         assert(ptr_ty.ptrAddressSpace(mod) == .generic);
         const child_ty = ptr_ty.childType(mod);
@@ -5486,9 +5504,10 @@ const DeclGen = struct {
         // of the block, then a label, and then generate the rest of the current
         // ir.Block in a different SPIR-V block.
 
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty = self.typeOfIndex(inst);
-        const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(mod);
+        const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(pt);
 
         const cf = switch (self.control_flow) {
             .structured => |*cf| cf,
@@ -5618,13 +5637,13 @@ const DeclGen = struct {
     }
 
     fn airBr(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const pt = self.pt;
         const br = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
         const operand_ty = self.typeOf(br.operand);
 
         switch (self.control_flow) {
             .structured => |*cf| {
-                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(pt)) {
                     const operand_id = try self.resolve(br.operand);
                     const block_result_var_id = cf.block_results.get(br.block_inst).?;
                     try self.store(operand_ty, block_result_var_id, operand_id, .{});
@@ -5635,7 +5654,7 @@ const DeclGen = struct {
             },
             .unstructured => |cf| {
                 const block = cf.blocks.get(br.block_inst).?;
-                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+                if (operand_ty.isFnOrHasRuntimeBitsIgnoreComptime(pt)) {
                     const operand_id = try self.resolve(br.operand);
                     // current_block_label should not be undefined here, lest there
                     // is a br or br_void in the function's body.
@@ -5762,7 +5781,7 @@ const DeclGen = struct {
     }
 
     fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = self.typeOf(ty_op.operand);
         const elem_ty = self.typeOfIndex(inst);
@@ -5773,20 +5792,22 @@ const DeclGen = struct {
     }
 
     fn airStore(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const mod = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
-        const elem_ty = ptr_ty.childType(self.module);
+        const elem_ty = ptr_ty.childType(mod);
         const ptr = try self.resolve(bin_op.lhs);
         const value = try self.resolve(bin_op.rhs);
 
-        try self.store(elem_ty, ptr, value, .{ .is_volatile = ptr_ty.isVolatilePtr(self.module) });
+        try self.store(elem_ty, ptr, value, .{ .is_volatile = ptr_ty.isVolatilePtr(mod) });
     }
 
     fn airRet(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const pt = self.pt;
+        const mod = pt.zcu;
         const operand = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ret_ty = self.typeOf(operand);
-        const mod = self.module;
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             const decl = mod.declPtr(self.decl_index);
             const fn_info = mod.typeToFunc(decl.typeOf(mod)).?;
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
@@ -5805,12 +5826,13 @@ const DeclGen = struct {
     }
 
     fn airRetLoad(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(mod);
 
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             const decl = mod.declPtr(self.decl_index);
             const fn_info = mod.typeToFunc(decl.typeOf(mod)).?;
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
@@ -5832,7 +5854,7 @@ const DeclGen = struct {
     }
 
     fn airTry(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
@@ -5902,7 +5924,7 @@ const DeclGen = struct {
     }
 
     fn airErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const err_union_ty = self.typeOf(ty_op.operand);
@@ -5938,7 +5960,7 @@ const DeclGen = struct {
     }
 
     fn airWrapErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
         const payload_ty = err_union_ty.errorUnionPayload(mod);
@@ -5985,7 +6007,8 @@ const DeclGen = struct {
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const operand_ty = self.typeOf(un_op);
@@ -6026,7 +6049,7 @@ const DeclGen = struct {
 
         const is_non_null_id = blk: {
             if (is_pointer) {
-                if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                     const storage_class = self.spvStorageClass(operand_ty.ptrAddressSpace(mod));
                     const bool_ptr_ty_id = try self.ptrType(Type.bool, storage_class);
                     const tag_ptr_id = try self.accessChain(bool_ptr_ty_id, operand_id, &.{1});
@@ -6036,7 +6059,7 @@ const DeclGen = struct {
                 break :blk try self.load(Type.bool, operand_id, .{});
             }
 
-            break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime(mod))
+            break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime(pt))
                 try self.extractField(Type.bool, operand_id, 1)
             else
                 // Optional representation is bool indicating whether the optional is set
@@ -6061,7 +6084,7 @@ const DeclGen = struct {
     }
 
     fn airIsErr(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_err, is_non_err }) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const err_union_ty = self.typeOf(un_op);
@@ -6094,13 +6117,14 @@ const DeclGen = struct {
     }
 
     fn airUnwrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const optional_ty = self.typeOf(ty_op.operand);
         const payload_ty = self.typeOfIndex(inst);
 
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) return null;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) return null;
 
         if (optional_ty.optionalReprIsPayload(mod)) {
             return operand_id;
@@ -6110,7 +6134,8 @@ const DeclGen = struct {
     }
 
     fn airUnwrapOptionalPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -6119,7 +6144,7 @@ const DeclGen = struct {
         const result_ty = self.typeOfIndex(inst);
         const result_ty_id = try self.resolveType(result_ty, .direct);
 
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             // There is no payload, but we still need to return a valid pointer.
             // We can just return anything here, so just return a pointer to the operand.
             return try self.bitCast(result_ty, operand_ty, operand_id);
@@ -6134,11 +6159,12 @@ const DeclGen = struct {
     }
 
     fn airWrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const payload_ty = self.typeOf(ty_op.operand);
 
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             return try self.constBool(true, .indirect);
         }
 
@@ -6156,7 +6182,8 @@ const DeclGen = struct {
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const target = self.getTarget();
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_ty = self.typeOf(pl_op.operand);
@@ -6240,15 +6267,15 @@ const DeclGen = struct {
                 const label = case_labels.at(case_i);
 
                 for (items) |item| {
-                    const value = (try self.air.value(item, mod)) orelse unreachable;
+                    const value = (try self.air.value(item, pt)) orelse unreachable;
                     const int_val: u64 = switch (cond_ty.zigTypeTag(mod)) {
-                        .Bool, .Int => if (cond_ty.isSignedInt(mod)) @bitCast(value.toSignedInt(mod)) else value.toUnsignedInt(mod),
+                        .Bool, .Int => if (cond_ty.isSignedInt(mod)) @bitCast(value.toSignedInt(pt)) else value.toUnsignedInt(pt),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
-                            break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
+                            break :blk (try value.intFromEnum(cond_ty, pt)).toUnsignedInt(pt); // TODO: composite integer constants
                         },
                         .ErrorSet => value.getErrorInt(mod),
-                        .Pointer => value.toUnsignedInt(mod),
+                        .Pointer => value.toUnsignedInt(pt),
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {
@@ -6328,8 +6355,9 @@ const DeclGen = struct {
     }
 
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
+        const pt = self.pt;
+        const mod = pt.zcu;
         const dbg_stmt = self.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
-        const mod = self.module;
         const decl = mod.declPtr(self.decl_index);
         const path = decl.getFileScope(mod).sub_file_path;
         try self.func.body.emit(self.spv.gpa, .OpLine, .{
@@ -6340,7 +6368,7 @@ const DeclGen = struct {
     }
 
     fn airDbgInlineBlock(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.DbgInlineBlock, inst_datas[@intFromEnum(inst)].ty_pl.payload);
         const decl = mod.funcOwnerDeclPtr(extra.data.func);
@@ -6358,7 +6386,7 @@ const DeclGen = struct {
     }
 
     fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
@@ -6440,20 +6468,20 @@ const DeclGen = struct {
                 // TODO: Translate proper error locations.
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
-                const src_loc = self.module.declPtr(self.decl_index).navSrcLoc(mod);
-                self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
-                const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
+                const src_loc = mod.declPtr(self.decl_index).navSrcLoc(mod);
+                self.error_msg = try Zcu.ErrorMsg.create(mod.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
+                const notes = try mod.gpa.alloc(Zcu.ErrorMsg, as.errors.items.len);
 
                 // Sub-scope to prevent `return error.CodegenFail` from running the errdefers.
                 {
-                    errdefer self.module.gpa.free(notes);
+                    errdefer mod.gpa.free(notes);
                     var i: usize = 0;
                     errdefer for (notes[0..i]) |*note| {
-                        note.deinit(self.module.gpa);
+                        note.deinit(mod.gpa);
                     };
 
                     while (i < as.errors.items.len) : (i += 1) {
-                        notes[i] = try Module.ErrorMsg.init(self.module.gpa, src_loc, "{s}", .{as.errors.items[i].msg});
+                        notes[i] = try Zcu.ErrorMsg.init(mod.gpa, src_loc, "{s}", .{as.errors.items[i].msg});
                     }
                 }
                 self.error_msg.?.notes = notes;
@@ -6489,7 +6517,8 @@ const DeclGen = struct {
     fn airCall(self: *DeclGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?IdRef {
         _ = modifier;
 
-        const mod = self.module;
+        const pt = self.pt;
+        const mod = pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
@@ -6515,7 +6544,7 @@ const DeclGen = struct {
             // before starting to emit OpFunctionCall instructions. Hence the
             // temporary params buffer.
             const arg_ty = self.typeOf(arg);
-            if (!arg_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+            if (!arg_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
             const arg_id = try self.resolve(arg);
 
             params[n_params] = arg_id;
@@ -6533,7 +6562,7 @@ const DeclGen = struct {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
         }
 
-        if (self.liveness.isUnused(inst) or !Type.fromInterned(return_type).hasRuntimeBitsIgnoreComptime(mod)) {
+        if (self.liveness.isUnused(inst) or !Type.fromInterned(return_type).hasRuntimeBitsIgnoreComptime(pt)) {
             return null;
         }
 
@@ -6541,11 +6570,10 @@ const DeclGen = struct {
     }
 
     fn builtin3D(self: *DeclGen, result_ty: Type, builtin: spec.BuiltIn, dimension: u32, out_of_range_value: anytype) !IdRef {
-        const mod = self.module;
         if (dimension >= 3) {
             return try self.constInt(result_ty, out_of_range_value, .direct);
         }
-        const vec_ty = try mod.vectorType(.{
+        const vec_ty = try self.pt.vectorType(.{
             .len = 3,
             .child = result_ty.toIntern(),
         });
@@ -6591,12 +6619,12 @@ const DeclGen = struct {
     }
 
     fn typeOf(self: *DeclGen, inst: Air.Inst.Ref) Type {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         return self.air.typeOf(inst, &mod.intern_pool);
     }
 
     fn typeOfIndex(self: *DeclGen, inst: Air.Inst.Index) Type {
-        const mod = self.module;
+        const mod = self.pt.zcu;
         return self.air.typeOfIndex(inst, &mod.intern_pool);
     }
 };

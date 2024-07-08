@@ -15,8 +15,9 @@ const Allocator = mem.Allocator;
 
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
+const Zcu = @import("../../Zcu.zig");
 
-pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) !void {
+pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -29,7 +30,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try self.flushModule(arena, prog_node);
+        try self.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });

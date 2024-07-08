@@ -282,7 +282,7 @@ pub const Node = struct {
     }
 
     fn init(free_index: Index, parent: Parent, name: []const u8, estimated_total_items: usize) Node {
-        assert(parent != .unused);
+        assert(parent == .none or @intFromEnum(parent) < node_storage_buffer_len);
 
         const storage = storageByIndex(free_index);
         storage.* = .{

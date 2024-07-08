@@ -9,15 +9,15 @@ const assert = std.debug.assert;
 
 pub const Class = enum { memory, byval, integer, double_integer, fields };
 
-pub fn classifyType(ty: Type, mod: *Zcu) Class {
-    const target = mod.getTarget();
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(mod));
+pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
+    const target = pt.zcu.getTarget();
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(pt));
 
     const max_byval_size = target.ptrBitWidth() * 2;
-    switch (ty.zigTypeTag(mod)) {
+    switch (ty.zigTypeTag(pt.zcu)) {
         .Struct => {
-            const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .@"packed") {
+            const bit_size = ty.bitSize(pt);
+            if (ty.containerLayout(pt.zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
@@ -25,12 +25,12 @@ pub fn classifyType(ty: Type, mod: *Zcu) Class {
             if (std.Target.riscv.featureSetHas(target.cpu.features, .d)) fields: {
                 var any_fp = false;
                 var field_count: usize = 0;
-                for (0..ty.structFieldCount(mod)) |field_index| {
-                    const field_ty = ty.structFieldType(field_index, mod);
-                    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                for (0..ty.structFieldCount(pt.zcu)) |field_index| {
+                    const field_ty = ty.structFieldType(field_index, pt.zcu);
+                    if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
                     if (field_ty.isRuntimeFloat())
                         any_fp = true
-                    else if (!field_ty.isAbiInt(mod))
+                    else if (!field_ty.isAbiInt(pt.zcu))
                         break :fields;
                     field_count += 1;
                     if (field_count > 2) break :fields;
@@ -45,8 +45,8 @@ pub fn classifyType(ty: Type, mod: *Zcu) Class {
             return .integer;
         },
         .Union => {
-            const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .@"packed") {
+            const bit_size = ty.bitSize(pt);
+            if (ty.containerLayout(pt.zcu) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
@@ -58,21 +58,21 @@ pub fn classifyType(ty: Type, mod: *Zcu) Class {
         .Bool => return .integer,
         .Float => return .byval,
         .Int, .Enum, .ErrorSet => {
-            const bit_size = ty.bitSize(mod);
+            const bit_size = ty.bitSize(pt);
             if (bit_size > max_byval_size) return .memory;
             return .byval;
         },
         .Vector => {
-            const bit_size = ty.bitSize(mod);
+            const bit_size = ty.bitSize(pt);
             if (bit_size > max_byval_size) return .memory;
             return .integer;
         },
         .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional(mod));
+            std.debug.assert(ty.isPtrLikeOptional(pt.zcu));
             return .byval;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice(mod));
+            std.debug.assert(!ty.isSlice(pt.zcu));
             return .byval;
         },
         .ErrorUnion,
@@ -97,18 +97,19 @@ pub const SystemClass = enum { integer, float, memory, none };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
+pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
+    const zcu = pt.zcu;
     var result = [1]SystemClass{.none} ** 8;
     const memory_class = [_]SystemClass{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
-    switch (ty.zigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(pt.zcu)) {
         .Bool, .Void, .NoReturn => {
             result[0] = .integer;
             return result;
         },
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .Pointer => switch (ty.ptrSize(pt.zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -120,17 +121,17 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             },
         },
         .Optional => {
-            if (ty.isPtrLikeOptional(zcu)) {
+            if (ty.isPtrLikeOptional(pt.zcu)) {
                 result[0] = .integer;
                 return result;
             }
             result[0] = .integer;
-            if (ty.optionalChild(zcu).abiSize(zcu) == 0) return result;
+            if (ty.optionalChild(zcu).abiSize(pt) == 0) return result;
             result[1] = .integer;
             return result;
         },
         .Int, .Enum, .ErrorSet => {
-            const int_bits = ty.intInfo(zcu).bits;
+            const int_bits = ty.intInfo(pt.zcu).bits;
             if (int_bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -155,8 +156,8 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             unreachable; // support split float args
         },
         .ErrorUnion => {
-            const payload_ty = ty.errorUnionPayload(zcu);
-            const payload_bits = payload_ty.bitSize(zcu);
+            const payload_ty = ty.errorUnionPayload(pt.zcu);
+            const payload_bits = payload_ty.bitSize(pt);
 
             // the error union itself
             result[0] = .integer;
@@ -167,8 +168,8 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             return memory_class;
         },
         .Struct => {
-            const layout = ty.containerLayout(zcu);
-            const ty_size = ty.abiSize(zcu);
+            const layout = ty.containerLayout(pt.zcu);
+            const ty_size = ty.abiSize(pt);
 
             if (layout == .@"packed") {
                 assert(ty_size <= 16);
@@ -180,7 +181,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             return memory_class;
         },
         .Array => {
-            const ty_size = ty.abiSize(zcu);
+            const ty_size = ty.abiSize(pt);
             if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
