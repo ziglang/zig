@@ -3,11 +3,13 @@ const assert = std.debug.assert;
 const Order = std.math.Order;
 
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const RangeSet = @This();
-const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
+const LazySrcLoc = Zcu.LazySrcLoc;
 
 ranges: std.ArrayList(Range),
 module: *Module,
@@ -15,7 +17,7 @@ module: *Module,
 pub const Range = struct {
     first: InternPool.Index,
     last: InternPool.Index,
-    src: SwitchProngSrc,
+    src: LazySrcLoc,
 };
 
 pub fn init(allocator: std.mem.Allocator, module: *Module) RangeSet {
@@ -33,8 +35,8 @@ pub fn add(
     self: *RangeSet,
     first: InternPool.Index,
     last: InternPool.Index,
-    src: SwitchProngSrc,
-) !?SwitchProngSrc {
+    src: LazySrcLoc,
+) !?LazySrcLoc {
     const mod = self.module;
     const ip = &mod.intern_pool;
 

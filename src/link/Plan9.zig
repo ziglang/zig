@@ -3,7 +3,9 @@
 
 const Plan9 = @This();
 const link = @import("../link.zig");
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const aout = @import("Plan9/aout.zig");
@@ -13,8 +15,9 @@ const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -58,6 +61,9 @@ fn_decl_table: std.AutoArrayHashMapUnmanaged(
 ) = .{},
 /// the code is modified when relocated, so that is why it is mutable
 data_decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u8) = .{},
+/// When `updateExports` is called, we store the export indices here, to be used
+/// during flush.
+decl_exports: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, []u32) = .{},
 
 /// Table of unnamed constants associated with a parent `Decl`.
 /// We store them here so that we can free the constants whenever the `Decl`
@@ -365,7 +371,7 @@ fn putFn(self: *Plan9, decl_index: InternPool.DeclIndex, out: FnDeclOutput) !voi
         try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         const full_path = try std.fs.path.join(arena, &.{
             file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
             file.mod.root.sub_path,
@@ -433,7 +439,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -444,7 +450,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
             func.analysis(&mod.intern_pool).state = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -499,7 +505,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), val, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = new_atom_idx,
@@ -508,7 +514,7 @@ pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIn
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -538,14 +544,14 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -604,7 +610,7 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn flush(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     assert(!use_lld);
@@ -663,7 +669,7 @@ fn atomCount(self: *Plan9) usize {
     return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count + extern_atom_count + anon_atom_count;
 }
 
-pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -677,8 +683,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
     log.debug("flushModule", .{});
@@ -769,8 +774,8 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
                     mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
                 }
                 self.syms.items[atom.sym_index.?].value = off;
-                if (mod.decl_exports.get(decl_index)) |exports| {
-                    try self.addDeclExports(mod, decl_index, exports.items);
+                if (self.decl_exports.get(decl_index)) |export_indices| {
+                    try self.addDeclExports(mod, decl_index, export_indices);
                 }
             }
         }
@@ -835,8 +840,8 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
                 mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, target.cpu.arch.endian());
             }
             self.syms.items[atom.sym_index.?].value = off;
-            if (mod.decl_exports.get(decl_index)) |exports| {
-                try self.addDeclExports(mod, decl_index, exports.items);
+            if (self.decl_exports.get(decl_index)) |export_indices| {
+                try self.addDeclExports(mod, decl_index, export_indices);
             }
         }
         // write the unnamed constants after the other data decls
@@ -1006,22 +1011,23 @@ fn addDeclExports(
     self: *Plan9,
     mod: *Module,
     decl_index: InternPool.DeclIndex,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
     const gpa = self.base.comp.gpa;
     const metadata = self.decls.getPtr(decl_index).?;
     const atom = self.getAtom(metadata.index);
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
         // plan9 does not support custom sections
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice(".text", &mod.intern_pool) and
                 !section_name.eqlSlice(".data", &mod.intern_pool))
             {
-                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.put(mod.gpa, export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    mod.declPtr(decl_index).srcLoc(mod),
+                    mod.declPtr(decl_index).navSrcLoc(mod),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -1047,8 +1053,6 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.comp.gpa;
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
-    // However that is planned to change, see the TODO comment in Module.zig
-    // in the deleteUnusedDecl function.
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     const is_fn = decl.val.isFuncBody(mod);
@@ -1153,15 +1157,23 @@ pub fn updateExports(
     self: *Plan9,
     module: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) !void {
+    const gpa = self.base.comp.gpa;
     switch (exported) {
         .value => @panic("TODO: plan9 updateExports handling values"),
-        .decl_index => |decl_index| _ = try self.seeDecl(decl_index),
+        .decl_index => |decl_index| {
+            _ = try self.seeDecl(decl_index);
+            if (self.decl_exports.fetchSwapRemove(decl_index)) |kv| {
+                gpa.free(kv.value);
+            }
+            try self.decl_exports.ensureUnusedCapacity(gpa, 1);
+            const duped_indices = try gpa.dupe(u32, export_indices);
+            self.decl_exports.putAssumeCapacityNoClobber(decl_index, duped_indices);
+        },
     }
-    // we do all the things in flush
+    // all proper work is done in flush
     _ = module;
-    _ = exports;
 }
 
 pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.Index {
@@ -1213,14 +1225,7 @@ fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Ind
     self.syms.items[self.getAtomPtr(atom_index).sym_index.?] = symbol;
 
     // generate the code
-    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .parent_decl_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
         src,
@@ -1291,6 +1296,10 @@ pub fn deinit(self: *Plan9) void {
         gpa.free(self.syms.items[sym_index].name);
     }
     self.data_decl_table.deinit(gpa);
+    for (self.decl_exports.values()) |export_indices| {
+        gpa.free(export_indices);
+    }
+    self.decl_exports.deinit(gpa);
     self.syms.deinit(gpa);
     self.got_index_free_list.deinit(gpa);
     self.syms_index_free_list.deinit(gpa);
@@ -1396,10 +1405,13 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const atom = self.getAtom(decl_metadata.index);
             const sym = self.syms.items[atom.sym_index.?];
             try self.writeSym(writer, sym);
-            if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
-                    try self.writeSym(writer, self.syms.items[exp_i]);
-                };
+            if (self.decl_exports.get(decl_index)) |export_indices| {
+                for (export_indices) |export_idx| {
+                    const exp = mod.all_exports.items[export_idx];
+                    if (decl_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
+                        try self.writeSym(writer, self.syms.items[exp_i]);
+                    }
+                }
             }
         }
     }
@@ -1443,13 +1455,16 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const atom = self.getAtom(decl_metadata.index);
                 const sym = self.syms.items[atom.sym_index.?];
                 try self.writeSym(writer, sym);
-                if (self.base.comp.module.?.decl_exports.get(decl_index)) |exports| {
-                    for (exports.items) |e| if (decl_metadata.getExport(self, e.opts.name.toSlice(ip))) |exp_i| {
-                        const s = self.syms.items[exp_i];
-                        if (mem.eql(u8, s.name, "_start"))
-                            self.entry_val = s.value;
-                        try self.writeSym(writer, s);
-                    };
+                if (self.decl_exports.get(decl_index)) |export_indices| {
+                    for (export_indices) |export_idx| {
+                        const exp = mod.all_exports.items[export_idx];
+                        if (decl_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
+                            const s = self.syms.items[exp_i];
+                            if (mem.eql(u8, s.name, "_start"))
+                                self.entry_val = s.value;
+                            try self.writeSym(writer, s);
+                        }
+                    }
                 }
             }
         }
@@ -1531,7 +1546,7 @@ pub fn lowerAnonDecl(
     self: *Plan9,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     _ = explicit_alignment;
     // This is basically the same as lowerUnnamedConst.

@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
 
     const exe = b.addExecutable(.{
         .name = "main",

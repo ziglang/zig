@@ -164,7 +164,7 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
     }
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const config_header: *ConfigHeader = @fieldParentPtr("step", step);
@@ -568,7 +568,7 @@ fn expand_variables_cmake(
                     }
 
                     const key = contents[curr + 1 .. close_pos];
-                    const value = values.get(key) orelse .undef;
+                    const value = values.get(key) orelse return error.MissingValue;
                     const missing = contents[source_offset..curr];
                     try result.appendSlice(missing);
                     switch (value) {
@@ -623,7 +623,10 @@ fn expand_variables_cmake(
 
                 const key_start = open_pos.target + open_var.len;
                 const key = result.items[key_start..];
-                const value = values.get(key) orelse .undef;
+                if (key.len == 0) {
+                    return error.MissingKey;
+                }
+                const value = values.get(key) orelse return error.MissingValue;
                 result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
                 switch (value) {
                     .undef, .defined => {},
@@ -693,8 +696,8 @@ test "expand_variables_cmake simple cases" {
     // line with misc content is preserved
     try testReplaceVariables(allocator, "no substitution", "no substitution", values);
 
-    // empty ${} wrapper is removed
-    try testReplaceVariables(allocator, "${}", "", values);
+    // empty ${} wrapper leads to an error
+    try std.testing.expectError(error.MissingKey, testReplaceVariables(allocator, "${}", "", values));
 
     // empty @ sigils are preserved
     try testReplaceVariables(allocator, "@", "@", values);
@@ -757,9 +760,9 @@ test "expand_variables_cmake simple cases" {
     try testReplaceVariables(allocator, "undef@", "undef@", values);
     try testReplaceVariables(allocator, "undef}", "undef}", values);
 
-    // unknown key is removed
-    try testReplaceVariables(allocator, "@bad@", "", values);
-    try testReplaceVariables(allocator, "${bad}", "", values);
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@bad@", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${bad}", "", values));
 }
 
 test "expand_variables_cmake edge cases" {
@@ -804,17 +807,17 @@ test "expand_variables_cmake edge cases" {
     try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
 
     // when expanded variables contain invalid characters, they prevent further expansion
-    try testReplaceVariables(allocator, "${${string_var}}", "", values);
-    try testReplaceVariables(allocator, "${@string_var@}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${${string_var}}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${@string_var@}", "", values));
 
     // nested expanded variables are expanded from the inside out
     try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
     try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
 
     // nested vars are only expanded when ${} is closed
-    try testReplaceVariables(allocator, "@nest@underscore@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
-    try testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
 
     // invalid characters lead to an error
@@ -840,5 +843,5 @@ test "expand_variables_cmake escaped characters" {
     try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
-    try testReplaceVariables(allocator, "${string\\}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${string\\}", "", values));
 }

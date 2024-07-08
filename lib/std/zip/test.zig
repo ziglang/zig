@@ -17,7 +17,7 @@ pub fn expectFiles(
     },
 ) !void {
     for (test_files) |test_file| {
-        var normalized_sub_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var normalized_sub_path_buf: [std.fs.max_path_bytes]u8 = undefined;
 
         const name = blk: {
             if (opt.strip_prefix) |strip_prefix| {

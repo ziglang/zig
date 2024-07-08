@@ -8,8 +8,10 @@ const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
-const Type = @import("../../type.zig").Type;
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
+const Type = @import("../../Type.zig");
 const ErrorMsg = Module.ErrorMsg;
 const Target = std.Target;
 const assert = std.debug.assert;
@@ -24,7 +26,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
+src_loc: Module.LazySrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,

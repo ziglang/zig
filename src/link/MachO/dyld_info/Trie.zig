@@ -133,14 +133,14 @@ pub const Node = struct {
 
         var nread: usize = 0;
 
-        const node_size = try leb.readULEB128(u64, reader);
+        const node_size = try leb.readUleb128(u64, reader);
         if (node_size > 0) {
-            const export_flags = try leb.readULEB128(u64, reader);
+            const export_flags = try leb.readUleb128(u64, reader);
             // TODO Parse special flags.
             assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
                 export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
 
-            const vmaddr_offset = try leb.readULEB128(u64, reader);
+            const vmaddr_offset = try leb.readUleb128(u64, reader);
 
             self.terminal_info = .{
                 .export_flags = export_flags,
@@ -168,7 +168,7 @@ pub const Node = struct {
                 break :blk try label_buf.toOwnedSlice();
             };
 
-            const seek_to = try leb.readULEB128(u64, reader);
+            const seek_to = try leb.readUleb128(u64, reader);
             const return_pos = try reader.context.getPos();
 
             nread += return_pos - edge_start_pos;
@@ -204,13 +204,13 @@ pub const Node = struct {
             // TODO Implement for special flags.
             assert(info.export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
                 info.export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-            try leb.writeULEB128(info_stream.writer(), info.export_flags);
-            try leb.writeULEB128(info_stream.writer(), info.vmaddr_offset);
+            try leb.writeUleb128(info_stream.writer(), info.export_flags);
+            try leb.writeUleb128(info_stream.writer(), info.vmaddr_offset);
 
             // Encode the size of the terminal node info.
             var size_buf: [@sizeOf(u64)]u8 = undefined;
             var size_stream = std.io.fixedBufferStream(&size_buf);
-            try leb.writeULEB128(size_stream.writer(), info_stream.pos);
+            try leb.writeUleb128(size_stream.writer(), info_stream.pos);
 
             // Now, write them to the output stream.
             try writer.writeAll(size_buf[0..size_stream.pos]);
@@ -226,7 +226,7 @@ pub const Node = struct {
             // Write edge label and offset to next node in trie.
             try writer.writeAll(edge.label);
             try writer.writeByte(0);
-            try leb.writeULEB128(writer, edge.to.trie_offset.?);
+            try leb.writeUleb128(writer, edge.to.trie_offset.?);
         }
     }
 
@@ -246,9 +246,9 @@ pub const Node = struct {
 
         var node_size: u64 = 0;
         if (self.terminal_info) |info| {
-            try leb.writeULEB128(writer, info.export_flags);
-            try leb.writeULEB128(writer, info.vmaddr_offset);
-            try leb.writeULEB128(writer, stream.bytes_written);
+            try leb.writeUleb128(writer, info.export_flags);
+            try leb.writeUleb128(writer, info.vmaddr_offset);
+            try leb.writeUleb128(writer, stream.bytes_written);
         } else {
             node_size += 1; // 0x0 for non-terminal nodes
         }
@@ -257,7 +257,7 @@ pub const Node = struct {
         for (self.edges.items) |edge| {
             const next_node_offset = edge.to.trie_offset orelse 0;
             node_size += edge.label.len + 1;
-            try leb.writeULEB128(writer, next_node_offset);
+            try leb.writeUleb128(writer, next_node_offset);
         }
 
         const trie_offset = self.trie_offset orelse 0;

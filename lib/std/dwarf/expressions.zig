@@ -219,28 +219,28 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.constx,
                 OP.convert,
                 OP.reinterpret,
-                => generic(try leb.readULEB128(u64, reader)),
+                => generic(try leb.readUleb128(u64, reader)),
                 OP.consts,
                 OP.fbreg,
-                => generic(try leb.readILEB128(i64, reader)),
+                => generic(try leb.readIleb128(i64, reader)),
                 OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
                 OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
                 OP.breg0...OP.breg31 => |n| .{ .base_register = .{
                     .base_register = n - OP.breg0,
-                    .offset = try leb.readILEB128(i64, reader),
+                    .offset = try leb.readIleb128(i64, reader),
                 } },
-                OP.regx => .{ .register = try leb.readULEB128(u8, reader) },
+                OP.regx => .{ .register = try leb.readUleb128(u8, reader) },
                 OP.bregx => blk: {
-                    const base_register = try leb.readULEB128(u8, reader);
-                    const offset = try leb.readILEB128(i64, reader);
+                    const base_register = try leb.readUleb128(u8, reader);
+                    const offset = try leb.readIleb128(i64, reader);
                     break :blk .{ .base_register = .{
                         .base_register = base_register,
                         .offset = offset,
                     } };
                 },
                 OP.regval_type => blk: {
-                    const register = try leb.readULEB128(u8, reader);
-                    const type_offset = try leb.readULEB128(addr_type, reader);
+                    const register = try leb.readUleb128(u8, reader);
+                    const type_offset = try leb.readUleb128(addr_type, reader);
                     break :blk .{ .register_type = .{
                         .register = register,
                         .type_offset = type_offset,
@@ -248,20 +248,20 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.piece => .{
                     .composite_location = .{
-                        .size = try leb.readULEB128(u8, reader),
+                        .size = try leb.readUleb128(u8, reader),
                         .offset = 0,
                     },
                 },
                 OP.bit_piece => blk: {
-                    const size = try leb.readULEB128(u8, reader);
-                    const offset = try leb.readILEB128(i64, reader);
+                    const size = try leb.readUleb128(u8, reader);
+                    const offset = try leb.readIleb128(i64, reader);
                     break :blk .{ .composite_location = .{
                         .size = size,
                         .offset = offset,
                     } };
                 },
                 OP.implicit_value, OP.entry_value => blk: {
-                    const size = try leb.readULEB128(u8, reader);
+                    const size = try leb.readUleb128(u8, reader);
                     if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
                     const block = stream.buffer[stream.pos..][0..size];
                     stream.pos += size;
@@ -270,7 +270,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     };
                 },
                 OP.const_type => blk: {
-                    const type_offset = try leb.readULEB128(addr_type, reader);
+                    const type_offset = try leb.readUleb128(addr_type, reader);
                     const size = try reader.readByte();
                     if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
                     const value_bytes = stream.buffer[stream.pos..][0..size];
@@ -285,7 +285,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 => .{
                     .deref_type = .{
                         .size = try reader.readByte(),
-                        .type_offset = try leb.readULEB128(addr_type, reader),
+                        .type_offset = try leb.readUleb128(addr_type, reader),
                     },
                 },
                 OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
@@ -863,11 +863,11 @@ pub fn Builder(comptime options: ExpressionOptions) type {
                 else => switch (@typeInfo(T).Int.signedness) {
                     .unsigned => {
                         try writer.writeByte(OP.constu);
-                        try leb.writeULEB128(writer, value);
+                        try leb.writeUleb128(writer, value);
                     },
                     .signed => {
                         try writer.writeByte(OP.consts);
-                        try leb.writeILEB128(writer, value);
+                        try leb.writeIleb128(writer, value);
                     },
                 },
             }
@@ -875,14 +875,14 @@ pub fn Builder(comptime options: ExpressionOptions) type {
 
         pub fn writeConstx(writer: anytype, debug_addr_offset: anytype) !void {
             try writer.writeByte(OP.constx);
-            try leb.writeULEB128(writer, debug_addr_offset);
+            try leb.writeUleb128(writer, debug_addr_offset);
         }
 
         pub fn writeConstType(writer: anytype, die_offset: anytype, value_bytes: []const u8) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             if (value_bytes.len > 0xff) return error.InvalidTypeLength;
             try writer.writeByte(OP.const_type);
-            try leb.writeULEB128(writer, die_offset);
+            try leb.writeUleb128(writer, die_offset);
             try writer.writeByte(@intCast(value_bytes.len));
             try writer.writeAll(value_bytes);
         }
@@ -895,32 +895,32 @@ pub fn Builder(comptime options: ExpressionOptions) type {
         pub fn writeAddrx(writer: anytype, debug_addr_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.addrx);
-            try leb.writeULEB128(writer, debug_addr_offset);
+            try leb.writeUleb128(writer, debug_addr_offset);
         }
 
         // 2.5.1.2: Register Values
         pub fn writeFbreg(writer: anytype, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
-            try leb.writeILEB128(writer, offset);
+            try leb.writeIleb128(writer, offset);
         }
 
         pub fn writeBreg(writer: anytype, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
-            try leb.writeILEB128(writer, offset);
+            try leb.writeIleb128(writer, offset);
         }
 
         pub fn writeBregx(writer: anytype, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
-            try leb.writeULEB128(writer, register);
-            try leb.writeILEB128(writer, offset);
+            try leb.writeUleb128(writer, register);
+            try leb.writeIleb128(writer, offset);
         }
 
         pub fn writeRegvalType(writer: anytype, register: anytype, offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.regval_type);
-            try leb.writeULEB128(writer, register);
-            try leb.writeULEB128(writer, offset);
+            try leb.writeUleb128(writer, register);
+            try leb.writeUleb128(writer, offset);
         }
 
         // 2.5.1.3: Stack Operations
@@ -943,20 +943,20 @@ pub fn Builder(comptime options: ExpressionOptions) type {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.deref_type);
             try writer.writeByte(size);
-            try leb.writeULEB128(writer, die_offset);
+            try leb.writeUleb128(writer, die_offset);
         }
 
         pub fn writeXDerefType(writer: anytype, size: u8, die_offset: anytype) !void {
             try writer.writeByte(OP.xderef_type);
             try writer.writeByte(size);
-            try leb.writeULEB128(writer, die_offset);
+            try leb.writeUleb128(writer, die_offset);
         }
 
         // 2.5.1.4: Arithmetic and Logical Operations
 
         pub fn writePlusUconst(writer: anytype, uint_value: anytype) !void {
             try writer.writeByte(OP.plus_uconst);
-            try leb.writeULEB128(writer, uint_value);
+            try leb.writeUleb128(writer, uint_value);
         }
 
         // 2.5.1.5: Control Flow Operations
@@ -991,20 +991,20 @@ pub fn Builder(comptime options: ExpressionOptions) type {
         pub fn writeConvert(writer: anytype, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.convert);
-            try leb.writeULEB128(writer, die_offset);
+            try leb.writeUleb128(writer, die_offset);
         }
 
         pub fn writeReinterpret(writer: anytype, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.reinterpret);
-            try leb.writeULEB128(writer, die_offset);
+            try leb.writeUleb128(writer, die_offset);
         }
 
         // 2.5.1.7: Special Operations
 
         pub fn writeEntryValue(writer: anytype, expression: []const u8) !void {
             try writer.writeByte(OP.entry_value);
-            try leb.writeULEB128(writer, expression.len);
+            try leb.writeUleb128(writer, expression.len);
             try writer.writeAll(expression);
         }
 
@@ -1015,12 +1015,12 @@ pub fn Builder(comptime options: ExpressionOptions) type {
 
         pub fn writeRegx(writer: anytype, register: anytype) !void {
             try writer.writeByte(OP.regx);
-            try leb.writeULEB128(writer, register);
+            try leb.writeUleb128(writer, register);
         }
 
         pub fn writeImplicitValue(writer: anytype, value_bytes: []const u8) !void {
             try writer.writeByte(OP.implicit_value);
-            try leb.writeULEB128(writer, value_bytes.len);
+            try leb.writeUleb128(writer, value_bytes.len);
             try writer.writeAll(value_bytes);
         }
     };

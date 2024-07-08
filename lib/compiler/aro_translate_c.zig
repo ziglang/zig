@@ -1381,7 +1381,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
         pub const Root = struct {
             base: ScopeExtraScope,
             sym_table: SymbolTable,
-            macro_table: SymbolTable,
             blank_macros: std.StringArrayHashMap(void),
             context: *ScopeExtraContext,
             nodes: std.ArrayList(ast.Node),
@@ -1393,7 +1392,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                         .parent = null,
                     },
                     .sym_table = SymbolTable.init(c.gpa),
-                    .macro_table = SymbolTable.init(c.gpa),
                     .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
                     .nodes = std.ArrayList(ast.Node).init(c.gpa),
@@ -1402,7 +1400,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
 
             pub fn deinit(scope: *Root) void {
                 scope.sym_table.deinit();
-                scope.macro_table.deinit();
                 scope.blank_macros.deinit();
                 scope.nodes.deinit();
             }
@@ -1410,7 +1407,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             /// Check if the global scope contains this name, without looking into the "future", e.g.
             /// ignore the preprocessed decl and macro names.
             pub fn containsNow(scope: *Root, name: []const u8) bool {
-                return scope.sym_table.contains(name) or scope.macro_table.contains(name);
+                return scope.sym_table.contains(name);
             }
 
             /// Check if the global scope contains the name, includes all decls that haven't been translated yet.

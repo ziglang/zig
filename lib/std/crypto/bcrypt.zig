@@ -408,8 +408,14 @@ pub const State = struct {
 
 /// bcrypt parameters
 pub const Params = struct {
+    const Self = @This();
+
     /// log2 of the number of rounds
     rounds_log: u6,
+
+    /// Minimum recommended parameters according to the
+    /// [OWASP cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+    pub const owasp = Self{ .rounds_log = 10 };
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.

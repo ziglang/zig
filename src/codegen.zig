@@ -16,10 +16,11 @@ const Compilation = @import("Compilation.zig");
 const ErrorMsg = Module.ErrorMsg;
 const InternPool = @import("InternPool.zig");
 const Liveness = @import("Liveness.zig");
-const Zcu = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
 const Module = Zcu;
 const Target = std.Target;
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
@@ -46,7 +47,7 @@ pub const DebugInfoOutput = union(enum) {
 
 pub fn generateFunction(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
@@ -57,7 +58,7 @@ pub fn generateFunction(
     const func = zcu.funcInfo(func_index);
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     switch (target.cpu.arch) {
         .arm,
         .armeb,
@@ -78,7 +79,7 @@ pub fn generateFunction(
 
 pub fn generateLazyFunction(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -87,7 +88,7 @@ pub fn generateLazyFunction(
     const decl_index = lazy_sym.ty.getOwnerDecl(zcu);
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     switch (target.cpu.arch) {
         .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, src_loc, lazy_sym, code, debug_output),
         else => unreachable,
@@ -104,7 +105,7 @@ fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian
 
 pub fn generateLazySymbol(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
     // TODO don't use an "out" parameter like this; put it in the result instead
     alignment: *Alignment,
@@ -170,7 +171,7 @@ pub fn generateLazySymbol(
 
 pub fn generateSymbol(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -617,7 +618,7 @@ pub fn generateSymbol(
 
 fn lowerPtr(
     bin_file: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     ptr_val: InternPool.Index,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -682,7 +683,7 @@ const RelocInfo = struct {
 
 fn lowerAnonDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -729,7 +730,7 @@ fn lowerAnonDeclRef(
 
 fn lowerDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     decl_index: InternPool.DeclIndex,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
@@ -741,7 +742,7 @@ fn lowerDeclRef(
     const zcu = lf.comp.module.?;
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
 
     const ptr_width = target.ptrBitWidth();
     const is_fn_body = decl.typeOf(zcu).zigTypeTag(zcu) == .Fn;
@@ -813,7 +814,7 @@ pub const GenResult = union(enum) {
 
     fn fail(
         gpa: Allocator,
-        src_loc: Module.SrcLoc,
+        src_loc: Module.LazySrcLoc,
         comptime format: []const u8,
         args: anytype,
     ) Allocator.Error!GenResult {
@@ -824,7 +825,7 @@ pub const GenResult = union(enum) {
 
 fn genDeclRef(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     ptr_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
@@ -835,7 +836,7 @@ fn genDeclRef(
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
 
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
@@ -874,7 +875,7 @@ fn genDeclRef(
     }
 
     const decl_namespace = zcu.namespacePtr(decl.src_namespace);
-    const single_threaded = decl_namespace.file_scope.mod.single_threaded;
+    const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
     const is_threadlocal = val.isPtrToThreadLocal(zcu) and !single_threaded;
     const is_extern = decl.isExtern(zcu);
 
@@ -930,7 +931,7 @@ fn genDeclRef(
 
 fn genUnnamedConst(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
@@ -969,7 +970,7 @@ fn genUnnamedConst(
 
 pub fn genTypedValue(
     lf: *link.File,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
     val: Value,
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
@@ -984,7 +985,7 @@ pub fn genTypedValue(
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     const ptr_bits = target.ptrBitWidth();
 
     if (!ty.isSlice(zcu)) switch (ip.indexToKey(val.toIntern())) {

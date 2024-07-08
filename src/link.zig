@@ -14,9 +14,11 @@ const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;
@@ -72,7 +74,7 @@ pub const File = struct {
     /// Prevents other processes from clobbering files in the output directory
     /// of this linking operation.
     lock: ?Cache.Lock = null,
-    child_pid: ?std.ChildProcess.Id = null,
+    child_pid: ?std.process.Child.Id = null,
 
     pub const OpenOptions = struct {
         symbol_count_hint: u64 = 32,
@@ -529,13 +531,13 @@ pub const File = struct {
     } ||
         fs.File.WriteFileError ||
         fs.File.OpenError ||
-        std.ChildProcess.SpawnError ||
+        std.process.Child.SpawnError ||
         fs.Dir.CopyFileError;
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
     /// `arena` has the lifetime of the call to `Compilation.update`.
-    pub fn flush(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn flush(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @as(*C, @fieldParentPtr("base", base)).flush(arena, prog_node);
@@ -572,7 +574,7 @@ pub const File = struct {
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn flushModule(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
@@ -604,12 +606,12 @@ pub const File = struct {
         base: *File,
         module: *Module,
         exported: Module.Exported,
-        exports: []const *Module.Export,
+        export_indices: []const u32,
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {
                 if (tag != .c and build_options.only_c) unreachable;
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, exports);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(module, exported, export_indices);
             },
         }
     }
@@ -644,7 +646,7 @@ pub const File = struct {
         base: *File,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
-        src_loc: Module.SrcLoc,
+        src_loc: Module.LazySrcLoc,
     ) !LowerResult {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
@@ -669,26 +671,25 @@ pub const File = struct {
         }
     }
 
-    pub fn deleteDeclExport(
+    pub fn deleteExport(
         base: *File,
-        decl_index: InternPool.DeclIndex,
+        exported: Zcu.Exported,
         name: InternPool.NullTerminatedString,
-    ) !void {
+    ) void {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .plan9,
-            .c,
             .spirv,
             .nvptx,
             => {},
 
             inline else => |tag| {
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteDeclExport(decl_index, name);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteExport(exported, name);
             },
         }
     }
 
-    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: *std.Progress.Node) FlushError!void {
+    pub fn linkAsArchive(base: *File, arena: Allocator, prog_node: std.Progress.Node) FlushError!void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -966,7 +967,7 @@ pub const File = struct {
         base: File,
         arena: Allocator,
         llvm_object: *LlvmObject,
-        prog_node: *std.Progress.Node,
+        prog_node: std.Progress.Node,
     ) !void {
         return base.comp.emitLlvmObject(arena, base.emit, .{
             .directory = null,

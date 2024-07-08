@@ -116,19 +116,21 @@ const Context = struct {
 };
 
 fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
-    const target = std.mem.trimRight(u8, request.head.target, "/");
-    if (target.len == 0 or std.mem.eql(u8, target, "/debug")) {
+    if (std.mem.eql(u8, request.head.target, "/") or
+        std.mem.eql(u8, request.head.target, "/debug") or
+        std.mem.eql(u8, request.head.target, "/debug/"))
+    {
         try serveDocsFile(request, context, "docs/index.html", "text/html");
-    } else if (std.mem.eql(u8, target, "/main.js") or
-        std.mem.eql(u8, target, "/debug/main.js"))
+    } else if (std.mem.eql(u8, request.head.target, "/main.js") or
+        std.mem.eql(u8, request.head.target, "/debug/main.js"))
     {
         try serveDocsFile(request, context, "docs/main.js", "application/javascript");
-    } else if (std.mem.eql(u8, target, "/main.wasm")) {
+    } else if (std.mem.eql(u8, request.head.target, "/main.wasm")) {
         try serveWasm(request, context, .ReleaseFast);
-    } else if (std.mem.eql(u8, target, "/debug/main.wasm")) {
+    } else if (std.mem.eql(u8, request.head.target, "/debug/main.wasm")) {
         try serveWasm(request, context, .Debug);
-    } else if (std.mem.eql(u8, target, "/sources.tar") or
-        std.mem.eql(u8, target, "/debug/sources.tar"))
+    } else if (std.mem.eql(u8, request.head.target, "/sources.tar") or
+        std.mem.eql(u8, request.head.target, "/debug/sources.tar"))
     {
         try serveSourcesTar(request, context);
     } else {
@@ -300,7 +302,7 @@ fn buildWasmBinary(
         "--listen=-",
     });
 
-    var child = std.ChildProcess.init(argv.items, gpa);
+    var child = std.process.Child.init(argv.items, gpa);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -435,7 +437,7 @@ fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
         .macos => "open",
         else => "xdg-open",
     };
-    var child = std.ChildProcess.init(&.{ main_exe, url }, gpa);
+    var child = std.process.Child.init(&.{ main_exe, url }, gpa);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;

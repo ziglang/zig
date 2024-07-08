@@ -314,6 +314,20 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
     }
 }
 
+pub fn resolveLiterals(self: *ZigObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
+    _ = self;
+    _ = lp;
+    _ = macho_file;
+    // TODO
+}
+
+pub fn dedupLiterals(self: *ZigObject, lp: MachO.LiteralPool, macho_file: *MachO) void {
+    _ = self;
+    _ = lp;
+    _ = macho_file;
+    // TODO
+}
+
 /// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
 /// We need this so that we can write to an archive.
 /// TODO implement writing ZigObject data directly to a buffer instead.
@@ -558,7 +572,7 @@ pub fn lowerAnonDecl(
     macho_file: *MachO,
     decl_val: InternPool.Index,
     explicit_alignment: Atom.Alignment,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !codegen.Result {
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
@@ -668,7 +682,7 @@ pub fn updateFunc(
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
     const res = try codegen.generateFunction(
         &macho_file.base,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod),
         func_index,
         air,
         liveness,
@@ -680,7 +694,7 @@ pub fn updateFunc(
         .ok => code_buffer.items,
         .fail => |em| {
             func.analysis(&mod.intern_pool).state = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -699,9 +713,7 @@ pub fn updateFunc(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export
-    // symbol also needs to be updated.
-    return self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 pub fn updateDecl(
@@ -742,7 +754,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
-    const res = try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), decl_val, &code_buffer, dio, .{
+    const res = try codegen.generateSymbol(&macho_file.base, decl.navSrcLoc(mod), decl_val, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
     });
 
@@ -750,7 +762,7 @@ pub fn updateDecl(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
     };
@@ -776,9 +788,7 @@ pub fn updateDecl(
         );
     }
 
-    // Since we updated the vaddr and the size, each corresponding export symbol also
-    // needs to be updated.
-    try self.updateExports(macho_file, mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
+    // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 fn updateDeclCode(
@@ -1090,12 +1100,12 @@ pub fn lowerUnnamedConst(
         val,
         val.typeOf(mod).abiAlignment(mod),
         macho_file.zig_const_sect_index.?,
-        decl.srcLoc(mod),
+        decl.navSrcLoc(mod),
     )) {
         .ok => |sym_index| sym_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try mod.failed_decls.put(mod.gpa, decl_index, em);
+            try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             log.err("{s}", .{em.msg});
             return error.CodegenFail;
         },
@@ -1117,7 +1127,7 @@ fn lowerConst(
     val: Value,
     required_alignment: Atom.Alignment,
     output_section_index: u8,
-    src_loc: Module.SrcLoc,
+    src_loc: Module.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = macho_file.base.comp.gpa;
 
@@ -1173,7 +1183,7 @@ pub fn updateExports(
     macho_file: *MachO,
     mod: *Module,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1185,15 +1195,15 @@ pub fn updateExports(
             break :blk self.decls.getPtr(decl_index).?;
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
-            const first_exp = exports[0];
-            const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.getSrcLoc(mod));
+            const first_exp = mod.all_exports.items[export_indices[0]];
+            const res = try self.lowerAnonDecl(macho_file, value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
                     try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(first_exp, em);
+                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1204,13 +1214,14 @@ pub fn updateExports(
     const nlist_idx = macho_file.getSymbol(sym_index).nlist_idx;
     const nlist = self.symtab.items(.nlist)[nlist_idx];
 
-    for (exports) |exp| {
+    for (export_indices) |export_idx| {
+        const exp = mod.all_exports.items[export_idx];
         if (exp.opts.section.unwrap()) |section_name| {
             if (!section_name.eqlSlice("__text", &mod.intern_pool)) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
+                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Module.ErrorMsg.create(
                     gpa,
-                    exp.getSrcLoc(mod),
+                    exp.src,
                     "Unimplemented: ExportOptions.section",
                     .{},
                 ));
@@ -1218,9 +1229,9 @@ pub fn updateExports(
             }
         }
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
+            try mod.failed_exports.putNoClobber(mod.gpa, export_idx, try Module.ErrorMsg.create(
                 gpa,
-                exp.getSrcLoc(mod),
+                exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
@@ -1280,14 +1291,7 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = if (lazy_sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc(mod)
-    else
-        Module.SrcLoc{
-            .file_scope = undefined,
-            .parent_decl_node = undefined,
-            .lazy = .unneeded,
-        };
+    const src = lazy_sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &macho_file.base,
         src,
@@ -1350,15 +1354,18 @@ pub fn updateDeclLineNumber(self: *ZigObject, mod: *Module, decl_index: InternPo
     }
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *ZigObject,
     macho_file: *MachO,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
     const mod = macho_file.base.comp.module.?;
 
-    const metadata = self.decls.getPtr(decl_index) orelse return;
+    const metadata = switch (exported) {
+        .decl_index => |decl_index| self.decls.getPtr(decl_index) orelse return,
+        .value => |value| self.anon_decls.getPtr(value) orelse return,
+    };
     const nlist_index = metadata.@"export"(self, name.toSlice(&mod.intern_pool)) orelse return;
 
     log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
@@ -1573,11 +1580,14 @@ const InternPool = @import("../../InternPool.zig");
 const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

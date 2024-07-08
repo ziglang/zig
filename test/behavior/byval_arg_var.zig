@@ -5,7 +5,7 @@ var result: []const u8 = "wrong";
 
 test "pass string literal byvalue to a generic var param" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     start();
     blowUpStack(10);

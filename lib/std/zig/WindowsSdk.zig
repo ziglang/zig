@@ -444,7 +444,7 @@ pub const Installation = struct {
 
                 error.OutOfMemory => return error.OutOfMemory,
             };
-            if (path_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
+            if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
                 allocator.free(path_maybe_with_trailing_slash);
                 return error.PathTooLong;
             }
@@ -459,7 +459,7 @@ pub const Installation = struct {
         errdefer allocator.free(path);
 
         const version = version: {
-            var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+            var buf: [std.fs.max_path_bytes]u8 = undefined;
             const sdk_lib_dir_path = std.fmt.bufPrint(buf[0..], "{s}\\Lib\\", .{path}) catch |err| switch (err) {
                 error.NoSpaceLeft => return error.PathTooLong,
             };
@@ -476,6 +476,7 @@ pub const Installation = struct {
 
             var iterator = sdk_lib_dir.iterate();
             const versions = try iterateAndFilterByVersion(&iterator, allocator, prefix);
+            if (versions.len == 0) return error.InstallationNotFound;
             defer {
                 for (versions[1..]) |version| allocator.free(version);
                 allocator.free(versions);
@@ -515,7 +516,7 @@ pub const Installation = struct {
                 error.OutOfMemory => return error.OutOfMemory,
             };
 
-            if (path_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
+            if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
                 allocator.free(path_maybe_with_trailing_slash);
                 return error.PathTooLong;
             }
@@ -561,7 +562,7 @@ pub const Installation = struct {
 
     /// Check whether this version is enumerated in registry.
     fn isValidVersion(installation: Installation) bool {
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         const reg_query_as_wtf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{
             windows_kits_reg_key,
             installation.version,
@@ -749,7 +750,7 @@ const MsvcLibDir = struct {
         var instances_dir = try findInstancesDir(allocator);
         defer instances_dir.close();
 
-        var state_subpath_buf: [std.fs.MAX_NAME_BYTES + 32]u8 = undefined;
+        var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
         var latest_version_lib_dir = std.ArrayListUnmanaged(u8){};
         errdefer latest_version_lib_dir.deinit(allocator);
 
@@ -877,7 +878,7 @@ const MsvcLibDir = struct {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => continue,
             };
-            if (source_directories_value.len > (std.fs.MAX_PATH_BYTES * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 pathes and at least some of them are not of max length
+            if (source_directories_value.len > (std.fs.max_path_bytes * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 pathes and at least some of them are not of max length
                 allocator.free(source_directories_value);
                 continue;
             }
@@ -891,7 +892,7 @@ const MsvcLibDir = struct {
         const msvc_dir: []const u8 = msvc_dir: {
             const msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_splitted.first());
 
-            if (msvc_include_dir_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
+            if (msvc_include_dir_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
                 allocator.free(msvc_include_dir_maybe_with_trailing_slash);
                 return error.PathNotFound;
             }
@@ -959,7 +960,7 @@ const MsvcLibDir = struct {
                     else => break :try_vs7_key,
                 };
 
-                if (path_maybe_with_trailing_slash.len > std.fs.MAX_PATH_BYTES or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
+                if (path_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(path_maybe_with_trailing_slash)) {
                     allocator.free(path_maybe_with_trailing_slash);
                     break :try_vs7_key;
                 }

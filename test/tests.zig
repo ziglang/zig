@@ -658,7 +658,7 @@ pub fn addStackTraceTests(
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
         .root_source_file = b.path("test/src/check-stack-trace.zig"),
-        .target = b.host,
+        .target = b.graph.host,
         .optimize = .Debug,
     });
 
@@ -783,7 +783,7 @@ pub fn addCliTests(b: *std.Build) *Step {
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
 
-        const writefile = b.addWriteFile("example.zig",
+        const example_zig = b.addWriteFiles().add("example.zig",
             \\// Type your code here, or load an example.
             \\export fn square(num: i32) i32 {
             \\    return num * num;
@@ -804,7 +804,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileArg(writefile.files.items[0].getPath());
+        run.addFileArg(example_zig);
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
@@ -984,6 +984,7 @@ const ModuleTestOptions = struct {
     skip_non_native: bool,
     skip_libc: bool,
     max_rss: usize = 0,
+    no_builtin: bool = false,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
@@ -1070,6 +1071,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .pic = test_target.pic,
             .strip = test_target.strip,
         });
+        if (options.no_builtin) these_tests.no_builtin = true;
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1248,7 +1250,6 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
-    check_case_exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1266,12 +1267,9 @@ pub fn addCases(
 
     cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
 
-    const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
-        cases_dir_path,
-        check_case_exe,
     );
 }

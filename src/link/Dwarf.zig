@@ -148,7 +148,7 @@ pub const DeclState = struct {
                 // DW.AT.encoding, DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(DW.ATE.boolean);
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
             },
@@ -162,7 +162,7 @@ pub const DeclState = struct {
                     .unsigned => DW.ATE.unsigned,
                 });
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
             },
@@ -173,7 +173,7 @@ pub const DeclState = struct {
                     // DW.AT.encoding, DW.FORM.data1
                     dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
                     // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 } else {
@@ -183,7 +183,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
                     const abi_size = ty.abiSize(mod);
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
@@ -209,7 +209,7 @@ pub const DeclState = struct {
                     try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     const offset = abi_size - payload_ty.abiSize(mod);
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), offset);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), offset);
                     // DW.AT.structure_type delimit children
                     try dbg_info_buffer.append(0);
                 }
@@ -223,7 +223,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
@@ -279,7 +279,7 @@ pub const DeclState = struct {
                 try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(index));
                 // DW.AT.count, DW.FORM.udata
                 const len = ty.arrayLenIncludingSentinel(mod);
-                try leb128.writeULEB128(dbg_info_buffer.writer(), len);
+                try leb128.writeUleb128(dbg_info_buffer.writer(), len);
                 // DW.AT.array_type delimit children
                 try dbg_info_buffer.append(0);
             },
@@ -287,7 +287,7 @@ pub const DeclState = struct {
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
                 blk: {
                     switch (ip.indexToKey(ty.ip_index)) {
@@ -306,7 +306,7 @@ pub const DeclState = struct {
                                 try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                 // DW.AT.data_member_location, DW.FORM.udata
                                 const field_off = ty.structFieldOffset(field_index, mod);
-                                try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                                try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
                             }
                         },
                         .struct_type => {
@@ -332,7 +332,7 @@ pub const DeclState = struct {
                                     try dbg_info_buffer.appendNTimes(0, 4);
                                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
-                                    try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                                    try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
                                 }
                             } else {
                                 for (
@@ -352,7 +352,7 @@ pub const DeclState = struct {
                                     try dbg_info_buffer.appendNTimes(0, 4);
                                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
-                                    try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
+                                    try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
                                 }
                             }
                         },
@@ -367,7 +367,7 @@ pub const DeclState = struct {
                 // DW.AT.enumeration_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
+                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
                 try ty.print(dbg_info_buffer.writer(), mod);
                 try dbg_info_buffer.append(0);
@@ -408,7 +408,7 @@ pub const DeclState = struct {
                     // DW.AT.structure_type
                     try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), layout.abi_size);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), layout.abi_size);
                     // DW.AT.name, DW.FORM.string
                     try ty.print(dbg_info_buffer.writer(), mod);
                     try dbg_info_buffer.append(0);
@@ -424,13 +424,13 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
                     try self.addTypeRelocLocal(atom_index, @intCast(inner_union_index), 5);
                     // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), payload_offset);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), payload_offset);
                 }
 
                 // DW.AT.union_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevCode.union_type));
                 // DW.AT.byte_size, DW.FORM.udata,
-                try leb128.writeULEB128(dbg_info_buffer.writer(), layout.payload_size);
+                try leb128.writeUleb128(dbg_info_buffer.writer(), layout.payload_size);
                 // DW.AT.name, DW.FORM.string
                 if (is_tagged) {
                     try dbg_info_buffer.writer().print("AnonUnion\x00", .{});
@@ -468,7 +468,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(union_obj.enum_tag_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), tag_offset);
 
                     // DW.AT.structure_type delimit children
                     try dbg_info_buffer.append(0);
@@ -487,7 +487,7 @@ pub const DeclState = struct {
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+                try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
                 // DW.AT.name, DW.FORM.string
                 try ty.print(dbg_info_buffer.writer(), mod);
                 try dbg_info_buffer.append(0);
@@ -504,7 +504,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
                     try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), payload_off);
                 }
 
                 {
@@ -519,7 +519,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
                     try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
+                    try leb128.writeUleb128(dbg_info_buffer.writer(), error_off);
                 }
 
                 // DW.AT.structure_type delimit children
@@ -569,14 +569,14 @@ pub const DeclState = struct {
                     expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
                 } else {
                     expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                    leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                    leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
                 }
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 if (reg < 32) {
                     dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.regx);
-                    leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                    leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
                 }
             },
             .register_pair => |regs| {
@@ -592,24 +592,24 @@ pub const DeclState = struct {
                         expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
                     } else {
                         expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                        leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                        leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
                     }
                     expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
-                    leb128.writeULEB128(
+                    leb128.writeUleb128(
                         expr_len.writer(),
                         @min(abi_size - reg_i * reg_bytes, reg_bytes),
                     ) catch unreachable;
                 }
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 for (regs, 0..) |reg, reg_i| {
                     if (reg < 32) {
                         dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
                     } else {
                         dbg_info.appendAssumeCapacity(DW.OP.regx);
-                        leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                        leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
                     }
                     dbg_info.appendAssumeCapacity(DW.OP.piece);
-                    leb128.writeULEB128(
+                    leb128.writeUleb128(
                         dbg_info.writer(),
                         @min(abi_size - reg_i * reg_bytes, reg_bytes),
                     ) catch unreachable;
@@ -624,20 +624,20 @@ pub const DeclState = struct {
                     expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
                 } else {
                     expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
-                    leb128.writeULEB128(expr_len.writer(), info.fp_register) catch unreachable;
+                    leb128.writeUleb128(expr_len.writer(), info.fp_register) catch unreachable;
                 }
-                leb128.writeILEB128(expr_len.writer(), info.offset) catch unreachable;
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeIleb128(expr_len.writer(), info.offset) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 if (info.fp_register < 32) {
                     dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.bregx);
-                    leb128.writeULEB128(dbg_info.writer(), info.fp_register) catch unreachable;
+                    leb128.writeUleb128(dbg_info.writer(), info.fp_register) catch unreachable;
                 }
-                leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
+                leb128.writeIleb128(dbg_info.writer(), info.offset) catch unreachable;
             },
             .wasm_local => |value| {
-                const leb_size = link.File.Wasm.getULEB128Size(value);
+                const leb_size = link.File.Wasm.getUleb128Size(value);
                 try dbg_info.ensureUnusedCapacity(3 + leb_size);
                 // wasm locations are encoded as follow:
                 // DW_OP_WASM_location wasm-op
@@ -650,7 +650,7 @@ pub const DeclState = struct {
                     DW.OP.WASM_location,
                     DW.OP.WASM_local,
                 });
-                leb128.writeULEB128(dbg_info.writer(), value) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), value) catch unreachable;
             },
             else => unreachable,
         }
@@ -689,14 +689,14 @@ pub const DeclState = struct {
                     expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
                 } else {
                     expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                    leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                    leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
                 }
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 if (reg < 32) {
                     dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.regx);
-                    leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                    leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
                 }
             },
 
@@ -712,24 +712,24 @@ pub const DeclState = struct {
                         expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
                     } else {
                         expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                        leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                        leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
                     }
                     expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
-                    leb128.writeULEB128(
+                    leb128.writeUleb128(
                         expr_len.writer(),
                         @min(abi_size - reg_i * reg_bytes, reg_bytes),
                     ) catch unreachable;
                 }
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 for (regs, 0..) |reg, reg_i| {
                     if (reg < 32) {
                         dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
                     } else {
                         dbg_info.appendAssumeCapacity(DW.OP.regx);
-                        leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                        leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
                     }
                     dbg_info.appendAssumeCapacity(DW.OP.piece);
-                    leb128.writeULEB128(
+                    leb128.writeUleb128(
                         dbg_info.writer(),
                         @min(abi_size - reg_i * reg_bytes, reg_bytes),
                     ) catch unreachable;
@@ -744,21 +744,21 @@ pub const DeclState = struct {
                     expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
                 } else {
                     expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
-                    leb128.writeULEB128(expr_len.writer(), info.fp_register) catch unreachable;
+                    leb128.writeUleb128(expr_len.writer(), info.fp_register) catch unreachable;
                 }
-                leb128.writeILEB128(expr_len.writer(), info.offset) catch unreachable;
-                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                leb128.writeIleb128(expr_len.writer(), info.offset) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
                 if (info.fp_register < 32) {
                     dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
                 } else {
                     dbg_info.appendAssumeCapacity(DW.OP.bregx);
-                    leb128.writeULEB128(dbg_info.writer(), info.fp_register) catch unreachable;
+                    leb128.writeUleb128(dbg_info.writer(), info.fp_register) catch unreachable;
                 }
-                leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
+                leb128.writeIleb128(dbg_info.writer(), info.offset) catch unreachable;
             },
 
             .wasm_local => |value| {
-                const leb_size = link.File.Wasm.getULEB128Size(value);
+                const leb_size = link.File.Wasm.getUleb128Size(value);
                 try dbg_info.ensureUnusedCapacity(2 + leb_size);
                 // wasm locals are encoded as follow:
                 // DW_OP_WASM_location wasm-op
@@ -770,7 +770,7 @@ pub const DeclState = struct {
                     DW.OP.WASM_location,
                     DW.OP.WASM_local,
                 });
-                leb128.writeULEB128(dbg_info.writer(), value) catch unreachable;
+                leb128.writeUleb128(dbg_info.writer(), value) catch unreachable;
             },
 
             .memory,
@@ -832,9 +832,9 @@ pub const DeclState = struct {
                     if (child_ty.isSignedInt(mod)) DW.OP.consts else DW.OP.constu,
                 });
                 if (child_ty.isSignedInt(mod)) {
-                    try leb128.writeILEB128(dbg_info.writer(), @as(i64, @bitCast(x)));
+                    try leb128.writeIleb128(dbg_info.writer(), @as(i64, @bitCast(x)));
                 } else {
-                    try leb128.writeULEB128(dbg_info.writer(), x);
+                    try leb128.writeUleb128(dbg_info.writer(), x);
                 }
                 try dbg_info.append(DW.OP.stack_value);
                 dbg_info.items[fixup] += @intCast(dbg_info.items.len - fixup - 2);
@@ -847,9 +847,9 @@ pub const DeclState = struct {
                 const abi_size: u32 = @intCast(child_ty.abiSize(mod));
                 var implicit_value_len = std.ArrayList(u8).init(gpa);
                 defer implicit_value_len.deinit();
-                try leb128.writeULEB128(implicit_value_len.writer(), abi_size);
+                try leb128.writeUleb128(implicit_value_len.writer(), abi_size);
                 const total_exprloc_len = 1 + implicit_value_len.items.len + abi_size;
-                try leb128.writeULEB128(dbg_info.writer(), total_exprloc_len);
+                try leb128.writeUleb128(dbg_info.writer(), total_exprloc_len);
                 try dbg_info.ensureUnusedCapacity(total_exprloc_len);
                 dbg_info.appendAssumeCapacity(DW.OP.implicit_value);
                 dbg_info.appendSliceAssumeCapacity(implicit_value_len.items);
@@ -895,7 +895,7 @@ pub const DeclState = struct {
         remaining: {
             assert(delta_line != 0);
             dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-            leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
+            leb128.writeIleb128(dbg_line.writer(), delta_line) catch unreachable;
             break :remaining 0;
         } else delta_line);
 
@@ -904,7 +904,7 @@ pub const DeclState = struct {
         const max_op_advance: u9 = (std.math.maxInt(u8) - header.opcode_base) / header.line_range;
         const remaining_op_advance: u8 = @intCast(if (op_advance >= 2 * max_op_advance) remaining: {
             dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_line.writer(), op_advance) catch unreachable;
+            leb128.writeUleb128(dbg_line.writer(), op_advance) catch unreachable;
             break :remaining 0;
         } else if (op_advance >= max_op_advance) remaining: {
             dbg_line.appendAssumeCapacity(DW.LNS.const_add_pc);
@@ -922,7 +922,7 @@ pub const DeclState = struct {
     pub fn setColumn(self: *DeclState, column: u32) error{OutOfMemory}!void {
         try self.dbg_line.ensureUnusedCapacity(1 + 5);
         self.dbg_line.appendAssumeCapacity(DW.LNS.set_column);
-        leb128.writeULEB128(self.dbg_line.writer(), column + 1) catch unreachable;
+        leb128.writeUleb128(self.dbg_line.writer(), column + 1) catch unreachable;
     }
 
     pub fn setPrologueEnd(self: *DeclState) error{OutOfMemory}!void {
@@ -948,8 +948,8 @@ pub const DeclState = struct {
             leb128.writeUnsignedFixed(4, self.dbg_line.addManyAsArrayAssumeCapacity(4), new_file);
         }
 
-        const old_src_line: i33 = self.mod.declPtr(old_func_info.owner_decl).src_line;
-        const new_src_line: i33 = self.mod.declPtr(new_func_info.owner_decl).src_line;
+        const old_src_line: i33 = self.mod.declPtr(old_func_info.owner_decl).navSrcLine(self.mod);
+        const new_src_line: i33 = self.mod.declPtr(new_func_info.owner_decl).navSrcLine(self.mod);
         if (new_src_line != old_src_line) {
             self.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
             leb128.writeSignedFixed(5, self.dbg_line.addManyAsArrayAssumeCapacity(5), new_src_line - old_src_line);
@@ -1116,11 +1116,11 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             decl_state.dbg_line_func = decl.val.toIntern();
             const func = decl.val.getFunction(mod).?;
             log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-                decl.src_line,
+                decl.navSrcLine(mod),
                 func.lbrace_line,
                 func.rbrace_line,
             });
-            const line: u28 = @intCast(decl.src_line + func.lbrace_line);
+            const line: u28 = @intCast(decl.navSrcLine(mod) + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&.{
                 DW.LNS.extended_op,
@@ -1146,7 +1146,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
 
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_column);
-            leb128.writeULEB128(dbg_line_buffer.writer(), func.lbrace_column + 1) catch unreachable;
+            leb128.writeUleb128(dbg_line_buffer.writer(), func.lbrace_column + 1) catch unreachable;
 
             // Emit a line for the begin curly with prologue_end=false. The codegen will
             // do the work of setting prologue_end=true and epilogue_begin=true.
@@ -1204,7 +1204,7 @@ pub fn commitDeclState(
     const decl = zcu.declPtr(decl_index);
     const ip = &zcu.intern_pool;
     const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.file_scope.mod.resolved_target.result;
+    const target = namespace.fileScope(zcu).mod.resolved_target.result;
     const target_endian = target.cpu.arch.endian();
 
     var dbg_line_buffer = &decl_state.dbg_line;
@@ -1702,11 +1702,11 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: InternPool.D
     const decl = mod.declPtr(decl_index);
     const func = decl.val.getFunction(mod).?;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-        decl.src_line,
+        decl.navSrcLine(mod),
         func.lbrace_line,
         func.rbrace_line,
     });
-    const line: u28 = @intCast(decl.src_line + func.lbrace_line);
+    const line: u28 = @intCast(decl.navSrcLine(mod) + func.lbrace_line);
     var data: [4]u8 = undefined;
     leb128.writeUnsignedFixed(4, &data, line);
 
@@ -2006,7 +2006,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
 
     // Write the form for the compile unit, which must match the abbrev table above.
     const name_strp = try self.strtab.insert(self.allocator, zcu.root_mod.root_src_path);
-    var compile_unit_dir_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var compile_unit_dir_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const compile_unit_dir = resolveCompilationDir(zcu, &compile_unit_dir_buffer);
     const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
     const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
@@ -2058,7 +2058,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
     }
 }
 
-fn resolveCompilationDir(module: *Module, buffer: *[std.fs.MAX_PATH_BYTES]u8) []const u8 {
+fn resolveCompilationDir(module: *Module, buffer: *[std.fs.max_path_bytes]u8) []const u8 {
     // We fully resolve all paths at this point to avoid lack of source line info in stack
     // traces or lack of debugging information which, if relative paths were used, would
     // be very location dependent.
@@ -2804,7 +2804,7 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
         const dir_path = std.fs.path.dirname(full_path) orelse ".";
         const sub_file_path = std.fs.path.basename(full_path);
         // https://github.com/ziglang/zig/issues/19353
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const resolved = if (!std.fs.path.isAbsolute(dir_path))
             std.posix.realpath(dir_path, &buffer) catch dir_path
         else
@@ -2849,7 +2849,7 @@ fn addDbgInfoErrorSetNames(
     try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
     // DW.AT.byte_size, DW.FORM.udata
     const abi_size = Type.anyerror.abiSize(mod);
-    try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
+    try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
     // DW.AT.name, DW.FORM.string
     try ty.print(dbg_info_buffer.writer(), mod);
     try dbg_info_buffer.append(0);
@@ -2964,8 +2964,10 @@ const File = link.File;
 const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
+/// Deprecated.
+const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const StringTable = @import("StringTable.zig");
-const Type = @import("../type.zig").Type;
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");

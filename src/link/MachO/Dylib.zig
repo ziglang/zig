@@ -159,11 +159,11 @@ const TrieIterator = struct {
         return std.io.fixedBufferStream(it.data[it.pos..]);
     }
 
-    fn readULEB128(it: *TrieIterator) !u64 {
+    fn readUleb128(it: *TrieIterator) !u64 {
         var stream = it.getStream();
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
-        const value = try std.leb.readULEB128(u64, reader);
+        const value = try std.leb.readUleb128(u64, reader);
         it.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
         return value;
     }
@@ -207,9 +207,9 @@ fn parseTrieNode(
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const size = try it.readULEB128();
+    const size = try it.readUleb128();
     if (size > 0) {
-        const flags = try it.readULEB128();
+        const flags = try it.readUleb128();
         const kind = flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK;
         const out_flags = Export.Flags{
             .abs = kind == macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE,
@@ -217,15 +217,15 @@ fn parseTrieNode(
             .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
         };
         if (flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT != 0) {
-            _ = try it.readULEB128(); // dylib ordinal
+            _ = try it.readUleb128(); // dylib ordinal
             const name = try it.readString();
             try self.addExport(allocator, if (name.len > 0) name else prefix, out_flags);
         } else if (flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER != 0) {
-            _ = try it.readULEB128(); // stub offset
-            _ = try it.readULEB128(); // resolver offset
+            _ = try it.readUleb128(); // stub offset
+            _ = try it.readUleb128(); // resolver offset
             try self.addExport(allocator, prefix, out_flags);
         } else {
-            _ = try it.readULEB128(); // VM offset
+            _ = try it.readUleb128(); // VM offset
             try self.addExport(allocator, prefix, out_flags);
         }
     }
@@ -234,7 +234,7 @@ fn parseTrieNode(
 
     for (0..nedges) |_| {
         const label = try it.readString();
-        const off = try it.readULEB128();
+        const off = try it.readUleb128();
         const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
         const curr = it.pos;
         it.pos = math.cast(usize, off) orelse return error.Overflow;
@@ -831,7 +831,7 @@ pub const Id = struct {
         var out: u32 = 0;
         var values: [3][]const u8 = undefined;
 
-        var split = mem.split(u8, string, ".");
+        var split = mem.splitScalar(u8, string, '.');
         var count: u4 = 0;
         while (split.next()) |value| {
             if (count > 2) {

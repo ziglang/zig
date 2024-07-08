@@ -610,7 +610,6 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
 test "enum with specified tag values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
     try comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
@@ -684,7 +683,6 @@ test "empty non-exhaustive enum" {
 test "single field non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(u8) { a, _ };
@@ -749,7 +747,6 @@ test "cast integer literal to enum" {
 test "enum with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
     try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
@@ -858,8 +855,6 @@ fn doALoopThing(id: EnumWithOneMember) void {
 }
 
 test "comparison operator on enum with one member is comptime-known" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     doALoopThing(EnumWithOneMember.Eof);
 }
 
@@ -1284,8 +1279,8 @@ test "matching captures causes enum equivalence" {
 }
 
 test "large enum field values" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const E = enum(u64) { min = std.math.minInt(u64), max = std.math.maxInt(u64) };

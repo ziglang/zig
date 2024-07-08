@@ -27,7 +27,7 @@ pub fn main() anyerror!void {
         };
         break :seed try std.fmt.parseUnsigned(u64, seed_arg, 10);
     };
-    var random = std.rand.DefaultPrng.init(seed);
+    var random = std.Random.DefaultPrng.init(seed);
     const rand = random.random();
 
     // If the seed was not given via the CLI, then output the
@@ -87,7 +87,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
 
     const can_have_trailing_empty_args = std.mem.eql(u8, bat, "args3.bat");
 
-    const result = try std.ChildProcess.run(.{
+    const result = try std.process.Child.run(.{
         .allocator = allocator,
         .env_map = env,
         .argv = argv.items,
@@ -109,7 +109,7 @@ fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []co
     }
 }
 
-fn randomArg(allocator: Allocator, rand: std.rand.Random) ![]const u8 {
+fn randomArg(allocator: Allocator, rand: std.Random) ![]const u8 {
     const Choice = enum {
         backslash,
         quote,

@@ -46,6 +46,9 @@ pub const Diagnostics = struct {
             file_name: []const u8,
             file_type: Header.Kind,
         },
+        components_outside_stripped_prefix: struct {
+            file_name: []const u8,
+        },
     };
 
     fn findRoot(d: *Diagnostics, path: []const u8) !void {
@@ -95,6 +98,9 @@ pub const Diagnostics = struct {
                     d.allocator.free(info.file_name);
                 },
                 .unsupported_file_type => |info| {
+                    d.allocator.free(info.file_name);
+                },
+                .components_outside_stripped_prefix => |info| {
                     d.allocator.free(info.file_name);
                 },
             }
@@ -283,9 +289,9 @@ fn nullStr(str: []const u8) []const u8 {
 /// Options for iterator.
 /// Buffers should be provided by the caller.
 pub const IteratorOptions = struct {
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     file_name_buffer: []u8,
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     link_name_buffer: []u8,
     /// Collects error messages during unpacking
     diagnostics: ?*Diagnostics = null,
@@ -613,8 +619,8 @@ fn PaxIterator(comptime ReaderType: type) type {
 
 /// Saves tar file content to the file systems.
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var iter = iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
@@ -623,18 +629,24 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
 
     while (try iter.next()) |file| {
         const file_name = stripComponents(file.name, options.strip_components);
+        if (file_name.len == 0 and file.kind != .directory) {
+            const d = options.diagnostics orelse return error.TarComponentsOutsideStrippedPrefix;
+            try d.errors.append(d.allocator, .{ .components_outside_stripped_prefix = .{
+                .file_name = try d.allocator.dupe(u8, file.name),
+            } });
+            continue;
+        }
         if (options.diagnostics) |d| {
             try d.findRoot(file_name);
         }
 
         switch (file.kind) {
             .directory => {
-                if (file_name.len != 0 and !options.exclude_empty_directories) {
+                if (file_name.len > 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .file => {
-                if (file_name.len == 0) return error.BadFileName;
                 if (createDirAndFile(dir, file_name, fileMode(file.mode, options))) |fs_file| {
                     defer fs_file.close();
                     try file.writeAll(fs_file);
@@ -647,7 +659,6 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 }
             },
             .sym_link => {
-                if (file_name.len == 0) return error.BadFileName;
                 const link_name = file.link_name;
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
@@ -946,8 +957,8 @@ test iterator {
     var fbs = std.io.fixedBufferStream(data);
 
     // User provided buffers to the iterator
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     // Create iterator
     var iter = iterator(fbs.reader(), .{
         .file_name_buffer = &file_name_buffer,
@@ -1094,6 +1105,30 @@ test "findRoot without explicit root dir" {
     try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
 
     try testing.expectEqualStrings("root", diagnostics.root_dir);
+}
+
+test "pipeToFileSystem strip_components" {
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+
+    pipeToFileSystem(tmp.dir, reader, .{
+        .strip_components = 3,
+        .diagnostics = &diagnostics,
+    }) catch |err| {
+        // Skip on platform which don't support symlinks
+        if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+        return err;
+    };
+
+    try testing.expectEqual(2, diagnostics.errors.items.len);
+    try testing.expectEqualStrings("example/b/symlink", diagnostics.errors.items[0].components_outside_stripped_prefix.file_name);
+    try testing.expectEqualStrings("example/a/file", diagnostics.errors.items[1].components_outside_stripped_prefix.file_name);
 }
 
 fn normalizePath(bytes: []u8) []u8 {

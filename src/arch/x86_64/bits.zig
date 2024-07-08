@@ -192,6 +192,7 @@ pub const Register = enum(u7) {
         x87,
         mmx,
         sse,
+        ip,
     };
 
     pub fn class(reg: Register) Class {
@@ -209,6 +210,7 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => .x87,
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .segment,
+            @intFromEnum(Register.rip)  ... @intFromEnum(Register.ip)    => .ip,
 
             else => unreachable,
             // zig fmt: on
@@ -370,13 +372,14 @@ pub const Register = enum(u7) {
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),
             .segment => 50 + @as(u6, reg.enc()),
+            .ip => unreachable,
         };
     }
 };
 
 test "Register id - different classes" {
     try expect(Register.al.id() == Register.ax.id());
-    try expect(Register.ah.id() == Register.spl.id());
+    try expect(Register.ah.id() != Register.spl.id());
     try expect(Register.ax.id() == Register.eax.id());
     try expect(Register.eax.id() == Register.rax.id());
 
@@ -391,6 +394,7 @@ test "Register id - different classes" {
 
 test "Register enc - different classes" {
     try expect(Register.al.enc() == Register.ax.enc());
+    try expect(Register.ah.enc() == Register.spl.enc());
     try expect(Register.ax.enc() == Register.eax.enc());
     try expect(Register.eax.enc() == Register.rax.enc());
     try expect(Register.ymm0.enc() == Register.rax.enc());
