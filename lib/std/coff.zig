@@ -542,7 +542,7 @@ pub const SectionHeader = extern struct {
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
         assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = std.math.log2(new_alignment);
+        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
     }
 
     pub fn isCode(self: SectionHeader) bool {
