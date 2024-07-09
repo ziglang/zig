@@ -1519,15 +1519,15 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
 }
 
 pub fn setsid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.setsid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
 }
 
 pub fn getpid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.getpid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
 }
 
 pub fn gettid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.gettid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.gettid))));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
@@ -2116,7 +2116,7 @@ pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) u
     );
 }
 
-pub fn process_vm_readv(pid: pid_t, local: []iovec, remote: []const iovec_const, flags: usize) usize {
+pub fn process_vm_readv(pid: pid_t, local: []const iovec, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_readv,
         @as(usize, @bitCast(@as(isize, pid))),
