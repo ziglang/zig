@@ -151,6 +151,26 @@ pub fn eql(self: Path, other: Path) bool {
     return self.root_dir.eql(other.root_dir) and std.mem.eql(u8, self.sub_path, other.sub_path);
 }
 
+pub fn subPathOpt(self: Path) ?[]const u8 {
+    return if (self.sub_path.len == 0) null else self.sub_path;
+}
+
+/// Useful to make `Path` a key in `std.ArrayHashMap`.
+pub const TableAdapter = struct {
+    pub const Hash = std.hash.Wyhash;
+
+    pub fn hash(self: TableAdapter, a: Cache.Path) u32 {
+        _ = self;
+        const seed: u32 = @bitCast(a.root_dir.handle.fd);
+        return @truncate(Hash.hash(seed, a.sub_path));
+    }
+    pub fn eql(self: TableAdapter, a: Cache.Path, b: Cache.Path, b_index: usize) bool {
+        _ = self;
+        _ = b_index;
+        return a.eql(b);
+    }
+};
+
 const Path = @This();
 const std = @import("../../std.zig");
 const fs = std.fs;
