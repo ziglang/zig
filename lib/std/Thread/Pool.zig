@@ -254,6 +254,27 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
     pool.cond.signal();
 }
 
+test spawn {
+    const TestFn = struct {
+        fn checkRun(completed: *bool) void {
+            completed.* = true;
+        }
+    };
+
+    var completed: bool = false;
+
+    {
+        var pool: Pool = undefined;
+        try pool.init(.{
+            .allocator = std.testing.allocator,
+        });
+        defer pool.deinit();
+        try pool.spawn(TestFn.checkRun, .{&completed});
+    }
+
+    try std.testing.expectEqual(true, completed);
+}
+
 fn worker(pool: *Pool) void {
     pool.mutex.lock();
     defer pool.mutex.unlock();

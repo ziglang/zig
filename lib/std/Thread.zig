@@ -1465,6 +1465,7 @@ test {
     _ = Semaphore;
     _ = Condition;
     _ = RwLock;
+    _ = Pool;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
