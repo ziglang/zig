@@ -18,6 +18,11 @@ export fn c() void {
     const baz = @as(O, undefined);
     _ = baz;
 }
+export fn d() void {
+    const ptr: *O = @ptrFromInt(0x1000);
+    const x = .{ptr.*};
+    _ = x;
+}
 
 // error
 // backend=stage2
@@ -28,4 +33,6 @@ export fn c() void {
 // :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
 // :1:11: note: opaque declared here
 // :18:24: error: cannot cast to opaque type 'tmp.O'
+// :1:11: note: opaque declared here
+// :23:20: error cannot load opaque type 'tmp.O'
 // :1:11: note: opaque declared here
