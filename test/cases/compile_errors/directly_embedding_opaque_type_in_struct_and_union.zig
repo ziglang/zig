@@ -34,5 +34,5 @@ export fn d() void {
 // :1:11: note: opaque declared here
 // :18:24: error: cannot cast to opaque type 'tmp.O'
 // :1:11: note: opaque declared here
-// :23:20: error cannot load opaque type 'tmp.O'
+// :23:20: error: cannot load opaque type 'tmp.O'
 // :1:11: note: opaque declared here
