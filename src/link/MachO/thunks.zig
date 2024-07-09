@@ -5,55 +5,45 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
     const slice = macho_file.sections.slice();
     const header = &slice.items(.header)[sect_id];
+    const thnks = &slice.items(.thunks)[sect_id];
     const atoms = slice.items(.atoms)[sect_id].items;
     assert(atoms.len > 0);
 
-    for (atoms) |atom_index| {
-        macho_file.getAtom(atom_index).?.value = @bitCast(@as(i64, -1));
+    for (atoms) |ref| {
+        ref.getAtom(macho_file).?.value = @bitCast(@as(i64, -1));
     }
 
     var i: usize = 0;
     while (i < atoms.len) {
         const start = i;
-        const start_atom = macho_file.getAtom(atoms[start]).?;
+        const start_atom = atoms[start].getAtom(macho_file).?;
         assert(start_atom.flags.alive);
-        start_atom.value = try advance(header, start_atom.size, start_atom.alignment);
+        start_atom.value = advance(header, start_atom.size, start_atom.alignment);
         i += 1;
 
         while (i < atoms.len and
             header.size - start_atom.value < max_allowed_distance) : (i += 1)
         {
-            const atom_index = atoms[i];
-            const atom = macho_file.getAtom(atom_index).?;
+            const atom = atoms[i].getAtom(macho_file).?;
             assert(atom.flags.alive);
-            atom.value = try advance(header, atom.size, atom.alignment);
+            atom.value = advance(header, atom.size, atom.alignment);
         }
 
         // Insert a thunk at the group end
         const thunk_index = try macho_file.addThunk();
         const thunk = macho_file.getThunk(thunk_index);
         thunk.out_n_sect = sect_id;
+        try thnks.append(gpa, thunk_index);
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atoms[start..i]) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
-            log.debug("atom({d}) {s}", .{ atom_index, atom.getName(macho_file) });
-            for (atom.getRelocs(macho_file)) |rel| {
-                if (rel.type != .branch) continue;
-                if (isReachable(atom, rel, macho_file)) continue;
-                try thunk.symbols.put(gpa, rel.target, {});
-            }
-            try atom.addExtra(.{ .thunk = thunk_index }, macho_file);
-            atom.flags.thunk = true;
-        }
-
+        try scanRelocs(thunk_index, gpa, atoms[start..i], macho_file);
         thunk.value = try advance(header, thunk.size(), .@"4");
 
         log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(macho_file) });
     }
 }
 
-fn advance(sect: *macho.section_64, size: u64, alignment: Atom.Alignment) !u64 {
+fn advance(sect: *macho.section_64, size: u64, alignment: Atom.Alignment) u64 {
     const offset = alignment.forward(sect.size);
     const padding = offset - sect.size;
     sect.size += padding + size;
@@ -61,14 +51,32 @@ fn advance(sect: *macho.section_64, size: u64, alignment: Atom.Alignment) !u64 {
     return offset;
 }
 
+fn scanRelocs(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const MachO.Ref, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const thunk = macho_file.getThunk(thunk_index);
+
+    for (atoms) |ref| {
+        const atom = ref.getAtom(macho_file).?;
+        log.debug("atom({d}) {s}", .{ atom.atom_index, atom.getName(macho_file) });
+        for (atom.getRelocs(macho_file)) |rel| {
+            if (rel.type != .branch) continue;
+            if (isReachable(atom, rel, macho_file)) continue;
+            try thunk.symbols.put(gpa, rel.getTargetSymbolRef(atom.*, macho_file), {});
+        }
+        atom.addExtra(.{ .thunk = thunk_index }, macho_file);
+    }
+}
+
 fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
-    const target = rel.getTargetSymbol(macho_file);
+    const target = rel.getTargetSymbol(atom.*, macho_file);
     if (target.flags.stubs or target.flags.objc_stubs) return false;
-    if (atom.out_n_sect != target.out_n_sect) return false;
+    if (atom.out_n_sect != target.getOutputSectionIndex(macho_file)) return false;
     const target_atom = target.getAtom(macho_file).?;
     if (target_atom.value == @as(u64, @bitCast(@as(i64, -1)))) return false;
     const saddr = @as(i64, @intCast(atom.getAddress(macho_file))) + @as(i64, @intCast(rel.offset - atom.off));
-    const taddr: i64 = @intCast(rel.getTargetAddress(macho_file));
+    const taddr: i64 = @intCast(rel.getTargetAddress(atom.*, macho_file));
     _ = math.cast(i28, taddr + rel.addend - saddr) orelse return false;
     return true;
 }
@@ -76,7 +84,7 @@ fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
 pub const Thunk = struct {
     value: u64 = 0,
     out_n_sect: u8 = 0,
-    symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
+    symbols: std.AutoArrayHashMapUnmanaged(MachO.Ref, void) = .{},
 
     pub fn deinit(thunk: *Thunk, allocator: Allocator) void {
         thunk.symbols.deinit(allocator);
@@ -96,8 +104,8 @@ pub const Thunk = struct {
     }
 
     pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {
-        for (thunk.symbols.keys(), 0..) |sym_index, i| {
-            const sym = macho_file.getSymbol(sym_index);
+        for (thunk.symbols.keys(), 0..) |ref, i| {
+            const sym = ref.getSymbol(macho_file).?;
             const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
             const taddr = sym.getAddress(.{}, macho_file);
             const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
@@ -144,9 +152,9 @@ pub const Thunk = struct {
         const thunk = ctx.thunk;
         const macho_file = ctx.macho_file;
         try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
-        for (thunk.symbols.keys()) |index| {
-            const sym = macho_file.getSymbol(index);
-            try writer.print("  %{d} : {s} : @{x}\n", .{ index, sym.getName(macho_file), sym.value });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = ref.getSymbol(macho_file).?;
+            try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
         }
     }
 
