@@ -3012,12 +3012,11 @@ const DeclGen = struct {
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                const fqn = try decl.fullyQualifiedName(self.pt);
-                try self.spv.debugName(result_id, fqn.toSlice(ip));
+                try self.spv.debugName(result_id, decl.fqn.toSlice(ip));
 
                 // Temporarily generate a test kernel declaration if this is a test function.
                 if (self.pt.zcu.test_functions.contains(self.decl_index)) {
-                    try self.generateTestEntryPoint(fqn.toSlice(ip), spv_decl_index);
+                    try self.generateTestEntryPoint(decl.fqn.toSlice(ip), spv_decl_index);
                 }
             },
             .global => {
@@ -3041,8 +3040,7 @@ const DeclGen = struct {
                     .storage_class = final_storage_class,
                 });
 
-                const fqn = try decl.fullyQualifiedName(self.pt);
-                try self.spv.debugName(result_id, fqn.toSlice(ip));
+                try self.spv.debugName(result_id, decl.fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
             .invocation_global => {
@@ -3086,8 +3084,7 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    const fqn = try decl.fullyQualifiedName(self.pt);
-                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{fqn.fmt(ip)});
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{decl.fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                         .id_result_type = ptr_ty_id,

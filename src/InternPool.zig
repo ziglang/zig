@@ -7955,6 +7955,7 @@ fn finishFuncInstance(
     const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
     const decl_index = try ip.createDecl(gpa, tid, .{
         .name = undefined,
+        .fqn = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
         .has_tv = true,
         .owns_tv = true,

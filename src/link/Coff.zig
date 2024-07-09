@@ -1176,9 +1176,10 @@ pub fn lowerUnnamedConst(self: *Coff, pt: Zcu.PerThread, val: Value, decl_index:
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
-    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
+    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{
+        decl.fqn.fmt(&mod.intern_pool), index,
+    });
     defer gpa.free(sym_name);
     const ty = val.typeOf(mod);
     const atom_index = switch (try self.lowerConst(pt, sym_name, val, ty.abiAlignment(pt), self.rdata_section_index.?, decl.navSrcLoc(mod))) {
@@ -1427,9 +1428,7 @@ fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
     const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.fullyQualifiedName(pt);
-
-    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateDeclCode {}{*}", .{ decl.fqn.fmt(&mod.intern_pool), decl });
     const required_alignment: u32 = @intCast(decl.getAlignment(pt).toByteUnits() orelse 0);
 
     const decl_metadata = self.decls.get(decl_index).?;
@@ -1441,7 +1440,7 @@ fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
+        try self.setSymbolName(sym, decl.fqn.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
@@ -1449,7 +1448,7 @@ fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growAtom(atom_index, code_len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), sym.value, vaddr });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl.fqn.fmt(&mod.intern_pool), sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
             if (vaddr != sym.value) {
@@ -1465,13 +1464,13 @@ fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclInd
         self.getAtomPtr(atom_index).size = code_len;
     } else {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
+        try self.setSymbolName(sym, decl.fqn.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
         errdefer self.freeAtom(atom_index);
-        log.debug("allocated atom for {} at 0x{x}", .{ decl_name.fmt(&mod.intern_pool), vaddr });
+        log.debug("allocated atom for {} at 0x{x}", .{ decl.fqn.fmt(&mod.intern_pool), vaddr });
         self.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 

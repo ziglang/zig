@@ -346,8 +346,7 @@ fn finishUpdateDecl(
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = try decl.fullyQualifiedName(pt);
-    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(ip));
+    sym.name = try zig_object.string_table.insert(gpa, decl.fqn.toSlice(ip));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
@@ -387,7 +386,7 @@ fn finishUpdateDecl(
             // Will be freed upon freeing of decl or after cleanup of Wasm binary.
             const full_segment_name = try std.mem.concat(gpa, u8, &.{
                 segment_name,
-                full_name.toSlice(ip),
+                decl.fqn.toSlice(ip),
             });
             errdefer gpa.free(full_segment_name);
             sym.tag = .data;
@@ -436,9 +435,8 @@ pub fn getOrCreateAtomForDecl(
         const sym_index = try zig_object.allocateSymbol(gpa);
         gop.value_ptr.* = .{ .atom = try wasm_file.createAtom(sym_index, zig_object.index) };
         const decl = pt.zcu.declPtr(decl_index);
-        const full_name = try decl.fullyQualifiedName(pt);
         const sym = zig_object.symbol(sym_index);
-        sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&pt.zcu.intern_pool));
+        sym.name = try zig_object.string_table.insert(gpa, decl.fqn.toSlice(&pt.zcu.intern_pool));
     }
     return gop.value_ptr.atom;
 }
@@ -494,9 +492,8 @@ pub fn lowerUnnamedConst(
     const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
     const parent_atom = wasm_file.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = try decl.fullyQualifiedName(pt);
     const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{}_{d}", .{
-        fqn.fmt(&mod.intern_pool), local_index,
+        decl.fqn.fmt(&mod.intern_pool), local_index,
     });
     defer gpa.free(name);
 
@@ -1127,9 +1124,7 @@ pub fn updateDeclLineNumber(
 ) !void {
     if (zig_object.dwarf) |*dw| {
         const decl = pt.zcu.declPtr(decl_index);
-        const decl_name = try decl.fullyQualifiedName(pt);
-
-        log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
+        log.debug("updateDeclLineNumber {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
         try dw.updateDeclLineNumber(pt.zcu, decl_index);
     }
 }

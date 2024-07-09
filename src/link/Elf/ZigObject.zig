@@ -907,10 +907,10 @@ fn updateDeclCode(
 ) !void {
     const gpa = elf_file.base.comp.gpa;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateDeclCode {}{*}", .{ decl.fqn.fmt(ip), decl });
 
     const required_alignment = decl.getAlignment(pt).max(
         target_util.minFunctionAlignment(mod.getTarget()),
@@ -923,7 +923,7 @@ fn updateDeclCode(
     sym.output_section_index = shdr_index;
     atom_ptr.output_section_index = shdr_index;
 
-    sym.name_offset = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
+    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
@@ -940,7 +940,7 @@ fn updateDeclCode(
         const need_realloc = code.len > capacity or !required_alignment.check(@intCast(atom_ptr.value));
         if (need_realloc) {
             try atom_ptr.grow(elf_file);
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom_ptr.value });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl.fqn.fmt(ip), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
                 esym.st_value = 0;
@@ -1007,11 +1007,11 @@ fn updateTlv(
     code: []const u8,
 ) !void {
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const gpa = mod.gpa;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateTlv {} ({*})", .{ decl.fqn.fmt(ip), decl });
 
     const required_alignment = decl.getAlignment(pt);
 
@@ -1023,7 +1023,7 @@ fn updateTlv(
     sym.output_section_index = shndx;
     atom_ptr.output_section_index = shndx;
 
-    sym.name_offset = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
+    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_value = 0;
@@ -1286,9 +1286,8 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl.fqn.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
     const ty = val.typeOf(mod);
     const sym_index = switch (try self.lowerConst(
@@ -1473,9 +1472,8 @@ pub fn updateDeclLineNumber(
     defer tracy.end();
 
     const decl = pt.zcu.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
+    log.debug("updateDeclLineNumber {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
 
     if (self.dwarf) |*dw| {
         try dw.updateDeclLineNumber(pt.zcu, decl_index);

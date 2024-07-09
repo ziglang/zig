@@ -933,7 +933,7 @@ fn formatDecl(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    try data.mod.declPtr(data.decl_index).renderFullyQualifiedName(data.mod, writer);
+    try writer.print("{}", .{data.mod.declPtr(data.decl_index).fqn.fmt(&data.mod.intern_pool)});
 }
 fn fmtDecl(func: *Func, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{

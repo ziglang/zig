@@ -7284,8 +7284,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(pt);
-    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{fqn.fmt(ip)});
+    const decl = mod.declPtr(enum_decl_index);
+    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{decl.fqn.fmt(ip)});
 
     // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {

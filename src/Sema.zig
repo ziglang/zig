@@ -2878,7 +2878,7 @@ fn createAnonymousDeclTypeNamed(
     switch (name_strategy) {
         .anon => {}, // handled after switch
         .parent => {
-            try zcu.initNewAnonDecl(new_decl_index, val, block.type_name_ctx);
+            try pt.initNewAnonDecl(new_decl_index, val, block.type_name_ctx, .none);
             return new_decl_index;
         },
         .func => func_strat: {
@@ -2923,7 +2923,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
-            try zcu.initNewAnonDecl(new_decl_index, val, name);
+            try pt.initNewAnonDecl(new_decl_index, val, name, .none);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2937,7 +2937,7 @@ fn createAnonymousDeclTypeNamed(
                     const name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
                         block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try zcu.initNewAnonDecl(new_decl_index, val, name);
+                    try pt.initNewAnonDecl(new_decl_index, val, name, .none);
                     return new_decl_index;
                 },
                 else => {},
@@ -2958,7 +2958,7 @@ fn createAnonymousDeclTypeNamed(
     const name = ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
         block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
     }, .no_embedded_nulls) catch unreachable;
-    try zcu.initNewAnonDecl(new_decl_index, val, name);
+    try pt.initNewAnonDecl(new_decl_index, val, name, .none);
     return new_decl_index;
 }
 
@@ -5527,13 +5527,12 @@ fn failWithBadStructFieldAccess(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const decl = zcu.declPtr(struct_type.decl.unwrap().?);
-    const fqn = try decl.fullyQualifiedName(pt);
 
     const msg = msg: {
         const msg = try sema.errMsg(
             field_src,
             "no field named '{}' in struct '{}'",
-            .{ field_name.fmt(ip), fqn.fmt(ip) },
+            .{ field_name.fmt(ip), decl.fqn.fmt(ip) },
         );
         errdefer msg.destroy(sema.gpa);
         try sema.errNote(struct_ty.srcLoc(zcu), msg, "struct declared here", .{});
@@ -5554,15 +5553,13 @@ fn failWithBadUnionFieldAccess(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
-
     const decl = zcu.declPtr(union_obj.decl);
-    const fqn = try decl.fullyQualifiedName(pt);
 
     const msg = msg: {
         const msg = try sema.errMsg(
             field_src,
             "no field named '{}' in union '{}'",
-            .{ field_name.fmt(ip), fqn.fmt(ip) },
+            .{ field_name.fmt(ip), decl.fqn.fmt(ip) },
         );
         errdefer msg.destroy(gpa);
         try sema.errNote(union_ty.srcLoc(zcu), msg, "union declared here", .{});
@@ -9733,6 +9730,9 @@ fn funcCommon(
             .generic_owner = sema.generic_owner,
             .comptime_args = sema.comptime_args,
         });
+        const func_decl = mod.declPtr(ip.indexToKey(func_index).func.owner_decl);
+        func_decl.fqn =
+            try ip.namespacePtr(func_decl.src_namespace).internFullyQualifiedName(pt, func_decl.name);
         return finishFunc(
             sema,
             block,
@@ -26500,7 +26500,7 @@ fn zirBuiltinExtern(
     const new_decl_index = try pt.allocateNewDecl(sema.owner_decl.src_namespace);
     errdefer pt.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
-    try mod.initNewAnonDecl(
+    try pt.initNewAnonDecl(
         new_decl_index,
         Value.fromInterned(
             if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
@@ -26522,6 +26522,7 @@ fn zirBuiltinExtern(
                 } }),
         ),
         options.name,
+        .none,
     );
     new_decl.owns_tv = true;
     // Note that this will queue the anon decl for codegen, so that the backend can
@@ -36735,24 +36736,23 @@ fn generateUnionTagTypeNumbered(
 
     const new_decl_index = try pt.allocateNewDecl(block.namespace);
     errdefer pt.destroyDecl(new_decl_index);
-    const fqn = try union_owner_decl.fullyQualifiedName(pt);
     const name = try ip.getOrPutStringFmt(
         gpa,
         pt.tid,
         "@typeInfo({}).Union.tag_type.?",
-        .{fqn.fmt(ip)},
+        .{union_owner_decl.fqn.fmt(ip)},
         .no_embedded_nulls,
     );
-    try mod.initNewAnonDecl(
+    try pt.initNewAnonDecl(
         new_decl_index,
         Value.@"unreachable",
         name,
+        name.toOptional(),
     );
     errdefer pt.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    new_decl.name_fully_qualified = true;
 
     const enum_ty = try ip.getGeneratedTagEnumType(gpa, pt.tid, .{
         .decl = new_decl_index,
@@ -36784,22 +36784,21 @@ fn generateUnionTagTypeSimple(
     const gpa = sema.gpa;
 
     const new_decl_index = new_decl_index: {
-        const fqn = try union_owner_decl.fullyQualifiedName(pt);
         const new_decl_index = try pt.allocateNewDecl(block.namespace);
         errdefer pt.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(
             gpa,
             pt.tid,
             "@typeInfo({}).Union.tag_type.?",
-            .{fqn.fmt(ip)},
+            .{union_owner_decl.fqn.fmt(ip)},
             .no_embedded_nulls,
         );
-        try mod.initNewAnonDecl(
+        try pt.initNewAnonDecl(
             new_decl_index,
             Value.@"unreachable",
             name,
+            name.toOptional(),
         );
-        mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
     errdefer pt.abortAnonDecl(new_decl_index);

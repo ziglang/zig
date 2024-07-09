@@ -326,7 +326,10 @@ pub const Reference = struct {
 };
 
 pub const Decl = struct {
+    /// Equal to `fqn` if already fully qualified.
     name: InternPool.NullTerminatedString,
+    /// Fully qualified name.
+    fqn: InternPool.NullTerminatedString,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -384,8 +387,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// If true `name` is already fully qualified.
-    name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
     kind: Kind,
 
@@ -406,25 +407,6 @@ pub const Decl = struct {
         const declaration = zir.instructions.items(.data)[@intFromEnum(zir_index)].declaration;
         const extra = zir.extraData(Zir.Inst.Declaration, declaration.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
-    }
-
-    pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
-        if (decl.name_fully_qualified) {
-            try writer.print("{}", .{decl.name.fmt(&zcu.intern_pool)});
-        } else {
-            try zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedName(zcu, decl.name, writer);
-        }
-    }
-
-    pub fn renderFullyQualifiedDebugName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
-        return zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(zcu, decl.name, writer);
-    }
-
-    pub fn fullyQualifiedName(decl: Decl, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
-        return if (decl.name_fully_qualified)
-            decl.name
-        else
-            pt.zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(pt, decl.name);
     }
 
     pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
@@ -686,7 +668,7 @@ pub const Namespace = struct {
         if (name != .empty) try writer.print("{c}{}", .{ sep, name.fmt(&zcu.intern_pool) });
     }
 
-    pub fn fullyQualifiedName(
+    pub fn internFullyQualifiedName(
         ns: Namespace,
         pt: Zcu.PerThread,
         name: InternPool.NullTerminatedString,
@@ -882,7 +864,7 @@ pub const File = struct {
         };
     }
 
-    pub fn fullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
+    pub fn internFullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
         const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
@@ -3311,22 +3293,6 @@ pub fn getErrorValueFromSlice(
 pub fn errorSetBits(mod: *Module) u16 {
     if (mod.error_limit == 0) return 0;
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
-}
-
-pub fn initNewAnonDecl(
-    mod: *Module,
-    new_decl_index: Decl.Index,
-    val: Value,
-    name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
-    const new_decl = mod.declPtr(new_decl_index);
-
-    new_decl.name = name;
-    new_decl.val = val;
-    new_decl.alignment = .none;
-    new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
-    new_decl.analysis = .complete;
 }
 
 pub fn errNote(

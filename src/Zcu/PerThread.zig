@@ -548,7 +548,7 @@ pub fn ensureDeclAnalyzed(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Zcu.Sem
             };
         }
 
-        const decl_prog_node = mod.sema_prog_node.start((try decl.fullyQualifiedName(pt)).toSlice(ip), 0);
+        const decl_prog_node = mod.sema_prog_node.start(decl.fqn.toSlice(ip), 0);
         defer decl_prog_node.end();
 
         break :blk pt.semaDecl(decl_index) catch |err| switch (err) {
@@ -747,10 +747,9 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
     defer liveness.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
-        const fqn = try decl.fullyQualifiedName(pt);
-        std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
+        std.debug.print("# Begin Function AIR: {}:\n", .{decl.fqn.fmt(ip)});
         @import("../print_air.zig").dump(pt, air, liveness);
-        std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
+        std.debug.print("# End Function AIR: {}\n\n", .{decl.fqn.fmt(ip)});
     }
 
     if (std.debug.runtime_safety) {
@@ -781,7 +780,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         };
     }
 
-    const codegen_prog_node = zcu.codegen_prog_node.start((try decl.fullyQualifiedName(pt)).toSlice(ip), 0);
+    const codegen_prog_node = zcu.codegen_prog_node.start(decl.fqn.toSlice(ip), 0);
     defer codegen_prog_node.end();
 
     if (!air.typesFullyResolved(zcu)) {
@@ -996,8 +995,8 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     zcu.setFileRootDecl(file_index, new_decl_index.toOptional());
     zcu.namespacePtr(new_namespace_index).decl_index = new_decl_index;
 
-    new_decl.name = try file.fullyQualifiedName(pt);
-    new_decl.name_fully_qualified = true;
+    new_decl.fqn = try file.internFullyQualifiedName(pt);
+    new_decl.name = new_decl.fqn;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.alignment = .none;
@@ -1058,10 +1057,8 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
     }
 
     log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
-    log.debug("decl name '{}'", .{(try decl.fullyQualifiedName(pt)).fmt(ip)});
-    defer blk: {
-        log.debug("finish decl name '{}'", .{(decl.fullyQualifiedName(pt) catch break :blk).fmt(ip)});
-    }
+    log.debug("decl name '{}'", .{decl.fqn.fmt(ip)});
+    defer log.debug("finish decl name '{}'", .{decl.fqn.fmt(ip)});
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
@@ -1728,6 +1725,7 @@ const ScanDeclIter = struct {
             const was_exported = decl.is_exported;
             assert(decl.kind == kind); // ZIR tracking should preserve this
             decl.name = decl_name;
+            decl.fqn = try namespace.internFullyQualifiedName(pt, decl_name);
             decl.is_pub = declaration.flags.is_pub;
             decl.is_exported = declaration.flags.is_export;
             break :decl_index .{ was_exported, decl_index };
@@ -1737,6 +1735,7 @@ const ScanDeclIter = struct {
             const new_decl = zcu.declPtr(new_decl_index);
             new_decl.kind = kind;
             new_decl.name = decl_name;
+            new_decl.fqn = try namespace.internFullyQualifiedName(pt, decl_name);
             new_decl.is_pub = declaration.flags.is_pub;
             new_decl.is_exported = declaration.flags.is_export;
             new_decl.zir_decl_index = tracked_inst.toOptional();
@@ -1761,10 +1760,9 @@ const ScanDeclIter = struct {
                 if (!comp.config.is_test) break :a false;
                 if (decl_mod != zcu.main_mod) break :a false;
                 if (is_named_test and comp.test_filters.len > 0) {
-                    const decl_fqn = try namespace.fullyQualifiedName(pt, decl_name);
-                    const decl_fqn_slice = decl_fqn.toSlice(ip);
+                    const decl_fqn = decl.fqn.toSlice(ip);
                     for (comp.test_filters) |test_filter| {
-                        if (std.mem.indexOf(u8, decl_fqn_slice, test_filter)) |_| break;
+                        if (std.mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
                     } else break :a false;
                 }
                 zcu.test_functions.putAssumeCapacity(decl_index, {}); // may clobber on incremental update
@@ -1805,12 +1803,10 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
-    log.debug("func name '{}'", .{(try decl.fullyQualifiedName(pt)).fmt(ip)});
-    defer blk: {
-        log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(pt) catch break :blk).fmt(ip)});
-    }
+    log.debug("func name '{}'", .{decl.fqn.fmt(ip)});
+    defer log.debug("finish func name '{}'", .{decl.fqn.fmt(ip)});
 
-    const decl_prog_node = mod.sema_prog_node.start((try decl.fullyQualifiedName(pt)).toSlice(ip), 0);
+    const decl_prog_node = mod.sema_prog_node.start(decl.fqn.toSlice(ip), 0);
     defer decl_prog_node.end();
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
@@ -2053,6 +2049,7 @@ pub fn allocateNewDecl(pt: Zcu.PerThread, namespace: Zcu.Namespace.Index) !Zcu.D
     const gpa = zcu.gpa;
     const decl_index = try zcu.intern_pool.createDecl(gpa, pt.tid, .{
         .name = undefined,
+        .fqn = undefined,
         .src_namespace = namespace,
         .has_tv = false,
         .owns_tv = false,
@@ -2075,6 +2072,25 @@ pub fn allocateNewDecl(pt: Zcu.PerThread, namespace: Zcu.Namespace.Index) !Zcu.D
     }
 
     return decl_index;
+}
+
+pub fn initNewAnonDecl(
+    pt: Zcu.PerThread,
+    new_decl_index: Zcu.Decl.Index,
+    val: Value,
+    name: InternPool.NullTerminatedString,
+    fqn: InternPool.OptionalNullTerminatedString,
+) Allocator.Error!void {
+    const new_decl = pt.zcu.declPtr(new_decl_index);
+
+    new_decl.name = name;
+    new_decl.fqn = fqn.unwrap() orelse
+        try pt.zcu.namespacePtr(new_decl.src_namespace).internFullyQualifiedName(pt, name);
+    new_decl.val = val;
+    new_decl.alignment = .none;
+    new_decl.@"linksection" = .none;
+    new_decl.has_tv = true;
+    new_decl.analysis = .complete;
 }
 
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file: *Zcu.File) void {
@@ -2260,7 +2276,7 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, zcu.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = zcu.declPtr(test_decl_index);
-            const test_decl_name = try test_decl.fullyQualifiedName(pt);
+            const test_decl_name = test_decl.fqn;
             const test_decl_name_len = test_decl_name.length(ip);
             const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = n: {
                 const test_name_ty = try pt.arrayType(.{
@@ -2366,7 +2382,7 @@ pub fn linkerUpdateDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !void {
 
     const decl = zcu.declPtr(decl_index);
 
-    const codegen_prog_node = zcu.codegen_prog_node.start((try decl.fullyQualifiedName(pt)).toSlice(&zcu.intern_pool), 0);
+    const codegen_prog_node = zcu.codegen_prog_node.start(decl.fqn.toSlice(&zcu.intern_pool), 0);
     defer codegen_prog_node.end();
 
     if (comp.bin_file) |lf| {

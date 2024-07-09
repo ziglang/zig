@@ -1077,7 +1077,7 @@ fn formatDecl(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    try data.zcu.declPtr(data.decl_index).renderFullyQualifiedName(data.zcu, writer);
+    try writer.print("{}", .{data.zcu.declPtr(data.decl_index).fqn.fmt(&data.zcu.intern_pool)});
 }
 fn fmtDecl(self: *Self, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{

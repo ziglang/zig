@@ -268,10 +268,10 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             return;
         },
         .inferred_error_set_type => |func_index| {
-            try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
             const owner_decl = mod.funcOwnerDeclPtr(func_index);
-            try owner_decl.renderFullyQualifiedName(mod, writer);
-            try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
+            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).Fn.return_type.?).ErrorUnion.error_set", .{
+                owner_decl.fqn.fmt(ip),
+            });
         },
         .error_set_type => |error_set_type| {
             const names = error_set_type.names;
@@ -334,7 +334,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.decl.unwrap()) |decl_index| {
                 const decl = mod.declPtr(decl_index);
-                try decl.renderFullyQualifiedName(mod, writer);
+                try writer.print("{}", .{decl.fqn.fmt(ip)});
             } else if (ip.loadStructType(ty.toIntern()).namespace.unwrap()) |namespace_index| {
                 const namespace = mod.namespacePtr(namespace_index);
                 try namespace.renderFullyQualifiedName(mod, .empty, writer);
@@ -367,15 +367,15 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
 
         .union_type => {
             const decl = mod.declPtr(ip.loadUnionType(ty.toIntern()).decl);
-            try decl.renderFullyQualifiedName(mod, writer);
+            try writer.print("{}", .{decl.fqn.fmt(ip)});
         },
         .opaque_type => {
             const decl = mod.declPtr(ip.loadOpaqueType(ty.toIntern()).decl);
-            try decl.renderFullyQualifiedName(mod, writer);
+            try writer.print("{}", .{decl.fqn.fmt(ip)});
         },
         .enum_type => {
             const decl = mod.declPtr(ip.loadEnumType(ty.toIntern()).decl);
-            try decl.renderFullyQualifiedName(mod, writer);
+            try writer.print("{}", .{decl.fqn.fmt(ip)});
         },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {

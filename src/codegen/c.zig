@@ -2194,13 +2194,9 @@ pub const DeclGen = struct {
         }) else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
-            var name: [100]u8 = undefined;
-            var name_stream = std.io.fixedBufferStream(&name);
-            decl.renderFullyQualifiedName(zcu, name_stream.writer()) catch |err| switch (err) {
-                error.NoSpaceLeft => {},
-            };
+            const fqn_slice = decl.fqn.toSlice(ip);
             try writer.print("{}__{d}", .{
-                fmtIdent(name_stream.getWritten()),
+                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
                 @intFromEnum(decl_index),
             });
         }
@@ -2587,11 +2583,9 @@ pub fn genTypeDecl(
                 try writer.writeByte(';');
                 const owner_decl = zcu.declPtr(owner_decl_index);
                 const owner_mod = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu).mod;
-                if (!owner_mod.strip) {
-                    try writer.writeAll(" /* ");
-                    try owner_decl.renderFullyQualifiedName(zcu, writer);
-                    try writer.writeAll(" */");
-                }
+                if (!owner_mod.strip) try writer.print(" /* {} */", .{
+                    owner_decl.fqn.fmt(&zcu.intern_pool),
+                });
                 try writer.writeByte('\n');
             },
         },
@@ -4563,9 +4557,7 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     const owner_decl = zcu.funcOwnerDeclPtr(extra.data.func);
     const writer = f.object.writer();
-    try writer.writeAll("/* inline:");
-    try owner_decl.renderFullyQualifiedName(zcu, writer);
-    try writer.writeAll(" */\n");
+    try writer.print("/* inline:{} */\n", .{owner_decl.fqn.fmt(&zcu.intern_pool)});
     return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
