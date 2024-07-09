@@ -22,16 +22,10 @@ dylibs: std.ArrayListUnmanaged(File.Index) = .{},
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
 sections: std.MultiArrayList(Section) = .{},
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
-globals: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
+resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoHashMapUnmanaged(Symbol.Index, std.ArrayListUnmanaged(Atom.Index)) = .{},
-/// Global symbols we need to resolve for the link to succeed.
-undefined_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+undefs: std.AutoHashMapUnmanaged(Ref, std.ArrayListUnmanaged(Ref)) = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -55,18 +49,7 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
-mh_execute_header_index: ?Symbol.Index = null,
-mh_dylib_header_index: ?Symbol.Index = null,
-dyld_private_index: ?Symbol.Index = null,
-dyld_stub_binder_index: ?Symbol.Index = null,
-dso_handle_index: ?Symbol.Index = null,
-objc_msg_send_index: ?Symbol.Index = null,
-entry_index: ?Symbol.Index = null,
-
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
-
-/// String interning table
-strings: StringTable = .{},
 
 /// Output synthetic sections
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -4196,7 +4179,7 @@ const Section = struct {
 pub const LiteralPool = struct {
     table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
     keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Atom.Index) = .{},
+    values: std.ArrayListUnmanaged(MachO.Ref) = .{},
     data: std.ArrayListUnmanaged(u8) = .{},
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
@@ -4206,16 +4189,20 @@ pub const LiteralPool = struct {
         lp.data.deinit(allocator);
     }
 
-    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
-        assert(index < lp.values.items.len);
-        return macho_file.getAtom(lp.values.items[index]).?;
-    }
-
     const InsertResult = struct {
         found_existing: bool,
         index: Index,
-        atom: *Atom.Index,
+        ref: *MachO.Ref,
     };
+
+    pub fn getSymbolRef(lp: LiteralPool, index: Index) MachO.Ref {
+        assert(index < lp.values.items.len);
+        return lp.values.items[index];
+    }
+
+    pub fn getSymbol(lp: LiteralPool, index: Index, macho_file: *MachO) *Symbol {
+        return lp.getSymbolRef(index).getSymbol(macho_file).?;
+    }
 
     pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
         const size: u32 = @intCast(string.len);
@@ -4278,12 +4265,6 @@ const HotUpdateState = struct {
     mach_task: ?std.c.MachTask = null,
 };
 
-pub const DynamicRelocs = struct {
-    rebase_relocs: u32 = 0,
-    bind_relocs: u32 = 0,
-    weak_bind_relocs: u32 = 0,
-};
-
 pub const SymtabCtx = struct {
     ilocal: u32 = 0,
     istab: u32 = 0,
@@ -4293,6 +4274,7 @@ pub const SymtabCtx = struct {
     nstabs: u32 = 0,
     nexports: u32 = 0,
     nimports: u32 = 0,
+    stroff: u32 = 0,
     strsize: u32 = 0,
 };
 
@@ -4577,6 +4559,131 @@ const UndefinedTreatment = enum {
     warn,
     suppress,
     dynamic_lookup,
+};
+
+/// A reference to atom or symbol in an input file.
+/// If file == 0, symbol is an undefined global.
+pub const Ref = struct {
+    index: u32,
+    file: File.Index,
+
+    pub fn eql(ref: Ref, other: Ref) bool {
+        return ref.index == other.index and ref.file == other.file;
+    }
+
+    pub fn getFile(ref: Ref, macho_file: *MachO) ?File {
+        return macho_file.getFile(ref.file);
+    }
+
+    pub fn getAtom(ref: Ref, macho_file: *MachO) ?*Atom {
+        const file = ref.getFile(macho_file) orelse return null;
+        return file.getAtom(ref.index);
+    }
+
+    pub fn getSymbol(ref: Ref, macho_file: *MachO) ?*Symbol {
+        const file = ref.getFile(macho_file) orelse return null;
+        return switch (file) {
+            inline else => |x| &x.symbols.items[ref.index],
+        };
+    }
+
+    pub fn format(
+        ref: Ref,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("%{d} in file({d})", .{ ref.index, ref.file });
+    }
+};
+
+pub const SymbolResolver = struct {
+    keys: std.ArrayListUnmanaged(Key) = .{},
+    values: std.ArrayListUnmanaged(Ref) = .{},
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+
+    const Result = struct {
+        found_existing: bool,
+        index: Index,
+        ref: *Ref,
+    };
+
+    pub fn deinit(resolver: *SymbolResolver, allocator: Allocator) void {
+        resolver.keys.deinit(allocator);
+        resolver.values.deinit(allocator);
+        resolver.table.deinit(allocator);
+    }
+
+    pub fn getOrPut(
+        resolver: *SymbolResolver,
+        allocator: Allocator,
+        ref: Ref,
+        macho_file: *MachO,
+    ) !Result {
+        const adapter = Adapter{ .keys = resolver.keys.items, .macho_file = macho_file };
+        const key = Key{ .index = ref.index, .file = ref.file };
+        const gop = try resolver.table.getOrPutAdapted(allocator, key, adapter);
+        if (!gop.found_existing) {
+            try resolver.keys.append(allocator, key);
+            _ = try resolver.values.addOne(allocator);
+        }
+        return .{
+            .found_existing = gop.found_existing,
+            .index = @intCast(gop.index + 1),
+            .ref = &resolver.values.items[gop.index],
+        };
+    }
+
+    pub fn get(resolver: SymbolResolver, index: Index) ?Ref {
+        if (index == 0) return null;
+        return resolver.values.items[index - 1];
+    }
+
+    pub fn reset(resolver: *SymbolResolver) void {
+        resolver.keys.clearRetainingCapacity();
+        resolver.values.clearRetainingCapacity();
+        resolver.table.clearRetainingCapacity();
+    }
+
+    const Key = struct {
+        index: Symbol.Index,
+        file: File.Index,
+
+        fn getName(key: Key, macho_file: *MachO) [:0]const u8 {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.getSymbol(macho_file).?.getName(macho_file);
+        }
+
+        fn eql(key: Key, other: Key, macho_file: *MachO) bool {
+            const key_name = key.getName(macho_file);
+            const other_name = other.getName(macho_file);
+            return mem.eql(u8, key_name, other_name);
+        }
+
+        fn hash(key: Key, macho_file: *MachO) u32 {
+            const name = key.getName(macho_file);
+            return @truncate(Hash.hash(0, name));
+        }
+    };
+
+    const Adapter = struct {
+        keys: []const Key,
+        macho_file: *MachO,
+
+        pub fn eql(ctx: @This(), key: Key, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            const other = ctx.keys[b_map_index];
+            return key.eql(other, ctx.macho_file);
+        }
+
+        pub fn hash(ctx: @This(), key: Key) u32 {
+            return key.hash(ctx.macho_file);
+        }
+    };
+
+    pub const Index = u32;
 };
 
 const MachO = @This();

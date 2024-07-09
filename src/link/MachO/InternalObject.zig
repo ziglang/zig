@@ -639,6 +639,12 @@ pub fn asFile(self: *InternalObject) File {
     return .{ .internal = self };
 }
 
+pub fn getAtomRelocs(self: *const InternalObject, atom: Atom, macho_file: *MachO) []const Relocation {
+    const extra = atom.getExtra(macho_file).?;
+    const relocs = self.sections.items(.relocs)[atom.n_sect];
+    return relocs.items[extra.rel_index..][0..extra.rel_count];
+}
+
 fn addAtom(self: *InternalObject, allocator: Allocator) !Atom.Index {
     const atom_index: Atom.Index = @intCast(self.atoms.items.len);
     const atom = try self.atoms.addOne(allocator);
