@@ -119,61 +119,6 @@ pub const Graph = struct {
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
-    /// When `--watch` is provided, collects the set of files that should be
-    /// watched and the state to required to poll the system for changes.
-    watch: ?*Watch,
-};
-
-pub const Watch = struct {
-    table: Table,
-
-    pub const init: Watch = .{
-        .table = .{},
-    };
-
-    /// Key is the directory to watch which contains one or more files we are
-    /// interested in noticing changes to.
-    pub const Table = std.ArrayHashMapUnmanaged(Cache.Path, ReactionSet, TableContext, false);
-
-    const Hash = std.hash.Wyhash;
-
-    pub const TableContext = struct {
-        pub fn hash(self: TableContext, a: Cache.Path) u32 {
-            _ = self;
-            const seed: u32 = @bitCast(a.root_dir.handle.fd);
-            return @truncate(Hash.hash(seed, a.sub_path));
-        }
-        pub fn eql(self: TableContext, a: Cache.Path, b: Cache.Path, b_index: usize) bool {
-            _ = self;
-            _ = b_index;
-            return a.eql(b);
-        }
-    };
-
-    pub const ReactionSet = std.ArrayHashMapUnmanaged(Match, void, Match.Context, false);
-
-    pub const Match = struct {
-        /// Relative to the watched directory, the file path that triggers this
-        /// match.
-        basename: []const u8,
-        /// The step to re-run when file corresponding to `basename` is changed.
-        step: *Step,
-
-        pub const Context = struct {
-            pub fn hash(self: Context, a: Match) u32 {
-                _ = self;
-                var hasher = Hash.init(0);
-                std.hash.autoHash(&hasher, a.step);
-                hasher.update(a.basename);
-                return @truncate(hasher.final());
-            }
-            pub fn eql(self: Context, a: Match, b: Match, b_index: usize) bool {
-                _ = self;
-                _ = b_index;
-                return a.step == b.step and mem.eql(u8, a.basename, b.basename);
-            }
-        };
-    };
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };

@@ -7,6 +7,16 @@ dependencies: std.ArrayList(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
 dependants: std.ArrayListUnmanaged(*Step),
+/// Collects the set of files that retrigger this step to run.
+///
+/// This is used by the build system's implementation of `--watch` but it can
+/// also be potentially useful for IDEs to know what effects editing a
+/// particular file has.
+///
+/// Populated within `make`. Implementation may choose to clear and repopulate,
+/// retain previous value, or update.
+inputs: Inputs,
+
 state: State,
 /// Set this field to declare an upper bound on the amount of bytes of memory it will
 /// take to run the step. Zero means no limit.
@@ -63,6 +73,11 @@ pub const MakeFn = *const fn (step: *Step, prog_node: std.Progress.Node) anyerro
 pub const State = enum {
     precheck_unstarted,
     precheck_started,
+    /// This is also used to indicate "dirty" steps that have been modified
+    /// after a previous build completed, in which case, the step may or may
+    /// not have been completed before. Either way, one or more of its direct
+    /// file system inputs have been modified, meaning that the step needs to
+    /// be re-evaluated.
     precheck_done,
     running,
     dependency_failure,
@@ -134,6 +149,26 @@ pub const Run = @import("Step/Run.zig");
 pub const TranslateC = @import("Step/TranslateC.zig");
 pub const WriteFile = @import("Step/WriteFile.zig");
 
+pub const Inputs = struct {
+    table: Table,
+
+    pub const init: Inputs = .{
+        .table = .{},
+    };
+
+    pub const Table = std.ArrayHashMapUnmanaged(Build.Cache.Path, Files, Build.Cache.Path.TableAdapter, false);
+    pub const Files = std.ArrayListUnmanaged([]const u8);
+
+    pub fn populated(inputs: *Inputs) bool {
+        return inputs.table.count() != 0;
+    }
+
+    pub fn clear(inputs: *Inputs, gpa: Allocator) void {
+        for (inputs.table.values()) |*files| files.deinit(gpa);
+        inputs.table.clearRetainingCapacity();
+    }
+};
+
 pub const StepOptions = struct {
     id: Id,
     name: []const u8,
@@ -153,6 +188,7 @@ pub fn init(options: StepOptions) Step {
         .makeFn = options.makeFn,
         .dependencies = std.ArrayList(*Step).init(arena),
         .dependants = .{},
+        .inputs = Inputs.init,
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
@@ -542,19 +578,19 @@ pub fn allocPrintCmd2(
     return buf.toOwnedSlice(arena);
 }
 
-pub fn cacheHit(s: *Step, man: *std.Build.Cache.Manifest) !bool {
+pub fn cacheHit(s: *Step, man: *Build.Cache.Manifest) !bool {
     s.result_cached = man.hit() catch |err| return failWithCacheError(s, man, err);
     return s.result_cached;
 }
 
-fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyerror) anyerror {
+fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror) anyerror {
     const i = man.failed_file_index orelse return err;
     const pp = man.files.keys()[i].prefixed_path;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }
 
-pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
+pub fn writeManifest(s: *Step, man: *Build.Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
             try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
@@ -568,44 +604,37 @@ fn oom(err: anytype) noreturn {
     }
 }
 
-pub fn addWatchInput(step: *Step, lazy_path: std.Build.LazyPath) void {
+pub fn addWatchInput(step: *Step, lazy_path: Build.LazyPath) void {
     errdefer |err| oom(err);
-    const w = step.owner.graph.watch orelse return;
     switch (lazy_path) {
-        .src_path => |src_path| try addWatchInputFromBuilder(step, w, src_path.owner, src_path.sub_path),
-        .dependency => |d| try addWatchInputFromBuilder(step, w, d.dependency.builder, d.sub_path),
+        .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
+        .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
         .cwd_relative => |path_string| {
-            try addWatchInputFromPath(w, .{
+            try addWatchInputFromPath(step, .{
                 .root_dir = .{
                     .path = null,
                     .handle = std.fs.cwd(),
                 },
                 .sub_path = std.fs.path.dirname(path_string) orelse "",
-            }, .{
-                .step = step,
-                .basename = std.fs.path.basename(path_string),
-            });
+            }, std.fs.path.basename(path_string));
         },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
         .generated => {},
     }
 }
 
-fn addWatchInputFromBuilder(step: *Step, w: *std.Build.Watch, builder: *std.Build, sub_path: []const u8) !void {
-    return addWatchInputFromPath(w, .{
+fn addWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+    return addWatchInputFromPath(step, .{
         .root_dir = builder.build_root,
         .sub_path = std.fs.path.dirname(sub_path) orelse "",
-    }, .{
-        .step = step,
-        .basename = std.fs.path.basename(sub_path),
-    });
+    }, std.fs.path.basename(sub_path));
 }
 
-fn addWatchInputFromPath(w: *std.Build.Watch, path: std.Build.Cache.Path, match: std.Build.Watch.Match) !void {
-    const gpa = match.step.owner.allocator;
-    const gop = try w.table.getOrPut(gpa, path);
+fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const u8) !void {
+    const gpa = step.owner.allocator;
+    const gop = try step.inputs.table.getOrPut(gpa, path);
     if (!gop.found_existing) gop.value_ptr.* = .{};
-    try gop.value_ptr.put(gpa, match, {});
+    try gop.value_ptr.append(gpa, basename);
 }
 
 test {

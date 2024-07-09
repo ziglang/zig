@@ -8,6 +8,7 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
+const Allocator = std.mem.Allocator;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -74,7 +75,6 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
-        .watch = null,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -105,6 +105,7 @@ pub fn main() !void {
     var help_menu = false;
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
+    var watch = false;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-Z")) {
@@ -229,9 +230,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--prominent-compile-errors")) {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
-                const watch = try arena.create(std.Build.Watch);
-                watch.* = std.Build.Watch.init;
-                graph.watch = watch;
+                watch = true;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -297,6 +296,7 @@ pub fn main() !void {
     const main_progress_node = std.Progress.start(.{
         .disable_printing = (color == .off),
     });
+    defer main_progress_node.end();
 
     builder.debug_log_scopes = debug_log_scopes.items;
     builder.resolveInstallPrefix(install_prefix, dir_list);
@@ -345,13 +345,16 @@ pub fn main() !void {
         .max_rss_is_default = false,
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
+        .watch = watch,
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
+        .step_stack = .{},
         .prominent_compile_errors = prominent_compile_errors,
 
         .claimed_rss = 0,
-        .summary = summary orelse if (graph.watch != null) .new else .failures,
+        .summary = summary orelse if (watch) .new else .failures,
         .ttyconf = ttyconf,
         .stderr = stderr,
+        .thread_pool = undefined,
     };
 
     if (run.max_rss == 0) {
@@ -359,30 +362,311 @@ pub fn main() !void {
         run.max_rss_is_default = true;
     }
 
-    runStepNames(
-        arena,
-        builder,
-        targets.items,
-        main_progress_node,
-        thread_pool_options,
-        &run,
-        seed,
-    ) catch |err| switch (err) {
-        error.UncleanExit => {
-            if (graph.watch == null)
-                process.exit(1);
-        },
+    const gpa = arena;
+    prepare(gpa, arena, builder, targets.items, &run, seed) catch |err| switch (err) {
+        error.UncleanExit => process.exit(1),
         else => return err,
     };
+
+    var w = Watch.init;
+    if (watch) {
+        w.fan_fd = try std.posix.fanotify_init(.{
+            .CLASS = .NOTIF,
+            .CLOEXEC = true,
+            .NONBLOCK = true,
+            .REPORT_NAME = true,
+            .REPORT_DIR_FID = true,
+            .REPORT_FID = true,
+            .REPORT_TARGET_FID = true,
+        }, 0);
+    }
+
+    try run.thread_pool.init(thread_pool_options);
+    defer run.thread_pool.deinit();
+
+    rebuild: while (true) {
+        runStepNames(
+            gpa,
+            builder,
+            targets.items,
+            main_progress_node,
+            &run,
+        ) catch |err| switch (err) {
+            error.UncleanExit => {
+                assert(!run.watch);
+                process.exit(1);
+            },
+            else => return err,
+        };
+        if (!watch) return cleanExit();
+
+        // Clear all file handles.
+        for (w.handle_table.keys(), w.handle_table.values()) |lfh, *step_set| {
+            lfh.destroy(gpa);
+            step_set.clearAndFree(gpa);
+        }
+        w.handle_table.clearRetainingCapacity();
+
+        // Add missing marks and note persisted ones.
+        for (run.step_stack.keys()) |step| {
+            for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
+                {
+                    const gop = try w.dir_table.getOrPut(gpa, path);
+                    gop.value_ptr.* = w.generation;
+                    if (!gop.found_existing) {
+                        try std.posix.fanotify_mark(w.fan_fd, .{
+                            .ADD = true,
+                            .ONLYDIR = true,
+                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
+                    }
+                }
+                for (files.items) |basename| {
+                    const file_handle = try Watch.getFileHandle(gpa, path, basename);
+                    std.debug.print("watching file_handle '{}{s}' = {}\n", .{
+                        path, basename, std.fmt.fmtSliceHexLower(file_handle.slice()),
+                    });
+                    const gop = try w.handle_table.getOrPut(gpa, file_handle);
+                    if (!gop.found_existing) gop.value_ptr.* = .{};
+                    try gop.value_ptr.put(gpa, step, {});
+                }
+            }
+        }
+
+        {
+            // Remove marks for files that are no longer inputs.
+            var i: usize = 0;
+            while (i < w.dir_table.entries.len) {
+                const generations = w.dir_table.values();
+                if (generations[i] == w.generation) {
+                    i += 1;
+                    continue;
+                }
+
+                const path = w.dir_table.keys()[i];
+
+                try std.posix.fanotify_mark(w.fan_fd, .{
+                    .REMOVE = true,
+                    .ONLYDIR = true,
+                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
+
+                w.dir_table.swapRemoveAt(i);
+            }
+            w.generation +%= 1;
+        }
+
+        // Wait until a file system notification arrives. Read all such events
+        // until the buffer is empty. Then wait for a debounce interval, resetting
+        // if any more events come in. After the debounce interval has passed,
+        // trigger a rebuild on all steps with modified inputs, as well as their
+        // recursive dependants.
+        const debounce_interval_ms = 10;
+        var poll_fds: [1]std.posix.pollfd = .{
+            .{
+                .fd = w.fan_fd,
+                .events = std.posix.POLL.IN,
+                .revents = undefined,
+            },
+        };
+        var caption_buf: [40]u8 = undefined;
+        const caption = std.fmt.bufPrint(&caption_buf, "Watching {d} Directories", .{
+            w.dir_table.entries.len,
+        }) catch &caption_buf;
+        var debouncing_node = main_progress_node.start(caption, 0);
+        var debouncing = false;
+        while (true) {
+            const timeout: i32 = if (debouncing) debounce_interval_ms else -1;
+            const events_len = try std.posix.poll(&poll_fds, timeout);
+            if (events_len == 0) {
+                debouncing_node.end();
+                continue :rebuild;
+            }
+            if (try markDirtySteps(&w)) {
+                if (!debouncing) {
+                    debouncing = true;
+                    debouncing_node.end();
+                    debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+                }
+            }
+        }
+    }
 }
+
+fn markDirtySteps(w: *Watch) !bool {
+    const fanotify = std.os.linux.fanotify;
+    const M = fanotify.event_metadata;
+    var events_buf: [256 + 4096]u8 = undefined;
+    var any_dirty = false;
+    while (true) {
+        var len = std.posix.read(w.fan_fd, &events_buf) catch |err| switch (err) {
+            error.WouldBlock => return any_dirty,
+            else => |e| return e,
+        };
+        //std.debug.dump_hex(events_buf[0..len]);
+        var meta: [*]align(1) M = @ptrCast(&events_buf);
+        while (len >= @sizeOf(M) and meta[0].event_len >= @sizeOf(M) and meta[0].event_len <= len) : ({
+            len -= meta[0].event_len;
+            meta = @ptrCast(@as([*]u8, @ptrCast(meta)) + meta[0].event_len);
+        }) {
+            assert(meta[0].vers == M.VERSION);
+            std.debug.print("meta = {any}\n", .{meta[0]});
+            const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
+            switch (fid.hdr.info_type) {
+                .DFID_NAME => {
+                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                    const file_name_z: [*:0]u8 = @ptrCast((&file_handle.f_handle).ptr + file_handle.handle_bytes);
+                    const file_name = mem.span(file_name_z);
+                    std.debug.print("DFID_NAME file_handle = {any}, found: '{s}'\n", .{ file_handle.*, file_name });
+                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                    if (w.handle_table.get(lfh)) |step_set| {
+                        for (step_set.keys()) |step| {
+                            std.debug.print("DFID_NAME marking step '{s}' dirty\n", .{step.name});
+                            step.state = .precheck_done;
+                            any_dirty = true;
+                        }
+                    } else {
+                        std.debug.print("DFID_NAME changed file did not match any steps: '{}'\n", .{
+                            std.fmt.fmtSliceHexLower(lfh.slice()),
+                        });
+                    }
+                },
+                .FID => {
+                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                    if (w.handle_table.get(lfh)) |step_set| {
+                        for (step_set.keys()) |step| {
+                            std.debug.print("FID marking step '{s}' dirty\n", .{step.name});
+                            step.state = .precheck_done;
+                            any_dirty = true;
+                        }
+                    } else {
+                        std.debug.print("FID changed file did not match any steps: '{}'\n", .{
+                            std.fmt.fmtSliceHexLower(lfh.slice()),
+                        });
+                    }
+                },
+                .DFID => {
+                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                    if (w.handle_table.get(lfh)) |step_set| {
+                        for (step_set.keys()) |step| {
+                            std.debug.print("DFID marking step '{s}' dirty\n", .{step.name});
+                            step.state = .precheck_done;
+                            any_dirty = true;
+                        }
+                    } else {
+                        std.debug.print("DFID changed file did not match any steps\n", .{});
+                    }
+                },
+                else => |t| {
+                    std.debug.panic("TODO: received event type '{s}'", .{@tagName(t)});
+                },
+            }
+        }
+    }
+}
+
+const Watch = struct {
+    dir_table: DirTable,
+    handle_table: HandleTable,
+    fan_fd: std.posix.fd_t,
+    generation: u8,
+
+    const fan_mask: std.os.linux.fanotify.MarkMask = .{
+        .CLOSE_WRITE = true,
+        .DELETE = true,
+        .MOVED_FROM = true,
+        .MOVED_TO = true,
+        .EVENT_ON_CHILD = true,
+    };
+
+    const init: Watch = .{
+        .dir_table = .{},
+        .handle_table = .{},
+        .fan_fd = -1,
+        .generation = 0,
+    };
+
+    /// Key is the directory to watch which contains one or more files we are
+    /// interested in noticing changes to.
+    ///
+    /// Value is generation.
+    const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, u8, Cache.Path.TableAdapter, false);
+
+    const HandleTable = std.ArrayHashMapUnmanaged(LinuxFileHandle, StepSet, LinuxFileHandle.Adapter, false);
+    const StepSet = std.AutoArrayHashMapUnmanaged(*Step, void);
+
+    const Hash = std.hash.Wyhash;
+    const Cache = std.Build.Cache;
+
+    const LinuxFileHandle = struct {
+        handle: *align(1) std.os.linux.file_handle,
+
+        fn clone(lfh: LinuxFileHandle, gpa: Allocator) Allocator.Error!LinuxFileHandle {
+            const bytes = lfh.slice();
+            const new_ptr = try gpa.alignedAlloc(
+                u8,
+                @alignOf(std.os.linux.file_handle),
+                @sizeOf(std.os.linux.file_handle) + bytes.len,
+            );
+            const new_header: *std.os.linux.file_handle = @ptrCast(new_ptr);
+            new_header.* = lfh.handle.*;
+            const new: LinuxFileHandle = .{ .handle = new_header };
+            @memcpy(new.slice(), lfh.slice());
+            return new;
+        }
+
+        fn destroy(lfh: LinuxFileHandle, gpa: Allocator) void {
+            const ptr: [*]u8 = @ptrCast(lfh.handle);
+            const allocated_slice = ptr[0 .. @sizeOf(std.os.linux.file_handle) + lfh.handle.handle_bytes];
+            return gpa.free(allocated_slice);
+        }
+
+        fn slice(lfh: LinuxFileHandle) []u8 {
+            const ptr: [*]u8 = &lfh.handle.f_handle;
+            return ptr[0..lfh.handle.handle_bytes];
+        }
+
+        const Adapter = struct {
+            pub fn hash(self: Adapter, a: LinuxFileHandle) u32 {
+                _ = self;
+                const unsigned_type: u32 = @bitCast(a.handle.handle_type);
+                return @truncate(Hash.hash(unsigned_type, a.slice()));
+            }
+            pub fn eql(self: Adapter, a: LinuxFileHandle, b: LinuxFileHandle, b_index: usize) bool {
+                _ = self;
+                _ = b_index;
+                return a.handle.handle_type == b.handle.handle_type and mem.eql(u8, a.slice(), b.slice());
+            }
+        };
+    };
+
+    fn getFileHandle(gpa: Allocator, path: std.Build.Cache.Path, basename: []const u8) !LinuxFileHandle {
+        var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
+        var mount_id: i32 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const joined_path = if (path.sub_path.len == 0) basename else path: {
+            break :path std.fmt.bufPrint(&buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{
+                path.sub_path, basename,
+            }) catch return error.NameTooLong;
+        };
+        const stack_ptr: *std.os.linux.file_handle = @ptrCast(&file_handle_buffer);
+        stack_ptr.handle_bytes = file_handle_buffer.len - @sizeOf(std.os.linux.file_handle);
+        try std.posix.name_to_handle_at(path.root_dir.handle.fd, joined_path, stack_ptr, &mount_id, 0);
+        const stack_lfh: LinuxFileHandle = .{ .handle = stack_ptr };
+        return stack_lfh.clone(gpa);
+    }
+};
 
 const Run = struct {
     max_rss: u64,
     max_rss_is_default: bool,
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
+    watch: bool,
     memory_blocked_steps: std.ArrayList(*Step),
+    step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
     prominent_compile_errors: bool,
+    thread_pool: std.Thread.Pool,
 
     claimed_rss: usize,
     summary: Summary,
@@ -390,18 +674,15 @@ const Run = struct {
     stderr: File,
 };
 
-fn runStepNames(
-    arena: std.mem.Allocator,
+fn prepare(
+    gpa: Allocator,
+    arena: Allocator,
     b: *std.Build,
     step_names: []const []const u8,
-    parent_prog_node: std.Progress.Node,
-    thread_pool_options: std.Thread.Pool.Options,
     run: *Run,
     seed: u32,
 ) !void {
-    const gpa = b.allocator;
-    var step_stack: std.AutoArrayHashMapUnmanaged(*Step, void) = .{};
-    defer step_stack.deinit(gpa);
+    const step_stack = &run.step_stack;
 
     if (step_names.len == 0) {
         try step_stack.put(gpa, b.default_step, {});
@@ -424,7 +705,7 @@ fn runStepNames(
     rand.shuffle(*Step, starting_steps);
 
     for (starting_steps) |s| {
-        constructGraphAndCheckForDependencyLoop(b, s, &step_stack, rand) catch |err| switch (err) {
+        constructGraphAndCheckForDependencyLoop(b, s, &run.step_stack, rand) catch |err| switch (err) {
             error.DependencyLoopDetected => return uncleanExit(),
             else => |e| return e,
         };
@@ -453,14 +734,19 @@ fn runStepNames(
             return uncleanExit();
         }
     }
+}
 
-    var thread_pool: std.Thread.Pool = undefined;
-    try thread_pool.init(thread_pool_options);
-    defer thread_pool.deinit();
+fn runStepNames(
+    gpa: Allocator,
+    b: *std.Build,
+    step_names: []const []const u8,
+    parent_prog_node: std.Progress.Node,
+    run: *Run,
+) !void {
+    const step_stack = &run.step_stack;
+    const thread_pool = &run.thread_pool;
 
     {
-        defer parent_prog_node.end();
-
         const step_prog = parent_prog_node.start("steps", step_stack.count());
         defer step_prog.end();
 
@@ -476,7 +762,7 @@ fn runStepNames(
             if (step.state == .skipped_oom) continue;
 
             thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
-                &wait_group, &thread_pool, b, step, step_prog, run,
+                &wait_group, b, step, step_prog, run,
             });
         }
     }
@@ -493,8 +779,6 @@ fn runStepNames(
     var failure_count: usize = 0;
     var pending_count: usize = 0;
     var total_compile_errors: usize = 0;
-    var compile_error_steps: std.ArrayListUnmanaged(*Step) = .{};
-    defer compile_error_steps.deinit(gpa);
 
     for (step_stack.keys()) |s| {
         test_fail_count += s.test_results.fail_count;
@@ -524,7 +808,6 @@ fn runStepNames(
                 const compile_errors_len = s.result_error_bundle.errorMessageCount();
                 if (compile_errors_len > 0) {
                     total_compile_errors += compile_errors_len;
-                    try compile_error_steps.append(gpa, s);
                 }
             },
         }
@@ -537,8 +820,8 @@ fn runStepNames(
         else => false,
     };
     if (failure_count == 0 and failures_only) {
-        if (b.graph.watch != null) return;
-        return cleanExit();
+        if (!run.watch) cleanExit();
+        return;
     }
 
     const ttyconf = run.ttyconf;
@@ -561,10 +844,13 @@ fn runStepNames(
         stderr.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
+        var step_stack_copy = try step_stack.clone(gpa);
+        defer step_stack_copy.deinit(gpa);
+
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack) catch {};
+            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -583,44 +869,34 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack) catch {};
+                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
     }
 
     if (failure_count == 0) {
-        if (b.graph.watch != null) return;
-        return cleanExit();
+        if (!run.watch) cleanExit();
+        return;
     }
 
     // Finally, render compile errors at the bottom of the terminal.
-    // We use a separate compile_error_steps array list because step_stack is destructively
-    // mutated in printTreeStep above.
     if (run.prominent_compile_errors and total_compile_errors > 0) {
-        for (compile_error_steps.items) |s| {
+        for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
                 s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
             }
         }
 
-        if (b.graph.watch != null) return uncleanExit();
-
-        // Signal to parent process that we have printed compile errors. The
-        // parent process may choose to omit the "following command failed"
-        // line in this case.
-        process.exit(2);
+        if (!run.watch) {
+            // Signal to parent process that we have printed compile errors. The
+            // parent process may choose to omit the "following command failed"
+            // line in this case.
+            std.debug.lockStdErr();
+            process.exit(2);
+        }
     }
 
-    return uncleanExit();
-}
-
-fn uncleanExit() error{UncleanExit}!void {
-    if (builtin.mode == .Debug) {
-        return error.UncleanExit;
-    } else {
-        std.debug.lockStdErr();
-        process.exit(1);
-    }
+    if (!run.watch) return uncleanExit();
 }
 
 const PrintNode = struct {
@@ -912,12 +1188,13 @@ fn constructGraphAndCheckForDependencyLoop(
 
 fn workerMakeOneStep(
     wg: *std.Thread.WaitGroup,
-    thread_pool: *std.Thread.Pool,
     b: *std.Build,
     s: *Step,
     prog_node: std.Progress.Node,
     run: *Run,
 ) void {
+    const thread_pool = &run.thread_pool;
+
     // First, check the conditions for running this step. If they are not met,
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
@@ -997,7 +1274,7 @@ fn workerMakeOneStep(
         // Successful completion of a step, so we queue up its dependants as well.
         for (s.dependants.items) |dep| {
             thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                wg, thread_pool, b, dep, prog_node, run,
+                wg, b, dep, prog_node, run,
             });
         }
     }
@@ -1022,7 +1299,7 @@ fn workerMakeOneStep(
                 remaining -= dep.max_rss;
 
                 thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                    wg, thread_pool, b, dep, prog_node, run,
+                    wg, b, dep, prog_node, run,
                 });
             } else {
                 run.memory_blocked_steps.items[i] = dep;
@@ -1242,11 +1519,20 @@ fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
     return args[idx..];
 }
 
+/// Perhaps in the future there could be an Advanced Options flag such as
+/// --debug-build-runner-leaks which would make this function return instead of
+/// calling exit.
 fn cleanExit() void {
-    // Perhaps in the future there could be an Advanced Options flag such as
-    // --debug-build-runner-leaks which would make this function return instead
-    // of calling exit.
+    std.debug.lockStdErr();
     process.exit(0);
+}
+
+/// Perhaps in the future there could be an Advanced Options flag such as
+/// --debug-build-runner-leaks which would make this function return instead of
+/// calling exit.
+fn uncleanExit() error{UncleanExit} {
+    std.debug.lockStdErr();
+    process.exit(1);
 }
 
 const Color = std.zig.Color;
