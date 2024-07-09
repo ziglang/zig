@@ -154,12 +154,12 @@ pub const CC = enum(u8) {
 
 pub const Format = enum { @"32", @"64" };
 
-const PcRange = struct {
+pub const PcRange = struct {
     start: u64,
     end: u64,
 };
 
-const Func = struct {
+pub const Func = struct {
     pc_range: ?PcRange,
     name: ?[]const u8,
 };
@@ -177,30 +177,30 @@ pub const CompileUnit = struct {
     frame_base: ?*const FormValue,
 };
 
-const Abbrev = struct {
+pub const Abbrev = struct {
     code: u64,
     tag_id: u64,
     has_children: bool,
     attrs: []Attr,
 
-    fn deinit(abbrev: *Abbrev, allocator: mem.Allocator) void {
+    pub fn deinit(abbrev: *Abbrev, allocator: mem.Allocator) void {
         allocator.free(abbrev.attrs);
         abbrev.* = undefined;
     }
 
-    const Attr = struct {
+    pub const Attr = struct {
         id: u64,
         form_id: u64,
         /// Only valid if form_id is .implicit_const
         payload: i64,
     };
 
-    const Table = struct {
+    pub const Table = struct {
         // offset from .debug_abbrev
         offset: u64,
         abbrevs: []Abbrev,
 
-        fn deinit(table: *Table, allocator: mem.Allocator) void {
+        pub fn deinit(table: *Table, allocator: mem.Allocator) void {
             for (table.abbrevs) |*abbrev| {
                 abbrev.deinit(allocator);
             }
@@ -208,7 +208,7 @@ const Abbrev = struct {
             table.* = undefined;
         }
 
-        fn get(table: *const Table, abbrev_code: u64) ?*const Abbrev {
+        pub fn get(table: *const Table, abbrev_code: u64) ?*const Abbrev {
             return for (table.abbrevs) |*abbrev| {
                 if (abbrev.code == abbrev_code) break abbrev;
             } else null;
@@ -235,7 +235,7 @@ pub const FormValue = union(enum) {
     loclistx: u64,
     rnglistx: u64,
 
-    fn getString(fv: FormValue, di: DwarfInfo) ![:0]const u8 {
+    pub fn getString(fv: FormValue, di: DwarfInfo) ![:0]const u8 {
         switch (fv) {
             .string => |s| return s,
             .strp => |off| return di.getString(off),
@@ -244,7 +244,7 @@ pub const FormValue = union(enum) {
         }
     }
 
-    fn getUInt(fv: FormValue, comptime U: type) !U {
+    pub fn getUInt(fv: FormValue, comptime U: type) !U {
         return switch (fv) {
             inline .udata,
             .sdata,
@@ -255,29 +255,29 @@ pub const FormValue = union(enum) {
     }
 };
 
-const Die = struct {
+pub const Die = struct {
     tag_id: u64,
     has_children: bool,
     attrs: []Attr,
 
-    const Attr = struct {
+    pub const Attr = struct {
         id: u64,
         value: FormValue,
     };
 
-    fn deinit(self: *Die, allocator: mem.Allocator) void {
+    pub fn deinit(self: *Die, allocator: mem.Allocator) void {
         allocator.free(self.attrs);
         self.* = undefined;
     }
 
-    fn getAttr(self: *const Die, id: u64) ?*const FormValue {
+    pub fn getAttr(self: *const Die, id: u64) ?*const FormValue {
         for (self.attrs) |*attr| {
             if (attr.id == id) return &attr.value;
         }
         return null;
     }
 
-    fn getAttrAddr(
+    pub fn getAttrAddr(
         self: *const Die,
         di: *const DwarfInfo,
         id: u64,
@@ -291,12 +291,12 @@ const Die = struct {
         };
     }
 
-    fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
+    pub fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return form_value.getUInt(u64);
     }
 
-    fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
+    pub fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             .Const => |value| value.asUnsignedLe(),
@@ -304,7 +304,7 @@ const Die = struct {
         };
     }
 
-    fn getAttrRef(self: *const Die, id: u64) !u64 {
+    pub fn getAttrRef(self: *const Die, id: u64) !u64 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             .ref => |value| value,
@@ -347,7 +347,7 @@ const Die = struct {
     }
 };
 
-const FileEntry = struct {
+pub const FileEntry = struct {
     path: []const u8,
     dir_index: u32 = 0,
     mtime: u64 = 0,
@@ -355,7 +355,7 @@ const FileEntry = struct {
     md5: [16]u8 = [1]u8{0} ** 16,
 };
 
-const LineNumberProgram = struct {
+pub const LineNumberProgram = struct {
     address: u64,
     file: usize,
     line: i64,
@@ -470,12 +470,13 @@ const LineNumberProgram = struct {
     }
 };
 
-const UnitHeader = struct {
+pub const UnitHeader = struct {
     format: Format,
     header_length: u4,
     unit_length: u64,
 };
-fn readUnitHeader(fbr: *FixedBufferReader) !UnitHeader {
+
+pub fn readUnitHeader(fbr: *FixedBufferReader) !UnitHeader {
     return switch (try fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
@@ -491,7 +492,7 @@ fn readUnitHeader(fbr: *FixedBufferReader) !UnitHeader {
     };
 }
 
-fn parseFormValue(
+pub fn parseFormValue(
     fbr: *FixedBufferReader,
     form_id: u64,
     format: Format,
@@ -656,7 +657,7 @@ pub const DwarfInfo = struct {
         return null;
     }
 
-    fn scanAllFunctions(di: *DwarfInfo, allocator: mem.Allocator) !void {
+    pub fn scanAllFunctions(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
         var this_unit_offset: u64 = 0;
 
@@ -843,7 +844,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    fn scanAllCompileUnits(di: *DwarfInfo, allocator: mem.Allocator) !void {
+    pub fn scanAllCompileUnits(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
         var this_unit_offset: u64 = 0;
 
@@ -931,7 +932,7 @@ pub const DwarfInfo = struct {
         }
     }
 
-    const DebugRangeIterator = struct {
+    pub const DebugRangeIterator = struct {
         base_address: u64,
         section_type: DwarfSection,
         di: *const DwarfInfo,
@@ -1096,7 +1097,7 @@ pub const DwarfInfo = struct {
 
     /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
     /// seeks in the stream and parses it.
-    fn getAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, abbrev_offset: u64) !*const Abbrev.Table {
+    pub fn getAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, abbrev_offset: u64) !*const Abbrev.Table {
         for (di.abbrev_table_list.items) |*table| {
             if (table.offset == abbrev_offset) {
                 return table;
@@ -1109,7 +1110,7 @@ pub const DwarfInfo = struct {
         return &di.abbrev_table_list.items[di.abbrev_table_list.items.len - 1];
     }
 
-    fn parseAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, offset: u64) !Abbrev.Table {
+    pub fn parseAbbrevTable(di: *DwarfInfo, allocator: mem.Allocator, offset: u64) !Abbrev.Table {
         var fbr: FixedBufferReader = .{
             .buf = di.section(.debug_abbrev).?,
             .pos = math.cast(usize, offset) orelse return badDwarf(),
@@ -1161,7 +1162,7 @@ pub const DwarfInfo = struct {
         };
     }
 
-    fn parseDie(
+    pub fn parseDie(
         fbr: *FixedBufferReader,
         attrs_buf: []Die.Attr,
         abbrev_table: *const Abbrev.Table,
@@ -1450,15 +1451,15 @@ pub const DwarfInfo = struct {
         return missingDwarf();
     }
 
-    fn getString(di: DwarfInfo, offset: u64) ![:0]const u8 {
+    pub fn getString(di: DwarfInfo, offset: u64) ![:0]const u8 {
         return getStringGeneric(di.section(.debug_str), offset);
     }
 
-    fn getLineString(di: DwarfInfo, offset: u64) ![:0]const u8 {
+    pub fn getLineString(di: DwarfInfo, offset: u64) ![:0]const u8 {
         return getStringGeneric(di.section(.debug_line_str), offset);
     }
 
-    fn readDebugAddr(di: DwarfInfo, compile_unit: CompileUnit, index: u64) !u64 {
+    pub fn readDebugAddr(di: DwarfInfo, compile_unit: CompileUnit, index: u64) !u64 {
         const debug_addr = di.section(.debug_addr) orelse return badDwarf();
 
         // addr_base points to the first item after the header, however we
@@ -1771,7 +1772,7 @@ pub const DwarfInfo = struct {
 };
 
 /// Returns the DWARF register number for an x86_64 register number found in compact unwind info
-fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
+pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
     return switch (unwind_reg_number) {
         1 => 3, // RBX
         2 => 12, // R12
@@ -2114,7 +2115,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
     return new_ip;
 }
 
-fn unwindFrameMachODwarf(context: *UnwindContext, eh_frame: []const u8, fde_offset: usize) !usize {
+pub fn unwindFrameMachODwarf(context: *UnwindContext, eh_frame: []const u8, fde_offset: usize) !usize {
     var di = DwarfInfo{
         .endian = native_endian,
         .is_macho = true,
@@ -2179,17 +2180,17 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
 
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
-fn badDwarf() error{InvalidDebugInfo} {
+pub fn badDwarf() error{InvalidDebugInfo} {
     //if (true) @panic("badDwarf"); // can be handy to uncomment when working on this file
     return error.InvalidDebugInfo;
 }
 
-fn missingDwarf() error{MissingDebugInfo} {
+pub fn missingDwarf() error{MissingDebugInfo} {
     //if (true) @panic("missingDwarf"); // can be handy to uncomment when working on this file
     return error.MissingDebugInfo;
 }
 
-fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
+pub fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     const str = opt_str orelse return badDwarf();
     if (offset > str.len) return badDwarf();
     const casted_offset = math.cast(usize, offset) orelse return badDwarf();
@@ -2198,7 +2199,7 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     return str[casted_offset..last :0];
 }
 
-const EhPointerContext = struct {
+pub const EhPointerContext = struct {
     // The address of the pointer field itself
     pc_rel_base: u64,
 
@@ -2213,7 +2214,8 @@ const EhPointerContext = struct {
     text_rel_base: ?u64 = null,
     function_rel_base: ?u64 = null,
 };
-fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
+
+pub fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
     if (enc == EH.PE.omit) return null;
 
     const value: union(enum) {
@@ -2295,7 +2297,7 @@ pub const ExceptionFrameHeader = struct {
         };
     }
 
-    fn isValidPtr(
+    pub fn isValidPtr(
         self: ExceptionFrameHeader,
         ptr: usize,
         isValidMemory: *const fn (address: usize) bool,
@@ -2717,7 +2719,7 @@ pub const FrameDescriptionEntry = struct {
     }
 };
 
-fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
+pub fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
     if (pc_rel_offset < 0) {
         return math.sub(usize, field_ptr, @as(usize, @intCast(-pc_rel_offset)));
     } else {
@@ -2734,12 +2736,12 @@ pub const FixedBufferReader = struct {
 
     pub const Error = error{ EndOfBuffer, Overflow };
 
-    fn seekTo(fbr: *FixedBufferReader, pos: u64) Error!void {
+    pub fn seekTo(fbr: *FixedBufferReader, pos: u64) Error!void {
         if (pos > fbr.buf.len) return error.EndOfBuffer;
         fbr.pos = @intCast(pos);
     }
 
-    fn seekForward(fbr: *FixedBufferReader, amount: u64) Error!void {
+    pub fn seekForward(fbr: *FixedBufferReader, amount: u64) Error!void {
         if (fbr.buf.len - fbr.pos < amount) return error.EndOfBuffer;
         fbr.pos += @intCast(amount);
     }
@@ -2750,39 +2752,39 @@ pub const FixedBufferReader = struct {
         return fbr.buf[fbr.pos];
     }
 
-    fn readByteSigned(fbr: *FixedBufferReader) Error!i8 {
+    pub fn readByteSigned(fbr: *FixedBufferReader) Error!i8 {
         return @bitCast(try fbr.readByte());
     }
 
-    fn readInt(fbr: *FixedBufferReader, comptime T: type) Error!T {
+    pub fn readInt(fbr: *FixedBufferReader, comptime T: type) Error!T {
         const size = @divExact(@typeInfo(T).Int.bits, 8);
         if (fbr.buf.len - fbr.pos < size) return error.EndOfBuffer;
         defer fbr.pos += size;
         return mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
     }
 
-    fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
+    pub fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
         return std.leb.readUleb128(T, fbr);
     }
 
-    fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
+    pub fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
         return std.leb.readIleb128(T, fbr);
     }
 
-    fn readAddress(fbr: *FixedBufferReader, format: Format) Error!u64 {
+    pub fn readAddress(fbr: *FixedBufferReader, format: Format) Error!u64 {
         return switch (format) {
             .@"32" => try fbr.readInt(u32),
             .@"64" => try fbr.readInt(u64),
         };
     }
 
-    fn readBytes(fbr: *FixedBufferReader, len: usize) Error![]const u8 {
+    pub fn readBytes(fbr: *FixedBufferReader, len: usize) Error![]const u8 {
         if (fbr.buf.len - fbr.pos < len) return error.EndOfBuffer;
         defer fbr.pos += len;
         return fbr.buf[fbr.pos..][0..len];
     }
 
-    fn readBytesTo(fbr: *FixedBufferReader, comptime sentinel: u8) Error![:sentinel]const u8 {
+    pub fn readBytesTo(fbr: *FixedBufferReader, comptime sentinel: u8) Error![:sentinel]const u8 {
         const end = @call(.always_inline, mem.indexOfScalarPos, .{
             u8,
             fbr.buf,
