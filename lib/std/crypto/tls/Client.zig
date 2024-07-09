@@ -819,7 +819,7 @@ fn prepareCiphertextRecord(
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    @min(bytes.len - bytes_i, tls.max_ciphertext_inner_record_len),
                     ciphertext_buf.len -|
                         (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));

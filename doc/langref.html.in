@@ -3498,7 +3498,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       As a motivating example, consider the statement {#syntax#}const x: u32 = 42;{#endsyntax#}. The type
       annotation here provides a result type of {#syntax#}u32{#endsyntax#} to the initialization expression
-      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initally of type
+      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initially of type
       {#syntax#}comptime_int{#endsyntax#}) to this type. We will see more examples shortly.
       </p>
       <p>
@@ -6833,7 +6833,7 @@ coding style.
         <li>utils, misc, or somebody's initials</li>
       </ul>
       <p>Everything is a value, all types are data, everything is context, all logic manages state.
-      Nothing is communicated by using a word that applies to all types.</p> 
+      Nothing is communicated by using a word that applies to all types.</p>
       <p>Temptation to use "utilities", "miscellaneous", or somebody's initials
       is a failure to categorize, or more commonly, overcategorization. Such
       declarations can live at the root of a module that needs them with no

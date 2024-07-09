@@ -977,7 +977,7 @@ pub const rsa = struct {
             //      the hash function (2^61 - 1 octets for SHA-1), output
             //      "inconsistent" and stop.
             // All the cryptographic hash functions in the standard library have a limit of >= 2^61 - 1.
-            // Even then, this check is only there for paranoia. In the context of TLS certifcates, emBit cannot exceed 4096.
+            // Even then, this check is only there for paranoia. In the context of TLS certificates, emBit cannot exceed 4096.
             if (emBit >= 1 << 61) return error.InvalidSignature;
 
             // emLen = \ceil(emBits/8)

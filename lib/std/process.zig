@@ -1818,7 +1818,7 @@ pub const CreateEnvironOptions = struct {
     zig_progress_fd: ?i32 = null,
 };
 
-/// Creates a null-deliminated environment variable block in the format
+/// Creates a null-delimited environment variable block in the format
 /// expected by POSIX, from a hash map plus options.
 pub fn createEnvironFromMap(
     arena: Allocator,
@@ -1880,7 +1880,7 @@ pub fn createEnvironFromMap(
     return envp_buf;
 }
 
-/// Creates a null-deliminated environment variable block in the format
+/// Creates a null-delimited environment variable block in the format
 /// expected by POSIX, from a hash map plus options.
 pub fn createEnvironFromExisting(
     arena: Allocator,

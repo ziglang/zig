@@ -581,7 +581,7 @@ pub const SectionHeaderFlags = packed struct {
     /// This is valid for object files only.
     LNK_INFO: u1 = 0,
 
-    _reserverd_2: u1 = 0,
+    _reserved_2: u1 = 0,
 
     /// The section will not become part of the image.
     /// This is valid only for object files.
